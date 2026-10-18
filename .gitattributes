@@ -101,3 +101,9 @@
 /resources/skills/*.json linguist-generated=true text eol=lf
 # Vitest writes snapshots with LF, so checkout bytes must match on every host.
 **/__snapshots__/*.snap text eol=lf
+
+# Keep local custom settings during upstream merges
+orca.yaml merge=ours
+.env merge=ours
+.env.* merge=ours
+*.local merge=ours
