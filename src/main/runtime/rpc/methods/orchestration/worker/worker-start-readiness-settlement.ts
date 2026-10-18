@@ -3,7 +3,6 @@ import type { OrchestrationDb } from '../../../../orchestration/db'
 import type { RunRow, TaskRow } from '../../../../orchestration/types'
 import type { WorkerStartModeReceipt } from '../../orchestration-worker-start-mode'
 import { deliverWorkerDispatchPreamble } from './deliver-worker-dispatch-preamble'
-import { chatAssigneeSessionId } from '../../../../orchestration/chat-assignee'
 import type { OrchestrationWorkerLaunchReceipt } from './worker-launch-preferences'
 import {
   describeUnobservedWorkerTurnStart,
@@ -32,18 +31,14 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
   structuredSession: Awaited<ReturnType<typeof createStructuredWorkerSessionForWorktree>> | null
   terminalHandle: string
   coordinatorHandle: string
+  dispatchCapability: string
   devMode: boolean | undefined
   requestId: string
   agent: string | null
-  /** The agent this start launched into `terminalHandle`; null when the caller supplied it. */
-  launchedAgent: string | null
   setupReceipt: WorkerSetupReceipt
   launchReceipt: OrchestrationWorkerLaunchReceipt
   mode: WorkerStartModeReceipt
-  /** The caller's timeout, as the receipt reports it. */
   timeoutMs: number
-  /** When the caller's timeout runs out; a structured preamble waits on its agent until then. */
-  readinessDeadline: number
   effects: WorkerEffect[]
   terminalRevealWarning: string | undefined
   /** Keeps the caller's failure receipt naming the stage that actually failed. */
@@ -52,21 +47,18 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
   const { runtime, db, run, task, structuredSession, terminalHandle, effects } = args
 
   args.onStage('dispatch_input')
-  const delivery = await deliverWorkerDispatchPreamble({
+  const promptDelivery = await deliverWorkerDispatchPreamble({
     runtime,
-    db,
     structuredSession,
     terminalHandle,
     dispatchId: args.dispatchId,
     dispatchDepth: args.dispatchDepth,
-    runId: run.id,
     taskId: task.id,
     taskSpec: task.spec,
     coordinatorHandle: args.coordinatorHandle,
+    dispatchCapability: args.dispatchCapability,
     devMode: args.devMode,
-    requestId: args.requestId,
-    launchedAgent: args.launchedAgent,
-    readinessTimeoutMs: Math.max(0, args.readinessDeadline - Date.now())
+    requestId: args.requestId
   })
   effects.push({
     kind: 'dispatch_input',
@@ -79,11 +71,11 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
   // The write above was accepted without waiting on provider hooks; now demand the positive
   // evidence the receipt claims is observable. A worker whose turn never starts must not be
   // reported ready — a wedged agent and a working one looked identical before this gate.
-  // A structured preamble send is its own evidence: acknowledged, or still held for its agent.
-  const promptDelivery = delivery.prompt
-  const turnStart: WorkerTurnStartObservation =
-    delivery.structuredTurnStart ??
-    (await observeWorkerTurnStart({ runtime, terminalHandle, prompt: promptDelivery }))
+  // A structured preamble send is acknowledged by the provider or throws, so it is already
+  // positive evidence.
+  const turnStart: WorkerTurnStartObservation = structuredSession
+    ? { verdict: 'observed' }
+    : await observeWorkerTurnStart({ runtime, terminalHandle, prompt: promptDelivery })
   const deliveredPrompt = turnStart.prompt ?? promptDelivery
   monitorWorkerSetup({
     runtime,
@@ -97,7 +89,7 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
   const currentWorker = db.getWorkerDispatch(args.dispatchId)
   const alreadySettled = currentWorker && currentWorker.state !== 'starting'
   if (turnStart.verdict === 'unobserved' && !alreadySettled) {
-    // Honest `unverifiable`: keep lifecycle authority and the terminal — the worker may
+    // Honest `unverifiable`: keep the dispatch capability and the terminal — the worker may
     // still recover and report (worker-report settlement reconnects a start_unknown worker) —
     // but never claim ready for a turn nobody observed.
     effects.push({
@@ -106,7 +98,7 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
       id: terminalHandle,
       state: 'turn_unobserved'
     })
-    const reason = turnStart.reason ?? describeUnobservedWorkerTurnStart(args.agent)
+    const reason = describeUnobservedWorkerTurnStart(args.agent)
     const worker = db.markWorkerStartUnknown(
       args.dispatchId,
       'turn_start_unobserved',
@@ -130,10 +122,7 @@ export async function deliverAndSettleWorkerStartReadiness(args: {
       residualResources: JSON.parse(worker.residual_resources) as unknown[],
       nextCommands: [
         `orca orchestration worker-show --dispatch ${args.dispatchId} --json`,
-        // A structured worker or a chat has no screen to read.
-        ...(structuredSession || chatAssigneeSessionId(terminalHandle)
-          ? []
-          : [`orca terminal read --terminal ${terminalHandle} --screen`]),
+        `orca terminal read --terminal ${terminalHandle} --screen`,
         `orca orchestration worker-abandon --dispatch ${args.dispatchId} --json`
       ],
       ...(args.terminalRevealWarning ? { warning: args.terminalRevealWarning } : {})

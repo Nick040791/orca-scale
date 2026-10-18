@@ -11,7 +11,7 @@ import {
   readAgentJournalTurn,
   readAgentJournalTurnOutcome
 } from '../../shared/agent-session-turn-record'
-import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-store-test-open'
 import {
   createDeferredStructuredAgentSessionEventSink,
   type StructuredAgentSessionEventSink
@@ -26,8 +26,6 @@ import {
 import { createCodexStructuredNotificationRetry } from './codex-structured-notification-retry'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
 import type { CodexSession } from './codex-structured-session-state'
-import { testEventSinkLogging } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 const SESSION_ID = 'session-1'
 const THREAD_ID = 'thread-abc'
@@ -220,12 +218,12 @@ describe('codex turn lifecycle rows', () => {
         workspaceId: 'workspace-1',
         hostId: 'local',
         agent: 'codex',
-        providerHandle: codexProviderHandle(THREAD_ID)
+        providerHandle: { kind: 'codex', threadId: THREAD_ID }
       },
       now: () => 9_000,
-      stateDirectory: join(root, SESSION_ID)
+      journalDir: join(root, SESSION_ID)
     })
-    const deferred = createDeferredStructuredAgentSessionEventSink(testEventSinkLogging())
+    const deferred = createDeferredStructuredAgentSessionEventSink()
     const translator = createCodexJournalTranslator({
       sink: deferred.sink,
       sessionId: SESSION_ID,
@@ -348,7 +346,7 @@ describe('codex turn lifecycle rows', () => {
     const lifecycle = reduced(tap.rows).find((row) => row.key === LIFECYCLE_KEY)
     expect(lifecycle?.body).toMatchObject({
       kind: 'turn',
-      state: 'completed',
+      state: 'interrupted',
       outcome: 'failure',
       requestedAt: 900
     })
@@ -383,17 +381,17 @@ describe('codex turn lifecycle rows', () => {
   })
 
   // `TurnStatus` in the app-server protocol is `completed | interrupted | failed |
-  // inProgress`. Only `interrupted` is a stop; every other end completed the
-  // turn, and `outcome` says how. A status this build cannot place stays unknown
-  // rather than borrowing a verdict.
+  // inProgress`, and every one of those collapses to the same terminal lifecycle
+  // arm. `outcome` is what keeps a Codex failure distinguishable from a stop, and
+  // a status this build cannot place stays unknown rather than borrowing one.
   it.each([
-    ['interrupted', 'interrupted', 'cancellation'],
-    ['failed', 'completed', 'failure'],
-    ['someFutureStatus', 'completed', undefined],
-    ['inProgress', 'completed', undefined]
+    ['interrupted', 'cancellation'],
+    ['failed', 'failure'],
+    ['cancelled', undefined],
+    ['inProgress', undefined]
   ] as const)(
-    'maps a %s turn status to a %s lifecycle with outcome %s',
-    (status, state, outcome) => {
+    'maps a %s turn status to an interrupted lifecycle with outcome %s',
+    (status, outcome) => {
       const tap = recorder()
       const translator = translatorFor(tap)
 
@@ -407,7 +405,7 @@ describe('codex turn lifecycle rows', () => {
           body: {
             kind: 'turn',
             turnId: TURN_ID,
-            state,
+            state: 'interrupted',
             ...(outcome ? { outcome } : {}),
             userItemId: USER_ITEM_ID,
             startedAt: 1_000,
@@ -514,29 +512,14 @@ describe('codex turn lifecycle rows', () => {
             completedAt: 1_700_000_101,
             items: []
           },
-          {
-            id: 'turn-failed',
-            status: 'failed',
-            startedAt: 1_700_000_150,
-            completedAt: 1_700_000_152,
-            durationMs: 2_400,
-            items: []
-          },
-          {
-            id: 'turn-unplaced',
-            status: 'someFutureStatus',
-            startedAt: 1_700_000_170,
-            completedAt: 1_700_000_171,
-            items: []
-          },
           { id: 'turn-open', status: 'inProgress', startedAt: 1_700_000_200, items: [] },
           { id: 'turn-untimed', status: 'completed', items: [] }
         ]
       })
     ).toEqual({ accepted: true })
 
-    // Each record precedes its turn's items, the order the live path writes.
     expect(tap.rows).toEqual([
+      expect.objectContaining({ body: expect.objectContaining({ kind: 'message' }) }),
       {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-done',
         body: {
@@ -550,7 +533,6 @@ describe('codex turn lifecycle rows', () => {
           durationMs: 41_900
         }
       },
-      expect.objectContaining({ body: expect.objectContaining({ kind: 'message' }) }),
       {
         key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-cut',
         body: {
@@ -561,32 +543,6 @@ describe('codex turn lifecycle rows', () => {
           userItemId: 'codex:thread-abc:turn-cut:0',
           startedAt: 1_700_000_100_000,
           completedAt: 1_700_000_101_000
-        }
-      },
-      {
-        // The same shape a live failed completion writes.
-        key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-failed',
-        body: {
-          kind: 'turn',
-          turnId: 'turn-failed',
-          state: 'completed',
-          outcome: 'failure',
-          userItemId: 'codex:thread-abc:turn-failed:0',
-          startedAt: 1_700_000_150_000,
-          completedAt: 1_700_000_152_000,
-          durationMs: 2_400
-        }
-      },
-      {
-        // Ended, but not a status this build can place: no verdict, never a clean finish.
-        key: 'legacy:codex:session-1:turn-lifecycle%3Aturn-unplaced',
-        body: {
-          kind: 'turn',
-          turnId: 'turn-unplaced',
-          state: 'completed',
-          userItemId: 'codex:thread-abc:turn-unplaced:0',
-          startedAt: 1_700_000_170_000,
-          completedAt: 1_700_000_171_000
         }
       }
     ])

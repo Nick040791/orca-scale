@@ -2,10 +2,9 @@ import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { getAutomationHostTargetKey, getAutomationTargetFromHostId } from './automation-host-client'
-import { useAppStore } from '@/store'
 import {
-  getAutomationRunOwnerEnvironmentId,
-  resolveAutomationRunTerminalTarget
+  canOpenAutomationRunOpenTarget,
+  getAutomationRunOpenTabId
 } from './automation-run-open-target'
 import { canRerunAutomationRun, getAutomationRunViewState } from './automation-run-view-state'
 import { getAutomationRunWorkspaceDisplay } from './automation-run-workspace-display'
@@ -48,6 +47,7 @@ export function useAutomationRunPageState({
     rerunRunIdsInFlight,
     selectedExternalKey,
     selectExternalKey,
+    setSelectedExternalRunPage,
     pageView,
     setPageView,
     isDetailOpen,
@@ -71,6 +71,7 @@ export function useAutomationRunPageState({
     }
     setIsDetailOpen(false)
     setSelectedAutomationRunPageId(null)
+    setSelectedExternalRunPage(null)
     setActivePaneTab('overview')
   }, [
     isDetailOpen,
@@ -82,7 +83,8 @@ export function useAutomationRunPageState({
     selectedRow,
     setActivePaneTab,
     setIsDetailOpen,
-    setSelectedAutomationRunPageId
+    setSelectedAutomationRunPageId,
+    setSelectedExternalRunPage
   ])
   useEffect(() => {
     if (!pendingAutomationRunNavigation || isLoading) {
@@ -211,30 +213,25 @@ export function useAutomationRunPageState({
         worktree: selectedAutomationRunPageWorktree
       })
     : null
-  const selectedAutomationRunPageOwnerEnvironmentId = useAppStore((state) =>
-    selectedAutomationRunPageWorktree
-      ? getAutomationRunOwnerEnvironmentId(
-          state,
-          selectedAutomationRunPage?.workspaceId,
-          selectedAutomationRunPageWorktree.hostId
-        )
-      : null
-  )
+  const selectedAutomationRunPageOpenTabId = selectedAutomationRunPage
+    ? getAutomationRunOpenTabId(selectedAutomationRunPage)
+    : null
   const selectedAutomationRunPageViewState = selectedAutomationRunPage
     ? getAutomationRunViewState({
         run: selectedAutomationRunPage,
         workspaceExists: Boolean(selectedAutomationRunPageWorktree),
-        terminalTargetExists:
-          resolveAutomationRunTerminalTarget(
-            selectedAutomationRunPage,
-            {
-              hasTerminalTab: (tabId) => activeTerminalTabIds.has(tabId),
-              terminalLayoutsByTabId,
-              ptyIdsByTabId
-            },
-            selectedAutomationRunPageOwnerEnvironmentId
-          ) !== null,
-        terminalOnPairedServer: selectedAutomationRunPageOwnerEnvironmentId !== null
+        terminalTargetExists: canOpenAutomationRunOpenTarget({
+          run: selectedAutomationRunPage,
+          terminalTabExists: selectedAutomationRunPageOpenTabId
+            ? activeTerminalTabIds.has(selectedAutomationRunPageOpenTabId)
+            : false,
+          currentLayout: selectedAutomationRunPageOpenTabId
+            ? terminalLayoutsByTabId[selectedAutomationRunPageOpenTabId]
+            : null,
+          livePtyIds: selectedAutomationRunPageOpenTabId
+            ? (ptyIdsByTabId[selectedAutomationRunPageOpenTabId] ?? [])
+            : []
+        })
       })
     : null
   const canRerunSelectedAutomationRunPage =

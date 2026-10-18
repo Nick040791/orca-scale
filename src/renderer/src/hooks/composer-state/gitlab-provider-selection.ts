@@ -8,7 +8,6 @@ type GitLabProviderSelectionInput = Pick<
   | 'handleBaseBranchMrSelect'
   | 'isProjectGroupTarget'
   | 'lastAutoNameRef'
-  | 'linkedWorkItem'
   | 'name'
   | 'selectedRepo'
   | 'setBaseBranch'
@@ -25,7 +24,7 @@ type GitLabProviderSelectionInput = Pick<
   | 'setName'
   | 'setPushTarget'
   | 'setStartFromResetHint'
-  | 'smartSourceSelectionRef'
+  | 'settings'
 >
 
 import { useCallback } from 'react'
@@ -35,8 +34,8 @@ import {
   getLinkedItemDisplayName
 } from '@/components/sidebar/folder-workspace-composer-helpers'
 import { shouldApplyWorkspaceSourceAutoName } from '../../../../shared/new-workspace/workspace-source'
-import { runtimeTargetForRepoOwner } from '@/lib/repo-runtime-owner'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
+import { getActiveRuntimeTarget, callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import type { GitPushTarget } from '../../../../shared/worktree/types'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
@@ -49,7 +48,6 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
     handleBaseBranchMrSelect,
     isProjectGroupTarget,
     lastAutoNameRef,
-    linkedWorkItem,
     name,
     selectedRepo,
     setBaseBranch,
@@ -66,13 +64,12 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
     setName,
     setPushTarget,
     setStartFromResetHint,
-    smartSourceSelectionRef
+    settings
   } = input
 
   // Why: GitLab parallel of handleSmartGitHubItemSelect — resolves MR base via worktrees:resolveMrBase (refs/merge-requests/<iid>/head); issues short-circuit.
   const handleSmartGitLabItemSelect = useCallback(
     (item: GitLabWorkItem): void => {
-      smartSourceSelectionRef.current = null
       if (isProjectGroupTarget) {
         const linkedItem = toGitLabLinkedWorkItem(item)
         setLinkedGitLabIssue(item.type === 'issue' ? item.number : null)
@@ -86,8 +83,7 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
           nextName &&
           shouldApplyWorkspaceSourceAutoName({
             currentName: name,
-            lastAutoName: lastAutoNameRef.current,
-            lookupTextIsQuery: !linkedWorkItem
+            lastAutoName: lastAutoNameRef.current
           })
         ) {
           setName(nextName)
@@ -108,13 +104,11 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
         return
       }
       setCompareBaseRef(undefined)
-      const target = runtimeTargetForRepoOwner({ repos: [runRepo] }, runRepo.id)
-      if (!target) {
-        setCompareBaseRef(undefined)
-        return
-      }
-      const startPointSelection = { kind: 'gitlab-mr', repoId: runRepo.id, item } as const
-      smartSourceSelectionRef.current = startPointSelection
+      const itemRepoSettings = getSettingsForRepoRuntimeOwner(
+        { repos: [runRepo], settings },
+        runRepo.id
+      )
+      const target = getActiveRuntimeTarget(itemRepoSettings)
       const resolveMrBase =
         target.kind === 'local'
           ? window.api.worktrees.resolveMrBase({
@@ -145,9 +139,6 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
             )
       void resolveMrBase
         .then((result) => {
-          if (smartSourceSelectionRef.current !== startPointSelection) {
-            return
-          }
           if ('error' in result) {
             // Why: an unsurfaced failure silently falls back to the repo default branch, so clear stale base state and toast — mirrors the GitHub PR path.
             setBaseBranch(undefined)
@@ -160,14 +151,10 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
             result.baseBranch,
             item,
             result.pushTarget,
-            result.compareBaseRef,
-            { sourceAlreadyLinked: true }
+            result.compareBaseRef
           )
         })
         .catch((error: unknown) => {
-          if (smartSourceSelectionRef.current !== startPointSelection) {
-            return
-          }
           setBaseBranch(undefined)
           setCompareBaseRef(undefined)
           setPushTarget(undefined)
@@ -184,8 +171,8 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
       handleBaseBranchMrSelect,
       isProjectGroupTarget,
       name,
-      linkedWorkItem,
       selectedRepo,
+      settings,
       branchAutoNameRef,
       lastAutoNameRef,
       setBaseBranch,
@@ -201,8 +188,7 @@ export function useGitLabProviderSelection(input: GitLabProviderSelectionInput) 
       setLinkedWorkItem,
       setName,
       setPushTarget,
-      setStartFromResetHint,
-      smartSourceSelectionRef
+      setStartFromResetHint
     ]
   )
 

@@ -80,8 +80,6 @@ export default function SidebarAgentsList({
   const {
     markThreadRead,
     markThreadUnread,
-    markThreadsRead,
-    markThreadsUnread,
     selectThread,
     jumpToWorkspace,
     markAllThreadsRead,
@@ -102,14 +100,12 @@ export default function SidebarAgentsList({
         worktreesByRepo: storeData.worktreesByRepo,
         detectedWorktreesByRepo: storeData.detectedWorktreesByRepo,
         folderWorkspaces: storeData.folderWorkspaces,
-        floatingWorkspacePath: storeData.floatingWorkspacePath,
         defaultHostId: storeData.defaultHostId
       }),
     [
       storeData.worktreesByRepo,
       storeData.detectedWorktreesByRepo,
       storeData.folderWorkspaces,
-      storeData.floatingWorkspacePath,
       storeData.defaultHostId
     ]
   )
@@ -162,8 +158,6 @@ export default function SidebarAgentsList({
         onJumpToWorkspace={jumpToWorkspace}
         onMarkThreadRead={markThreadRead}
         onMarkThreadUnread={markThreadUnread}
-        onMarkThreadsRead={markThreadsRead}
-        onMarkThreadsUnread={markThreadsUnread}
         canJumpToWorkspace={canJumpToWorkspace}
         allowMarkUnreadWhenSelected
         showJumpAction={false}

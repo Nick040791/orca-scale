@@ -26,12 +26,7 @@ export type TerminalDocumentViewportRect = {
   top: number
   width: number
   height: number
-  /** The host is `display:none` and the size is the last one it had; a fit waits for it to show. */
-  hidden?: boolean
 }
-
-/** What the host reports: a new box, or the same box back from being hidden. */
-export type TerminalViewportChange = 'resized' | 'shown'
 
 /** The document's runtime error reporter, taking the window error handler's own arguments. */
 export type TerminalDocumentErrorReporter = (
@@ -44,9 +39,6 @@ export type TerminalDocumentErrorReporter = (
 
 /** A frame from the host, as its transport delivers it: JSON text from a bridge, or the object. */
 export type TerminalDocumentHostFrame = string | Record<string, unknown> | undefined
-
-/** How a document starts, as its view mounted. */
-export type TerminalDocumentStart = { textScale: number; shown: boolean }
 
 /**
  * The ten host seams, kept apart from the state because the host sets them once when it builds
@@ -71,16 +63,10 @@ export type TerminalDocumentHostSeams = {
   installHostTransport: (receive: (frame: TerminalDocumentHostFrame) => void) => () => void
   /** `message-bridge`: whether the engine is here, which is what readiness is reported on. */
   hasEngine: () => boolean
-  /**
-   * How the document starts, as its view mounted: the app's text scale, which the terminal built
-   * before ready lays out at, and whether it was shown. Only a shown document builds before ready;
-   * every terminal is a WebGL context, and a page or app holds about sixteen.
-   */
-  start: () => TerminalDocumentStart
   /** Every fit, pan, scroll and overlay bound, and every client point mapped into the grid. */
   viewportRect: () => TerminalDocumentViewportRect
-  /** `fit-scale`: calls back when that box changes size or is shown again, handing back its removal. */
-  observeViewport: (onChange: (change: TerminalViewportChange) => void) => () => void
+  /** `fit-scale`: calls back when that box changes size, handing back its removal. */
+  observeViewport: (onChange: () => void) => () => void
   /**
    * Where this document's elements are: the node its markup was planted in, or null for the page
    * the document is running in.
@@ -134,12 +120,6 @@ declare global {
      * quotes it. The document reaches it through a seam, so a page's mount holds its own instead.
      */
     __engineErrors?: string[]
-    /**
-     * The WebView page writes these ahead of the document script: the text scale its view mounted
-     * at, and whether that view was shown then.
-     */
-    __orcaTerminalTextScale?: unknown
-    __orcaTerminalShown?: unknown
   }
   const Terminal: new (options: Record<string, unknown>) => TerminalDocumentTerminal
 }
@@ -233,14 +213,6 @@ export function windowHasEngine() {
   return window.Terminal !== undefined
 }
 
-export function windowStart(): TerminalDocumentStart {
-  const scale = window.__orcaTerminalTextScale
-  return {
-    textScale: typeof scale === 'number' && scale > 0 ? scale : 1,
-    shown: window.__orcaTerminalShown !== false
-  }
-}
-
 /**
  * The WebView's viewport: there the window is the terminal frame. On the page the window is the
  * whole page, taller than the frame by the header and dock, so the page answers with its host.
@@ -250,11 +222,10 @@ export function windowViewportRect(): TerminalDocumentViewportRect {
 }
 
 /** The WebView's frame changes size exactly when its window does. */
-export function observeWindowViewport(onChange: (change: TerminalViewportChange) => void) {
-  const listener = () => onChange('resized')
-  window.addEventListener('resize', listener)
+export function observeWindowViewport(onChange: () => void) {
+  window.addEventListener('resize', onChange)
   return function () {
-    window.removeEventListener('resize', listener)
+    window.removeEventListener('resize', onChange)
   }
 }
 

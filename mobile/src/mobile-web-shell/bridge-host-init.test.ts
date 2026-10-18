@@ -6,7 +6,11 @@ import {
   BRIDGE_MAX_ROUTE_PATHNAME_CHARS,
   BRIDGE_MAX_SUBSCRIPTIONS
 } from './bridge/bridge-caps'
-import { BRIDGE_FAULT_GRANT, BRIDGE_RPC_ENVELOPE_GRANT } from './bridge/bridge-envelope'
+import { BRIDGE_FAULT_GRANT } from './bridge/bridge-envelope'
+import { BRIDGE_PAGE_CLIENT_IDENTITY_ACCEPT } from './bridge/bridge-page-client-identity'
+import { BRIDGE_BACK_CLAIM_NOTIFY } from './bridge/bridge-page-back'
+import { BRIDGE_PAGE_PAINTED } from './bridge/bridge-page-painted'
+import { BRIDGE_ROUTE_PARAM_CLEAR } from './bridge/bridge-route-update'
 import { routeViewOf } from './page-route-policy'
 
 describe('init and state', () => {
@@ -25,6 +29,13 @@ describe('init and state', () => {
       type: 'init',
       sessionId: 'session-a',
       buildId: 'build-a',
+      // What this shell takes from the page, which is the page's own check before it posts one.
+      accepts: [
+        BRIDGE_ROUTE_PARAM_CLEAR,
+        BRIDGE_PAGE_CLIENT_IDENTITY_ACCEPT,
+        BRIDGE_PAGE_PAINTED,
+        BRIDGE_BACK_CLAIM_NOTIFY
+      ],
       connection: {
         state: 'reconnecting',
         reconnectAttempt: 3,
@@ -40,7 +51,6 @@ describe('init and state', () => {
         // What the shell will do for the page, and what makes its `navigate` frame acceptable.
         native: [
           BRIDGE_FAULT_GRANT,
-          BRIDGE_RPC_ENVELOPE_GRANT,
           'navigate',
           'storage',
           'externalLink',
@@ -54,8 +64,7 @@ describe('init and state', () => {
           'native.media.release',
           'native.audio.start',
           'native.audio.read',
-          'native.audio.stop',
-          'native.storage.read'
+          'native.audio.stop'
         ]
       },
       route: ROUTE,
@@ -145,11 +154,7 @@ describe('init and state', () => {
     if (init.type !== 'init') {
       throw new Error('expected an init frame')
     }
-    expect(init.grants.native).toEqual([
-      BRIDGE_FAULT_GRANT,
-      BRIDGE_RPC_ENVELOPE_GRANT,
-      ...view.routeGrants
-    ])
+    expect(init.grants.native).toEqual([BRIDGE_FAULT_GRANT, ...view.routeGrants])
     const pair = (init.pageRouteGrants ?? []).find((entry) => entry.pathname === '/h/[hostId]')
     expect(pair?.grants).toEqual(view.routeGrants)
     // The optional name is in both, so the case is the lane and not two equal required lists.
@@ -260,7 +265,7 @@ describe('init and state', () => {
       route: { pathname: '/h/host-a/session/wt-1' },
       post: () => (view.gone ? Promise.reject(new Error('the view is gone')) : Promise.resolve())
     })
-    // The second `init` the tap sends is refused with the view, so only the held route is left.
+    // A page that declares nothing is never sent a second `init`, so the tap can only be held.
     bridge.host.receive(clientFrame({ type: 'ready' }))
     bridge.host.publishRoute({
       pathname: '/h/host-a/session/wt-1',
@@ -269,7 +274,7 @@ describe('init and state', () => {
     for (let turn = 0; turn < 4; turn += 1) {
       await Promise.resolve()
     }
-    expect(bridge.posted).toHaveLength(2)
+    expect(bridge.posted).toHaveLength(1)
     // The next document over the same host: a reload, or the view coming back.
     view.gone = false
     bridge.host.receive(clientFrame({ type: 'ready' }))
@@ -360,16 +365,16 @@ describe('init and state', () => {
   })
 
   it('refuses a storage write for a key the page was never told about', () => {
-    // The whole app's preferences share one namespace, paired hosts included, so the allowlist is
-    // what stands between a page and state the native app owns.
+    // The whole app's preferences share one namespace, the hybrid shell flag included, so the
+    // allowlist is what stands between a page and a feature it could turn on for itself.
     const bridge = harness()
     bridge.host.receive(clientFrame({ type: 'ready' }))
-    for (const key of ['orca:pins:', 'orca:hosts']) {
+    for (const key of ['orca:mobileWebShellEnabled', 'orca:pins:', 'orca:hosts']) {
       bridge.host.receive(clientFrame({ type: 'notify', name: 'storage', key, value: 'x' }))
     }
     expect(bridge.storageWrites).toEqual([])
     expect(bridge.diagnostics).toEqual(
-      Array.from({ length: 2 }, () => ({ kind: 'refused', refusal: 'unrecognised-message' }))
+      Array.from({ length: 3 }, () => ({ kind: 'refused', refusal: 'unrecognised-message' }))
     )
   })
 

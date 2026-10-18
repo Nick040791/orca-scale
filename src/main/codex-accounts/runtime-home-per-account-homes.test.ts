@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSettings } from './runtime-home-settings-test-fixtures'
@@ -22,7 +21,6 @@ vi.mock('electron', () => ({
     getPath: () => testState.userDataDir
   }
 }))
-beforeEach(() => installFakeAppEnvironment({ getPath: () => testState.userDataDir }))
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
@@ -51,7 +49,7 @@ describe('CodexRuntimeHomeService', () => {
     )
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -73,7 +71,7 @@ describe('CodexRuntimeHomeService', () => {
     const service = new CodexRuntimeHomeService(store as never)
 
     // A host managed account's own home is its CODEX_HOME.
-    expect(service.isHostSystemDefaultRealHomeSelected()).toBe(false)
+    expect(service.isHostSystemDefaultRealHome()).toBe(false)
     expect(service.isHostSystemDefaultSessionMigrationEligible()).toBe(false)
     expect(service.prepareForCodexLaunch()).toBe(managedHomePath)
     expect(
@@ -98,7 +96,7 @@ describe('CodexRuntimeHomeService', () => {
       const home1 = createManagedAuth(testState.userDataDir, 'account-1', account1Auth)
       const home2 = createManagedAuth(testState.userDataDir, 'account-2', account2Auth)
       const settings = createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -171,7 +169,7 @@ describe('CodexRuntimeHomeService', () => {
     )
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -205,7 +203,7 @@ describe('CodexRuntimeHomeService', () => {
     const home1 = createManagedAuth(testState.userDataDir, 'account-1', '{"account":"managed"}\n')
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -236,7 +234,7 @@ describe('CodexRuntimeHomeService', () => {
     mkdirSync(brokenHome, { recursive: true })
     writeFileSync(join(brokenHome, '.orca-managed-home'), 'account-1\n', 'utf-8')
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',
@@ -282,7 +280,7 @@ describe('CodexRuntimeHomeService', () => {
     )
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -340,7 +338,7 @@ describe('CodexRuntimeHomeService', () => {
   })
 
   it('surfaces per-account rollouts for session discovery on the mirror lane', async () => {
-    // A custom CODEX_HOME keeps the system default on Orca's mirror, but managed
+    // A Windows host keeps the shared system-default mirror, but its managed
     // accounts still launch from their own homes and accumulate rollouts there.
     const home1 = createManagedAuth(
       testState.userDataDir,
@@ -352,7 +350,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(join(rolloutDir, 'rollout-e-era.jsonl'), '{"record":"e-era"}\n', 'utf-8')
     const store = createStore(
       createSettings({
-        realHomeRoutable: false,
+        shellStartupEnvProbeSupported: false,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -390,7 +388,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(getSystemCodexAuthPath(), systemAuth, 'utf-8')
     const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', managedAuth)
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',
@@ -413,7 +411,7 @@ describe('CodexRuntimeHomeService', () => {
 
     // Launching the account from its own home never populates the
     // legacy shared mirror.
-    expect(service.isHostSystemDefaultRealHomeSelected()).toBe(false)
+    expect(service.isHostSystemDefaultRealHome()).toBe(false)
     expect(service.prepareForCodexLaunch()).toBe(managedHomePath)
 
     // A stale pre-E process writes matching, newer bytes to the shared mirror.
@@ -423,7 +421,7 @@ describe('CodexRuntimeHomeService', () => {
     // syncForCurrentSelection), then Codex launches on the real home.
     settings.activeCodexManagedAccountId = null
     settings.activeCodexManagedAccountIdsByRuntime = { host: null, wsl: {} }
-    expect(service.isHostSystemDefaultRealHomeSelected()).toBe(true)
+    expect(service.isHostSystemDefaultRealHome()).toBe(true)
     expect(service.prepareForCodexLaunch()).toBeNull()
 
     // E owns refreshes in place, so takeover ignores later shared-mirror bytes.
@@ -444,7 +442,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(getSystemCodexAuthPath(), systemAuth, 'utf-8')
     const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', managedAuth)
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',

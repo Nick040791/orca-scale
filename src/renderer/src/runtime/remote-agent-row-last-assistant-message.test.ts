@@ -30,8 +30,10 @@ import {
   registerRendererOwnedAgentStatusPane,
   resetRendererOwnedAgentStatusPanesForTests
 } from '../components/terminal-pane/renderer-owned-agent-status-registry'
-import { applyFreshWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
-import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
+import {
+  applyFreshWebSessionTabsSnapshot,
+  resetWebSessionTabsSnapshotFreshnessForTests
+} from './web-session-tabs-sync'
 import { buildWorktreeAgentRows } from '../components/sidebar/worktree-agent-rows'
 import {
   selectLiveAgentStatusEntriesForWorktree,

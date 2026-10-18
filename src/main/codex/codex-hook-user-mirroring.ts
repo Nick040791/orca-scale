@@ -9,12 +9,12 @@ import {
   escapeTomlString,
   getCodexExplicitHomeHookSourcePath,
   parseTrustKey,
-  writeLoadableHookTrustConfig,
-  type CodexEventLabel,
+  writeConfigAtomically,
   type CodexTrustEntry
 } from './config-toml-trust'
 import { createCodexHookTrustEntry, getCodexHookTrustSignature } from './codex-hook-identity'
 import {
+  CODEX_MANAGED_EVENT_LABELS,
   CODEX_PLUGIN_ONLY_HOOK_PLACEHOLDERS,
   getConfigPath,
   getSystemConfigPath
@@ -144,13 +144,11 @@ function collectMirroredRuntimeUserHookTrustEntries(
   return entries
 }
 
-/** Shifts mirrored user approvals one group down in each event Orca's entry leads. */
 export function moveMirroredRuntimeUserTrustAfterManagedStatusHook(
-  entries: readonly MirroredRuntimeUserHookTrustEntry[],
-  statusHookLabels: ReadonlySet<CodexEventLabel>
+  entries: readonly MirroredRuntimeUserHookTrustEntry[]
 ): MirroredRuntimeUserHookTrustEntry[] {
   return entries.map(({ entry, enabled }) => {
-    if (!statusHookLabels.has(entry.eventLabel)) {
+    if (!CODEX_MANAGED_EVENT_LABELS.has(entry.eventLabel)) {
       return { entry, enabled }
     }
     return {
@@ -204,7 +202,7 @@ export function applyMirroredRuntimeUserHookTrustStates(
     updated = updated.replace(pattern, `$1${enabled}`)
   }
   if (updated !== existing) {
-    writeLoadableHookTrustConfig(tomlPath, existing, updated)
+    writeConfigAtomically(tomlPath, updated)
   }
 }
 

@@ -1,10 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createProcessTableSnapshotReader } from '../../shared/process-table-snapshot-reader'
-import { ORCAD_WINDOWS_PROCESS_TREE_FILENAME } from '../../shared/orcad-artifacts'
 import { reportWindowsCommandLineRecoveryHealth } from './windows-command-line-recovery-health'
 import { readWindowsProcessRowsWithCim } from './windows-process-table-cim-scan'
-import { WindowsProcessTableTimeoutError } from './windows-process-table-timeout-error'
 
 /**
  * The only place Orca reads the Windows process table.
@@ -133,8 +131,8 @@ type WindowsProcessTreeAddon = {
  */
 const PROCESS_DATA_FLAG = { None: 0, Memory: 1, CommandLine: 2, CreationTime: 4 } as const
 
-/** Staged beside the orcad bundle by orcad-windows-process-tree.mjs. */
-const RELAY_ADDON_FILENAME = `./${ORCAD_WINDOWS_PROCESS_TREE_FILENAME}`
+/** Staged beside the relay bundle by build-relay; see RELAY_ARTIFACTS. */
+const RELAY_ADDON_FILENAME = './windows-process-tree.node'
 
 /** The import whose absence tells the patched binary from the published prebuilt. */
 const FLAGGED_ADDON_IMPORT = 'ReadProcessMemory'
@@ -198,7 +196,7 @@ function adaptAddon(addon: WindowsProcessTreeAddon): WindowsProcessTreeModule {
  *
  * Two sources, because two very different deployments need it. The desktop app
  * installs the npm package. A relay host has no node_modules of ours at all, so
- * the bundle build stages the bare addon next to the bundle and we bind to that.
+ * build-relay stages the bare addon next to the bundle and we bind to that.
  *
  * Why tolerate absence: it stays optional and Windows-only, so a macOS/Linux
  * install legitimately has no binary, and a relay built before this artifact
@@ -395,9 +393,7 @@ function readOneSnapshot<Row>(projection: ProcessRowProjection<Row>): Promise<Ro
   }
   if (unreturnedReads.size > 0) {
     return Promise.reject(
-      new WindowsProcessTableTimeoutError(
-        'windows process table is wedged: an earlier read has not returned'
-      )
+      new Error('windows process table is wedged: an earlier read has not returned')
     )
   }
   const readId = ++readSequence
@@ -414,7 +410,7 @@ function readOneSnapshot<Row>(projection: ProcessRowProjection<Row>): Promise<Ro
         if (readerEpoch === nativeReaderEpoch) {
           unreturnedReads.add(readId)
         }
-        reject(new WindowsProcessTableTimeoutError('windows process table timed out'))
+        reject(new Error('windows process table timed out'))
       }, WINDOWS_PROCESS_QUERY_TIMEOUT_MS)
       deadline.unref?.()
       native.getAllProcesses((processes) => {
@@ -537,8 +533,9 @@ export function isWindowsProcessTableAvailable(): boolean {
  * `build/Release/` path, so a host can hold a patched `lib/index.js` — enum and
  * all — over a binary that ignores flag 4. CI produced exactly that: the enum
  * said available, and every row came back without `creationTimeMs`. Answering
- * true there is worse than answering false: the owner probe would scan the
- * whole table for nulls, and the published status would claim start times.
+ * true there is worse than answering false: the descendant snapshot then
+ * returns null forever and the exit proof latches `unverifiable`, while
+ * structured chat believes it has a reaper.
  */
 export function isWindowsProcessStartTimeAvailable(): boolean {
   const native = moduleLoader()

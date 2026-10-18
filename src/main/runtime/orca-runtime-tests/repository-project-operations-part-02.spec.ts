@@ -1,4 +1,3 @@
-import { realpath } from 'node:fs/promises'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_REPO_BADGE_COLOR,
@@ -27,7 +26,6 @@ import {
   createRuntime,
   store
 } from '../orca-runtime-test-fixtures.spec'
-import { normalizeRuntimePathSeparators } from '../../../shared/cross-platform-path'
 
 describe('OrcaRuntimeService', () => {
   it('adopts public clone repos into host-qualified project setup', async () => {
@@ -351,24 +349,16 @@ describe('OrcaRuntimeService', () => {
   })
 
   it('preserves existing badgeColor on runtime cloneRepo folder->git dedupe upgrade', async () => {
-    const destination = await mkdtemp(
-      join(await realpath(tmpdir()), 'orca-runtime-folder-upgrade-')
-    )
-    const clonePath = join(destination, 'repo-badge-color')
     const spawnSpy = vi.spyOn(gitRunner, 'gitSpawnAfterWindowsEnvironmentReady')
     spawnSpy.mockImplementation(() => {
       const proc = new EventEmitter() as EventEmitter & { stderr: EventEmitter }
       proc.stderr = new EventEmitter()
-      setImmediate(() => {
-        mkdirSync(clonePath, { recursive: true })
-        execFileSync('git', ['init'], { cwd: clonePath, stdio: 'ignore' })
-        proc.emit('close', 0, null)
-      })
+      setImmediate(() => proc.emit('close', 0, null))
       return proc as never
     })
     const existing = {
       id: 'runtime-folder-upgrade',
-      path: clonePath,
+      path: '/tmp/repo-badge-color',
       displayName: 'repo-badge-color',
       badgeColor: '#ec4899',
       addedAt: 1,
@@ -387,23 +377,14 @@ describe('OrcaRuntimeService', () => {
     const runtime = new OrcaRuntimeService(colorStore as never)
 
     try {
-      const repo = await runtime.cloneRepo('https://example.com/repo-badge-color.git', destination)
-      expect(updates).toEqual([
-        {
-          id: existing.id,
-          updates: {
-            kind: 'git',
-            folderUpgradeGitRootPath: normalizeRuntimePathSeparators(existing.path)
-          }
-        }
-      ])
+      const repo = await runtime.cloneRepo('https://example.com/repo-badge-color.git', '/tmp')
+      expect(updates).toEqual([{ id: existing.id, updates: { kind: 'git' } }])
       expect(repo).toEqual(upgraded)
       expect(repo.badgeColor).toBe('#ec4899')
       expect(prepareLocalWorktreeRootForRepoMock).toHaveBeenCalledWith(colorStore, upgraded)
       expect(invalidateAuthorizedRootsCacheMock).toHaveBeenCalled()
     } finally {
       spawnSpy.mockRestore()
-      await rm(destination, { recursive: true, force: true })
     }
   })
 
@@ -433,7 +414,7 @@ describe('OrcaRuntimeService', () => {
     expect(invalidateAuthorizedRootsCacheMock).toHaveBeenCalled()
   })
 
-  it('prepares the runtime worktree root when repo-backed project host setup base path changes', async () => {
+  it('prepares the runtime worktree root when repo-backed project host setup base path changes', () => {
     const repo = {
       id: TEST_REPO_ID,
       path: TEST_REPO_PATH,
@@ -454,12 +435,12 @@ describe('OrcaRuntimeService', () => {
     }
     const runtime = new OrcaRuntimeService(runtimeStore as never)
 
-    await expect(
+    expect(
       runtime.updateProjectHostSetup({
         setupId: 'setup-1',
         updates: { worktreeBasePath: '../worktrees' }
       })
-    ).resolves.toBe(result)
+    ).toBe(result)
 
     expect(prepareLocalWorktreeRootForRepoMock).toHaveBeenCalledWith(runtimeStore, repo)
     expect(invalidateAuthorizedRootsCacheMock).toHaveBeenCalled()
@@ -600,30 +581,18 @@ describe('OrcaRuntimeService', () => {
     const destination = await mkdtemp(join(tmpdir(), 'orca-runtime-clone-'))
 
     try {
-      const url = 'https://example.com/repo-badge-color.git'
-      const firstClonePromise = runtime.cloneRepo(url, destination)
-      const secondClonePromise = runtime.cloneRepo(url, destination)
+      const firstClonePromise = runtime.cloneRepo(
+        'https://example.com/repo-badge-color.git',
+        destination
+      )
+      const secondClonePromise = runtime.cloneRepo(
+        'https://example.com/repo-badge-color.git',
+        destination
+      )
       await vi.waitFor(() => expect(spawnSpy).toHaveBeenCalledTimes(1))
       await new Promise((resolve) => setImmediate(resolve))
       expect(spawnSpy).toHaveBeenCalledTimes(1)
 
-      // The queued request must find a finished clone of the URL where the first one landed.
-      const clonePath = join(destination, 'repo-badge-color')
-      execFileSync('git', ['init', '-q', clonePath])
-      execFileSync('git', ['-C', clonePath, 'remote', 'add', 'origin', url])
-      execFileSync('git', [
-        '-C',
-        clonePath,
-        '-c',
-        'user.name=Orca Test',
-        '-c',
-        'user.email=test@orca.invalid',
-        'commit',
-        '-q',
-        '--allow-empty',
-        '-m',
-        'init'
-      ])
       firstProc.emit('close', 0, null)
       await expect(firstClonePromise).resolves.toMatchObject({
         path: join(destination, 'repo-badge-color')
@@ -633,56 +602,6 @@ describe('OrcaRuntimeService', () => {
       })
       expect(spawnSpy).toHaveBeenCalledTimes(1)
     } finally {
-      spawnSpy.mockRestore()
-      await rm(destination, { recursive: true, force: true })
-    }
-  })
-
-  it('refuses a saved project at the clone path whose folder is not a clone of the URL', async () => {
-    const spawnSpy = vi.spyOn(gitRunner, 'gitSpawnAfterWindowsEnvironmentReady')
-    const destination = await mkdtemp(join(tmpdir(), 'orca-runtime-clone-'))
-    const saved = {
-      id: 'saved-project',
-      path: join(destination, 'orca'),
-      displayName: 'orca',
-      badgeColor: DEFAULT_REPO_BADGE_COLOR,
-      addedAt: 1
-    }
-    const getReposSpy = vi.spyOn(store, 'getRepos').mockReturnValue([saved])
-
-    try {
-      await expect(
-        createRuntime().cloneRepo('https://github.com/me/orca.git', destination)
-      ).rejects.toThrow('"orca" is already an Orca project')
-      expect(spawnSpy).not.toHaveBeenCalled()
-    } finally {
-      getReposSpy.mockRestore()
-      spawnSpy.mockRestore()
-      await rm(destination, { recursive: true, force: true })
-    }
-  })
-
-  it('clones past a saved SSH project that shares the clone path', async () => {
-    const spawnSpy = vi.spyOn(gitRunner, 'gitSpawnAfterWindowsEnvironmentReady')
-    const destination = await mkdtemp(join(tmpdir(), 'orca-runtime-clone-'))
-    const sshProject = {
-      id: 'ssh-project',
-      path: join(destination, 'orca'),
-      displayName: 'orca',
-      badgeColor: DEFAULT_REPO_BADGE_COLOR,
-      addedAt: 1,
-      connectionId: 'conn-1'
-    }
-    const getReposSpy = vi.spyOn(store, 'getRepos').mockReturnValue([sshProject])
-
-    try {
-      // The SSH project's folder is on another machine, so git runs here; this source doesn't exist.
-      await expect(
-        createRuntime().cloneRepo(join(destination, 'missing', 'orca'), destination)
-      ).rejects.toThrow('Clone failed')
-      expect(spawnSpy).toHaveBeenCalledTimes(1)
-    } finally {
-      getReposSpy.mockRestore()
       spawnSpy.mockRestore()
       await rm(destination, { recursive: true, force: true })
     }

@@ -84,9 +84,3 @@ describe('detectExplicitPiAgentKindFromCommand', () => {
     )
   })
 })
-
-describe('detectExplicitPiAgentKindFromCommand after a sleep prefix', () => {
-  it.each(['pi', 'omp', 'prime-agent'] as const)('prepares the %s integration', (agent) => {
-    expect(detectExplicitPiAgentKindFromCommand(`sleep 30 && ${agent}`)).toBe(agent)
-  })
-})

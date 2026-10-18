@@ -1,9 +1,8 @@
 import { assertLegacyAiVaultResumeCommandAllowed } from '../../../../ai-vault/structured-session-ownership'
 import { InvalidArgumentError, defineMethod } from '../../core'
 import { isTerminalQueryReply } from '../../../../../shared/terminal-query-reply'
-import { isUntypedTerminalInput } from '../../../../../shared/terminal-untyped-input'
 import { assertTerminalAgentSendable } from '../../terminal-agent-send-guard'
-import { TerminalSend } from '../../../../../shared/rpc-contract/terminal-unary-params'
+import { TerminalSend } from './unary-schemas'
 import {
   assertTerminalSendExactPtyBinding,
   assertTerminalSendTextWithinLimit,
@@ -23,7 +22,6 @@ import {
 export const TERMINAL_SEND_METHODS = [
   defineMethod({
     name: 'terminal.send',
-    permission: 'workspace',
     params: TerminalSend,
     handler: async (
       params,
@@ -103,15 +101,7 @@ export const TERMINAL_SEND_METHODS = [
         leaf?.ptyId &&
         params.client?.type === 'desktop' &&
         params.claimViewport === true &&
-        params.viewport &&
-        // Why: clients attach their viewport to every send, so a focus report or query reply
-        // would otherwise claim the PTY and start a resize war between two mirrors (#26469).
-        !(
-          typeof params.text === 'string' &&
-          isUntypedTerminalInput(params.text) &&
-          params.enter !== true &&
-          params.interrupt !== true
-        )
+        params.viewport
       ) {
         const claim = await updateViewportForClient(
           runtime,
@@ -220,7 +210,6 @@ export const TERMINAL_SEND_METHODS = [
       try {
         result = useSettledAgentPrompt
           ? await runtime.sendTerminalAgentPrompt(params.terminal, params.text!, {
-              inputKind: 'driving',
               beforeWrite,
               signal,
               ...(orchestrationMutation
@@ -245,9 +234,6 @@ export const TERMINAL_SEND_METHODS = [
               {
                 beforeWrite,
                 signal,
-                // Why: a wire write carries no provenance beyond a client's own query reply.
-                inputKind: params.inputKind === 'query-reply' ? 'query-reply' : 'driving',
-                ...(params.requireWriteSettlement ? { requireWriteSettlement: true as const } : {}),
                 ...(reserveWrite ? { reserveWrite } : {}),
                 ...(params.inputKind !== 'query-reply' && mobileFloorClientId
                   ? { afterWrite: () => commitMobileInputFloorClaim(mobileFloorClaim) }

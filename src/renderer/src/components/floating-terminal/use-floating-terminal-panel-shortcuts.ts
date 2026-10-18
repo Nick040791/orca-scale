@@ -18,17 +18,17 @@ import type {
 } from './floating-terminal-panel-types'
 import type { FloatingTerminalCloseActions } from './use-floating-terminal-close-actions'
 import type { FloatingTerminalCreateActions } from './use-floating-terminal-create-actions'
-import type { FloatingWorkspaceChromeModel } from './use-floating-workspace-chrome-model'
+import type { FloatingTerminalPanelItems } from './use-floating-terminal-panel-items'
 import type { FloatingTerminalPanelLocalState } from './use-floating-terminal-panel-local-state'
 import type { FloatingTerminalPanelMaximize } from './use-floating-terminal-panel-maximize'
 
 const FLOATING_TERMINAL_SHORTCUT_SURFACE_SELECTOR = '[data-floating-terminal-shortcut-surface]'
 
 type FloatingTerminalPanelShortcutsInput = Pick<
-  FloatingWorkspaceChromeModel,
-  'activeTab' | 'activeClosableTab' | 'visibleFloatingTabOrder'
+  FloatingTerminalPanelItems,
+  'activeTab' | 'activeTerminalId' | 'activeClosableTab' | 'visibleFloatingTabOrder'
 > &
-  Pick<FloatingTerminalPanelLocalState, 'panelRef'> &
+  Pick<FloatingTerminalPanelLocalState, 'terminalPaneRegistry' | 'panelRef'> &
   Pick<FloatingTerminalCloseActions, 'closeFloatingItemConfirmed'> &
   FloatingTerminalCreateActions &
   FloatingTerminalPanelMaximize & {
@@ -38,8 +38,10 @@ type FloatingTerminalPanelShortcutsInput = Pick<
 
 export function useFloatingTerminalPanelShortcuts({
   activeTab,
+  activeTerminalId,
   activeClosableTab,
   visibleFloatingTabOrder,
+  terminalPaneRegistry,
   panelRef,
   closeFloatingItemConfirmed,
   activateFloatingItem,
@@ -51,14 +53,16 @@ export function useFloatingTerminalPanelShortcuts({
   open,
   onOpenChange
 }: FloatingTerminalPanelShortcutsInput) {
-  // Why the tab (not a pane): with an xterm focused the capture policy defers to the terminal's
-  // own dispatch, which closes the active pane; outside terminal focus the close targets the tab,
-  // matching the main workspace's strip-close semantics.
   const closeActiveFloatingTerminalPane = useCallback(() => {
+    const handle = activeTerminalId ? terminalPaneRegistry.getHandle(activeTerminalId) : null
+    if (handle) {
+      handle.closeActivePane()
+      return
+    }
     if (activeClosableTab) {
       closeFloatingItemConfirmed(activeClosableTab.id)
     }
-  }, [activeClosableTab, closeFloatingItemConfirmed])
+  }, [activeClosableTab, activeTerminalId, closeFloatingItemConfirmed, terminalPaneRegistry])
 
   const resolveFloatingPanelShortcut = useCallback(
     (input: FloatingPanelShortcutInput): FloatingPanelShortcutResolution | null => {

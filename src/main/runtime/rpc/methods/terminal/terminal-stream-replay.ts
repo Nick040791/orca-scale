@@ -1,6 +1,7 @@
 import type { TerminalReplyQuerySequence } from '../../../../../shared/terminal-reply-query-scan'
 import {
   iterateTerminalOutputFrameChunks,
+  sliceTerminalOutputSourceRanges,
   type TerminalOutputFrameChunk,
   type TerminalOutputMeta
 } from '../../terminal-output-frame-chunks'
@@ -57,7 +58,12 @@ export function getOutputAfterSnapshotSeq(
     bytes: chunk.bytes,
     meta: {
       ...chunk.meta,
-      rawLength: chunk.meta.rawLength - offset
+      rawLength: chunk.meta.rawLength - offset,
+      sourceRanges: sliceTerminalOutputSourceRanges(
+        chunk.meta.sourceRanges,
+        offset,
+        chunk.data.length
+      )
     }
   }
 }
@@ -91,36 +97,37 @@ export function appendAckPendingOutput(
 ): void {
   stream.ackPendingOutput.push(chunk)
   stream.ackPendingOutputBytes += chunk.bytes.byteLength
-  const trimmed = trimHeadToBudget(
-    stream.ackPendingOutput,
-    stream.ackPendingOutputBytes,
-    (pending) => pending.bytes.byteLength
-  )
-  stream.ackPendingOutputBytes = trimmed.bytes
-  stream.ackPendingOutputOverflowed ||= trimmed.overflowed
+  let omittedChunkCount = 0
+  while (
+    stream.ackPendingOutputBytes > TERMINAL_MULTIPLEX_PENDING_MAX_BYTES &&
+    omittedChunkCount < stream.ackPendingOutput.length
+  ) {
+    stream.ackPendingOutputBytes -= stream.ackPendingOutput[omittedChunkCount]!.bytes.byteLength
+    omittedChunkCount += 1
+  }
+  if (omittedChunkCount > 0) {
+    stream.ackPendingOutput.splice(0, omittedChunkCount)
+    stream.ackPendingOutputOverflowed = true
+  }
 }
 
 export function trimPendingOutputToBudget(
   pendingOutput: TerminalOutputChunk[],
   pendingOutputBytes: number
 ): { bytes: number; overflowed: boolean } {
-  return trimHeadToBudget(pendingOutput, pendingOutputBytes, (chunk) => chunk.bytes)
-}
-
-function trimHeadToBudget<T>(
-  items: T[],
-  bytes: number,
-  sizeOf: (item: T) => number
-): { bytes: number; overflowed: boolean } {
-  let omittedCount = 0
-  while (bytes > TERMINAL_MULTIPLEX_PENDING_MAX_BYTES && omittedCount < items.length) {
-    bytes -= sizeOf(items[omittedCount]!)
-    omittedCount += 1
+  let omittedChunkCount = 0
+  while (
+    pendingOutputBytes > TERMINAL_MULTIPLEX_PENDING_MAX_BYTES &&
+    omittedChunkCount < pendingOutput.length
+  ) {
+    const chunk = pendingOutput[omittedChunkCount]
+    pendingOutputBytes -= chunk.bytes
+    omittedChunkCount += 1
   }
-  if (omittedCount > 0) {
-    items.splice(0, omittedCount)
+  if (omittedChunkCount > 0) {
+    pendingOutput.splice(0, omittedChunkCount)
   }
-  return { bytes, overflowed: omittedCount > 0 }
+  return { bytes: pendingOutputBytes, overflowed: omittedChunkCount > 0 }
 }
 
 export function trimPendingOutputCoveredBySnapshot(

@@ -4,7 +4,6 @@ import { lookupGitHubWorkItemDetailsForSource } from '@/lib/github-work-item-sou
 import { canUseGitHubRepoContext } from '@/lib/github-source-runtime-context'
 import {
   normalizeItemDialogTab,
-  parseOwnerRepoFromItemUrl,
   type ItemDialogTab
 } from '@/components/github/github-work-item-identity'
 import type { PRComment } from '../../../../../shared/github/comment-types'
@@ -62,13 +61,6 @@ export function useGitHubItemDialogDetails({
       ?.issueSourcePreference
   })
   const canUseDetailsRepoContext = canUseGitHubRepoContext(repoPath, sourceContext)
-  const issueRepository = useMemo(
-    () =>
-      workItem?.type === 'issue'
-        ? (projectOrigin ?? parseOwnerRepoFromItemUrl(workItem.url))
-        : null,
-    [projectOrigin, workItem]
-  )
   const detailsCacheKey = useMemo(() => {
     if (!workItem || !effectiveRepoId || !canUseDetailsRepoContext) {
       return null
@@ -77,12 +69,10 @@ export function useGitHubItemDialogDetails({
       repoPath: repoPath ?? '',
       repoId: effectiveRepoId,
       issueSourcePreference,
-      sourceContext,
       sourceCacheScope:
         sourceContext?.provider === 'github' ? getTaskSourceCacheScope(sourceContext) : null,
       type: workItem.type,
-      number: workItem.number,
-      ownerRepo: issueRepository
+      number: workItem.number
     })
   }, [
     canUseDetailsRepoContext,
@@ -90,8 +80,7 @@ export function useGitHubItemDialogDetails({
     effectiveRepoId,
     sourceContext,
     workItem,
-    issueSourcePreference,
-    issueRepository
+    issueSourcePreference
   ])
 
   // Why: reset during render so an item switch never paints the previous item's tab.
@@ -108,7 +97,7 @@ export function useGitHubItemDialogDetails({
   }
 
   // Why: hold comments added before the detail fetch resolves so they merge into the result instead of being overwritten.
-  const optimisticCommentsRef = useRef(new Map<string, PRComment[]>())
+  const optimisticCommentsRef = useRef<PRComment[]>([])
   // Why: distinguish "reopen same item" from "switch item" — reopen must keep optimistic comments since gh's 60s cache omits the just-posted one.
   const prevItemIdRef = useRef<string | null>(null)
 
@@ -127,7 +116,7 @@ export function useGitHubItemDialogDetails({
   // Why: key off cachedEntry identity (stable), not the optimistic ref array (fresh each render), to avoid needless recompute.
   const details = useMemo<GitHubWorkItemDetails | null>(() => {
     const cachedDetails = cachedEntry?.details ?? null
-    const opt = optimisticCommentsRef.current.get(detailsCacheKey ?? '') ?? []
+    const opt = optimisticCommentsRef.current
     if (!cachedDetails) {
       // Why: on cold open, details may still be loading — surface optimistic comments via a minimal shell so a pre-fetch comment isn't invisible.
       if (opt.length > 0 && workItem) {
@@ -149,7 +138,7 @@ export function useGitHubItemDialogDetails({
     }
     // Why: optimisticTick forces this ref-reading memo to re-run on cold-open writes; lint can't see the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cachedEntry, workItem, detailsCacheKey, optimisticTick])
+  }, [cachedEntry, workItem, optimisticTick])
 
   const loading = !!cachedEntry?.pending && !cachedEntry?.details
   const error = cachedEntry?.error && !cachedEntry?.details ? cachedEntry.error : null
@@ -169,7 +158,7 @@ export function useGitHubItemDialogDetails({
     }
     // Why: clear optimistic comments only on item switch — on reopen, gh's 60s cache omits the just-posted comment, so keep the ref to re-merge.
     if (workItem.id !== prevItemIdRef.current) {
-      optimisticCommentsRef.current.clear()
+      optimisticCommentsRef.current = []
     }
     prevItemIdRef.current = workItem.id
 
@@ -189,8 +178,7 @@ export function useGitHubItemDialogDetails({
         repoId: effectiveRepoId,
         sourceContext,
         number: workItem.number,
-        type: workItem.type,
-        ownerRepo: issueRepository
+        type: workItem.type
       })
 
     // Why: snapshot the invalidation generation; if it advances before resolve, a mid-flight mutation invalidated the entry — don't write back.
@@ -213,7 +201,6 @@ export function useGitHubItemDialogDetails({
     sourceContext,
     workItem,
     detailsCacheKey,
-    issueRepository,
     refetchTick
   ])
 
@@ -244,9 +231,7 @@ export function useGitHubItemDialogDetails({
     (comment: PRComment) => {
       useAppStore.getState().recordFeatureInteraction('github-tasks')
       // Why: skip refreshDetails() — gh's 60s cache would overwrite the optimistic comment; next open picks up the server version.
-      const optimisticKey = detailsCacheKey ?? ''
-      const optimisticComments = optimisticCommentsRef.current.get(optimisticKey) ?? []
-      optimisticCommentsRef.current.set(optimisticKey, [...optimisticComments, comment])
+      optimisticCommentsRef.current.push(comment)
       // Why: write through the module cache so concurrent drawers re-render; mark fetchedAt stale (0) so next open refetches server fields.
       if (detailsCacheKey) {
         const prev = workItemDetailsCache.get(detailsCacheKey)

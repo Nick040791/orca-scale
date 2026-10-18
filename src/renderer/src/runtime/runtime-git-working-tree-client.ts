@@ -1,16 +1,12 @@
-import {
-  requireGitStageWorktreeScopeReceipt,
-  type GitStageWorktreeScope
-} from '../../../shared/git-stage-worktree-scope'
 import { resolveLocalWorktreePath, type RuntimeGitContext } from './runtime-git-client-context'
-import { callRuntimeRpc } from './runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 
 export async function stageRuntimeGitPath(
   context: RuntimeGitContext,
   filePath: string
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.stage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -31,7 +27,7 @@ export async function bulkStageRuntimeGitPaths(
   context: RuntimeGitContext,
   filePaths: string[]
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.bulkStage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -48,36 +44,11 @@ export async function bulkStageRuntimeGitPaths(
   )
 }
 
-/** Stage every change the host sees, for a capped listing that cannot name them all. */
-export async function stageRuntimeGitWorktreeScope(
-  context: RuntimeGitContext,
-  scope: GitStageWorktreeScope
-): Promise<void> {
-  const target = context.target
-  // Why no paths: an older host strips `scope` and stages `filePaths`, so an empty list makes that a no-op.
-  if (target.kind === 'local' || !context.worktreeId) {
-    await window.api.git.bulkStage({
-      worktreePath: resolveLocalWorktreePath(context),
-      filePaths: [],
-      connectionId: context.connectionId,
-      scope
-    })
-    return
-  }
-  const reply = await callRuntimeRpc<unknown>(
-    target,
-    'git.bulkStage',
-    { worktree: toRuntimeWorktreeSelector(context.worktreeId), filePaths: [], scope },
-    { timeoutMs: 15_000 }
-  )
-  requireGitStageWorktreeScopeReceipt(reply, scope)
-}
-
 export async function unstageRuntimeGitPath(
   context: RuntimeGitContext,
   filePath: string
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.unstage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -98,7 +69,7 @@ export async function bulkUnstageRuntimeGitPaths(
   context: RuntimeGitContext,
   filePaths: string[]
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.bulkUnstage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -119,7 +90,7 @@ export async function bulkDiscardRuntimeGitPaths(
   context: RuntimeGitContext,
   filePaths: string[]
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.bulkDiscard({
       worktreePath: resolveLocalWorktreePath(context),
@@ -140,7 +111,7 @@ export async function discardRuntimeGitPath(
   context: RuntimeGitContext,
   filePath: string
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.discard({
       worktreePath: resolveLocalWorktreePath(context),
@@ -161,7 +132,7 @@ export async function getRuntimeGitRemoteFileUrl(
   context: RuntimeGitContext,
   args: { relativePath: string; line: number }
 ): Promise<string | null> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.remoteFileUrl({
       worktreePath: resolveLocalWorktreePath(context),
@@ -186,7 +157,7 @@ export async function getRuntimeGitRemoteCommitUrl(
   context: RuntimeGitContext,
   args: { sha: string }
 ): Promise<string | null> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.remoteCommitUrl({
       worktreePath: resolveLocalWorktreePath(context),

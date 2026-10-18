@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RuntimeTerminalIdlePolls } from './terminal/wait/terminal-idle-polls'
-import { RuntimeTerminalWait } from './terminal/wait/terminal-wait'
-import { RuntimeTerminalWaiterRegistry } from './terminal/wait/terminal-waiter-registry'
+import { RuntimeTerminalIdlePolls } from './runtime-terminal-idle-polls'
+import { RuntimeTerminalWait } from './runtime-terminal-wait'
+import { RuntimeTerminalWaiterRegistry } from './runtime-terminal-waiter-registry'
 import {
   errorMessage,
   makeTuiIdleLeaf,
@@ -51,15 +51,12 @@ function createWait(options: {
     getAdoptedPtyIdleStatus: () => options.adoptedIdleStatus ?? null,
     getPaneAgent: () => options.agent ?? null,
     getFirstPartyAgentStatus: () => options.firstPartyStatus ?? null,
-    readScreenLines: () => null,
-    readVisibleScreen: () => null,
     quiescenceMs: QUIESCENCE_MS
   }
   const polls = new RuntimeTerminalIdlePolls({
     ...shared,
     intervalMs: POLL_INTERVAL_MS,
     getForegroundProcess: () => Promise.resolve(options.foreground ?? null),
-    hasCommandPainted: () => true,
     getLiveLeaf: (leaf) => options.liveLeaf?.() ?? leaf,
     resolve: (waiter, result) => waiters.resolve(waiter, result)
   })
@@ -298,15 +295,6 @@ function oscTitle(title: string): string {
 }
 
 describe('tui-idle over the live OSC title pipeline', () => {
-  beforeEach(() => {
-    vi.useFakeTimers({
-      toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval']
-    })
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('does not settle on a name-only title arriving mid-stream', async () => {
     const { runtime, handle } = await makeRuntime('codex')
     runtime.onPtyData(E2E_PTY_ID, `${oscTitle(WORKING_TITLE)}building\n`, Date.now())
@@ -315,9 +303,7 @@ describe('tui-idle over the live OSC title pipeline', () => {
     // The agent is mid-turn and repaints its title to the bare product name.
     runtime.onPtyData(E2E_PTY_ID, `${oscTitle(NAME_ONLY_TITLE)}more output\n`, Date.now())
 
-    const assertion = expect(waiting).rejects.toThrow('timeout')
-    await vi.advanceTimersByTimeAsync(250)
-    await assertion
+    await expect(waiting).rejects.toThrow('timeout')
   })
 
   it('settles when the agent reports idle explicitly', async () => {
@@ -335,11 +321,9 @@ describe('tui-idle over the live OSC title pipeline', () => {
     const { runtime, handle } = await makeRuntime('codex')
     runtime.onPtyData(E2E_PTY_ID, `${oscTitle(NAME_ONLY_TITLE)}output\n`, Date.now())
 
-    const assertion = expect(
+    await expect(
       runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 250 })
     ).rejects.toThrow('timeout')
-    await vi.advanceTimersByTimeAsync(250)
-    await assertion
   })
 
   it('still settles for an agent whose only rest signal is its name', async () => {
@@ -355,10 +339,8 @@ describe('tui-idle over the live OSC title pipeline', () => {
     const { runtime, handle } = await makeRuntime('muse')
     runtime.onPtyData(E2E_PTY_ID, `${oscTitle('tmp')}${MUSE_READY_TAIL.join('\n')}\n`, Date.now())
 
-    const assertion = expect(
+    await expect(
       runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 15_000 })
     ).resolves.toMatchObject({ condition: 'tui-idle', satisfied: true })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2)
-    await assertion
   }, 20_000)
 })

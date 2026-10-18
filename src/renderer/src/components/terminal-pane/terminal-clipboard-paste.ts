@@ -2,8 +2,10 @@ import {
   isClipboardTextTooLargeError,
   type ReadClipboardTextOptions
 } from '../../../../shared/clipboard-text'
-import { TERMINAL_PASTE_MAX_BYTES } from './terminal-paste-limits'
-import type { TerminalPasteTextOptions } from './terminal-paste-model'
+import {
+  TERMINAL_PASTE_MAX_BYTES,
+  type TerminalPasteTextOptions
+} from './terminal-paste-coordinator'
 
 type SaveClipboardImageAsTempFile = (args?: {
   connectionId?: string | null

@@ -21,7 +21,6 @@ export function useTaskPageSourceSummary(model: TaskPageSourceAvailabilityPrelud
     preflightStatus,
     preflightStatusChecked,
     preflightStatusCurrent,
-    preflightDescribesDesktop,
     selectedRepos,
     selectedLinearWorkspace,
     selectedJiraSite,
@@ -51,8 +50,7 @@ export function useTaskPageSourceSummary(model: TaskPageSourceAvailabilityPrelud
         provider,
         contexts,
         preflightStatus,
-        preflightReady:
-          preflightStatusCurrent && preflightStatusChecked && preflightDescribesDesktop,
+        preflightReady: preflightStatusCurrent && preflightStatusChecked,
         runtimePreflightStatusByHostId
       })
     ]
@@ -111,7 +109,6 @@ export function useTaskPageSourceSummary(model: TaskPageSourceAvailabilityPrelud
     preflightStatus,
     preflightStatusChecked,
     preflightStatusCurrent,
-    preflightDescribesDesktop,
     runtimePreflightStatusByHostId,
     selectedRepos,
     sourceOptions

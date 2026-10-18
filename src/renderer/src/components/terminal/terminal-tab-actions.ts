@@ -1,10 +1,14 @@
 import { useAppStore } from '@/store'
-import { closeWebRuntimeSessionTab } from '@/runtime/web-runtime-session-tab-lifecycle'
-import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session-environment'
-import { toHostSessionTabId } from '../../../../shared/terminal-surface-id'
-import { getLatestWebSessionTabsPublicationEpoch } from '@/runtime/web-session-tabs-sync/tracking-lifecycle'
-import { resolveHostSessionTabIdForWebSessionTab } from '@/runtime/web-session-tabs-sync/tracking-mappings'
-import { resolveTerminalCloseRoute } from '@/lib/terminal-close-route'
+import {
+  closeWebRuntimeSessionTab,
+  isWebRuntimeSessionActive,
+  toHostSessionTabId
+} from '@/runtime/web-runtime-session'
+import {
+  getLatestWebSessionTabsPublicationEpoch,
+  resolveHostSessionTabIdForWebSessionTab
+} from '@/runtime/web-session-tabs-sync'
+import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
 import {
   guardPinnedTabClose,
   isUnifiedTabPinned,
@@ -78,9 +82,11 @@ export function closeTerminalTab(
     return
   }
   const { worktreeId: owningWorktreeId, terminalTabId } = target
-  // Why no early return: an unrouted close still prunes locally and reaches main's close record;
-  // teardown of a PTY whose host is unproven fails closed on its own.
-  const worktreeRoute = resolveTerminalCloseRoute(state, owningWorktreeId, terminalTabId)
+  const worktreeRoute = resolveTerminalWorktreeRoute(state, owningWorktreeId)
+  if (!worktreeRoute) {
+    options?.onCancel?.()
+    return
+  }
 
   // Why: a pinned tab routes through the confirmation guard instead of closing
   // outright. `force` is the post-confirmation re-entry, which skips the guard.
@@ -124,7 +130,7 @@ export function closeTerminalTab(
     return
   }
 
-  const runtimeEnvironmentId = worktreeRoute?.runtimeEnvironmentId ?? null
+  const runtimeEnvironmentId = worktreeRoute.runtimeEnvironmentId
   if (runtimeEnvironmentId && isWebRuntimeSessionActive(runtimeEnvironmentId)) {
     if (options?.reason === 'pty-exit') {
       // Why: stream exit is not host-tab closure; the HUB snapshot decides whether reconnect restores or removes this tab.
@@ -231,7 +237,7 @@ export function closeTerminalTab(
     if (current.activeWorktreeId === owningWorktreeId) {
       // Why: agent-session and simulator tabs render without a terminal/editor/browser
       // entity, so only the unified renderable count can prove the worktree is empty
-      // (mirrors leaveWorktreeIfEmpty in workspace-emptied-reaction.ts).
+      // (mirrors leaveWorktreeIfEmpty in useTabGroupTabCloseCommands).
       const { renderableTabCount } = current.reconcileWorktreeTabModel(owningWorktreeId)
       if (renderableTabCount === 0) {
         const worktreeFile = current.openFiles.find((f) => f.worktreeId === owningWorktreeId)

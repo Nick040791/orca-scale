@@ -11,7 +11,7 @@ type ChecksPanelBranchActionsInput = Pick<
   | 'isPublishingBranch'
   | 'isRemoteOperationActive'
   | 'isSyncingBranch'
-  | 'ownerTarget'
+  | 'ownerSettings'
   | 'pushBranch'
   | 'setGitStatusRefreshNonce'
   | 'setIsPublishingBranch'
@@ -28,7 +28,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
     isPublishingBranch,
     isRemoteOperationActive,
     isSyncingBranch,
-    ownerTarget,
+    ownerSettings,
     pushBranch,
     setGitStatusRefreshNonce,
     setIsPublishingBranch,
@@ -47,10 +47,10 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
         false,
         connectionId,
         activeWorktree.pushTarget,
-        { runtimeTarget: ownerTarget }
+        { runtimeTargetSettings: ownerSettings }
       )
       await fetchUpstreamStatus(activeWorktreeId, activeWorktree.path, connectionId, undefined, {
-        runtimeTarget: ownerTarget
+        runtimeTargetSettings: ownerSettings
       })
       return true
     } catch {
@@ -61,7 +61,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
     activeWorktree,
     activeWorktreeId,
     fetchUpstreamStatus,
-    ownerTarget,
+    ownerSettings,
     pushBranch
   ])
 
@@ -83,14 +83,14 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
         true,
         connectionId,
         activeWorktree.pushTarget,
-        { runtimeTarget: ownerTarget }
+        { runtimeTargetSettings: ownerSettings }
       )
       await fetchUpstreamStatus(
         activeWorktreeId,
         activeWorktree.path,
         connectionId,
         activeWorktree.pushTarget,
-        { runtimeTarget: ownerTarget }
+        { runtimeTargetSettings: ownerSettings }
       )
     } catch {
       // Store remote actions already surface the publish failure toast.
@@ -106,7 +106,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
     fetchUpstreamStatus,
     isPublishingBranch,
     isRemoteOperationActive,
-    ownerTarget,
+    ownerSettings,
     pushBranch,
     setIsPublishingBranch,
     setGitStatusRefreshNonce
@@ -126,7 +126,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
         connectionId,
         activeWorktree.pushTarget,
         {
-          runtimeTarget: ownerTarget
+          runtimeTargetSettings: ownerSettings
         }
       )
       await fetchUpstreamStatus(
@@ -134,7 +134,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
         activeWorktree.path,
         connectionId,
         activeWorktree.pushTarget,
-        { runtimeTarget: ownerTarget }
+        { runtimeTargetSettings: ownerSettings }
       )
     } catch {
       // Store remote actions already surface the sync failure toast.
@@ -150,7 +150,7 @@ export function useChecksPanelBranchActions(model: ChecksPanelBranchActionsInput
     fetchUpstreamStatus,
     isSyncingBranch,
     isRemoteOperationActive,
-    ownerTarget,
+    ownerSettings,
     syncBranch,
     setIsSyncingBranch,
     setGitStatusRefreshNonce

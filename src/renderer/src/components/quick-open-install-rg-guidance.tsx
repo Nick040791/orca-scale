@@ -22,9 +22,10 @@ export type QuickOpenInstallRgGuidanceParts = {
 export function parseQuickOpenInstallRgGuidance(
   message: string
 ): QuickOpenInstallRgGuidanceParts | null {
-  // Older paired hosts can still publish the retired local-scan wording.
+  // Why only the remote wording: the local side always has Orca's bundled rg, so this fallback --
+  // and therefore this message -- can only come from a remote host an upload never reached.
   const match = message.match(
-    /^Quick Open scan too large \((.+?)\)\. Install ripgrep (?:on the remote|on this machine|on the host running the Quick Open scan) to enable fast, gitignore-aware listing: (.+)$/
+    /^Quick Open scan too large \((.+?)\)\. Install ripgrep on the remote to enable fast, gitignore-aware listing: (.+)$/
   )
   if (!match) {
     return null

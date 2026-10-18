@@ -13,9 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_AUTOMATION_RUNS_PER_AUTOMATION } from '../../../shared/automation-run-retention'
 import { ProfileStateSqliteAuthority } from '../profile-state/profile-state-sqlite-authority'
 import {
+  profileStateJsonMatchesAcceptance,
   exportProfileStateJson,
   hashProfileStateJson,
   importProfileStateJson,
+  readProfileStateJsonAcceptance,
   readProfileStateSnapshot
 } from '../profile-state/profile-state-documents'
 import { parseProfileStateRoot } from '../profile-state/profile-state-document-validation'
@@ -48,12 +50,13 @@ vi.mock('../../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../../telemetry/cohort-classifier', () => ({
   getCohortAtEmit: vi.fn(() => ({ nth_repo_added: 2 }))
 }))
-vi.mock('../../ssh/config/ssh-config-parser', () => ({
+vi.mock('../../ssh/ssh-config-parser', () => ({
   loadUserSshConfig: vi.fn(() => ({ hosts: [] })),
   sshConfigHostsToTargets: vi.fn(() => [])
 }))
 
 const { Store } = await import('./store')
+const { createProfileStateStore } = await import('../profile-state/profile-state-store-factory')
 
 const temporaryDirectories: string[] = []
 const backupAuthorities = new Set<ProfileStateSqliteAuthority>()
@@ -124,14 +127,14 @@ describe('Store with an injected SQLite profile-state authority', () => {
     store.updateSettings({ terminalFontSize: store.getSettings().terminalFontSize + 1 })
     await store.flushPendingOrThrowAsync()
 
-    expect(readFileSync(dataFile).equals(legacyBytes)).toBe(true)
+    expect(readFileSync(dataFile)).toEqual(legacyBytes)
     expect(existsSync(databaseFile)).toBe(true)
 
     const reloaded = new Store({ dataFile, profileStateAuthority: authority })
     expect(reloaded.getSettings().theme).toBe('dark')
     expect(reloaded.getSettings().terminalFontSize).toBe(store.getSettings().terminalFontSize)
     expect(reloaded.getSettings().opencodeSessionCookie).toBe('authority-secret')
-    expect(readFileSync(dataFile).equals(legacyBytes)).toBe(true)
+    expect(readFileSync(dataFile)).toEqual(legacyBytes)
     reloaded.freezeWrites()
   })
 
@@ -756,6 +759,47 @@ describe('Store with an injected SQLite profile-state authority', () => {
     store.freezeWrites()
   })
 
+  it('publishes canonical JSON for an older build and advances its acceptance marker', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-store-profile-state-compat-export-'))
+    temporaryDirectories.push(directory)
+    const dataFile = join(directory, 'orca-data.json')
+    const databasePath = join(directory, 'profile-state.db')
+    const seed = new Store({ dataFile, serializedState: '{}' })
+    seed.updateSettings({ theme: 'light' })
+    seed.flushOrThrow()
+    const authority = createAuthority(databasePath, 'profile-authority-test')
+    authority.writeSerializedState(Buffer.from(seed.prepareProfileStateExport().json, 'utf8'))
+    seed.freezeWrites()
+
+    const store = new Store({ dataFile, profileStateAuthority: authority })
+    store.updateSettings({ theme: 'dark' })
+    const revision = store.writeLatestProfileStateJsonCompatibilityExport()
+
+    expect(revision).toBe(2)
+    const canonical = readFileSync(dataFile, 'utf8')
+    expect(JSON.parse(canonical).settings.theme).toBe('dark')
+    const opened = openProfileStateDatabaseReadOnly(databasePath, 'profile-authority-test')
+    try {
+      expect(readProfileStateJsonAcceptance(opened.db)).toEqual({
+        jsonHash: hashProfileStateJson(canonical),
+        acceptedRevision: revision
+      })
+      expect(profileStateJsonMatchesAcceptance(opened.db, canonical)).toBe(true)
+    } finally {
+      opened.db.close()
+    }
+    authority.close()
+    const reopened = createProfileStateStore({
+      dataFile,
+      databaseFile: databasePath,
+      profileId: 'profile-authority-test'
+    })
+    expect(reopened.backend).toBe('sqlite')
+    expect(reopened.store.getSettings().theme).toBe('dark')
+    reopened.store.freezeWrites()
+    store.freezeWrites()
+  })
+
   it('refuses to overwrite a conflicting export for the same SQLite revision', () => {
     const directory = mkdtempSync(join(tmpdir(), 'orca-store-profile-state-export-conflict-'))
     temporaryDirectories.push(directory)
@@ -804,7 +848,7 @@ describe('Store with an injected SQLite profile-state authority', () => {
       'store-recovery-test'
     )
 
-    expect(readFileSync(join(result.directory, 'profile-state.db')).equals(sourceBytes)).toBe(true)
+    expect(readFileSync(join(result.directory, 'profile-state.db'))).toEqual(sourceBytes)
     expect(readFileSync(join(result.directory, 'profile-state.db-wal'), 'utf8')).toBe(
       'wal-preservation-sentinel'
     )
@@ -812,7 +856,7 @@ describe('Store with an injected SQLite profile-state authority', () => {
       profileId: 'profile-authority-test',
       reason: 'store-recovery-test'
     })
-    expect(readFileSync(databasePath).equals(sourceBytes)).toBe(true)
+    expect(readFileSync(databasePath)).toEqual(sourceBytes)
   })
 
   it('prepares frozen JSON imports without permitting file publication', () => {

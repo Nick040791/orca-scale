@@ -2,8 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as SnapshotCapabilityModule from './terminal-provider-snapshot-capability'
 import type { TerminalLayoutSnapshot } from '../../../../shared/terminal-tab-types'
-import { makeTab } from '../../store/slices/store-session-test-harness'
-import { makeWorktree } from '../../store/slices/worktrees-slice-test-fixtures'
+import { makeTab, makeWorktree } from '@/store/slices/store-test-helpers'
 
 const { collectPtyIds } = vi.hoisted(() => ({ collectPtyIds: vi.fn() }))
 

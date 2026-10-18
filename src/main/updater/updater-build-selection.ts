@@ -11,7 +11,6 @@ import {
   type ReleaseChannel
 } from '../../shared/release-channel'
 import { compareVersions } from '../updater-fallback'
-import { profileStateBuildCompatibilityError } from '../../shared/profile-state-build-compatibility'
 import { listReleaseBuilds, resolveTargetBuild } from '../updater-release-builds'
 import { ReleaseBuildListCache, type ReleaseBuildListOptions } from '../updater-release-build-cache'
 import { UpdaterMenuChecks } from './updater-menu-checks'
@@ -45,14 +44,6 @@ export abstract class UpdaterBuildSelection extends UpdaterMenuChecks {
       const candidate = await chooseLocalBuild(this.mainWindowRef)
       if (!candidate) {
         return
-      }
-      const compatibilityError = profileStateBuildCompatibilityError(
-        app.getVersion(),
-        candidate.version
-      )
-      if (compatibilityError) {
-        await candidate.close()
-        throw new Error(compatibilityError)
       }
       this.closeLocalBuildFeed()
       const feed = await startLocalBuildFeed(candidate)
@@ -127,13 +118,6 @@ export abstract class UpdaterBuildSelection extends UpdaterMenuChecks {
     this.pinnedBuildSelectionInProgress = true
     try {
       const target = resolveTargetBuild(channel, tag)
-      const compatibilityError = profileStateBuildCompatibilityError(
-        app.getVersion(),
-        target.version
-      )
-      if (compatibilityError) {
-        throw new Error(compatibilityError)
-      }
       if (compareVersions(target.version, app.getVersion()) === 0) {
         this.sendSettledCheckStatus({ state: 'not-available', userInitiated: true })
         return

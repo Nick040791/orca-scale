@@ -1,15 +1,10 @@
-import { tabHasLivePty } from '../../../shared/tab-has-live-pty'
+import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import {
   isFreshNonDoneAgentStatus,
   type AgentStatusEntry
 } from '../../../shared/agent-status-types'
-import { resolveAgentStatusWorktreeId } from '../../../shared/agent-status-worktree-attribution'
-import {
-  liveAgentStatusOf,
-  strongerLiveAgentStatus,
-  type LiveAgentWorktreeStatus
-} from '../../../shared/sidebar-list/workspace-activity-facts'
+import { resolveAgentStatusWorktreeId } from './agent-status-worktree-attribution'
 
 type TerminalLikeTab = Pick<TerminalTab, 'id'>
 type BrowserLikeTab = { id: string }
@@ -17,7 +12,7 @@ type BrowserLikeTab = { id: string }
 type TabsByWorktree = Record<string, readonly TerminalLikeTab[]>
 type PtyIdsByTabId = Record<string, string[]>
 type BrowserTabsByWorktree = Record<string, readonly BrowserLikeTab[]>
-export type { LiveAgentWorktreeStatus }
+export type LiveAgentWorktreeStatus = 'working' | 'monitoring' | 'permission'
 
 const EMPTY_WORKTREE_IDS: ReadonlySet<string> = new Set()
 
@@ -57,10 +52,20 @@ export function getLiveAgentStatusByWorktreeId(
   for (const entry of entries) {
     const worktreeId = resolveAgentStatusWorktreeId(entry, worktreeIdByTabId)
     if (worktreeId) {
-      result.set(
-        worktreeId,
-        strongerLiveAgentStatus(result.get(worktreeId), liveAgentStatusOf(entry))
-      )
+      const status =
+        entry.state === 'working'
+          ? entry.workingMode === 'monitoring'
+            ? 'monitoring'
+            : 'working'
+          : 'permission'
+      const current = result.get(worktreeId)
+      if (
+        status === 'permission' ||
+        current === undefined ||
+        (status === 'working' && current === 'monitoring')
+      ) {
+        result.set(worktreeId, status)
+      }
     }
   }
   return result

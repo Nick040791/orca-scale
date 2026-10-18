@@ -79,11 +79,7 @@ export const svelteMonarchLanguage: Monaco.languages.IMonarchLanguage = {
       ],
       [/<style(?=\s|>)/, { token: 'tag', switchTo: '@styleOpen.css', nextEmbedded: '@pop' }],
       [/<!--/, { token: 'comment', switchTo: '@comment', nextEmbedded: '@pop' }],
-      // Only pop rules can interrupt the active HTML embed for a Svelte closer.
-      [
-        /\{\s*\/(if|each|await|key|snippet)\s*\}/,
-        { token: 'keyword.control', switchTo: '@markupReenter', nextEmbedded: '@pop' }
-      ],
+      [/\{\s*\/(if|each|await|key|snippet)\s*\}/, 'keyword.control'],
       [
         /\{\s*#(if|each|await|key|snippet)\b/,
         { token: 'keyword.control', switchTo: '@svelteBlockExpressionEnter', nextEmbedded: '@pop' }

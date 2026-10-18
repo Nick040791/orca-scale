@@ -8,7 +8,6 @@ import {
   createRuntimeStatusSlice,
   type RuntimeStatusSlice
 } from './runtime-status'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
 
 vi.mock('sonner', () => ({
   toast: { warning: vi.fn(), dismiss: vi.fn() }
@@ -23,10 +22,14 @@ const prepareBrowserClientHostPlacement = vi.fn(async (_args: { selector: string
 }))
 
 function stubApi(getStatus: ReturnType<typeof vi.fn>): void {
-  stubRuntimeEnvironmentBridge({
-    getStatus,
-    list: vi.fn(),
-    prepareBrowserClientHostPlacement
+  vi.stubGlobal('window', {
+    api: {
+      runtimeEnvironments: {
+        getStatus,
+        list: vi.fn(),
+        prepareBrowserClientHostPlacement
+      }
+    }
   })
 }
 
@@ -55,6 +58,19 @@ describe('restored client-hosted browser host attach on reachability', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  // Why: after a relaunch this desktop hosts nothing, so a page it used to host only comes back
+  // once it attaches again. Hydration alone can ask before the environment is reachable.
+  it('starts the browser client host for restored client-hosted pages once reachable', async () => {
+    stubApi(vi.fn().mockResolvedValue(createCompatibleRuntimeStatusResponse('runtime-a')))
+
+    await storeWithRestoredHandles(true).getState().refreshRuntimeEnvironmentStatus('env-a')
+
+    expect(prepareBrowserClientHostPlacement).toHaveBeenCalledWith({
+      selector: 'env-a',
+      preference: 'auto'
+    })
   })
 
   it('runs both recovery follow-ups after a successful refresh', async () => {

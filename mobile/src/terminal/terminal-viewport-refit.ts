@@ -3,7 +3,6 @@ import { AppState, Platform, useWindowDimensions, type AppStateStatus } from 're
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import type { TerminalWebViewHandle } from './TerminalWebView'
-import type { TerminalFrame } from './terminal-webview-messages'
 import { shouldRecoverTerminalOnAppStateChange } from './terminal-foreground-recovery'
 import { terminalViewportUpdate } from './mobile-terminal-operations'
 import {
@@ -20,36 +19,47 @@ export type TerminalViewportDims = { cols: number; rows: number }
 type TerminalViewportRefitOptions = {
   activeHandleRef: RefObject<string | null>
   terminalRefs: RefObject<Map<string, TerminalWebViewHandle>>
-  // The terminal frame React Native laid out, unrounded; null until its first layout.
-  terminalFrameRef: RefObject<TerminalFrame | null>
+  terminalFrameHeightRef: RefObject<number>
   viewportRef: RefObject<TerminalViewportDims | null>
   viewportMeasuredRef: RefObject<boolean>
   // Why: while native chat covers the active terminal, a refit would push phone dims into a PTY nobody on this device is viewing.
   nativeChatCoveredRef: RefObject<boolean>
   clientRef: RefObject<RpcClient | null>
   deviceTokenRef: RefObject<string | null>
+  initializedHandlesRef: RefObject<Set<string>>
   connState: ConnectionState
   tabStripVisible: boolean
   // Why: text size (font scale); changing it changes cell size, so the PTY must be re-fitted to a new column count.
   textScale: number
+  // Why: measured frame width; panel dock/undock or sidebar resize changes it with no window/tab change, so it re-fits the PTY.
+  terminalFrameWidth: number
   unsubscribeTerminal: (handle: string) => void
   subscribeToTerminal: (handle: string) => void
 }
 
+type TerminalViewportRefitNotifications = {
+  notifyTerminalFrameHeight: (height: number) => void
+  notifyKeyboardVisibility: (visible: boolean) => void
+}
+
 // Why: re-measure on layout changes outside the subscribe path (tab strip, fold/rotate/resize), or a PTY renders "cut in half" (#4579).
-export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) {
+export function useTerminalViewportRefit(
+  options: TerminalViewportRefitOptions
+): TerminalViewportRefitNotifications {
   const {
     activeHandleRef,
     terminalRefs,
-    terminalFrameRef,
+    terminalFrameHeightRef,
     viewportRef,
     viewportMeasuredRef,
     nativeChatCoveredRef,
     clientRef,
     deviceTokenRef,
+    initializedHandlesRef,
     connState,
     tabStripVisible,
     textScale,
+    terminalFrameWidth,
     unsubscribeTerminal,
     subscribeToTerminal
   } = options
@@ -111,12 +121,10 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
             currentRunSeq: refitRunSeqRef.current
           })
         void (async () => {
-          await ref.awaitReady()
+          const dims = await ref.measureFitDimensions(terminalFrameHeightRef.current || undefined)
           if (!isCurrentTarget()) {
             return
           }
-          const frame = terminalFrameRef.current
-          const dims = frame ? ref.fitDimensions(frame) : null
           if (!dims) {
             return
           }
@@ -147,7 +155,7 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
                 rpc.updateTerminalSubscriptionViewport(handle, dims)
                 if (outcome.applied) {
                   // Why: updateViewport re-streams only the visible screen, so local scrollback stays wrapped at the old width — reflow it locally.
-                  ref.reflow(dims.cols, dims.rows, frame)
+                  ref.reflow(dims.cols, dims.rows)
                 }
                 return
               }
@@ -159,6 +167,7 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
             return
           }
           unsubscribeTerminal(handle)
+          initializedHandlesRef.current.delete(handle)
           subscribeToTerminal(handle)
         })()
       }, 150)
@@ -166,12 +175,13 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
     [
       activeHandleRef,
       terminalRefs,
-      terminalFrameRef,
+      terminalFrameHeightRef,
       viewportRef,
       viewportMeasuredRef,
       nativeChatCoveredRef,
       clientRef,
       deviceTokenRef,
+      initializedHandlesRef,
       unsubscribeTerminal,
       subscribeToTerminal
     ]
@@ -220,26 +230,16 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
     scheduleViewportRefit()
   }, [textScale, viewportMeasuredRef, scheduleViewportRefit])
 
-  // Why: panel dock/undock or a sidebar resize changes the width with no window or tab change; a
-  // width that still fits the PTY's grid (sub-pixel layout jitter) needs no refit.
-  const notifyTerminalFrameWidth = useCallback(() => {
-    const handle = activeHandleRef.current
-    const frame = terminalFrameRef.current
-    const fit = handle && frame ? terminalRefs.current.get(handle)?.fitDimensions(frame) : null
-    const grid = viewportRef.current
-    if (fit && grid && fit.cols === grid.cols && fit.rows === grid.rows) {
+  // Why: panel dock/undock or sidebar resize changes frame width with no window/tab change, so the cached viewport goes stale.
+  const prevFrameWidthRef = useRef(terminalFrameWidth)
+  useEffect(() => {
+    if (prevFrameWidthRef.current === terminalFrameWidth) {
       return
     }
+    prevFrameWidthRef.current = terminalFrameWidth
     viewportMeasuredRef.current = false
     scheduleViewportRefit()
-  }, [
-    activeHandleRef,
-    terminalFrameRef,
-    terminalRefs,
-    viewportRef,
-    viewportMeasuredRef,
-    scheduleViewportRefit
-  ])
+  }, [terminalFrameWidth, viewportMeasuredRef, scheduleViewportRefit])
 
   const notifyFrameHeightRefitEvent = useCallback(
     (event: TerminalFrameHeightRefitEvent) => {
@@ -261,18 +261,6 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
   const notifyKeyboardVisibility = useCallback(
     (visible: boolean) => notifyFrameHeightRefitEvent({ type: 'keyboard-visibility', visible }),
     [notifyFrameHeightRefitEvent]
-  )
-
-  // Why: a renderer swap or pixel-ratio change gives the same grid a different cell box.
-  const notifyTerminalCellBoxChange = useCallback(
-    (handle: string) => {
-      if (handle !== activeHandleRef.current) {
-        return
-      }
-      viewportMeasuredRef.current = false
-      scheduleViewportRefit()
-    },
-    [activeHandleRef, viewportMeasuredRef, scheduleViewportRefit]
   )
 
   useEffect(() => {
@@ -322,10 +310,5 @@ export function useTerminalViewportRefit(options: TerminalViewportRefitOptions) 
     }
   }, [])
 
-  return {
-    notifyTerminalFrameHeight,
-    notifyTerminalFrameWidth,
-    notifyKeyboardVisibility,
-    notifyTerminalCellBoxChange
-  }
+  return { notifyTerminalFrameHeight, notifyKeyboardVisibility }
 }

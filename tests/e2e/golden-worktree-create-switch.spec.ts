@@ -1,4 +1,3 @@
-import { removeWorktreeViaStore } from './helpers/dead-terminal'
 import { openSidebarWorkspaceComposer } from './helpers/sidebar-project-dialog'
 import type { Page } from '@stablyai/playwright-test'
 import { expect, test } from './helpers/orca-app'
@@ -25,6 +24,12 @@ async function createWorkspace(page: Page, name: string): Promise<void> {
   await dialog.getByPlaceholder(/Type a name/i).fill(name)
   await dialog.getByRole('button', { name: /Create (Workspace|Worktree)/i }).click()
   await expect(dialog).toBeHidden({ timeout: 20_000 })
+}
+
+async function removeCreatedWorktree(page: Page, worktreeId: string): Promise<void> {
+  await page.evaluate(async (id) => {
+    await window.__store?.getState().removeWorktree(id, true)
+  }, worktreeId)
 }
 
 test('creates a worktree, keeps its terminal isolated, and switches back @golden', async ({
@@ -81,7 +86,7 @@ test('creates a worktree, keeps its terminal isolated, and switches back @golden
           .click()
           .catch(() => undefined)
       }
-      await removeWorktreeViaStore(orcaPage, childWorktreeId)
+      await removeCreatedWorktree(orcaPage, childWorktreeId).catch(() => undefined)
     }
   }
 })

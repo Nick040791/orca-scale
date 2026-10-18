@@ -1,15 +1,6 @@
 type SubscriptionCleanup = () => void | Promise<void>
 
-type RequestAddress = { connectionId: string; requestId: string }
-
-const requestKey = ({ connectionId, requestId }: RequestAddress): string =>
-  JSON.stringify([connectionId, requestId])
-
-type SubscriptionEntry = {
-  cleanup: SubscriptionCleanup
-  version: number
-  request?: RequestAddress
-}
+type SubscriptionEntry = { cleanup: SubscriptionCleanup; version: number }
 
 export type SubscriptionRegistration = {
   releaseIfCurrent(): void
@@ -23,35 +14,19 @@ export class RuntimeSubscriptionRegistry {
   >()
   private readonly subscriptionsByConnection = new Map<string, Set<string>>()
   private readonly connectionBySubscription = new Map<string, string>()
-  private readonly subscriptionsByRequest = new Map<
-    string,
-    { subscriptionId: string; version: number }
-  >()
   private registrationVersion = 0
 
   getRegistrationVersion(): number {
     return this.registrationVersion
   }
 
-  register(
-    subscriptionId: string,
-    cleanup: SubscriptionCleanup,
-    connectionId?: string,
-    requestId?: string
-  ): void {
+  register(subscriptionId: string, cleanup: SubscriptionCleanup, connectionId?: string): void {
     const existing = this.cleanups.get(subscriptionId)
     if (existing) {
       this.removeConnectionIndex(subscriptionId)
-      this.removeRequestIndex(existing)
       this.cleanup(subscriptionId)
     }
-    const version = ++this.registrationVersion
-    const request = connectionId && requestId ? { connectionId, requestId } : undefined
-    this.cleanups.set(subscriptionId, { cleanup, version, request })
-    if (request) {
-      // Why: IPC reuses a request id after aborting its previous subscription, so the newer one owns the address.
-      this.subscriptionsByRequest.set(requestKey(request), { subscriptionId, version })
-    }
+    this.cleanups.set(subscriptionId, { cleanup, version: ++this.registrationVersion })
     if (!connectionId) {
       return
     }
@@ -67,24 +42,11 @@ export class RuntimeSubscriptionRegistry {
   registerOwned(
     subscriptionId: string,
     cleanup: SubscriptionCleanup,
-    connectionId?: string,
-    requestId?: string
+    connectionId?: string
   ): SubscriptionRegistration {
-    this.register(subscriptionId, cleanup, connectionId, requestId)
+    this.register(subscriptionId, cleanup, connectionId)
     const version = this.registrationVersion
     return { releaseIfCurrent: () => this.cleanupOwned(subscriptionId, version) }
-  }
-
-  /** Releases the registration a request created; an unknown, ended or replaced request is a no-op. */
-  releaseByRequest(connectionId: string | undefined, requestId: string): void {
-    // Why: some non-phone sockets carry no connection id, and a bare request id is not unique across sockets.
-    if (!connectionId) {
-      return
-    }
-    const target = this.subscriptionsByRequest.get(requestKey({ connectionId, requestId }))
-    if (target) {
-      this.cleanupOwned(target.subscriptionId, target.version)
-    }
   }
 
   cleanupIfOwnedByConnection(
@@ -159,7 +121,6 @@ export class RuntimeSubscriptionRegistry {
         }
         this.cleanups.delete(subscriptionId)
         this.removeConnectionIndex(subscriptionId)
-        this.removeRequestIndex(entry)
       })
       .finally(() => {
         if (this.cleanupPromises.get(subscriptionId)?.promise === promise) {
@@ -170,13 +131,8 @@ export class RuntimeSubscriptionRegistry {
     return promise
   }
 
-  cleanupByPrefix(prefix: string, throughVersion?: number): void {
-    const ids = Array.from(this.cleanups.entries())
-      .filter(
-        ([id, entry]) =>
-          id.startsWith(prefix) && (throughVersion === undefined || entry.version <= throughVersion)
-      )
-      .map(([id]) => id)
+  cleanupByPrefix(prefix: string): void {
+    const ids = Array.from(this.cleanups.keys()).filter((id) => id.startsWith(prefix))
     for (const id of ids) {
       this.cleanup(id)
     }
@@ -204,17 +160,6 @@ export class RuntimeSubscriptionRegistry {
       return
     }
     this.cleanup(subscriptionId)
-  }
-
-  /** Compare-and-delete: a newer registration that reused the request id keeps its address. */
-  private removeRequestIndex(entry: SubscriptionEntry): void {
-    if (!entry.request) {
-      return
-    }
-    const key = requestKey(entry.request)
-    if (this.subscriptionsByRequest.get(key)?.version === entry.version) {
-      this.subscriptionsByRequest.delete(key)
-    }
   }
 
   private removeConnectionIndex(subscriptionId: string): void {

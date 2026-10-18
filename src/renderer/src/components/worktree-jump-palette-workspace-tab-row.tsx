@@ -17,7 +17,6 @@ import {
 import { formatPaletteSessionAge } from '@/components/cmd-j/palette-session-age'
 import { resolvePaletteRepoForWorktree } from '@/lib/palette-repo-resolution'
 import { isEditorTabContentType } from '@/store/slices/editor/tabs/editor-tab-content-type'
-import { getRepoExecutionHostId } from '../../../shared/execution-host'
 
 export function WorktreeJumpPaletteWorkspaceTabRow({
   entry,
@@ -39,7 +38,7 @@ export function WorktreeJumpPaletteWorkspaceTabRow({
     : undefined
   const workspaceTabRepoName = workspaceTabRepo?.displayName ?? result.repoName
   const workspaceTabHostBadge = getPaletteHostBadge(
-    result.executionHostId ?? (workspaceTabRepo && getRepoExecutionHostId(workspaceTabRepo)),
+    workspaceTabRepo,
     controller.hostOptions,
     controller.hostFilterActive
   )

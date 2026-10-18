@@ -1,21 +1,26 @@
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
-import { useNativeChatRestartOfferEnabled } from '../native-chat-restart-offer-gate'
+import { AlertCircle, RotateCcw } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
+import { useAppStore } from '@/store'
+import { requestNativeChatResumeOnRestartDialog } from '../native-chat-resume-on-restart-dialog'
 import {
-  reopenNativeChatRestartOffer,
-  useNativeChatRestartOffer,
-  useNativeChatRestartRun
+  refreshNativeChatRestartOffer,
+  useNativeChatRestartOffer
 } from '../native-chat-resume-on-restart-store'
-import { resumeRunInFlight } from '../native-chat-resume-run'
-import { resumeRunView } from '../native-chat-resume-run-view'
 
 // Why: closing the resume dialog is a snooze, not a decline — the host keeps the offer. This is
 // then the only surface left carrying it, so it is always rendered rather than gated by
-// `statusBarItems`. Pressing Resume closes the dialog too, so this entry carries the run while it
-// is in flight, then says it resumed them until that summary has been seen. It is also the lasting
-// summary of chats the resume could not carry on: its toast says so once, and each chat it reached
-// carries its own note.
+// `statusBarItems`. A chat the resume could not carry on is kept the same way: the toast that
+// reported it is gone in seconds, and this entry is what still names it.
+
+/** Re-reads the host before opening so the dialog always reflects the current durable records.
+ *  Opening the chat itself is read-only and does not retire the offer. */
+async function reopenOffer(): Promise<void> {
+  const { candidates, failed } = await refreshNativeChatRestartOffer()
+  if (candidates.length > 0 || failed.length > 0) {
+    requestNativeChatResumeOnRestartDialog()
+  }
+}
 
 function Segment({
   icon,
@@ -37,7 +42,7 @@ function Segment({
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => void reopenNativeChatRestartOffer()}
+          onClick={() => void reopenOffer()}
           className="inline-flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/70"
           aria-label={ariaLabel}
         >
@@ -53,26 +58,6 @@ function Segment({
 }
 
 type SegmentText = { label: string; ariaLabel: string; tooltip: string }
-
-/** Chats answered out of the chats asked, each counted as its own answer arrives. */
-function resumingText(done: number, total: number): SegmentText {
-  return {
-    label: translate(
-      'auto.components.status.bar.NativeChatResumeStatusSegment.resumingProgressLabel',
-      'Resuming chats {{value0}}/{{value1}}',
-      { value0: done, value1: total }
-    ),
-    ariaLabel: translate(
-      'auto.components.status.bar.NativeChatResumeStatusSegment.resumingProgressAria',
-      'Resuming chats, {{value0}} of {{value1}} done. Click to open details.',
-      { value0: done, value1: total }
-    ),
-    tooltip: translate(
-      'auto.components.status.bar.NativeChatResumeStatusSegment.resumingTooltip',
-      'Restoring interrupted chats and asking them to carry on…'
-    )
-  }
-}
 
 function failedText(count: number): SegmentText {
   return {
@@ -101,37 +86,6 @@ function failedText(count: number): SegmentText {
     tooltip: translate(
       'auto.components.status.bar.NativeChatResumeStatusSegment.failedTooltip',
       'Chats Orca could not resume after the restart. Click for details.'
-    )
-  }
-}
-
-function resumedText(count: number): SegmentText {
-  return {
-    label:
-      count === 1
-        ? translate(
-            'auto.components.status.bar.NativeChatResumeStatusSegment.resumedLabelOne',
-            '1 chat resumed'
-          )
-        : translate(
-            'auto.components.status.bar.NativeChatResumeStatusSegment.resumedLabel',
-            '{{value0}} chats resumed',
-            { value0: count }
-          ),
-    ariaLabel:
-      count === 1
-        ? translate(
-            'auto.components.status.bar.NativeChatResumeStatusSegment.resumedAriaOne',
-            '1 chat resumed. Click to see it.'
-          )
-        : translate(
-            'auto.components.status.bar.NativeChatResumeStatusSegment.resumedAria',
-            '{{value0}} chats resumed. Click to see them.',
-            { value0: count }
-          ),
-    tooltip: translate(
-      'auto.components.status.bar.NativeChatResumeStatusSegment.resumedTooltip',
-      'Chats Orca resumed after the restart. Click to see them.'
     )
   }
 }
@@ -173,41 +127,20 @@ export function NativeChatResumeStatusSegment({
 }: {
   iconOnly: boolean
 }): React.JSX.Element | null {
-  const offerEnabled = useNativeChatRestartOfferEnabled()
-  const { candidates, failed } = useNativeChatRestartOffer(offerEnabled)
-  const run = useNativeChatRestartRun()
-  const failureBySession = new Map(failed.map((entry) => [entry.sessionId, entry]))
-  const view = run ? resumeRunView(run, candidates, (id) => failureBySession.get(id), 'all') : null
-  if (!offerEnabled) {
+  const structuredEnabled = useAppStore(
+    (store) => store.settings?.experimentalStructuredNativeChat === true
+  )
+  const { candidates, failed } = useNativeChatRestartOffer(structuredEnabled)
+  if (!structuredEnabled || (candidates.length === 0 && failed.length === 0)) {
     return null
   }
 
-  // Count the selection once until the action publishes the host's remaining list.
-  const running = run !== null && resumeRunInFlight(run)
-  const inRun = new Set(running ? run.entries.map((entry) => entry.candidate.sessionId) : [])
-  const waiting = failed.filter((failure) => !inRun.has(failure.sessionId))
-  const pending = candidates.filter((candidate) => !inRun.has(candidate.sessionId)).length
-  const failures = waiting.length
+  const pending = candidates.length
+  const failures = failed.length
   // An unconfirmed chat may be working, so "failed" would invite a duplicate "continue".
-  const unconfirmed = waiting.some((failure) => failure.outcome === 'unconfirmed')
-  // Only this run's own completed rows establish its success; older host failures are separate.
-  const resumed =
-    run !== null &&
-    !running &&
-    !run.finishedViewShown &&
-    view?.counts.resumed === run.entries.length
-      ? (view?.counts.resumed ?? 0)
-      : 0
+  const unconfirmed = failed.some((failure) => failure.outcome === 'unconfirmed')
   return (
     <>
-      {running && (
-        <Segment
-          iconOnly={iconOnly}
-          count={view?.counts.total ?? 0}
-          icon={<Loader2 className="size-3 animate-spin text-muted-foreground" />}
-          {...resumingText(view?.counts.done ?? 0, view?.counts.total ?? 0)}
-        />
-      )}
       {pending > 0 && (
         <Segment
           iconOnly={iconOnly}
@@ -251,14 +184,6 @@ export function NativeChatResumeStatusSegment({
           count={failures}
           icon={<AlertCircle className="size-3 text-status-warning" />}
           {...(unconfirmed ? checkText(failures) : failedText(failures))}
-        />
-      )}
-      {resumed > 0 && (
-        <Segment
-          iconOnly={iconOnly}
-          count={resumed}
-          icon={<CheckCircle2 className="size-3 text-status-success" />}
-          {...resumedText(resumed)}
         />
       )}
     </>

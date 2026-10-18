@@ -1,8 +1,7 @@
 import { isFreshNonDoneAgentStatus } from '../../shared/agent-status-types'
-import { isAgentStatusFresh } from '../../shared/agent-status-freshness'
 import type { RuntimeWorktreeAgentRow, RuntimeWorktreePsSummary } from '../../shared/runtime-types'
 import { mergeWorktreeSummaryStatus } from './runtime-worktree-status-projection'
-import type { RuntimeWorktreePsSummaryLookup } from './runtime-worktree-summary-paths'
+import type { RuntimeWorktreeSummaryPathIndex } from './runtime-worktree-summary-paths'
 import type { RuntimeWorkingTerminalEvidence } from './runtime-worktree-ps-activity'
 import type { RuntimeWorktreeAgentSource } from './runtime-worktree-agent-source'
 export type { RuntimeAgentRowSnapshot } from './runtime-hook-agent-row-selection'
@@ -15,13 +14,20 @@ type OrchestrationDisplay = {
 
 export function attachRuntimeWorktreeAgentRows(args: {
   summaries: Map<string, RuntimeWorktreePsSummary>
+  pathIndex: RuntimeWorktreeSummaryPathIndex
+  missingWorktreeIds: Set<string>
   rowSources: ReadonlyMap<string, RuntimeWorktreeAgentSource>
   workingTerminalEvidenceByWorktreeId: ReadonlyMap<
     string,
     readonly RuntimeWorkingTerminalEvidence[]
   >
   orchestrationByPaneKey: Record<string, OrchestrationDisplay> | null | undefined
-  getSummary: RuntimeWorktreePsSummaryLookup
+  getSummary: (
+    summaries: Map<string, RuntimeWorktreePsSummary>,
+    pathIndex: RuntimeWorktreeSummaryPathIndex,
+    missingWorktreeIds: Set<string>,
+    worktreeId: string
+  ) => RuntimeWorktreePsSummary | null
 }): void {
   const { rowSources } = args
   const now = Date.now()
@@ -31,7 +37,12 @@ export function attachRuntimeWorktreeAgentRows(args: {
     if (!worktreeId) {
       continue
     }
-    const summary = args.getSummary(worktreeId)
+    const summary = args.getSummary(
+      args.summaries,
+      args.pathIndex,
+      args.missingWorktreeIds,
+      worktreeId
+    )
     if (!summary) {
       continue
     }
@@ -49,15 +60,9 @@ export function attachRuntimeWorktreeAgentRows(args: {
       toolName: source.toolName,
       toolInput: source.toolInput,
       interrupted: source.interrupted,
-      ...(source.mainAgent ? { mainAgent: source.mainAgent } : {}),
       stateStartedAt: source.stateStartedAt,
       updatedAt: source.updatedAt,
-      ...(source.children !== undefined ? { children: source.children } : {}),
-      ...(source.subagents !== undefined ? { subagents: source.subagents } : {}),
       ...(source.structuredHost === 'owned' ? { structuredHostOwned: true as const } : {})
-    }
-    if (source.children !== undefined || source.subagents !== undefined) {
-      row.subagentObservation = isAgentStatusFresh(row, now) ? 'live' : 'unverifiable'
     }
     const rows = rowsByWorktree.get(summary.worktreeId)
     if (rows) {

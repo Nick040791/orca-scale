@@ -6,8 +6,10 @@ import {
   retireLeavesFromTerminalLayout,
   type RetiredTerminalSurface
 } from './mobile-session-terminal-retirement'
-import { rebaseWorkspaceSessionTerminalMembership } from './workspace-session-terminal-membership-authority'
-import { advanceTerminalTopologyRevision } from '../persistence/terminal-topology/terminal-topology-membership'
+import {
+  advanceTerminalTopologyRevision,
+  rebaseWorkspaceSessionTerminalMembership
+} from './workspace-session-terminal-membership-authority'
 
 function visibleTypeForContentType(
   contentType: string | undefined

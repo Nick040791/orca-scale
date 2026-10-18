@@ -5,7 +5,6 @@ import type { Tab, TabGroup } from '../../../../shared/tab-types'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import { resolveUnifiedTabLabel } from '../../../../shared/tab-title-resolution'
 import type { useAppStore } from '../../store'
-import { isEditorTabContentType } from '@/store/slices/editor/tabs/editor-tab-content-type'
 
 type TabGroupAppState = ReturnType<typeof useAppStore.getState>
 
@@ -105,7 +104,13 @@ export function useTabGroupItemProjections({
   const editorItems = useMemo<GroupEditorItem[]>(
     () =>
       groupTabs
-        .filter((item) => isEditorTabContentType(item.contentType))
+        .filter(
+          (item) =>
+            item.contentType === 'editor' ||
+            item.contentType === 'diff' ||
+            item.contentType === 'conflict-review' ||
+            item.contentType === 'check-details'
+        )
         .map((item) => {
           const file = openFileById.get(item.entityId)
           return file ? { ...file, tabId: item.id } : null

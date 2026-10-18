@@ -2,13 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { AgentSessionRewindRecordSchema } from '../../../shared/agent-session-rewind'
 import { restoreRewindJournalBody } from './structured-rewind-journal-body'
 
-/** A row this build cannot place: still a row, never its stored JSON, and not a failure — a
- *  hostFault's "Try again" would be false for a placeholder. */
-const UNPLACEABLE = {
-  kind: 'status',
-  text: 'Orca could not show this item after the rewind.'
-}
-
 describe('rewind recovery of newer durable records', () => {
   it('keeps an unknown message role and block readable without discarding the row', () => {
     expect(
@@ -22,22 +15,6 @@ describe('rewind recovery of newer durable records', () => {
       role: 'system',
       blocks: [{ type: 'text', text: '{"type":"future-block"}' }]
     })
-  })
-
-  // Retained by its place, never by its kind, so an updated Orca still has it after the rewind.
-  it('carries an item of a kind this build does not know as it was, and records it', () => {
-    const body = { kind: 'plan-card', title: 'by a newer build' }
-    expect(restoreRewindJournalBody(body)).toBe(body)
-    expect(
-      AgentSessionRewindRecordSchema.safeParse({
-        operationId: 'op-1',
-        callerKey: 'caller-1',
-        itemId: 'codex:thread-1:turn-1:3',
-        expectedEpoch: 'epoch-1',
-        phase: 'prepared',
-        retained: [{ itemId: 'codex:thread-1:turn-1:1', body, observedAt: 1 }]
-      }).success
-    ).toBe(true)
   })
 
   it('preserves background-task blocks across rewind recovery', () => {
@@ -66,13 +43,16 @@ describe('rewind recovery of newer durable records', () => {
       input: { path: 'file' },
       state: 'paused-by-provider'
     }
-    expect(restoreRewindJournalBody(body)).toEqual(UNPLACEABLE)
+    expect(restoreRewindJournalBody(body)).toEqual({ kind: 'status', text: JSON.stringify(body) })
     const status = {
       kind: 'status' as const,
       text: 'state',
       turnLifecycle: { turnId: 'turn', state: 'future-state' }
     }
-    expect(restoreRewindJournalBody(status)).toEqual(UNPLACEABLE)
+    expect(restoreRewindJournalBody(status)).toEqual({
+      kind: 'status',
+      text: JSON.stringify(status)
+    })
   })
   it.each(['interrupted', 'unverifiable'] as const)(
     'keeps a %s turn and its recorded endpoints',
@@ -102,7 +82,10 @@ describe('rewind recovery of newer durable records', () => {
     }
     expect(restoreRewindJournalBody(turn)).toEqual(turn)
     const unknown = { ...turn, state: 'future-state' }
-    expect(restoreRewindJournalBody(unknown)).toEqual(UNPLACEABLE)
+    expect(restoreRewindJournalBody(unknown)).toEqual({
+      kind: 'status',
+      text: JSON.stringify(unknown)
+    })
   })
   it('keeps a known turn outcome across rewind recovery in both journal shapes', () => {
     const turn = {

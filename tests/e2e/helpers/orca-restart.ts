@@ -20,9 +20,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { runProcess } from '@orca/process-host'
-import type { ProcessResult } from '@orca/process-host/process-spec'
-export { launchOwnedBrowserForE2E } from './browser-sidecar-launch'
+import { runProcess, type ProcessResult } from '../../../src/shared/child-process/run-process'
 import { getE2ECompletedOnboardingProfile } from './e2e-completed-onboarding-profile'
 import { getOrcaElectronLaunchArgs } from './electron-launch-args'
 import { retryTransientMainEvaluate } from './electron-main-evaluate-retry'
@@ -32,11 +30,22 @@ import {
   createElectronHomeIsolation,
   type ElectronHomeIsolation
 } from './electron-home-isolation'
-import type { LaunchOptions } from './orca-restart-launch-options'
 
 type LaunchedOrca = {
   app: ElectronApplication
   page: Page
+}
+
+type LaunchOptions = {
+  /**
+   * Called for each chunk the relaunched main process writes to stderr. The
+   * listener is attached before `firstWindow()` resolves so main-process
+   * startup logs (e.g. the daemon health-check guard) can't be emitted before
+   * the test starts capturing.
+   */
+  onStderr?: (chunk: string) => void
+  /** Merged into this launch only (not baked into the session's shared env). */
+  extraEnv?: Record<string, string>
 }
 
 type RestartSession = {
@@ -46,8 +55,8 @@ type RestartSession = {
   launchUntilExit: (executablePath: string) => Promise<ProcessResult>
   /** Gracefully close a launch, letting beforeunload flush session state. */
   close: (app: ElectronApplication) => Promise<void>
-  /** Close the final launch and remove the shared userDataDir after the test is done. */
-  dispose: (app?: ElectronApplication) => Promise<void>
+  /** Remove the shared userDataDir after the test is done. */
+  dispose: () => Promise<void>
 }
 
 async function delay(ms: number): Promise<void> {
@@ -104,6 +113,12 @@ function createRestartLaunchIsolation(
     inheritedEnv: cleanEnv,
     launchEnv: {
       NODE_ENV: 'development',
+      ...((process.env.ORCA_E2E_SSH_LOCALHOST === '1' ||
+        process.env.ORCA_E2E_SSH_DOCKER === '1' ||
+        process.env.ORCA_E2E_NESTED_RUNTIME_SSH === '1') &&
+      !cleanEnv.ORCA_RELAY_PATH
+        ? { ORCA_RELAY_PATH: path.join(process.cwd(), 'out', 'relay') }
+        : {}),
       ...extraEnv,
       ...(headful ? { ORCA_E2E_HEADFUL: '1' } : { ORCA_E2E_HEADLESS: '1' })
     },
@@ -162,7 +177,7 @@ export function createRestartSession(
   const launch = async (options?: LaunchOptions): Promise<LaunchedOrca> => {
     runtimeWsPort ??= await reserveRestartRuntimeWsPort()
     const app = await electron.launch({
-      args: [...getOrcaElectronLaunchArgs(mainPath, headful), ...(options?.extraArgs ?? [])],
+      args: getOrcaElectronLaunchArgs(mainPath, headful),
       env: {
         ...homeIsolation.env,
         ...options?.extraEnv,
@@ -184,7 +199,6 @@ export function createRestartSession(
         })
       )
       assertElectronResolvedIsolatedHome(resolvedHome, homeIsolation)
-      await options?.beforeFirstWindow?.(app)
       const page = await app.firstWindow({ timeout: 120_000 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })
@@ -217,10 +231,8 @@ export function createRestartSession(
     })
   }
 
-  const dispose = async (app?: ElectronApplication): Promise<void> => {
-    await (app
-      ? closeElectronAppForE2E(app, { cleanupDaemonsForUserDataDir: userDataDir })
-      : cleanupE2EDaemons(userDataDir))
+  const dispose = async (): Promise<void> => {
+    await cleanupE2EDaemons(userDataDir)
     if (process.env.ORCA_E2E_PRESERVE_RESTART_PROFILE === '1') {
       console.log(`[e2e] Preserved restart profile at ${userDataDir}`)
       return
@@ -262,7 +274,7 @@ export async function attachRepoAndOpenTerminal(page: Page, repoPath: string): P
             }
             // Why: repos.add emits a concurrent refresh whose generation can
             // supersede this fetch; poll until either refresh publishes the repo.
-            await store.getState().fetchRepos({ runtimeEnvironmentId: null, throwOnError: true })
+            await store.getState().fetchRepos()
             const repo = store.getState().repos.find((candidate) => candidate.id === repoId)
             if (!repo) {
               return false

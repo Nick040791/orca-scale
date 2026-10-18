@@ -7,7 +7,6 @@ const SURVIVING_ID = 'repo-1::/repos/one/kept'
 
 /** Only the maps this test asserts on; the cleanup reads them defensively. */
 function buildState(): AppState {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the cleanup reads only the maps listed here and tolerates the rest being absent.
   return {
     worktreesByRepo: { 'repo-1': [] },
     tabsByWorktree: { [REMOVED_ID]: [], [SURVIVING_ID]: [] },
@@ -28,11 +27,7 @@ function buildState(): AppState {
     // Tab-keyed maps with no entry for the removed worktree's tabs.
     terminalLayoutsByTabId: { 'other-tab': 'single' },
     ptyIdsByTabId: {},
-    expandedPaneByTabId: {},
-    sleepingAgentSessionsByPaneKey: {
-      'other-tab:leaf': { paneKey: 'other-tab:leaf', worktreeId: SURVIVING_ID }
-    },
-    agentLaunchConfigByPaneKey: { 'other-tab:leaf': {} }
+    expandedPaneByTabId: {}
   } as unknown as AppState
 }
 
@@ -67,9 +62,7 @@ describe('removeWorktree map identity', () => {
       'unifiedTabsByWorktree',
       'terminalLayoutsByTabId',
       'ptyIdsByTabId',
-      'expandedPaneByTabId',
-      'sleepingAgentSessionsByPaneKey',
-      'agentLaunchConfigByPaneKey'
+      'expandedPaneByTabId'
     ] as const) {
       expect(after[field], field).toBe(before[field])
     }
@@ -88,21 +81,5 @@ describe('removeWorktree map identity', () => {
     expect(after.gitStatusByWorktree).toEqual({ [SURVIVING_ID]: 'clean' })
     expect(after.terminalLayoutsByTabId).toEqual({ 'other-tab': 'single' })
     expect(after.tabsByWorktree).toEqual({ [SURVIVING_ID]: [] })
-  })
-
-  it('drops sleeping records written for the removed worktree after its terminals stopped (#24784)', () => {
-    const before = buildState()
-    Object.assign(before, {
-      sleepingAgentSessionsByPaneKey: {
-        'late-tab:leaf': { paneKey: 'late-tab:leaf', worktreeId: REMOVED_ID },
-        'other-tab:leaf': { paneKey: 'other-tab:leaf', worktreeId: SURVIVING_ID }
-      },
-      agentLaunchConfigByPaneKey: { 'late-tab:leaf': {}, 'other-tab:leaf': {} }
-    })
-
-    const after = removeWorktree(before)
-
-    expect(Object.keys(after.sleepingAgentSessionsByPaneKey)).toEqual(['other-tab:leaf'])
-    expect(Object.keys(after.agentLaunchConfigByPaneKey)).toEqual(['other-tab:leaf'])
   })
 })

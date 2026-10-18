@@ -81,8 +81,7 @@ describe('absolute file CLI paths', () => {
     })
     expect(callMock).toHaveBeenNthCalledWith(3, 'files.open', {
       worktree: 'id:repo::/root/orca/workspaces/xxx',
-      relativePath: 'xxx/xxx.ts',
-      navigation: 'caller'
+      relativePath: 'xxx/xxx.ts'
     })
   })
 
@@ -106,8 +105,7 @@ describe('absolute file CLI paths', () => {
       expect(process.exitCode).toBeUndefined()
       expect(callMock).toHaveBeenNthCalledWith(2, 'files.open', {
         worktree: 'id:wt-1',
-        relativePath,
-        navigation: 'caller'
+        relativePath
       })
     }
 
@@ -269,8 +267,7 @@ describe('absolute file CLI paths', () => {
     expect(callMock).toHaveBeenNthCalledWith(2, 'files.openDiff', {
       worktree: 'id:wt-1',
       relativePath: 'src/App.tsx',
-      staged: true,
-      navigation: 'caller'
+      staged: true
     })
   })
 
@@ -290,8 +287,7 @@ describe('absolute file CLI paths', () => {
     expect(callMock).toHaveBeenCalledTimes(1)
     expect(callMock).toHaveBeenCalledWith('files.open', {
       worktree: 'id:wt-1',
-      relativePath: 'src/App.tsx',
-      navigation: 'caller'
+      relativePath: 'src/App.tsx'
     })
   })
 
@@ -312,8 +308,7 @@ describe('absolute file CLI paths', () => {
 
     expect(callMock).toHaveBeenNthCalledWith(2, 'files.open', {
       worktree: 'id:wt-1',
-      relativePath: absolutePath,
-      navigation: 'caller'
+      relativePath: absolutePath
     })
   })
 

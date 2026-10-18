@@ -14,7 +14,7 @@ export default function ProjectAddedDialog(): null {
   const modalData = useAppStore((s) => s.modalData as ProjectAddedModalData)
   const closeModal = useAppStore((s) => s.closeModal)
   const repos = useAppStore((s) => s.repos)
-  const fetchReposForAllHosts = useAppStore((s) => s.fetchReposForAllHosts)
+  const fetchRepos = useAppStore((s) => s.fetchRepos)
   const fetchWorktrees = useAppStore((s) => s.fetchWorktrees)
   const setHideDefaultBranchWorkspace = useAppStore((s) => s.setHideDefaultBranchWorkspace)
   const handoffRunRef = useRef(0)
@@ -47,8 +47,7 @@ export default function ProjectAddedDialog(): null {
       pendingRepoHydrationRef.current = repoId
       let cancelled = false
       void (async () => {
-        // Why: no row yet names the new project's host, so look on every host.
-        await fetchReposForAllHosts()
+        await fetchRepos()
         if (cancelled) {
           return
         }
@@ -113,7 +112,7 @@ export default function ProjectAddedDialog(): null {
   }, [
     activeModal,
     closeModal,
-    fetchReposForAllHosts,
+    fetchRepos,
     fetchWorktrees,
     repo,
     repoId,

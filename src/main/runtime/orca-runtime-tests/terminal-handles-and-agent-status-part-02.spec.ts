@@ -142,7 +142,7 @@ describe('OrcaRuntimeService', () => {
     syncSinglePty(runtime, 'pty-1', { paneTitle: 'claude agents' })
     const [terminal] = (await runtime.listTerminals()).terminals
 
-    await expect(runtime.getAgentStatusForHandle(terminal.handle)).resolves.toBeNull()
+    expect(runtime.getAgentStatusForHandle(terminal.handle)).toBeNull()
   })
 
   it('lists live terminals with fresh pane titles over stale tab titles', async () => {

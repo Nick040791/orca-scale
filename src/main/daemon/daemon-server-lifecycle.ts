@@ -19,7 +19,6 @@ type DaemonServerLifecycleOptions = {
   disposeResources: () => Promise<void>
   onIdleShutdown: () => void
   onRpcShutdown: () => void
-  onShutdownRequested: () => void
 }
 
 export class DaemonServerLifecycle {
@@ -149,7 +148,6 @@ export class DaemonServerLifecycle {
   }
 
   beginOrdinaryShutdownFence(): Promise<void> {
-    this.options.onShutdownRequested()
     this.state = 'shutting-down'
     this.cancelInitialAdoptionTimer()
     this.ordinaryShutdownServerClose ??= this.beginServerClose()

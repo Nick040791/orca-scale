@@ -23,15 +23,14 @@ import {
   resolveCodexPaneSelectionLane
 } from './codex-pane-selection-lane'
 import type { CodexAccountSelectionTarget } from '../../../shared/codex-selection-lane'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { TuiAgent } from '../../../shared/tui-agent'
 
 // Why: prompt integrations such as Starship can outlast the daemon's 300ms
 // Codex fast-path timeout; account restarts must wait until the shell accepts input.
 // Why launchAgent: pty:spawn runs the managed-auth readiness gate and Codex
-// launch prep only for launchAgent 'codex', so without it a restart respawn
-// could race the account handoff and record a launch account the pane does not
-// actually read.
+// launch prep (project trust pre-mark) only for launchAgent 'codex', so without
+// it a restart respawn could race the account handoff and record a launch
+// account the pane does not actually read.
 export const CODEX_ACCOUNT_RESTART_STARTUP = {
   command: 'codex',
   startupCommandDelivery: 'shell-ready',
@@ -92,6 +91,7 @@ async function readRecordedCodexPaneLanes(
  * null (scan failed or unsupported) both keep today's ineligible outcome.
  */
 async function isConfirmedCodexForegroundDespiteShellReading(
+  state: AppState,
   ptyId: string,
   launchAgent: TuiAgent | undefined,
   inspection: RuntimeTerminalProcessInspection
@@ -104,7 +104,7 @@ async function isConfirmedCodexForegroundDespiteShellReading(
   ) {
     return false
   }
-  const confirmed = await confirmRuntimeTerminalForegroundProcess(ptyId)
+  const confirmed = await confirmRuntimeTerminalForegroundProcess(state.settings, ptyId)
   return isCodexForegroundProcess(confirmed)
 }
 
@@ -158,7 +158,7 @@ async function scanCodexPanes(
           laneSource: lane.source
         }
       }
-      const inspection = await inspectRuntimeTerminalProcess(ptyId).then(
+      const inspection = await inspectRuntimeTerminalProcess(state.settings, ptyId).then(
         (result) => result,
         // Why: one stale remote pane must not hide restart notices for other confirmed Codex panes.
         () => null
@@ -166,7 +166,12 @@ async function scanCodexPanes(
       const eligible =
         inspection !== null &&
         (isCodexRestartEligiblePane({ inspection, launchAgent: tab.launchAgent }) ||
-          (await isConfirmedCodexForegroundDespiteShellReading(ptyId, tab.launchAgent, inspection)))
+          (await isConfirmedCodexForegroundDespiteShellReading(
+            state,
+            ptyId,
+            tab.launchAgent,
+            inspection
+          )))
       return {
         ptyId,
         eligible,
@@ -197,8 +202,6 @@ export async function markLiveCodexSessionsForRestart(args: {
   previousAccountId?: string | null
   nextAccountId?: string | null
   target?: CodexAccountSelectionTarget | null
-  /** Host whose roster the change wrote; never inferred from focus. */
-  owner: RuntimeClientTarget
   /** Set when the change cleared the selection rather than pointing it somewhere. */
   clearsEveryWslDistro?: boolean
 }): Promise<void> {
@@ -206,7 +209,7 @@ export async function markLiveCodexSessionsForRestart(args: {
   const scans = await scanCodexPanes(state, {
     ptyIdFilter: null,
     isLaneInScope: getCodexAccountSwitchLaneMatcher({
-      owner: args.owner,
+      settings: state.settings,
       target: args.target,
       clearsEveryWslDistro: args.clearsEveryWslDistro
     })
@@ -252,7 +255,8 @@ export async function markLiveCodexSessionsForRestart(args: {
             previousAccountLabel: args.previousAccountLabel,
             nextAccountLabel: args.nextAccountLabel,
             previousAccountId: stalePane.launchAccountId,
-            nextAccountId: stalePane.activeAccountId
+            nextAccountId: stalePane.activeAccountId,
+            homeRouteChanged: stalePane.reason === 'home-route-change'
           }
         ]
       }
@@ -315,7 +319,8 @@ export async function markRestoredStaleCodexSessionsForRestart(args?: {
       // Why the ids: main decided staleness by id, and the labels can collide.
       // Passing only labels hands the store a question it cannot answer.
       previousAccountId: pane.launchAccountId,
-      nextAccountId: pane.activeAccountId
+      nextAccountId: pane.activeAccountId,
+      ...(pane.reason === 'home-route-change' ? { homeRouteChanged: true as const } : {})
     }))
   )
   // Why not every stale pane: the bind sweep suppresses a "notified" pane for the

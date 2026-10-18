@@ -2,21 +2,23 @@ import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import { agentLabel } from '../../../../shared/ai-vault-session-filters'
-import {
-  CLI_CONVERSATION_ADOPTING_AGENTS,
-  type CliConversationRowAgent
-} from '../../../../shared/structured-agent-cli-conversation-adoption'
+import type { AgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { hasRuntimeRpcErrorCode } from '../../../../shared/runtime-rpc-error-code'
+import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { prepareAiVaultSessionForResume } from '@/lib/ai-vault-session-resume-preparation'
 import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
-import type { AgentLaunchRequestId } from '@/lib/agent-launch-request-id'
-import { activateAndRevealWorkspace } from '@/lib/worktree-activation'
+import {
+  activateAndRevealFolderWorkspace,
+  activateAndRevealWorktree
+} from '@/lib/worktree-activation'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
-import { structuredLaunchFailure } from '@/lib/structured-agent-session-launch-failure'
 
 export function activateAiVaultResumeWorkspace(workspaceId: string): boolean {
-  return activateAndRevealWorkspace(workspaceId) !== false
+  const workspaceScope = parseWorkspaceKey(workspaceId)
+  if (workspaceScope?.type === 'folder') {
+    return activateAndRevealFolderWorkspace(workspaceScope.folderWorkspaceId) !== false
+  }
+  return activateAndRevealWorktree(workspaceId) !== false
 }
 
 /** Adopt a vault conversation into a new structured chat. The route was decided by the
@@ -25,9 +27,8 @@ export function activateAiVaultResumeWorkspace(workspaceId: string): boolean {
  *  would hide the refusal the user needs to see. */
 export async function resumeAiVaultSessionInNewChat(
   session: AiVaultSession,
-  rowAgent: CliConversationRowAgent,
-  worktreeId: string,
-  requestId: AgentLaunchRequestId
+  agent: AgentSessionHandleProvider,
+  worktreeId: string
 ): Promise<void> {
   try {
     // Codex rows can live under a shared legacy home; the same preparation the terminal resume
@@ -35,8 +36,7 @@ export async function resumeAiVaultSessionInNewChat(
     const preparedSession = await prepareAiVaultSessionForResume(session)
     const plan = adoptAgentSessionLaunchVerdict({
       route: 'structured-native-chat',
-      requestId,
-      agent: CLI_CONVERSATION_ADOPTING_AGENTS[rowAgent],
+      agent,
       worktreeId,
       resumeFrom: { providerSessionId: preparedSession.sessionId }
     })
@@ -52,23 +52,20 @@ export async function resumeAiVaultSessionInNewChat(
     })
     if (launch) {
       void launch.settlement.then((settlement) => {
-        if (settlement.kind === 'failed' && !settlement.notified) {
-          notifyAiVaultSessionResumeInChatFailure(settlement.error, rowAgent)
+        if (settlement.kind === 'failed') {
+          notifyAiVaultSessionResumeInChatFailure(settlement.error)
         }
       })
     }
   } catch (error) {
-    notifyAiVaultSessionResumeInChatFailure(error, rowAgent)
+    notifyAiVaultSessionResumeInChatFailure(error)
   }
 }
 
 /** The host refuses an adoption whose conversation another chat already holds, and refuses one it
  *  cannot find under any account home it recognises. Both are actionable, and neither is the
  *  generic "could not prepare" the terminal resume reports. */
-function notifyAiVaultSessionResumeInChatFailure(
-  error: unknown,
-  rowAgent: CliConversationRowAgent
-): void {
+function notifyAiVaultSessionResumeInChatFailure(error: unknown): void {
   if (hasRuntimeRpcErrorCode(error, 'agent_session_conflict')) {
     toast.error(
       translate(
@@ -78,24 +75,7 @@ function notifyAiVaultSessionResumeInChatFailure(
     )
     return
   }
-  const failure = structuredLaunchFailure(error)
-  if (
-    failure?.code === 'agent_session_identity_required' &&
-    failure.details?.reason === 'transcriptNotFound'
-  ) {
-    toast.error(
-      translate(
-        'components.native-chat.resumeInNewChat.notSavedYet',
-        "{{agent}} hasn't saved this conversation yet. Try again after it replies.",
-        { agent: agentLabel(rowAgent) }
-      )
-    )
-    return
-  }
-  if (
-    failure?.code === 'agent_session_identity_required' ||
-    hasRuntimeRpcErrorCode(error, 'agent_session_identity_required')
-  ) {
+  if (hasRuntimeRpcErrorCode(error, 'agent_session_identity_required')) {
     toast.error(
       translate(
         'auto.components.right.sidebar.AiVaultPanel.resumeInChatTranscriptMissing',

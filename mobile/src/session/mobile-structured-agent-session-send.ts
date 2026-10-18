@@ -1,60 +1,118 @@
 import type { AgentSessionSendResult } from '../../../src/shared/agent-session-wire'
-import type { AgentJournalCursor } from '../../../src/shared/agent-session-journal-types'
 import {
   structuredAgentSessionSendBody,
   type StructuredAgentSessionAttachment
-} from '../../../src/shared/structured-agent-session-send-mutation'
+} from '../../../src/shared/structured-agent-session-outbox'
+import {
+  structuredAgentSessionDomainFingerprint,
+  structuredAgentSessionPayloadFingerprint
+} from '../../../src/shared/structured-agent-session-mutation'
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import {
   requestStructuredAgentSessionMutation,
   timeoutForDeadline
 } from './mobile-structured-agent-session-rpc'
+import { structuredSessionOperationId } from './structured-session-operation-id'
 import { mobileStructuredSendDelivery } from './mobile-structured-send-delivery'
-import type { MobileNativeChatSendErrorReporter } from './use-mobile-native-chat-send-error'
+import {
+  clearMobileStructuredSendOperation,
+  getOrCreateMobileStructuredSendOperation,
+  mobileStructuredSendOperationKey
+} from './mobile-structured-send-operation-journal'
 
 export async function sendMobileStructuredAgentSessionMessage(input: {
   client: RpcClient
   sessionId: string
+  sessionKey: string
+  callerIdentity: string
   expectedRuntimeFence: number
   text: string
-  attachments: readonly StructuredAgentSessionAttachment[]
-  /** Sent only when the host advertises `agent-session.queued-messages.v1`. */
-  delivery?: 'queue-if-active'
-  /** Sent only when the host advertises `agent-session.send-options.v1`. */
-  options?: Readonly<Record<string, string>>
+  attachments: readonly (StructuredAgentSessionAttachment & { contentFingerprint?: string })[]
   deadline?: number
-  /** The id the host records the message under. */
-  clientMessageId: string
-  onError: MobileNativeChatSendErrorReporter
-  onAccepted?: (cursor: AgentJournalCursor | undefined) => void
+  onError: (message: string) => void
 }): Promise<MobileNativeChatSendOutcome> {
   const timeoutMs = timeoutForDeadline(input.deadline)
   if (timeoutMs === null) {
     input.onError('Message not sent')
     return 'rejected'
   }
-  // Each Send is a new action, under one operation id.
+  const requestedBody = structuredAgentSessionSendBody(input.text, input.attachments)
+  const requestedPayloadFingerprint = structuredAgentSessionPayloadFingerprint({
+    method: 'agentSession.send',
+    sessionId: input.sessionId,
+    fields: { body: requestedBody }
+  })
+  const intentFingerprint = structuredAgentSessionDomainFingerprint({
+    domain: 'mobile.agentSession.send.intent',
+    sessionId: input.sessionKey,
+    fields: {
+      text: input.text.trimEnd(),
+      attachments: input.attachments.map(
+        (attachment) =>
+          attachment.contentFingerprint ??
+          structuredAgentSessionDomainFingerprint({
+            domain: 'mobile.nativeChat.image.preview',
+            sessionId: '',
+            fields: { previewUri: attachment.previewUri }
+          })
+      )
+    }
+  })
+  const operationKey = mobileStructuredSendOperationKey({
+    sessionKey: input.sessionKey,
+    intentFingerprint
+  })
+  let operation: Awaited<ReturnType<typeof getOrCreateMobileStructuredSendOperation>>
+  try {
+    operation = await getOrCreateMobileStructuredSendOperation({
+      operationKey,
+      callerIdentity: input.callerIdentity,
+      payloadFingerprint: requestedPayloadFingerprint,
+      attachmentPaths: input.attachments.map((attachment) => attachment.path),
+      createOperationId: structuredSessionOperationId
+    })
+  } catch {
+    input.onError('Message not sent')
+    return 'rejected'
+  }
+  const body = structuredAgentSessionSendBody(
+    input.text,
+    operation.attachmentPaths.map((path) => ({ path, previewUri: '' }))
+  )
+  const payloadFingerprint = structuredAgentSessionPayloadFingerprint({
+    method: 'agentSession.send',
+    sessionId: input.sessionId,
+    fields: { body }
+  })
+  if (payloadFingerprint !== operation.payloadFingerprint) {
+    input.onError('Message not sent')
+    return 'rejected'
+  }
   const result = await requestStructuredAgentSessionMutation<AgentSessionSendResult>({
     client: input.client,
     method: 'agentSession.send',
     fingerprintMethod: 'agentSession.send',
     sessionId: input.sessionId,
     expectedRuntimeFence: input.expectedRuntimeFence,
-    fields: {
-      body: structuredAgentSessionSendBody(input.text, input.attachments),
-      ...(input.delivery ? { delivery: input.delivery } : {}),
-      ...(input.options ? { options: input.options } : {})
-    },
-    clientOperationId: input.clientMessageId,
+    fields: { body },
+    clientOperationId: operation.operationId,
     timeoutMs
   })
-  const outcome = mobileStructuredSendDelivery(result)
-  if (outcome.error !== null) {
-    input.onError(outcome.error)
+  const delivery = mobileStructuredSendDelivery(result, operation.retained)
+  if (delivery.operationIdSpent) {
+    try {
+      await clearMobileStructuredSendOperation({
+        operationKey,
+        operationId: operation.operationId
+      })
+    } catch {
+      // A retained settled id can suppress a later identical send, never
+      // duplicate this one; the next replay gets another clear chance.
+    }
   }
-  if (outcome.outcome === 'accepted' && result.status === 'accepted') {
-    input.onAccepted?.(result.cursor)
+  if (delivery.error !== null) {
+    input.onError(delivery.error)
   }
-  return outcome.outcome
+  return delivery.outcome
 }

@@ -1,17 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getRuntimeMobileSessionSyncKey,
-  runtimeMobileSessionSyncKeysEqual
-} from './sync-runtime-graph/sync-key'
-import {
+  hasRegisteredRuntimeTerminalTab,
+  registerRuntimeTerminalTab,
+  runtimeMobileSessionSyncKeysEqual,
   scheduleRuntimeGraphSync,
   setRuntimeGraphStoreStateGetter,
   setRuntimeGraphSyncEnabled
 } from './sync-runtime-graph'
-import {
-  hasRegisteredRuntimeTerminalTab,
-  registerRuntimeTerminalTab
-} from './mounted-terminal-tab-registry'
 import type { AppState } from '../store/types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 

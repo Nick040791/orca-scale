@@ -17,6 +17,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -54,6 +55,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -76,6 +78,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult('codex')),
       dispatchCompletion,
       isLive: () => true
@@ -101,6 +104,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       isLive: () => true
@@ -128,6 +132,7 @@ describe('agent completion coordinator', () => {
     const hookCoordinator = createAgentCompletionCoordinator({
       paneKey,
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(null)),
       dispatchCompletion,
       isLive: () => true
@@ -152,6 +157,7 @@ describe('agent completion coordinator', () => {
     const processCoordinator = createAgentCompletionCoordinator({
       paneKey,
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => result),
       dispatchCompletion,
       isLive: () => true
@@ -183,6 +189,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(() => inspection.promise),
       dispatchCompletion,
       isLive: () => true
@@ -212,6 +219,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -252,6 +260,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(() => inspection.promise),
       dispatchCompletion,
       isLive: () => true
@@ -279,6 +288,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess,
       dispatchCompletion,
       isLive: () => true

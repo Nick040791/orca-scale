@@ -12,12 +12,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-types'
 import type { Tab } from '../../../shared/tab-types'
-import { applyLocalStructuredSessionTabSnapshots } from './local-structured-session-tabs-sync/snapshot-apply'
 import {
-  resetLocalStructuredSessionVersionForTests,
-  localStructuredSessionEpochHistoryByWorktree
-} from './local-structured-session-tabs-sync/inventory-generation-fence'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+  applyLocalStructuredSessionTabSnapshots,
+  resetLocalStructuredSessionVersionForTests
+} from './local-structured-session-tabs-sync'
+import { localStructuredSessionEpochHistoryByWorktree } from './local-structured-session-tabs-sync/inventory-generation-fence'
+import type { WebSessionTabsSyncState } from './web-session-tabs-sync'
 import { resetWebSessionFocusIntentForTests } from './web-session-focus-intent'
 
 const WORKTREE = 'folder:ws-1'

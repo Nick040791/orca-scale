@@ -3,9 +3,6 @@ import type { CommandHandler } from '../dispatch'
 import { formatCliStatus, formatStatus, printResult } from '../format'
 import { RuntimeClientError, serveOrcaApp } from '../runtime-client'
 import { stripElectronRunAsNode } from '../runtime/launch'
-import { resolveCliStatusCaller } from '../runtime/status-caller'
-import { getServeSuperviseValidationError } from '../runtime/serve-supervised-service'
-import { getOptionalServePort } from '../runtime/serve-port-flag'
 import { getServeOptionValidationError } from '../../shared/serve-option-validation'
 
 function envRecord(): Record<string, string> {
@@ -44,6 +41,21 @@ async function runClaudeAgentTeams(env: Record<string, string>, args: string[]):
       resolve(signal ? 1 : 0)
     })
   })
+}
+
+function getOptionalServePort(flags: Map<string, string | boolean>): string | null {
+  if (!flags.has('port')) {
+    return null
+  }
+  const rawPort = flags.get('port')
+  if (typeof rawPort !== 'string' || rawPort.length === 0) {
+    throw new RuntimeClientError('invalid_argument', 'Missing value for --port.')
+  }
+  const port = Number(rawPort)
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new RuntimeClientError('invalid_argument', `Invalid --port value: ${rawPort}`)
+  }
+  return rawPort
 }
 
 export const CORE_HANDLERS: Record<string, CommandHandler> = {
@@ -89,18 +101,10 @@ export const CORE_HANDLERS: Record<string, CommandHandler> = {
     const projectRoot = typeof projectRootValue === 'string' ? projectRootValue : null
     const noPairing = flags.get('no-pairing') === true
     const mobilePairing = flags.get('mobile-pairing') === true
-    const grantDesktopControl = flags.get('grant-desktop-control') === true
     const recipeJson = flags.get('recipe-json') === true
-    const force = flags.get('force') === true
-    const supervise = flags.get('supervise') === true
-    const superviseError = getServeSuperviseValidationError({ supervise, recipeJson })
-    if (superviseError) {
-      throw new RuntimeClientError('invalid_argument', superviseError)
-    }
     const validationError = getServeOptionValidationError({
       noPairing,
       mobilePairing,
-      grantDesktopControl,
       recipeJson,
       projectRoot
     })
@@ -115,11 +119,8 @@ export const CORE_HANDLERS: Record<string, CommandHandler> = {
       pairingAddress: typeof pairingAddressValue === 'string' ? pairingAddressValue : null,
       noPairing,
       mobilePairing,
-      grantDesktopControl,
       recipeJson,
-      projectRoot,
-      ...(force ? { force: true } : {}),
-      ...(supervise ? { supervise: true } : {})
+      projectRoot
     })
     process.exitCode = exitCode
   },
@@ -128,13 +129,6 @@ export const CORE_HANDLERS: Record<string, CommandHandler> = {
     if (!json && !result.result.runtime.reachable) {
       process.exitCode = 1
     }
-    const caller = result.result.runtime.reachable
-      ? await resolveCliStatusCaller(client)
-      : undefined
-    printResult(
-      caller === undefined ? result : { ...result, result: { ...result.result, caller } },
-      json,
-      formatStatus
-    )
+    printResult(result, json, formatStatus)
   }
 }

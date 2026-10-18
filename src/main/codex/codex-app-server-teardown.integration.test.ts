@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ORCA_AGENT_SESSION_SPAWN_TOKEN_ENV } from '../../shared/agent-session-caller-env'
+import { CODEX_SPAWN_TOKEN_ENV } from './codex-structured-owner-identity'
 import {
   openCodexAppServerConnection,
   type CodexAppServerConnection
@@ -57,7 +57,7 @@ async function openServer(
       command: process.execPath,
       args: ['-e', FORCE_KILL_APP_SERVER],
       env: {
-        [ORCA_AGENT_SESSION_SPAWN_TOKEN_ENV]: `teardown-test-${process.pid}-${exitMode ?? 'forced'}-${iteration}`,
+        [CODEX_SPAWN_TOKEN_ENV]: `teardown-test-${process.pid}-${iteration}`,
         ...(exitMode ? { ORCA_TEST_PROVIDER_EXIT_MODE: exitMode } : {})
       }
     },
@@ -107,10 +107,9 @@ describe.runIf(process.platform !== 'win32')('Codex app-server process teardown'
     }
   }, 30_000)
 
-  it.concurrent.for(['normal', 'signal'] as const)(
+  it.each(['normal', 'signal'] as const)(
     'reaps provider descendants before relaying a %s root exit in 40 consecutive launches',
-    { timeout: 60_000 },
-    async (exitMode, { expect }) => {
+    async (exitMode) => {
       for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
         const server = await openServer(iteration, exitMode)
         try {
@@ -122,12 +121,11 @@ describe.runIf(process.platform !== 'win32')('Codex app-server process teardown'
           await cleanupServer(server)
         }
       }
-    }
+    },
+    60_000
   )
 
-  it.concurrent('does not settle a stdin-close/root-exit race before the descendant is reaped', async ({
-    expect
-  }) => {
+  it('does not settle a stdin-close/root-exit race before the descendant is reaped', async () => {
     for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
       const server = await openServer(iteration, 'stdin-race')
       try {

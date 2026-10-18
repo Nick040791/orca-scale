@@ -113,9 +113,6 @@ export function handleAgentCompletionInspectionResult(args: {
       }
       state.lastForegroundAgent = null
       clearAgentRunEvidence()
-      if (exited) {
-        options.onForegroundAgentExited?.(exited)
-      }
       return false
     }
     if (admitted.verdict !== 'live') {
@@ -191,7 +188,6 @@ export function handleAgentCompletionInspectionResult(args: {
     }
     state.lastForegroundAgent = null
     clearAgentRunEvidence()
-    options.onForegroundAgentExited?.(exited)
   } else {
     state.lastForegroundAgent = null
     clearAgentRunEvidence()

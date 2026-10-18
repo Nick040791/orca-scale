@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 
 const appStateListeners = new Set<() => void>()
-// Read on first subscribe, so importing this module never touches AppState.
-let currentAppState: AppStateStatus | null = null
+let currentAppState: AppStateStatus | null = AppState.currentState
 let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null
 
 function subscribeToAppState(listener: () => void): () => void {

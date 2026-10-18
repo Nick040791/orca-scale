@@ -1,5 +1,5 @@
 import React from 'react'
-import { MoreHorizontal, Pause, Play, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pause, Pencil, Play, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -56,6 +56,11 @@ export type AutomationListExternalRowProps = {
     action: ExternalAutomationAction,
     scope: ExternalAutomationScope
   ) => void
+  onEdit: (
+    manager: ExternalAutomationManager,
+    job: ExternalAutomationJob,
+    scope: ExternalAutomationScope
+  ) => void
 }
 
 export function AutomationListExternalRow({
@@ -65,7 +70,8 @@ export function AutomationListExternalRow({
   sshConnectionStates,
   externalActionKey,
   onSelect,
-  onRequestAction
+  onRequestAction,
+  onEdit
 }: AutomationListExternalRowProps): React.JSX.Element {
   const providerLabel = getExternalProviderLabel(entry.manager)
   const targetKindLabel = getExternalTargetKindLabel(entry.manager)
@@ -165,6 +171,15 @@ export function AutomationListExternalRow({
                     translate('auto.components.automations.AutomationsPage.2faecab10b', 'Run Now')}
                 </span>
               </DropdownMenuItem>
+              {entry.manager.provider === 'hermes' ? (
+                <DropdownMenuItem
+                  disabled={!entry.manager.canManage || externalActionKey !== null}
+                  onSelect={() => onEdit(entry.manager, entry.job, entry.scope)}
+                >
+                  <Pencil className="size-3.5" />
+                  {translate('auto.components.automations.AutomationsPage.f4612e3f78', 'Edit')}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 disabled={actionDisabled}
                 onSelect={() =>
@@ -205,6 +220,15 @@ export function AutomationListExternalRow({
               translate('auto.components.automations.AutomationsPage.2faecab10b', 'Run Now')}
           </span>
         </ContextMenuItem>
+        {entry.manager.provider === 'hermes' ? (
+          <ContextMenuItem
+            disabled={!entry.manager.canManage || externalActionKey !== null}
+            onSelect={() => onEdit(entry.manager, entry.job, entry.scope)}
+          >
+            <Pencil className="size-3.5" />
+            {translate('auto.components.automations.AutomationsPage.f4612e3f78', 'Edit')}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem
           disabled={actionDisabled}
           onSelect={() =>

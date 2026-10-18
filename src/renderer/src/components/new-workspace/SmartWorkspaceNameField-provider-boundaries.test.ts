@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canUseGitLabSmartSource } from './smart-workspace-provider-availability'
+import { canUseGitLabSmartSource } from './SmartWorkspaceNameField'
 
 describe('SmartWorkspaceNameField provider boundaries', () => {
   it('advertises local GitLab smart lookup only when local glab is available', () => {

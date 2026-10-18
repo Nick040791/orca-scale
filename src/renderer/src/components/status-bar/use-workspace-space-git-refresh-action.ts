@@ -1,11 +1,11 @@
 import { useCallback } from 'react'
 import type { GitStatusResult } from '../../../../shared/git-status-types'
-import { ipcOrRuntimeTargetForHostId } from '@/runtime/runtime-client-target'
+import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type { WorkspaceSpaceWorktree } from '../../../../shared/workspace-space-types'
 import { getWorkspaceSpaceWorktreeIdentity } from './workspace-space-delete-selection'
 import { useAppStore } from '../../store'
 import { findRepoForHost } from '../../store/slices/repo-host-identity'
-import { getRuntimeGitStatus } from '@/runtime/runtime-git-status-client'
+import { getRuntimeGitStatus } from '@/runtime/runtime-git-client'
 import type { useWorkspaceSpaceManagerBindings } from './use-workspace-space-manager-bindings'
 
 type WorkspaceSpaceManagerBindings = ReturnType<typeof useWorkspaceSpaceManagerBindings>
@@ -47,15 +47,18 @@ export function useWorkspaceSpaceGitRefreshAction(bindings: WorkspaceSpaceManage
         hostId: worktree.executionHostId,
         settings
       })
-      // Why: a scan row without a host id came from this app's own scan.
-      const ownerTarget = worktree.executionHostId
-        ? ipcOrRuntimeTargetForHostId(worktree.executionHostId)
-        : ({ kind: 'local' } as const)
+      const host = parseExecutionHostId(worktree.executionHostId)
+      const ownerSettings = settings
+        ? {
+            ...settings,
+            activeRuntimeEnvironmentId: host?.kind === 'runtime' ? host.environmentId : null
+          }
+        : { activeRuntimeEnvironmentId: host?.kind === 'runtime' ? host.environmentId : null }
 
       return (
-        owner && ownerTarget
+        owner
           ? getRuntimeGitStatus({
-              target: ownerTarget,
+              settings: ownerSettings,
               worktreeId: worktree.worktreeId,
               worktreePath: worktree.path,
               connectionId: owner.connectionId ?? undefined

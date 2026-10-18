@@ -1,19 +1,23 @@
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { isKeepaliveFrame } from '../../../shared/runtime-rpc-envelope'
-import type {
-  PairedE2EEAuthReply,
-  PairedE2EEClientHandshake
-} from '../../../shared/paired-e2ee-client-handshake'
-import { WEB_RUNTIME_CLIENT_CAPABILITIES } from './web-runtime-client-capabilities'
-import type { WebRuntimeAuthPlan } from './web-runtime-credential-source'
+import {
+  AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY,
+  AGENT_SESSION_TURN_ITEM_CAPABILITY,
+  AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
+  SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,
+  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+  WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
+  WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
+  WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY
+} from '../../../shared/protocol-version'
+import { createWebRuntimeUnauthorizedError } from './web-runtime-client-error'
+import { decrypt, decryptBytes } from './web-e2ee'
 import type { WebRuntimeTransportSubscription } from './web-runtime-subscription-contract'
 
 export type WebRuntimeConnectionState =
   | 'disconnected'
   | 'connecting'
   | 'handshaking'
-  // A v2 token socket registering this browser's key; requests still wait for 'connected'.
-  | 'migrating'
   | 'connected'
   | 'auth-failed'
 
@@ -26,37 +30,16 @@ export type WebRuntimePendingRequest = {
 
 type WebRuntimeConnectionFrameContext = {
   getState: () => WebRuntimeConnectionState
-  getHandshake: () => PairedE2EEClientHandshake | null
+  getSharedKey: () => Uint8Array | null
   getSocket: () => WebSocket | null
+  pairingToken: string
   pending: Map<string, WebRuntimePendingRequest>
   subscriptions: Map<string, WebRuntimeTransportSubscription>
-  sendAuth: (handshake: PairedE2EEClientHandshake) => void
+  sendEncrypted: (message: unknown) => boolean
   setConnected: () => void
-  authRejected: (reply: Extract<PairedE2EEAuthReply, { kind: 'rejected' }>) => void
-}
-
-export function sealWebRuntimeAuth(
-  handshake: PairedE2EEClientHandshake,
-  deviceToken: string
-): Promise<string> {
-  return handshake.sealAuth(
-    { kind: 'token', deviceToken },
-    { clientCapabilities: WEB_RUNTIME_CLIENT_CAPABILITIES }
-  )
-}
-
-/** The auth frame for this socket's plan; key auth carries capabilities, v2 token auth cannot. */
-export function sealWebRuntimePlanAuth(
-  handshake: PairedE2EEClientHandshake,
-  plan: WebRuntimeAuthPlan | null,
-  fallbackToken: string
-): Promise<string> {
-  return plan?.kind === 'device-key'
-    ? handshake.sealAuth(
-        { kind: 'device-key', deviceId: plan.deviceId, sign: plan.key.sign },
-        { clientCapabilities: WEB_RUNTIME_CLIENT_CAPABILITIES }
-      )
-    : sealWebRuntimeAuth(handshake, plan?.deviceToken ?? fallbackToken)
+  setAuthFailed: () => void
+  rejectUnauthorized: (error: Error) => void
+  notifyUnauthorized: () => void
 }
 
 export async function routeWebRuntimeConnectionFrame(
@@ -65,35 +48,58 @@ export async function routeWebRuntimeConnectionFrame(
   context: WebRuntimeConnectionFrameContext
 ): Promise<void> {
   const raw = typeof rawData === 'string' ? rawData : null
-  const handshake = context.getHandshake()
+  const sharedKey = context.getSharedKey()
   if (context.getState() === 'handshaking') {
-    if (raw === null || !handshake) {
+    if (raw === null || !sharedKey) {
       return
     }
-    // The authenticated control frame is encrypted, so anything but a ready is decrypted below.
-    if (handshake.acceptReadyText(raw) === 'accepted') {
-      context.sendAuth(handshake)
-      return
+    try {
+      const control = JSON.parse(raw) as { type?: unknown }
+      if (control.type === 'e2ee_ready') {
+        context.sendEncrypted({
+          type: 'e2ee_auth',
+          deviceToken: context.pairingToken,
+          clientCapabilities: [
+            AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY,
+            AGENT_SESSION_TURN_ITEM_CAPABILITY,
+            SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,
+            SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+            AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
+            WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
+            WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
+            WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY
+          ]
+        })
+        return
+      }
+    } catch {
+      // The authenticated control frame is encrypted, so non-JSON is normal here.
     }
-    const plaintext = handshake.channel.openText(raw)
+    const plaintext = decrypt(raw, sharedKey)
     if (plaintext === null) {
       return
     }
-    // Malformed handshake payloads are ignored; the server closes on timeout.
-    const reply = handshake.classifyAuthReply(plaintext)
-    if (reply.kind === 'authenticated') {
-      context.setConnected()
-    } else if (
-      reply.kind === 'rejected' &&
-      (reply.type === 'e2ee_error' || reply.errorCode === 'unauthorized')
-    ) {
-      context.authRejected(reply)
+    try {
+      const control = JSON.parse(plaintext) as {
+        type?: unknown
+        error?: { code?: string; message?: string }
+      }
+      if (control.type === 'e2ee_authenticated') {
+        context.setConnected()
+      } else if (control.type === 'e2ee_error' || control.error?.code === 'unauthorized') {
+        const error = createWebRuntimeUnauthorizedError()
+        context.setAuthFailed()
+        context.rejectUnauthorized(error)
+        context.notifyUnauthorized()
+        context.getSocket()?.close()
+      }
+    } catch {
+      // Ignore malformed handshake payloads; the server will close on timeout.
     }
     return
   }
 
-  const state = context.getState()
-  if ((state !== 'connected' && state !== 'migrating') || !handshake) {
+  if (context.getState() !== 'connected' || !sharedKey) {
     return
   }
   if (raw === null) {
@@ -104,7 +110,7 @@ export async function routeWebRuntimeConnectionFrame(
     if (!encrypted) {
       return
     }
-    const plaintext = handshake.channel.openBinary(encrypted)
+    const plaintext = decryptBytes(encrypted, sharedKey)
     if (!plaintext) {
       return
     }
@@ -114,7 +120,7 @@ export async function routeWebRuntimeConnectionFrame(
     return
   }
 
-  const plaintext = handshake.channel.openText(raw)
+  const plaintext = decrypt(raw, sharedKey)
   if (plaintext === null) {
     return
   }
@@ -127,13 +133,12 @@ export async function routeWebRuntimeConnectionFrame(
   if (isKeepaliveFrame(response) || !('id' in response) || typeof response.id !== 'string') {
     return
   }
-  // Why connected only: a failed key registration is not a revoked pairing.
-  if (
-    state === 'connected' &&
-    isRuntimeFailureResponse(response) &&
-    response.error.code === 'unauthorized'
-  ) {
-    context.authRejected({ kind: 'rejected', type: null, errorCode: 'unauthorized' })
+  if (isRuntimeFailureResponse(response) && response.error.code === 'unauthorized') {
+    const error = createWebRuntimeUnauthorizedError()
+    context.setAuthFailed()
+    context.rejectUnauthorized(error)
+    context.notifyUnauthorized()
+    context.getSocket()?.close()
     return
   }
 

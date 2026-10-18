@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isPermanentRemoteBrowserStreamFailure,
   remoteBrowserStreamUnsupportedError,
-  resolveRemoteBrowserStreamFailure
+  resolveRemoteBrowserStreamRestartFailure
 } from './remote-browser-stream-errors'
 
 function rpcError(code: string, message = 'boom'): Error {
@@ -13,28 +13,6 @@ function rpcError(code: string, message = 'boom'): Error {
 // was enforced by nothing — re-adding `selector_not_found` (the exact code 08260a54bf had to walk
 // back out) left the whole suite green, as did deleting two of the three members.
 describe('remote browser stream failure classification', () => {
-  it.each(['opening', 'restart'] as const)(
-    'distinguishes browser setup from transport during %s',
-    (phase) => {
-      const failure = resolveRemoteBrowserStreamFailure(
-        rpcError('browser_unavailable', 'unconfigured backend'),
-        phase
-      )
-      expect(failure.message).toBe(
-        'The remote browser is unavailable. Check its setup on the server.'
-      )
-      expect(failure.shouldRetry).toBe(true)
-      expect(failure.logRawError).toBe(true)
-      expect(isPermanentRemoteBrowserStreamFailure(rpcError('browser_unavailable'))).toBe(false)
-    }
-  )
-
-  it('keeps the initial transport failure distinct from a lost stream', () => {
-    expect(resolveRemoteBrowserStreamFailure(rpcError('runtime_timeout'), 'opening').message).toBe(
-      'Cannot reach the remote server.'
-    )
-  })
-
   it('treats only codes that prove the target is gone as permanent', () => {
     for (const code of [
       'worktree_not_found_on_server',
@@ -52,7 +30,9 @@ describe('remote browser stream failure classification', () => {
   // stopped retries on a blip and stranded the pane, which is the bug this area exists to prevent.
   it('does not treat an unresolved selector as proof the target is gone', () => {
     expect(isPermanentRemoteBrowserStreamFailure(rpcError('selector_not_found'))).toBe(false)
-    expect(resolveRemoteBrowserStreamFailure(rpcError('selector_not_found')).shouldRetry).toBe(true)
+    expect(
+      resolveRemoteBrowserStreamRestartFailure(rpcError('selector_not_found')).shouldRetry
+    ).toBe(true)
   })
 
   it('keeps unknown and transport failures retryable', () => {
@@ -64,7 +44,7 @@ describe('remote browser stream failure classification', () => {
   })
 
   it('keeps a permanent failure specific and replaces only raw transient text', () => {
-    const permanent = resolveRemoteBrowserStreamFailure(
+    const permanent = resolveRemoteBrowserStreamRestartFailure(
       rpcError('worktree_not_found_on_server', 'worktree is gone')
     )
     // Its own message says something true that a generic "lost connection" would not.
@@ -72,7 +52,7 @@ describe('remote browser stream failure classification', () => {
     expect(permanent.shouldRetry).toBe(false)
     expect(permanent.logRawError).toBe(false)
 
-    const transient = resolveRemoteBrowserStreamFailure(
+    const transient = resolveRemoteBrowserStreamRestartFailure(
       rpcError('runtime_unavailable', 'Runtime environment is manually disconnected.')
     )
     expect(transient.message).toBe('Lost connection to the remote server.')
@@ -82,7 +62,7 @@ describe('remote browser stream failure classification', () => {
   })
 
   it('uses localized copy for permanent failures without an Error message', () => {
-    const failure = resolveRemoteBrowserStreamFailure({
+    const failure = resolveRemoteBrowserStreamRestartFailure({
       code: 'worktree_not_found_on_server'
     })
 

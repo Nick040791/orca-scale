@@ -1,7 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { ArrowRight, LoaderCircle, RefreshCw, Save, Send } from 'lucide-react'
-import { JiraIssueMarkdown } from './jira-issue-markdown'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import CommentMarkdown from '@/components/sidebar/CommentMarkdown'
 import { JiraIcon } from '@/components/icons/JiraIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +17,6 @@ export type JiraIssueWorkspaceAction = {
 
 export function JiraIssueWorkspaceContent({
   displayed,
-  imageTarget,
   titleDraft,
   setTitleDraft,
   labelsDraft,
@@ -34,7 +32,6 @@ export function JiraIssueWorkspaceContent({
   actionItems
 }: {
   displayed: JiraIssue
-  imageTarget: RuntimeClientTarget
   titleDraft: string
   setTitleDraft: (value: string) => void
   labelsDraft: string
@@ -122,9 +119,9 @@ export function JiraIssueWorkspaceContent({
             </span>
           </div>
           {displayed.description?.trim() ? (
-            <JiraIssueMarkdown
-              target={imageTarget}
+            <CommentMarkdown
               content={displayed.description}
+              variant="document"
               className="text-[14px] leading-relaxed"
             />
           ) : (
@@ -199,10 +196,9 @@ export function JiraIssueWorkspaceContent({
                   <div className="px-3 py-2">
                     {/* Why: Jira comment screenshots need the same preview
                                 affordance without changing compact comment typography. */}
-                    <JiraIssueMarkdown
-                      target={imageTarget}
+                    <CommentMarkdown
                       content={comment.body}
-                      compact
+                      expandImages
                       className="text-[13px] leading-relaxed"
                     />
                   </div>

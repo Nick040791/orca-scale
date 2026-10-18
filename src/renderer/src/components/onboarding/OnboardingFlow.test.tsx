@@ -2,16 +2,10 @@ import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { getDefaultSettings } from '../../../../shared/constants'
-import { getDefaultOnboardingState } from '../../../../shared/onboarding-defaults'
+import { getDefaultOnboardingState, getDefaultSettings } from '../../../../shared/constants'
 import { useAppStore } from '@/store'
 import OnboardingFlow from './OnboardingFlow'
-
-vi.mock('@/components/terminal-pane/TerminalPane', () => ({
-  default: () => {
-    throw new Error('This suite must not render a terminal pane')
-  }
-}))
+import { ONBOARDING_SKIP_CONFIRMATION_COPY } from './OnboardingSkipConfirmationDialog'
 
 function renderOnboardingFlow(props: ComponentProps<typeof OnboardingFlow>): string {
   return renderToStaticMarkup(
@@ -218,7 +212,7 @@ describe('OnboardingFlow', () => {
     )
   })
 
-  it('exposes an accessible onboarding dialog', () => {
+  it('renders onboarding inside a centered modal shell', () => {
     const html = renderOnboardingFlow({
       onboarding: getDefaultOnboardingState(),
       onOnboardingChange: vi.fn()
@@ -226,5 +220,20 @@ describe('OnboardingFlow', () => {
 
     expect(html).toContain('role="dialog"')
     expect(html).toContain('aria-modal="true"')
+    expect(html).toContain('data-onboarding-modal="true"')
+    expect(html).toContain('h-[calc(100vh-2rem)]')
+    expect(html).toContain('rounded-xl')
+    expect(html).toContain('h-7 w-auto shrink-0 invert dark:invert-0')
+    expect(html).not.toContain('min-h-screen')
+    expect(html).not.toContain('background-color:#12181e')
+  })
+
+  it('renders concise skip confirmation copy', () => {
+    expect(ONBOARDING_SKIP_CONFIRMATION_COPY).toEqual({
+      title: 'Skip onboarding?',
+      description: "It won't take long!",
+      skipLabel: 'Skip',
+      keepGoingLabel: 'No, keep going'
+    })
   })
 })

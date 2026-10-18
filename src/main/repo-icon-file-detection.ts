@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { buildImageDataUri } from '../shared/image-data-uri'
 import { MAX_REPO_ICON_UPLOAD_BYTES, type RepoIcon } from '../shared/repo-icon'
 import type { ExecutionHostFilesystemRoute } from './providers/execution-host-provider-dispatch'
+import type { IFilesystemProvider } from './providers/types'
 import { extractIconHref } from './repo-icon-source-href'
 import { iconHrefCandidates } from './repo-icon-href-candidates'
 import { joinWorktreeRelativePath } from './runtime/runtime-relative-paths'
@@ -123,11 +124,32 @@ async function readLocalImageIcon(
   return repoIconFromImageBuffer(buffer, relativePath)
 }
 
+async function readRemoteImageIcon(
+  repoPath: string,
+  fsProvider: IFilesystemProvider,
+  relativePath: string
+): Promise<RepoIcon | null> {
+  const filePath = joinWorktreeRelativePath(repoPath, relativePath)
+  const info = await fsProvider.stat(filePath)
+  if (info.type !== 'file' || info.size > MAX_REPO_ICON_UPLOAD_BYTES) {
+    return null
+  }
+  const result = await fsProvider.readFile(filePath)
+  if (!result.content) {
+    return null
+  }
+  // Why: detect the binary format after decoding remote file content.
+  const buffer = result.isBinary
+    ? Buffer.from(result.content, 'base64')
+    : Buffer.from(result.content, 'utf8')
+  return repoIconFromImageBuffer(buffer, relativePath)
+}
+
 async function detectConventionalImageIcon(
   readIcon: (relativePath: string) => Promise<RepoIcon | null>
 ): Promise<RepoIcon | null> {
-  // Why: bounded batches keep the expanded candidate list from probing serially (slow on
-  // WSL/network mounts) without flooding the filesystem.
+  // Why: SSH stats are network round trips; bounded batches avoid making the
+  // expanded candidate list serial without flooding the remote filesystem.
   for (
     let offset = 0;
     offset < REPO_ICON_FILE_CANDIDATES.length;
@@ -187,6 +209,48 @@ async function detectLocalImageIcon(repoPath: string): Promise<RepoIcon | null> 
   return null
 }
 
+async function detectRemoteImageIcon(
+  repoPath: string,
+  fsProvider: IFilesystemProvider
+): Promise<RepoIcon | null> {
+  const conventionalIcon = await detectConventionalImageIcon((relativePath) =>
+    readRemoteImageIcon(repoPath, fsProvider, relativePath)
+  )
+  if (conventionalIcon) {
+    return conventionalIcon
+  }
+  for (const sourceFile of REPO_ICON_SOURCE_FILE_CANDIDATES) {
+    try {
+      const sourcePath = joinWorktreeRelativePath(repoPath, sourceFile)
+      const sourceInfo = await fsProvider.stat(sourcePath)
+      if (sourceInfo.type !== 'file' || sourceInfo.size > MAX_REPO_ICON_SOURCE_BYTES) {
+        continue
+      }
+      const result = await fsProvider.readFile(sourcePath)
+      if (result.isBinary) {
+        continue
+      }
+      const href = extractIconHref(result.content)
+      if (!href) {
+        continue
+      }
+      for (const relativePath of iconHrefCandidates(href, sourceFile)) {
+        try {
+          const icon = await readRemoteImageIcon(repoPath, fsProvider, relativePath)
+          if (icon) {
+            return icon
+          }
+        } catch {
+          // Try the next href resolution.
+        }
+      }
+    } catch {
+      // Try the next source file.
+    }
+  }
+  return null
+}
+
 /**
  * Takes the resolved host route rather than a `connectionId`, because the incumbent shape spelled
  * "this is local", "this host is unreachable" and "this is a runtime host" all as a falsy id — and
@@ -200,8 +264,13 @@ export function detectRepoFileIcon(
     case 'local':
       return detectLocalImageIcon(repoPath)
     case 'ssh':
+      // A dropped provider fails closed: repoPath lives on the SSH host, so a same-named local
+      // path would hand back another repository's icon.
+      return route.provider
+        ? detectRemoteImageIcon(repoPath, route.provider)
+        : Promise.resolve(null)
     case 'runtime':
-      // These files live on another host; a same-named local path would answer for another repo.
+      // That environment's server holds these files; this process has no route to them.
       return Promise.resolve(null)
   }
 }

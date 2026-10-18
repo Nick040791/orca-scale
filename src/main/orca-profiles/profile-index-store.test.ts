@@ -157,8 +157,7 @@ describe('profile index store', () => {
     'profile-state.db.backup.1789999999999-00000000-0000-4000-8000-000000000000.db',
     'profile-state.db-wal',
     'profile-state.db-shm',
-    'profile-state.db-journal',
-    'profile-state.db.authority'
+    'profile-state.db-journal'
   ])('does not seed a stale mirror when %s exists without the database', async (artifact) => {
     writeFileSync(
       join(testState.dir, 'orca-data.json'),

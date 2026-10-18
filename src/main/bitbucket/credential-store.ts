@@ -9,8 +9,6 @@ import {
   writeEncryptedCredential
 } from '../integration-credential-file'
 import type { BitbucketAuthMode } from '../../shared/bitbucket-credentials'
-import { readCredentialFileProtection } from '../credential-file-protection'
-import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 // Why: the secret stays encrypted via safeStorage while this metadata stays
 // plaintext, so status reads render the connected account without decrypting —
@@ -58,7 +56,7 @@ function getMetadataPath(): string {
   return join(getOrcaDir(), 'bitbucket-credential.json')
 }
 
-export function getSecretPath(): string {
+function getSecretPath(): string {
   return join(getOrcaDir(), 'bitbucket-credential.enc')
 }
 
@@ -156,11 +154,6 @@ export function loadStoredBitbucketSecret(
     }
     return null
   }
-}
-
-/** How the stored Bitbucket secret sits on disk, or null when none is stored. */
-export function getBitbucketCredentialProtection(): SecretAtRestProtection | null {
-  return readCredentialFileProtection(getSecretPath())
 }
 
 export function saveBitbucketCredential(input: BitbucketCredentialSaveInput): void {

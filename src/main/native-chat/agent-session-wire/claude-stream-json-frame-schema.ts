@@ -10,8 +10,6 @@ export const CLAUDE_STREAM_JSON_FRAME_KINDS = [
   'message:stream_event:content_block_start',
   'message:stream_event:content_block_delta',
   'message:stream_event:content_block_stop',
-  // A Messages API keep-alive inside a stream; it carries nothing.
-  'message:stream_event:ping',
   'message:system:compact_boundary',
   'message:system:status',
   'message:system:api_retry',

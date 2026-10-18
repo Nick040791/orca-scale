@@ -1,5 +1,4 @@
-import type { AgentSessionUnavailable } from '../../shared/agent-session-availability'
-import type { spawnProcess } from '@orca/process-host'
+import type { spawnProcess } from '../../shared/child-process/run-process'
 import type { AgentGenerationFailureOutput } from './agent-failure-output'
 import type {
   CommitMessageAgentCapability,
@@ -19,7 +18,7 @@ export type DiscoverCommitMessageModelsResult =
       defaultModelId: string
       catalogOrigin: 'probe' | 'spec'
     }
-  | { success: false; error: string; unavailable?: AgentSessionUnavailable }
+  | { success: false; error: string }
 
 export type GeneratePullRequestFieldsResult<TFields> =
   | {
@@ -39,12 +38,7 @@ export type RemoteCommitMessageExecResult = {
   spawnError?: string
 }
 
-export type TextGenerationOperation =
-  | 'commit-message'
-  | 'pull-request-fields'
-  | 'branch-name'
-  | 'jira-issue-summary'
-  | 'conversation-name'
+export type TextGenerationOperation = 'commit-message' | 'pull-request-fields' | 'branch-name'
 
 export type CommitMessageGenerationTarget =
   | { kind: 'local'; cwd: string; env?: NodeJS.ProcessEnv; wslDistro?: string }
@@ -78,29 +72,17 @@ export type GenerateBranchNameResult =
       failureOutput?: AgentGenerationFailureOutput
     }
 
-export type GenerateConversationNameResult =
-  | { success: true; name: string; agentLabel?: string }
-  | {
-      success: false
-      error: string
-      canceled?: boolean
-      failureOutput?: AgentGenerationFailureOutput
-    }
-
 export type LocalProcessExecution<T> = {
   result: Promise<T>
   processClosed: Promise<void>
 }
 
-export type SpawnedSourceControlAgentProcess = ReturnType<typeof spawnProcess> & {
-  /** True when the child is the POSIX provider supervisor: SIGTERM stops the agent's group, then itself. */
-  readonly supervised?: boolean
-}
+export type SpawnedSourceControlAgentProcess = ReturnType<typeof spawnProcess>
 
 export type LocalGenerationTarget = Extract<CommitMessageGenerationTarget, { kind: 'local' }>
 export type RemoteGenerationTarget = Extract<CommitMessageGenerationTarget, { kind: 'remote' }>
 
-export type SourceControlAgentSpawnInput = {
+export type SpawnSourceControlAgent = (input: {
   binary: string
   args: string[]
   cwd?: string
@@ -110,8 +92,4 @@ export type SourceControlAgentSpawnInput = {
   commandEnv?: Record<string, string>
   stdinMode: 'ignore' | 'pipe'
   useCwdForNative: boolean
-}
-
-export type SpawnSourceControlAgent = (
-  input: SourceControlAgentSpawnInput
-) => SpawnedSourceControlAgentProcess
+}) => SpawnedSourceControlAgentProcess

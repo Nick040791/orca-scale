@@ -1,11 +1,8 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
-import { downloadRuntimeFile } from '@/runtime/runtime-file-read-client'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import { downloadRuntimeFile, type RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 import type { TreeNode } from './file-explorer-types'
-import { shouldShowCopyFileAction } from './file-explorer-row-action-visibility'
 
 function getLocalDownloadName(destinationPath: string, platform: NodeJS.Platform): string {
   const lastSeparatorIndex =
@@ -57,7 +54,7 @@ export async function downloadRemoteFile(
         action: {
           label: translate('auto.components.right.sidebar.FileExplorerRow.1a3df04ae1', 'Open'),
           onClick: () => {
-            void window.api.shell.openPath(result.destinationPath, LOCAL_EXECUTION_HOST_ID)
+            void window.api.shell.openPath(result.destinationPath)
           }
         }
       }
@@ -90,10 +87,6 @@ export async function copyFileToOsClipboard(
     'auto.components.right.sidebar.FileExplorerRow.b234ab25b4',
     'Could not copy the file to the clipboard'
   )
-  if (!shouldShowCopyFileAction(node, connectionId)) {
-    toast.error(failureMessage)
-    return
-  }
   const stagingFailureMessage = translate(
     'auto.components.right.sidebar.FileExplorerRow.clipboardStagingUnavailable',
     "Could not copy the file because Orca's temporary storage is unavailable"

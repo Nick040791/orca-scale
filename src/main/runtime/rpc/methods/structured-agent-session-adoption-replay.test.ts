@@ -1,12 +1,10 @@
-import '../unused-default-rpc-methods.test-fixture'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../../shared/agent-session-mutation-envelope'
-import type { AgentStatusIpcPayload } from '../../../../shared/agent-status-types'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
-import { openTestAgentSessionRecordStore } from '../../agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../agent-session-record-store'
 import type { StructuredAgentSessionAdapter } from '../../../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -14,10 +12,6 @@ import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcRequest, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
-import { openTestJournalHostDatabase } from '../../../native-chat/agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger'
-import { codexProviderHandle } from '../../../../shared/agent-session-provider-handle-encoding'
-import { claudeAndCodexAgents } from '../../../native-chat/agent-session-wire/structured-agent-session-adapter-router-test-support'
 
 const SESSION = 'session-adoption-replay'
 const THREAD = 'thread-adoption-replay'
@@ -46,7 +40,7 @@ function adapter(): StructuredAgentSessionAdapter {
         },
         link: {
           linkId: `codex-${fence}-${THREAD}`,
-          handle: codexProviderHandle(THREAD),
+          handle: { provider: 'codex', threadId: THREAD },
           origin: 'resumed',
           mintedAtFence: fence,
           observedAt: 1_800_000_000_000
@@ -60,21 +54,20 @@ function adapter(): StructuredAgentSessionAdapter {
   }
 }
 
-function createParams(operationId = OPERATION, sessionId = SESSION) {
+function createParams(operationId = OPERATION) {
   const fields = {
     worktree: `id:${WORKSPACE}`,
     agent: 'codex' as const,
-    resumeFrom: { providerSessionId: THREAD,
-      cliSource: { workspaceId: WORKSPACE, paneKey: 'source-pane' } }
+    resumeFrom: { providerSessionId: THREAD }
   }
   return {
     envelope: {
-      sessionId,
+      sessionId: SESSION,
       clientOperationId: operationId,
       expectedRuntimeFence: null,
       payloadFingerprint: computeAgentSessionPayloadFingerprint({
         method: 'agentSession.create',
-        sessionId,
+        sessionId: SESSION,
         fields
       })
     },
@@ -82,16 +75,13 @@ function createParams(operationId = OPERATION, sessionId = SESSION) {
   }
 }
 
-async function call(dispatcher: RpcDispatcher, params: unknown, client = CLIENT, unary = false) {
+async function call(dispatcher: RpcDispatcher, params: unknown, client = CLIENT) {
   const replies: RpcResponse[] = []
   const request: RpcRequest = {
     id: `request-${replies.length + 1}`,
     authToken: 'token',
     method: 'agentSession.create',
     params
-  }
-  if (unary) {
-    return dispatcher.dispatch(request, client)
   }
   await dispatcher.dispatchStreaming(
     request,
@@ -103,23 +93,18 @@ async function call(dispatcher: RpcDispatcher, params: unknown, client = CLIENT,
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-adoption-rpc-replay-'))
-  // Why: the adopting create pre-trusts its folder in ~/.codex and Orca's managed Codex home.
-  vi.stubEnv('HOME', join(root, 'home'))
-  vi.stubEnv('USERPROFILE', join(root, 'home'))
-  vi.stubEnv('ORCA_USER_DATA_PATH', join(root, 'user-data'))
 })
 
 afterEach(async () => {
   setStructuredAgentSessionHost(null)
   await host?.flushAllStreamedEvents()
-  await host?.close(SESSION, 'evict')
+  await host?.close(SESSION)
   await rm(root, { recursive: true, force: true })
   vi.restoreAllMocks()
-  vi.unstubAllEnvs()
 })
 
 describe('committed adopting create RPC replay', () => {
-  it.each([true, false])('captures source before routing (unary=%s)', async (unary) => {
+  it('republishes from durable identity after the source disappears and account selection drifts', async () => {
     const originalHome = join(root, 'account-original')
     const driftedHome = join(root, 'account-drifted')
     const transcriptPath = join(
@@ -149,24 +134,17 @@ describe('committed adopting create RPC replay', () => {
     const runtime = new OrcaRuntimeService(
       {
         getSettings: () => ({
+          experimentalStructuredNativeChat: true,
           agentDefaultEnv: { codex: {} }
         })
       } as never,
       undefined,
       { prepareCodexStructuredLaunch: selectAccountHome }
     )
-    const sourceRow = {
-      paneKey: 'source-pane', worktreeId: WORKSPACE, agentType: 'codex',
-      connectionId: null, receivedAt: 1, stateStartedAt: 1, state: 'waiting' as const, prompt: '',
-      providerSession: { key: 'session_id' as const, id: THREAD, transcriptPath }
-    }
-    let rows: AgentStatusIpcPayload[] = [sourceRow]
-    const sourceRows = vi.spyOn(runtime, 'getAgentProviderSessionRows').mockImplementation(() => rows)
     // The structured surface is settings-gated for every caller, not just mobile; this test
     // probes durable-identity replay, which only runs once the gate admits the call.
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The RPC gate reads only this setting from the test double.
     vi.spyOn(runtime, 'getClientSettings').mockReturnValue({
-      experimentalNativeChat: true
+      experimentalStructuredNativeChat: true
     } as ReturnType<OrcaRuntimeService['getClientSettings']>)
     vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
       supported: true
@@ -197,14 +175,15 @@ describe('committed adopting create RPC replay', () => {
       .mockRejectedValueOnce(new Error('simulated lost tab publication'))
       .mockResolvedValue(undefined)
 
-    const store = await openTestAgentSessionRecordStore(root)
+    const store = await AgentSessionRecordStore.open({
+      directory: join(root, 'store'),
+      hostId: 'local'
+    })
     const sessionAdapter = adapter()
     host = new StructuredAgentSessionHost({
-      agents: claudeAndCodexAgents(sessionAdapter),
-      logger: createStructuredAgentSessionLogger(),
       store,
       adapter: sessionAdapter,
-      journalDatabase: openTestJournalHostDatabase(root),
+      journalRoot: root,
       claimKeyId: 'key-1'
     })
     setStructuredAgentSessionHost(host)
@@ -214,51 +193,15 @@ describe('committed adopting create RPC replay', () => {
     })
     const params = createParams()
 
-    rows = unary ? [] : [{ ...sourceRow, providerSession: { ...sourceRow.providerSession, id: 'replaced' } }]
-    const route = vi.spyOn(runtime, 'routeClientHostedBrowserRpc').mockImplementationOnce(async () => {
-      rows = [sourceRow]
-      return { handled: false }
-    })
-    expect(await call(dispatcher, params, CLIENT, unary)).toMatchObject({
-      ok: true,
-      result: { ok: false, refusal: { details: { reason: 'transcriptUnreadable' } } }
-    })
-    expect(sessionAdapter.acquire).not.toHaveBeenCalled()
-    expect(internal.publishStructuredAgentSessionTab).not.toHaveBeenCalled()
-    selectAccountHome.mockClear()
-    const entered = Promise.withResolvers<void>()
-    const release = Promise.withResolvers<void>()
-    route.mockImplementationOnce(async () => {
-      entered.resolve()
-      await release.promise
-      return { handled: false }
-    })
-    const pending = call(dispatcher, params, CLIENT, unary)
-    await entered.promise
-    if (unary) {
-      rows = []
-    } else {
-      sourceRow.worktreeId = 'replacement-workspace'
-      sourceRow.providerSession.id = 'replacement-thread'
-      sourceRow.providerSession.transcriptPath = join(root, 'replacement.jsonl')
-    }
-    release.resolve()
-    expect(await pending).toMatchObject({
+    expect(await call(dispatcher, params)).toMatchObject({
       ok: true,
       result: { ok: false, refusal: { code: 'agent_session_operation_unknown' } }
     })
-    expect(store.getRecord(SESSION)?.accountHome).toMatchObject({ path: originalHome })
     await rm(transcriptPath)
     selectedHome = driftedHome
     setStructuredAgentSessionHost(null)
     internal.ensureStructuredAgentSessionHost = vi.fn(async () => {
       setStructuredAgentSessionHost(host)
-    })
-    sourceRows.mockImplementation(() => {
-      if (!unary) {
-        throw new Error('source snapshot unavailable')
-      }
-      return []
     })
 
     expect(await call(dispatcher, params)).toMatchObject({
@@ -284,12 +227,6 @@ describe('committed adopting create RPC replay', () => {
     expect(sessionAdapter.acquire).toHaveBeenCalledTimes(1)
     expect(internal.publishStructuredAgentSessionTab).toHaveBeenCalledTimes(2)
     expect(selectAccountHome).toHaveBeenCalledTimes(1)
-    expect(await call(dispatcher, createParams(OPERATION, 'another-chat'))).toMatchObject({
-      ok: true,
-      result: { ok: false, refusal: { details: {
-        reason: 'conversationHeldElsewhere', owner: { sessionId: SESSION, workspaceId: WORKSPACE }
-      } } }
-    })
 
     const otherOperation = createParams(`${Date.now()}-00000000000000000000000000000002`)
     expect(await call(dispatcher, otherOperation)).toMatchObject({

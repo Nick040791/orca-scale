@@ -31,7 +31,6 @@ vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 390, height: 844 })
 }))
 vi.mock('react-native-safe-area-context', () => ({
-  useSafeAreaFrame: () => ({ x: 0, y: 0, width: 390, height: 844 }),
   useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 })
 }))
 vi.mock('react-native-gesture-handler', () => {
@@ -99,6 +98,13 @@ describe('the right drawer and the phone hardware back button', () => {
     const renderer = render(true)
     expect(native.addEventListener).toHaveBeenCalledTimes(1)
     expect(native.addEventListener.mock.calls[0]?.[0]).toBe('hardwareBackPress')
+    act(() => renderer.unmount())
+  })
+
+  it('arms it on Android while the drawer is open', () => {
+    native.platform.os = 'android'
+    const renderer = render(true)
+    expect(native.addEventListener).toHaveBeenCalledTimes(1)
     act(() => renderer.unmount())
   })
 

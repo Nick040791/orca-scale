@@ -1,4 +1,3 @@
-import { translate } from '@/i18n/i18n'
 import type { UpdateStatus } from '../../../../../shared/update-status-types'
 
 export function isUpdateCardVisible({
@@ -53,9 +52,7 @@ export function getUpdateCardAriaLabel(status: UpdateStatus): string {
     case 'downloaded':
       return 'Update ready to install'
     case 'error':
-      return status.installBlock
-        ? translate('updates.installBlock.waitingLabel', 'Update waiting')
-        : 'Update error'
+      return 'Update error'
   }
 }
 

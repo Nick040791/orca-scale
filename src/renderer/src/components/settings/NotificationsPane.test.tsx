@@ -1,4 +1,3 @@
-import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
@@ -26,7 +25,7 @@ vi.mock('sonner', () => ({
 }))
 
 function createSettings(): GlobalSettings {
-  return createGlobalSettingsFixture({
+  return {
     notifications: {
       enabled: true,
       agentTaskComplete: true,
@@ -34,11 +33,9 @@ function createSettings(): GlobalSettings {
       suppressWhenFocused: true,
       customSoundId: 'system',
       customSoundPath: null,
-      customSoundVolume: 50,
-      mutedNotificationSourceIds: [],
-      notifyHiddenWorkspaces: false
+      customSoundVolume: 50
     }
-  })
+  } as GlobalSettings
 }
 
 describe('NotificationsPane', () => {

@@ -11,7 +11,7 @@ import type {
 /** Shared because several transitions reach each of them, and two objects that are equal but not
  *  identical are two renders where the reducer meant one. */
 export const CHECKING: MobileWebShellSessionState = { kind: 'checking' }
-export const ROUTE_UNAVAILABLE: MobileWebShellSessionState = { kind: 'route-unavailable' }
+export const NATIVE_ROUTE: MobileWebShellSessionState = { kind: 'native-route' }
 
 /**
  * Whether a gates change may start or restart the flow.
@@ -47,6 +47,9 @@ export type MobileWebShellGateVerdict =
   | { readonly kind: 'pending' }
   | { readonly kind: 'offline' }
   | { readonly kind: 'status-unreadable' }
+  /** The desktop ships no bundle, so it lists no page route and this one is the native screen's.
+   *  Not a wall: a wall says the workspace cannot be opened, and here there is none to open. */
+  | { readonly kind: 'native-route' }
   | { readonly kind: 'wall'; readonly verdict: MobileWebShellBlockedVerdict }
   | { readonly kind: 'open' }
 
@@ -62,8 +65,8 @@ export function gateVerdict(gates: MobileWebShellGates): MobileWebShellGateVerdi
   }
   // Never a wall on an unreadable status: the empty capability list it leaves behind is
   // indistinguishable from a desktop that ships no bundle, and that wall tells the wrong story. It
-  // is not a wait either — the gate settles closed and only re-asks in the background — so the one
-  // honest answer is to say the status could not be read; a later readable status reopens it.
+  // is not a wait either — the gate settles once per host screen and does not probe again — so the
+  // one honest answer is to say the status could not be read and let a fresh gate reopen it.
   if (!gates.statusReadable) {
     return { kind: 'status-unreadable' }
   }
@@ -72,7 +75,14 @@ export function gateVerdict(gates: MobileWebShellGates): MobileWebShellGateVerdi
     hostStatus: gates.hostStatus,
     manifest: null
   })
-  return verdict.kind === 'blocked' ? { kind: 'wall', verdict } : { kind: 'open' }
+  if (verdict.kind !== 'blocked') {
+    return { kind: 'open' }
+  }
+  // `bundle-unavailable` is the only verdict reachable with no manifest, and it is the one block
+  // that is not a wall: a desktop with no bundle declares no page route, so every route is native.
+  return verdict.reason === 'bundle-unavailable'
+    ? { kind: 'native-route' }
+    : { kind: 'wall', verdict }
 }
 
 /**
@@ -91,6 +101,8 @@ export function gateState(
   retriedOnce: boolean
 ): MobileWebShellSessionState | null {
   switch (verdict.kind) {
+    case 'native-route':
+      return NATIVE_ROUTE
     case 'wall':
       return { kind: 'wall', verdict: verdict.verdict }
     case 'status-unreadable':

@@ -267,7 +267,7 @@ describe('OrcaRuntimeService', () => {
         Object.assign(repo, updates)
         return { ...repo } as never
       },
-      removeProjectForHost: (id: string) => {
+      removeProject: (id: string) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index !== -1) {
           repos.splice(index, 1)
@@ -309,7 +309,7 @@ describe('OrcaRuntimeService', () => {
     const runtimeStore = {
       ...store,
       getRepos: () => [...repos] as never,
-      removeProjectForHost: (id: string) => {
+      removeProject: (id: string) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index !== -1) {
           repos.splice(index, 1)
@@ -633,10 +633,6 @@ describe('OrcaRuntimeService', () => {
           kind: 'git'
         })
         .catch((error: unknown) => error)
-
-      expect(() => runtime.addSshRepo({ connectionId: 'openclaw' })).toThrow(
-        "This Orca server can't add projects on its SSH hosts."
-      )
 
       // Why: the defect was a silent local clone/probe recorded as remote, not a bad message,
       // so the absent side effects are asserted before the wording. Both calls are awaited

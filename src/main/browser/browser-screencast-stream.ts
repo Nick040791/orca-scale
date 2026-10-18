@@ -13,9 +13,6 @@ import type {
   BrowserScreencastViewport
 } from './browser-screencast-stream-types'
 
-// Why: long enough for a slow first paint, short enough that a frameless viewer is told soon.
-const NO_FRAME_TIMEOUT_MS = 10_000
-
 export async function startBrowserScreencast(
   webContents: WebContents,
   options: BrowserScreencastOptions
@@ -111,9 +108,8 @@ export async function startBrowserScreencast(
   }
 
   const handleDetach = (): void => {
-    // Why: finish first so an owner that stops the stream on this error finds it already closed.
-    finish()
     options.onError?.('Browser debugger detached while streaming.')
+    finish()
   }
 
   dbg.on('message', handleMessage as never)
@@ -124,13 +120,6 @@ export async function startBrowserScreencast(
     await deviceMetrics.apply()
     await startScreencast()
     pendingUpdate = snapshotCapture.emitSnapshotFrame(true)
-    // Why: a page whose embedder stopped compositing never yields a frame; the owner ends on this.
-    const noFrameTimer = setTimeout(() => {
-      if (!closed && !stopping && framePacer.getSeq() === 0) {
-        options.onError?.('Browser stream timed out.')
-      }
-    }, NO_FRAME_TIMEOUT_MS)
-    void done.then(() => clearTimeout(noFrameTimer))
   } catch (error) {
     if (deviceMetrics.isOverridden()) {
       await deviceMetrics.clear().catch(() => {})
@@ -199,7 +188,7 @@ export async function startBrowserScreencast(
       return pendingUpdate
     },
     stop: () => {
-      if (closed || stopping) {
+      if (closed) {
         return
       }
       stopping = true

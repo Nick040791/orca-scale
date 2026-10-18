@@ -13,8 +13,6 @@ export const CONTROL_STREAM_ID = 0
 export const MAX_REMOTE_TERMINAL_SNAPSHOT_BYTES = 2 * 1024 * 1024
 export const REMOTE_TERMINAL_SNAPSHOT_REQUEST_TIMEOUT_MS = 10_000
 export const REMOTE_TERMINAL_RESYNC_TIMEOUT_MS = 10_000
-// Why: a host that never answers a recovery must reach stall recovery, not retry forever.
-export const REMOTE_TERMINAL_RESYNC_MAX_UNANSWERED_TIMEOUTS = 2
 // Why: a truncated recovery means the server is too flooded to serialize;
 // retrying once per incoming chunk would stampede it, so back off instead.
 export const REMOTE_TERMINAL_RESYNC_RETRY_BASE_MS = 500
@@ -84,17 +82,6 @@ export function rejectPendingSnapshotRequest(
   request.reject(new Error(message))
 }
 
-export function disposeRemoteTerminalStreamState(
-  stream: RemoteRuntimeMultiplexedTerminalState,
-  message: string
-): void {
-  discardOutputAcknowledgements(stream)
-  stream.watchdog.dispose()
-  clearSnapshot(stream)
-  clearResyncTimer(stream)
-  rejectPendingSnapshotRequest(stream, message)
-}
-
 export function decodeSnapshotInfo(
   payload: Uint8Array<ArrayBufferLike>
 ): RemoteRuntimeSnapshotInfo | null {
@@ -110,7 +97,6 @@ export function decodeSnapshotInfo(
     kittyKeyboardFlags?: unknown
     alternateScreen?: unknown
     terminalOwner?: unknown
-    scrollbackRows?: unknown
   }>(payload)
   if (!raw) {
     return null
@@ -130,12 +116,6 @@ export function decodeSnapshotInfo(
     requestId: typeof raw.requestId === 'number' ? raw.requestId : undefined,
     truncated: raw.truncated === true,
     unavailable: parseTerminalSnapshotUnavailableReason(raw.unavailable),
-    scrollbackRows:
-      typeof raw.scrollbackRows === 'number' &&
-      Number.isSafeInteger(raw.scrollbackRows) &&
-      raw.scrollbackRows >= 0
-        ? raw.scrollbackRows
-        : undefined,
     pendingEscapeTailAnsi:
       typeof raw.pendingEscapeTailAnsi === 'string' ? raw.pendingEscapeTailAnsi : undefined
   }
@@ -173,9 +153,10 @@ export function isTerminalDriverState(
   if (!value || typeof value !== 'object' || !('kind' in value)) {
     return false
   }
+  const driver = value as { kind?: unknown; clientId?: unknown }
   return (
-    value.kind === 'idle' ||
-    value.kind === 'desktop' ||
-    (value.kind === 'mobile' && 'clientId' in value && typeof value.clientId === 'string')
+    driver.kind === 'idle' ||
+    driver.kind === 'desktop' ||
+    (driver.kind === 'mobile' && typeof driver.clientId === 'string')
   )
 }

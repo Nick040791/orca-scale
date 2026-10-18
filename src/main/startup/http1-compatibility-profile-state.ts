@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { profileStateJsonExportPaths } from '../persistence/profile-state/legacy-json/profile-state-export-path'
-import { hasProfileStateAuthorityMarker } from '../persistence/profile-state/profile-state-authority-marker'
 import { profileStateDatabaseBackups } from '../persistence/profile-state/profile-state-backup-path'
 import { hasProfileStateDatabaseFiles } from '../persistence/profile-state/profile-state-storage-classification'
 
@@ -68,12 +67,10 @@ export function readPersistedHttp1CompatibilityMode(userDataPath: string): boole
     return false
   }
   const dataFile = profileDataFile ?? join(userDataPath, 'orca-data.json')
-  // Lost SQLite authority must not revive stale JSON in the pre-ready path.
+  // A retained migration export proves SQLite was established. Do not let the
+  // pre-ready path read a stale JSON mirror while recovery is required.
   try {
     if (
-      hasProfileStateAuthorityMarker(
-        profileDatabaseFile ?? join(dirname(dataFile), 'profile-state.db')
-      ) ||
       profileStateJsonExportPaths(dataFile).length > 0 ||
       profileStateDatabaseBackups(
         profileDatabaseFile ?? join(dirname(dataFile), 'profile-state.db')
@@ -99,8 +96,8 @@ export function readPersistedHttp1CompatibilityMode(userDataPath: string): boole
   }
 }
 
-/** Refuse pre-ready settings when evidence of a missing SQLite authority remains. */
-export function hasMissingProfileStateDatabaseWithRetainedAuthority(
+/** Return whether a retained SQLite export makes pre-ready JSON/marker state untrusted. */
+export function hasMissingProfileStateDatabaseWithRetainedExport(
   userDataPath: string,
   profileId: string
 ): boolean {
@@ -112,7 +109,6 @@ export function hasMissingProfileStateDatabaseWithRetainedAuthority(
   const dataFile = join(profileDirectory, 'orca-data.json')
   try {
     return (
-      hasProfileStateAuthorityMarker(databaseFile) ||
       profileStateJsonExportPaths(dataFile).length > 0 ||
       profileStateDatabaseBackups(databaseFile).length > 0
     )

@@ -1,24 +1,18 @@
 import { ArchiveRestore, LoaderCircle } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
 
-export function SessionLoadingState({
-  showLabel = true
-}: {
-  showLabel?: boolean
-}): React.JSX.Element {
+export function SessionLoadingState(): React.JSX.Element {
   return (
     <div className="px-3 py-3" aria-busy="true">
-      {showLabel ? (
-        <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-          <span>
-            {translate(
-              'auto.components.right.sidebar.AiVaultPanelControls.scanningSessions',
-              'Scanning sessions'
-            )}
-          </span>
-        </div>
-      ) : null}
+      <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+        <span>
+          {translate(
+            'auto.components.right.sidebar.AiVaultPanelControls.scanningSessions',
+            'Scanning sessions'
+          )}
+        </span>
+      </div>
       <div className="space-y-3">
         {Array.from({ length: 6 }, (_, index) => (
           <div key={index} className="flex items-start gap-2">

@@ -1,5 +1,4 @@
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { WindowsTerminalCapabilities } from './windows-terminal-capabilities'
 
@@ -67,6 +66,9 @@ export async function readWindowsTerminalCapabilities(
       pwshAvailable,
       gitBashAvailable,
       hostPlatform: runtimeStatus?.hostPlatform ?? null,
+      ...(runtimeStatus?.windowsProcessStartTimeAvailable !== undefined
+        ? { windowsProcessStartTimeAvailable: runtimeStatus.windowsProcessStartTimeAvailable }
+        : {}),
       isLoading: false
     }
   }

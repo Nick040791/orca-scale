@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  hasMissingProfileStateDatabaseWithRetainedAuthority,
+  hasMissingProfileStateDatabaseWithRetainedExport,
   readActiveProfileId,
   readPersistedHttp1CompatibilityMode
 } from './http1-compatibility-profile-state'
@@ -87,7 +87,7 @@ describe('pre-ready profile-state compatibility lookup', () => {
     expect(readPersistedHttp1CompatibilityMode(userDataPath)).toBe(false)
   })
 
-  it.each(['json-export', 'database-backup', 'authority-marker'])(
+  it.each(['json-export', 'database-backup'])(
     'fails closed when SQLite is missing but a retained %s remains',
     (artifact) => {
       const userDataPath = createUserData()
@@ -102,12 +102,10 @@ describe('pre-ready profile-state compatibility lookup', () => {
       writeFileSync(
         artifact === 'json-export'
           ? profileStateJsonExportPath(dataFile, 7)
-          : artifact === 'authority-marker'
-            ? join(profileDirectory, 'profile-state.db.authority')
-            : join(
-                profileDirectory,
-                'profile-state.db.backup.1789999999999-00000000-0000-4000-8000-000000000000.db'
-              ),
+          : join(
+              profileDirectory,
+              'profile-state.db.backup.1789999999999-00000000-0000-4000-8000-000000000000.db'
+            ),
         readFileSync(dataFile)
       )
 
@@ -115,7 +113,7 @@ describe('pre-ready profile-state compatibility lookup', () => {
     }
   )
 
-  it.each(['json-export', 'database-backup', 'authority-marker'])(
+  it.each(['json-export', 'database-backup'])(
     'detects a missing profile database with a retained %s',
     (artifact) => {
       const userDataPath = createUserData()
@@ -130,16 +128,14 @@ describe('pre-ready profile-state compatibility lookup', () => {
       writeFileSync(
         artifact === 'json-export'
           ? profileStateJsonExportPath(dataFile, 7)
-          : artifact === 'authority-marker'
-            ? join(profileDirectory, 'profile-state.db.authority')
-            : join(
-                profileDirectory,
-                'profile-state.db.backup.1789999999999-00000000-0000-4000-8000-000000000000.db'
-              ),
+          : join(
+              profileDirectory,
+              'profile-state.db.backup.1789999999999-00000000-0000-4000-8000-000000000000.db'
+            ),
         readFileSync(dataFile)
       )
 
-      expect(hasMissingProfileStateDatabaseWithRetainedAuthority(userDataPath, 'work')).toBe(true)
+      expect(hasMissingProfileStateDatabaseWithRetainedExport(userDataPath, 'work')).toBe(true)
     }
   )
 })

@@ -53,7 +53,7 @@ vi.mock('./github-enterprise-repository', () => ({
   isGitHubHostAuthenticated: vi.fn().mockResolvedValue(true)
 }))
 
-import { setPRFileViewed } from './client/update/pr-file-viewed'
+import { setPRFileViewed } from './client'
 
 import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'
 

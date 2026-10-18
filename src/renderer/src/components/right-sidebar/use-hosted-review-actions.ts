@@ -1,5 +1,3 @@
-import { gitLabApiFor } from '@/runtime/gitlab-owner-api'
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
@@ -98,10 +96,7 @@ export function useHostedReviewActions({
       setActionError(null)
       try {
         const result = isGitLab
-          ? await gitLabApiFor({
-              repoPath: repo.path,
-              repoOwnerExecutionHostId: getRepoExecutionHostId(repo)
-            }).mergeMR({
+          ? await window.api.gl.mergeMR({
               repoPath: repo.path,
               repoId: repo.id,
               iid: review.number,
@@ -204,18 +199,12 @@ export function useHostedReviewActions({
       try {
         const result = isGitLab
           ? isClosing
-            ? await gitLabApiFor({
-                repoPath: repo.path,
-                repoOwnerExecutionHostId: getRepoExecutionHostId(repo)
-              }).closeMR({
+            ? await window.api.gl.closeMR({
                 repoPath: repo.path,
                 repoId: repo.id,
                 iid: review.number
               })
-            : await gitLabApiFor({
-                repoPath: repo.path,
-                repoOwnerExecutionHostId: getRepoExecutionHostId(repo)
-              }).reopenMR({
+            : await window.api.gl.reopenMR({
                 repoPath: repo.path,
                 repoId: repo.id,
                 iid: review.number

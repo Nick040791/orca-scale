@@ -134,6 +134,7 @@ export function AgentSessionContinuationDialog({
       prompt,
       worktreeId: request.worktreeId,
       groupId: request.groupId,
+      workspacePath: request.workspacePath,
       initialCwd: request.initialCwd,
       launchSource: request.launchSource
     })
@@ -164,7 +165,7 @@ export function AgentSessionContinuationDialog({
             <MessageSquarePlus className="size-4" />
             {translate(
               'components.agentSessionContinuation.dialogTitle',
-              'Hand Off to Another Agent'
+              'Continue in New Session'
             )}
           </DialogTitle>
           <DialogDescription className="text-xs">
@@ -200,7 +201,12 @@ export function AgentSessionContinuationDialog({
               agents={agents}
               value={selectedAgent}
               onValueChange={setSelectedAgent}
+              allowBlankTerminal={false}
               allowNarrowTrigger
+              emptyLabel={translate(
+                'components.agentSessionContinuation.selectAgent',
+                'Select an Agent'
+              )}
               triggerClassName="min-w-0 w-full"
             />
             {detecting ? (

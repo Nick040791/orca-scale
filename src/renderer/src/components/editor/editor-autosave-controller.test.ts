@@ -38,6 +38,9 @@ type WindowStub = {
     runtimeEnvironments?: {
       call: ReturnType<typeof vi.fn>
     }
+    session?: {
+      setSync: ReturnType<typeof vi.fn>
+    }
   }
 }
 
@@ -557,6 +560,7 @@ describe('attachEditorAutosaveController', () => {
 
   it('leaves dirty editor drafts ready for the combined hot-exit checkpoint', async () => {
     const writeFile = vi.fn().mockResolvedValue(undefined)
+    const setSync = vi.fn()
     const eventTarget = new EventTarget()
     vi.stubGlobal('window', {
       addEventListener: eventTarget.addEventListener.bind(eventTarget),
@@ -567,6 +571,9 @@ describe('attachEditorAutosaveController', () => {
       api: {
         fs: {
           writeFile
+        },
+        session: {
+          setSync
         }
       }
     } satisfies WindowStub)
@@ -589,6 +596,7 @@ describe('attachEditorAutosaveController', () => {
       await vi.advanceTimersByTimeAsync(1000)
 
       expect(writeFile).not.toHaveBeenCalled()
+      expect(setSync).not.toHaveBeenCalled()
       expect(store.getState().openFiles[0]?.isDirty).toBe(true)
       expect(store.getState().editorDrafts['/repo/file.md']).toBe('')
     } finally {
@@ -598,6 +606,7 @@ describe('attachEditorAutosaveController', () => {
 
   it('rejects hot exit for dirty non-edit files that cannot be restored', async () => {
     const writeFile = vi.fn().mockResolvedValue(undefined)
+    const setSync = vi.fn()
     const eventTarget = new EventTarget()
     vi.stubGlobal('window', {
       addEventListener: eventTarget.addEventListener.bind(eventTarget),
@@ -608,6 +617,9 @@ describe('attachEditorAutosaveController', () => {
       api: {
         fs: {
           writeFile
+        },
+        session: {
+          setSync
         }
       }
     } satisfies WindowStub)
@@ -630,6 +642,7 @@ describe('attachEditorAutosaveController', () => {
       await expect(requestEditorHotExitBackup()).rejects.toThrow(
         'Some unsaved editor changes cannot be backed up before restart.'
       )
+      expect(setSync).not.toHaveBeenCalled()
       expect(writeFile).not.toHaveBeenCalled()
     } finally {
       cleanup()

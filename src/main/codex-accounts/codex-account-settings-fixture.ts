@@ -18,6 +18,7 @@ export function createCodexAccountSettings(
     terminalDividerColorLight: '#ffffff',
     terminalPaneOpacityTransitionMs: 150,
     terminalDividerThicknessPx: 1,
+    setupScriptLaunchMode: 'split-vertical',
     localAccountRuntime: 'host',
     floatingTerminalEnabled: false,
     terminalMacOptionAsAlt: 'false',

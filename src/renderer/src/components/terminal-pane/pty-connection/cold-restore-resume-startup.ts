@@ -1,15 +1,15 @@
 import { useAppStore } from '@/store'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
-import {
-  resolveSshHostReportedPlatform,
-  resolveAgentResumeLaunchTarget
-} from '@/lib/agent-resume-launch-target'
+import { resolveAgentResumeLaunchTarget } from '@/lib/agent-resume-launch-target'
 import {
   agentResumeOriginNamesAnotherExecutionHost,
   sleepingRecordNamesAnotherExecutionHost
 } from '@/lib/sleeping-record-execution-host-scope'
-import { resolveResumeLaunchRecipe } from '../../../../../shared/tui-agent-launch-defaults'
+import {
+  resolveTuiAgentLaunchArgs,
+  resolveTuiAgentLaunchEnv
+} from '../../../../../shared/tui-agent-launch-defaults'
 import {
   agentProviderSessionsEqual,
   isResumableTuiAgent,
@@ -74,23 +74,28 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
     // follow the tab's effective Windows shell, not the win32 PowerShell default.
     const resumeTarget = resolveAgentResumeLaunchTarget({
       projectRuntime: session.projectRuntime,
-      connectionId: null,
+      connectionId: session.connectionId,
       executionHostId: session.executionHostId,
       worktreePath: session.worktree?.path,
       terminalWindowsShell: state.settings?.terminalWindowsShell,
-      tabShellOverride: session.shellOverride,
-      // Why the transport's runtime: the pane's own connection names the SSH target's owner.
-      remotePlatform: resolveSshHostReportedPlatform(
-        state,
-        session.executionHostId,
-        session.transport.getRuntimeEnvironmentId?.() ?? null
-      )
+      tabShellOverride: session.shellOverride
     })
     const startupPlan = buildAgentResumeStartupPlan({
       agent,
       providerSession,
       cmdOverrides: state.settings?.agentCmdOverrides ?? {},
-      ...resolveResumeLaunchRecipe(launchConfig),
+      agentArgs:
+        launchConfig !== undefined
+          ? launchConfig.agentArgs
+          : resolveTuiAgentLaunchArgs(agent, state.settings?.agentDefaultArgs),
+      agentEnv:
+        launchConfig !== undefined
+          ? launchConfig.agentEnv
+          : resolveTuiAgentLaunchEnv(agent, state.settings?.agentDefaultEnv),
+      ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
+      ...(launchConfig?.ompResumeFilePath
+        ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
+        : {}),
       platform: resumeTarget.platform,
       shell: resumeTarget.shell
     })

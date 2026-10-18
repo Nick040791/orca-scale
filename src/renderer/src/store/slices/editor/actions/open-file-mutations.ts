@@ -1,13 +1,7 @@
 import type { EditorGet, EditorSet } from '../types/editor-set-get'
 import type { EditorSlice } from '../types/editor-slice'
+import type { OpenFile } from '../types/open-file'
 import { isEditorTabContentType } from '../tabs/editor-tab-content-type'
-import type { Tab } from '../../../../../../shared/tab-types'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../../shared/layout-owner-switch'
-import { withPreviewEnded } from '../../tabs/tab-preview-flag'
-import {
-  previewEditorTabsOf,
-  recordPromotedEditorTabsInLayoutOwner
-} from '../tabs/editor-tab-layout-owner'
 
 export function createOpenFileMutations(
   set: EditorSet,
@@ -15,6 +9,7 @@ export function createOpenFileMutations(
 ): Pick<
   EditorSlice,
   | 'setActiveFile'
+  | 'reorderFiles'
   | 'markFileDirty'
   | 'setExternalMutation'
   | 'setLastKnownDiskSignature'
@@ -25,29 +20,19 @@ export function createOpenFileMutations(
   | 'clearUntitled'
 > {
   return {
-    setActiveFile: (fileId, targetWorktreeId) => {
-      if (!get().openFiles.some((file) => file.id === fileId)) {
-        return
-      }
+    setActiveFile: (fileId) => {
       set((s) => {
         const file = s.openFiles.find((f) => f.id === fileId)
         const worktreeId = file?.worktreeId
-        // Why the scope guard: an overlay workspace (the floating panel) activates files while a
-        // different workspace owns global selection; moving activeFileId would break the
-        // agent-auto-ack invariant that the floating active tab never becomes global selection.
-        const scopeWorktreeId = targetWorktreeId ?? worktreeId ?? s.activeWorktreeId
         return {
-          ...(scopeWorktreeId === s.activeWorktreeId ? { activeFileId: fileId } : {}),
+          activeFileId: fileId,
           activeFileIdByWorktree: worktreeId
             ? { ...s.activeFileIdByWorktree, [worktreeId]: fileId }
             : s.activeFileIdByWorktree
         }
       })
       const state = get()
-      const worktreeId =
-        targetWorktreeId ??
-        state.openFiles.find((file) => file.id === fileId)?.worktreeId ??
-        state.activeWorktreeId
+      const worktreeId = state.activeWorktreeId
       if (!worktreeId) {
         return
       }
@@ -65,8 +50,25 @@ export function createOpenFileMutations(
       }
     },
 
-    markFileDirty: (fileId, dirty) => {
-      const promoted: Tab[] = []
+    reorderFiles: (fileIds) =>
+      set((s) => {
+        const reorderedSet = new Set(fileIds)
+        const byId = new Map(s.openFiles.map((f) => [f.id, f]))
+        const reordered = fileIds.map((id) => byId.get(id)).filter(Boolean) as OpenFile[]
+        // Replace the reordered subset in-place: keep other-worktree files at their positions
+        const result: OpenFile[] = []
+        let ri = 0
+        for (const f of s.openFiles) {
+          if (reorderedSet.has(f.id)) {
+            result.push(reordered[ri++])
+          } else {
+            result.push(f)
+          }
+        }
+        return { openFiles: result }
+      }),
+
+    markFileDirty: (fileId, dirty) =>
       set((s) => {
         // Why: this fires on every keystroke; rebuilding openFiles unconditionally thrashes subscribers and caused typing lag, so bail when nothing changes.
         const file = s.openFiles.find((f) => f.id === fileId)
@@ -74,15 +76,12 @@ export function createOpenFileMutations(
           return s
         }
         // Why: read-only tabs can never become dirty; hard no-op any stray change/save callback that reached here.
-        if (file.readOnly === true || file.csvPreviewOnly === true) {
+        if (file.readOnly === true) {
           return s
         }
         const needsPreviewClear = dirty && file.isPreview
         if (file.isDirty === dirty && !needsPreviewClear) {
           return s
-        }
-        if (ORCA_LAYOUT_OWNER_IS_MAIN && needsPreviewClear) {
-          promoted.push(...previewEditorTabsOf(s.unifiedTabsByWorktree, fileId))
         }
         const nextOpenFiles = s.openFiles.map((f) =>
           f.id === fileId
@@ -98,7 +97,7 @@ export function createOpenFileMutations(
                     worktreeId,
                     tabs.map((tab) =>
                       tab.entityId === fileId && isEditorTabContentType(tab.contentType)
-                        ? withPreviewEnded(tab)
+                        ? { ...tab, isPreview: false }
                         : tab
                     )
                   ])
@@ -106,12 +105,7 @@ export function createOpenFileMutations(
               }
             : {})
         }
-      })
-      // Switch point: main records that an edit made a preview tab permanent.
-      if (ORCA_LAYOUT_OWNER_IS_MAIN && promoted.length > 0) {
-        recordPromotedEditorTabsInLayoutOwner(get(), promoted)
-      }
-    },
+      }),
 
     setExternalMutation: (fileId, mutation) =>
       set((s) => {

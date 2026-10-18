@@ -1,5 +1,5 @@
 import {
-  runtimeHostStatusBlockedReason,
+  isRuntimeHostStatusBlocked,
   runtimeHostStatusError,
   runtimeHostStatusFailure,
   type RuntimeHostStatusResponse,
@@ -221,11 +221,9 @@ export class RuntimeHostStatusOwner {
       this.update({ status: response.result, checkedAt: Date.now(), verification: 'verified' })
       this.persistent = this.options.verified(response, this.active)
     } else {
-      const blockedReason = runtimeHostStatusBlockedReason(response)
       this.update({
         checkedAt: Date.now(),
-        verification: blockedReason ? 'blocked' : 'unavailable',
-        ...(blockedReason ? { blockedReason } : {})
+        verification: isRuntimeHostStatusBlocked(response) ? 'blocked' : 'unavailable'
       })
       this.scheduleRetry()
     }
@@ -270,14 +268,7 @@ export class RuntimeHostStatusOwner {
   }
 
   private update(patch: Partial<RuntimeHostStatusSnapshot>): void {
-    const { blockedReason, ...next } = { ...this.snapshot, ...patch }
-    // Why: a retired owner is a disconnect, not a refusal, so it never carries a reason.
-    const keepReason = blockedReason && next.verification === 'blocked' && !next.retired
-    this.snapshot = {
-      ...next,
-      ...(keepReason ? { blockedReason } : {}),
-      sequence: ++publicationSequence
-    }
+    this.snapshot = { ...this.snapshot, ...patch, sequence: ++publicationSequence }
     this.options.publish(this.snapshot)
   }
 }

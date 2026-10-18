@@ -1,5 +1,5 @@
 import type { IDisposable, Terminal } from '@xterm/xterm'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 
 export const XTERM_COMPOSITION_SESSION_START_EVENT = 'xterm-composition-session-start'
 export const XTERM_COMPOSITION_SESSION_END_EVENT = 'xterm-composition-session-end'
@@ -99,8 +99,8 @@ export function readTerminalImeCompositionSessionDetail(
 export function installTerminalImeCompositionRoute(args: {
   terminalElement: HTMLElement | null | undefined
   terminal: Pick<Terminal, 'input'>
-  capturedTransport: Pick<PtyTransport, 'getPtyId'>
-  getCurrentTransport: () => Pick<PtyTransport, 'getPtyId'> | undefined
+  capturedTransport: PtyTransport
+  getCurrentTransport: () => PtyTransport | undefined
 }): IDisposable {
   const terminalElement = args.terminalElement
   const sessions = new Map<number, CapturedCompositionSession>()

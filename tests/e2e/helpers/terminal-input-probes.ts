@@ -247,7 +247,7 @@ export async function mainProbeDirectWrite(
     const inputs = buildSettledShellProbeInputSequence(`echo ${marker}\r`)
     await mainRendererEval<void>(
       electronApp,
-      `for (const input of ${JSON.stringify(inputs)}) { window.api.pty.write(${JSON.stringify(ptyId)}, input, "driving") }`
+      `for (const input of ${JSON.stringify(inputs)}) { window.api.pty.write(${JSON.stringify(ptyId)}, input) }`
     )
   } catch {
     return false

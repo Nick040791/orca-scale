@@ -3,10 +3,8 @@ import {
   markTerminalBracketedPasteInterrupted,
   observeTerminalBracketedPasteModeOutput,
   pasteTerminalText,
-  sanitizeTerminalPasteText,
-  wrapTerminalBracketedPasteText
+  sanitizeTerminalPasteText
 } from './terminal-bracketed-paste'
-import { wrapTerminalBracketedPasteText as hostPasteFrame } from '../../../../shared/terminal-bracketed-paste-text'
 
 function createTerminal(bracketedPasteMode = true) {
   const terminal = {
@@ -23,11 +21,6 @@ function createTerminal(bracketedPasteMode = true) {
 }
 
 describe('terminal bracketed paste policy', () => {
-  // The host's launch prompt replaced the desktop's draft paste; one function keeps their bytes equal.
-  it('frames pasted text with the same function as the host launch prompt', () => {
-    expect(wrapTerminalBracketedPasteText).toBe(hostPasteFrame)
-  })
-
   it('temporarily ignores bracketed paste wrappers for single-line paste after Ctrl+C', () => {
     const terminal = createTerminal(true)
     const observedIgnoreValues: (boolean | undefined)[] = []

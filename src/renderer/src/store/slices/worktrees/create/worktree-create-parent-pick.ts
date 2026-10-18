@@ -8,12 +8,7 @@ import {
   parseWorkspaceKey,
   worktreeWorkspaceKey
 } from '../../../../../../shared/workspace-scope'
-import { getIndexedWorktreesById } from '@/store/worktree-repo-index'
-import { repoMatchesHostIdentity } from '../../repo-host-identity'
-import {
-  getWorktreeExecutionHostId,
-  type ExecutionHostId
-} from '../../../../../../shared/execution-host'
+import { getIndexedWorktreeById } from '@/store/worktree-repo-index'
 
 export type WorktreeCreateParentPick = {
   /** Workspace the create attaches to. Undefined once a stale pick is dropped. */
@@ -29,20 +24,13 @@ export type WorktreeCreateParentPick = {
 /** Resolves the composer pick against the current store, falling back to the active folder scope. */
 export function resolveWorktreeCreateParent(
   state: AppState,
-  requestedParentWorktreeId: string | undefined,
-  executionHostId: ExecutionHostId
+  repoId: string,
+  requestedParentWorktreeId: string | undefined
 ): WorktreeCreateParentPick {
   const picked = requestedParentWorktreeId
-    ? getIndexedWorktreesById(state.worktreesByRepo, requestedParentWorktreeId).find(
-        (candidate) => {
-          const repo = state.repos.find((owner) =>
-            repoMatchesHostIdentity(owner, candidate.repoId, candidate.hostId ?? executionHostId)
-          )
-          return Boolean(repo && getWorktreeExecutionHostId(candidate, repo) === executionHostId)
-        }
-      )
+    ? getIndexedWorktreeById(state.worktreesByRepo, requestedParentWorktreeId)
     : undefined
-  const usable = picked && !picked.isArchived ? picked.id : undefined
+  const usable = picked && !picked.isArchived && picked.repoId === repoId ? picked.id : undefined
   const pickedDisplayName = picked ? resolveWorktreeDisplayName(picked).trim() : null
   if (usable) {
     return {

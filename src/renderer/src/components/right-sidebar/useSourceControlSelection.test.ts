@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { GitStatusEntry } from '../../../../shared/git-status-types'
 import {
   getSelectionRangeKeys,
+  reconcileSelectionKeys,
   reconcileSourceControlSelectionState,
   type FlatEntry
 } from './source-control/listing/use-selection'
@@ -22,6 +23,19 @@ function makeEntry(
     }
   }
 }
+
+describe('reconcileSelectionKeys', () => {
+  it('drops selections that no longer exist in the visible list', () => {
+    const flatEntries = [
+      makeEntry('unstaged::a.ts', 'unstaged', 'a.ts'),
+      makeEntry('staged::b.ts', 'staged', 'b.ts')
+    ]
+
+    expect(
+      reconcileSelectionKeys(new Set(['unstaged::a.ts', 'untracked::gone.ts']), flatEntries)
+    ).toEqual(new Set(['unstaged::a.ts']))
+  })
+})
 
 describe('reconcileSourceControlSelectionState', () => {
   it('returns the same references without scanning rows when nothing is selected', () => {

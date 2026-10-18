@@ -117,6 +117,13 @@ function notifySnapshotListeners(snapshot: BrowserIdentityModeSnapshot): void {
   }
 }
 
+export function onBrowserIdentityModeSnapshotChanged(
+  listener: (snapshot: BrowserIdentityModeSnapshot) => void
+): () => void {
+  snapshotListeners.add(listener)
+  return () => snapshotListeners.delete(listener)
+}
+
 /**
  * Commits an explicit choice. The record lands durably before this resolves.
  *

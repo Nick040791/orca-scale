@@ -1,27 +1,29 @@
 import { canConnectSshStatus } from '@/ssh/ssh-connection-recoverability'
 import type { DirectSshAuthority, SshConnectionState } from '../../../../shared/ssh-types'
 import { useAppStore } from '../../store'
-import { directSshAuthoritiesEqual } from '../../store/slices/worktrees/listing/direct-ssh-authority'
+import { isDirectSshReconnectCoordinatorRoutingEnabled } from '../direct-ssh-reconnect-rollout'
+import { directSshAuthoritiesEqual } from '../direct-ssh-reconnect-tokens'
 import {
-  directSshAuthorityFromConnectionState,
+  registerDirectSshWakeRouting,
+  routeDirectSshConnectedState,
   type DirectSshConnectedStateOrigin
 } from '../direct-ssh-state-routing'
+import type { DirectSshBridgeRuntime } from './direct-ssh-bridge-runtime'
 import { hydrateDirectSshInitialState } from './direct-ssh-initial-state-hydration'
-import { syncSshConfigTargetsPassively } from '../../lib/ssh-config-passive-sync'
-import { applySshManagedServerTransition } from './ssh-managed-server-state-effects'
-
-type AuthorityDeadline = { timer: ReturnType<typeof setTimeout>; settle: () => void }
-
-/** Returns the stop that settles pending authority reads; listeners are released through unsubs. */
-export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => void {
-  let stopped = false
-  const isStopped = (): boolean => stopped
-  const deadlines = new Set<AuthorityDeadline>()
-  const currentAuthority = (targetId: string): DirectSshAuthority | null => {
-    const state = useAppStore.getState().sshConnectionStates?.get(targetId)
-    return state ? directSshAuthorityFromConnectionState(targetId, state) : null
-  }
+export function registerDirectSshStateIpcBridge(
+  unsubs: (() => void)[],
+  runtime: DirectSshBridgeRuntime
+): void {
+  const {
+    reconnectAuthorityByTarget,
+    reconnectCoordinator,
+    currentAuthority,
+    terminalActions,
+    prepareAndSync
+  } = runtime
   const sshStateWatermarkByTargetId = new Map<string, number>()
+  // Connect replies can update the store before this bridge routes the matching push.
+  const routedAuthorityByTarget = new Map<string, DirectSshAuthority>()
   const pendingPortHydrationByTargetId = new Map<
     string,
     { receivedForwardPush: boolean; receivedDetectedPush: boolean }
@@ -33,7 +35,7 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
     }
     pendingPortHydrationByTargetId.set(targetId, pendingPortHydration)
     const isHydrationAuthorityCurrent = (): boolean =>
-      !isStopped() && directSshAuthoritiesEqual(currentAuthority(targetId), authority)
+      !runtime.isStopped() && directSshAuthoritiesEqual(currentAuthority(targetId), authority)
     const forwardHydration = window.api.ssh.listPortForwards({ targetId }).then((forwards) => {
       if (isHydrationAuthorityCurrent() && !pendingPortHydration.receivedForwardPush) {
         useAppStore.getState().setPortForwards(targetId, forwards)
@@ -55,14 +57,9 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
     state: SshConnectionState,
     origin: DirectSshConnectedStateOrigin
   ) => void
-  void hydrateDirectSshInitialState(isStopped, sshStateWatermarkByTargetId, (targetId, state) =>
+  void hydrateDirectSshInitialState(runtime, sshStateWatermarkByTargetId, (targetId, state) =>
     applySshConnectionStateChange(targetId, state, 'initial-hydration')
-  ).then(() => {
-    // Why: after the saved list paints, so a slow config parse never delays the first host list.
-    if (!isStopped()) {
-      void syncSshConfigTargetsPassively()
-    }
-  })
+  )
   unsubs.push(
     window.api.ssh.onCredentialRequest((data) => {
       useAppStore.getState().enqueueSshCredentialRequest(data)
@@ -100,17 +97,17 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
     origin: DirectSshConnectedStateOrigin,
     watermark: number
   ): void => {
-    let pendingDeadline: AuthorityDeadline | undefined
+    let pendingDeadline: { timer: ReturnType<typeof setTimeout>; settle: () => void } | undefined
     const deadline = new Promise<null>((resolve) => {
       const settle = (): void => resolve(null)
       const timer = setTimeout(settle, 5_000)
       pendingDeadline = { timer, settle }
-      deadlines.add(pendingDeadline)
+      runtime.addDeadline(pendingDeadline)
     })
     void Promise.race([window.api.ssh.getState({ targetId }).catch(() => null), deadline])
       .then((latest) => {
         if (
-          isStopped() ||
+          runtime.isStopped() ||
           latest?.targetId !== targetId ||
           !latest?.providerEpoch ||
           latest.connectionGeneration === undefined ||
@@ -146,7 +143,7 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
       .finally(() => {
         if (pendingDeadline) {
           clearTimeout(pendingDeadline.timer)
-          deadlines.delete(pendingDeadline)
+          runtime.removeDeadline(pendingDeadline)
         }
       })
   }
@@ -157,15 +154,18 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
     origin: DirectSshConnectedStateOrigin
   ): void => {
     const store = useAppStore.getState()
-    const previousManagedServer = store.sshConnectionStates.get(targetId)?.managedServer
     store.setSshConnectionState(targetId, state)
-    applySshManagedServerTransition(targetId, previousManagedServer, state.managedServer)
 
     if (canConnectSshStatus(state.status)) {
+      routedAuthorityByTarget.delete(targetId)
+      reconnectAuthorityByTarget.delete(targetId)
+      reconnectCoordinator.invalidate(targetId)
       store.clearRemoteDetectedAgents(targetId)
 
       store.clearPortForwards(targetId)
       store.setDetectedPorts(targetId, [])
+
+      store.clearDirectSshTargetPtyBindings(targetId)
       return
     }
 
@@ -177,6 +177,27 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
       reconcileSshAuthority(targetId, state, origin, sshStateWatermarkByTargetId.get(targetId) ?? 0)
       return
     }
+    const previousAuthority = routedAuthorityByTarget.get(targetId) ?? null
+    routedAuthorityByTarget.set(targetId, authority)
+    routeDirectSshConnectedState(
+      {
+        coordinator: reconnectCoordinator,
+        coordinatorRoutingEnabled: isDirectSshReconnectCoordinatorRoutingEnabled(),
+        invalidateStaleTerminalBindings: (nextAuthority) =>
+          terminalActions().invalidateStaleDirectSshTargetPtyBindings?.(nextAuthority) ?? 0,
+        retryTargetPanes: (nextAuthority) =>
+          terminalActions().retryDirectSshTargetPanes?.(nextAuthority) ?? 0,
+        prepareAndSync: prepareAndSync,
+        rememberReconnectAuthority: (nextAuthority) => {
+          if (nextAuthority) {
+            reconnectAuthorityByTarget.set(targetId, nextAuthority)
+          } else {
+            reconnectAuthorityByTarget.delete(targetId)
+          }
+        }
+      },
+      { authority, previousAuthority, origin }
+    )
     if (origin === 'initial-hydration') {
       hydrateSshPorts(targetId, authority)
     }
@@ -203,11 +224,12 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
             return
           }
           latestSshTargetStateEventByTargetId.delete(data.targetId)
-          if (isStopped()) {
+          if (runtime.isStopped()) {
             return
           }
           const latestStore = useAppStore.getState()
           if (!targets.some((target) => target.id === data.targetId)) {
+            routedAuthorityByTarget.delete(data.targetId)
             latestStore.clearRemovedSshTargetState(data.targetId)
             return
           }
@@ -216,7 +238,7 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
         })
         .catch(() => {
           if (
-            !isStopped() &&
+            !runtime.isStopped() &&
             latestSshTargetStateEventByTargetId.get(data.targetId) === stateEventId
           ) {
             latestSshTargetStateEventByTargetId.delete(data.targetId)
@@ -231,12 +253,16 @@ export function registerDirectSshStateIpcBridge(unsubs: (() => void)[]): () => v
   }
 
   unsubs.push(window.api.ssh.onStateChanged(handleSshStateChangedEvent))
-  return () => {
-    stopped = true
-    for (const deadline of deadlines) {
-      clearTimeout(deadline.timer)
-      deadline.settle()
-    }
-    deadlines.clear()
-  }
+  unsubs.push(
+    registerDirectSshWakeRouting({
+      getConnectionStates: () => useAppStore.getState().sshConnectionStates ?? [],
+      wakeAuthority: (authority) => {
+        reconnectCoordinator.correctUnboundTerminals(authority, 'wake-refresh')
+        void prepareAndSync(authority, 'wake-refresh')
+      },
+      ...(typeof window.api.ui.onSystemResumed === 'function'
+        ? { onSystemResumed: (callback: () => void) => window.api.ui.onSystemResumed(callback) }
+        : {})
+    })
+  )
 }

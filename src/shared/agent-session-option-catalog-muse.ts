@@ -1,3 +1,4 @@
+import { hasFlag } from './agent-cli-flag-detection'
 import { removeAgentArgOption } from './agent-session-option-agent-args'
 import type { AgentSessionOptionCatalog, CatalogOption } from './agent-session-option-catalog-types'
 
@@ -21,7 +22,8 @@ const MUSE_EFFORT: CatalogOption = {
   },
   apply: {
     launchArgs: (value) => ['--reasoning-effort', String(value)],
-    removeAgentArgs: (tokens) => removeAgentArgOption('muse', tokens, ['--reasoning-effort'])
+    agentArgsOverride: (tokens) => hasFlag(tokens, ['--reasoning-effort']),
+    removeAgentArgs: (tokens) => removeAgentArgOption(tokens, ['--reasoning-effort'])
   }
 }
 
@@ -32,7 +34,8 @@ export const MUSE_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
   models: [],
   modelApply: {
     launchArgs: (value) => ['--model', String(value)],
-    removeAgentArgs: (tokens) => removeAgentArgOption('muse', tokens, ['--model'])
+    agentArgsOverride: (tokens) => hasFlag(tokens, ['--model']),
+    removeAgentArgs: (tokens) => removeAgentArgOption(tokens, ['--model'])
   },
   unknownModelOptions: [MUSE_EFFORT]
 }

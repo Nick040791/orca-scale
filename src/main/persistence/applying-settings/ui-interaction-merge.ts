@@ -3,7 +3,6 @@ import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { WorkspaceLineage } from '../../../shared/worktree/lineage-types'
 import { normalizeFeatureInteractions } from '../../../shared/feature-interactions'
 import { normalizeContextualTourIds } from '../../../shared/contextual-tours'
-import { normalizeFeatureTipIds } from '../../../shared/feature-tips'
 import { isWorkspaceKey } from '../../../shared/workspace-scope'
 
 export function mergeFeatureInteractions(
@@ -40,13 +39,6 @@ export function mergeContextualTourSeenIds(
     merged.add(id)
   }
   return [...merged]
-}
-
-export function mergeFeatureTipSeenIds(
-  current: PersistedState['ui']['featureTipsSeenIds'],
-  incoming: PersistedState['ui']['featureTipsSeenIds']
-): PersistedState['ui']['featureTipsSeenIds'] {
-  return [...new Set([...normalizeFeatureTipIds(current), ...normalizeFeatureTipIds(incoming)])]
 }
 
 export function stripMainOwnedTelemetryMarkerFromUI(

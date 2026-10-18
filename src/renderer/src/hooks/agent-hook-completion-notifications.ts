@@ -236,6 +236,7 @@ function createCoordinator(paneKey: string, worktreeId: string): AgentCompletion
     paneKey,
     statusLane: 'hook',
     getPtyId: () => getPtyIdForPaneKey(paneKey),
+    getSettings: () => useAppStore.getState().settings,
     inspectProcess: async (): Promise<RuntimeTerminalProcessInspection> => ({
       foregroundProcess: null,
       hasChildProcesses: false

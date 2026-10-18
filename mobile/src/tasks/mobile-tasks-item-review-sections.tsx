@@ -18,7 +18,6 @@ import {
   Check
 } from './mobile-tasks-dependencies'
 import { styles } from './mobile-tasks-legacy-styles'
-import { detailPayloadBody } from './mobile-tasks-provider-detail-types'
 
 export function renderMobileTasksItemBodyEditor(model: ConnectionPresentationModel) {
   const {
@@ -82,7 +81,10 @@ export function renderMobileTasksItemBodyEditor(model: ConnectionPresentationMod
       <MobileMarkdown content={itemBodyDraft} fallback="No description." />
     </>
   ) : (
-    <MobileMarkdown content={detailPayloadBody(detailPayload)} fallback="No description." />
+    <MobileMarkdown
+      content={detailPayload.provider === 'linear' ? detailPayload.description : detailPayload.body}
+      fallback="No description."
+    />
   )
 }
 

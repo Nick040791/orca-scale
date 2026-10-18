@@ -3,12 +3,13 @@
 // Metro only watches mobile/ + repo-root src/shared, never src/renderer.
 // INVARIANT: /shared is a leaf — this module must NOT import from src/renderer.
 import {
+  createNormalizedPathInsideOrEqualMatcher,
   normalizeRuntimePathForComparison,
   normalizeRuntimePathSeparators
 } from './cross-platform-path'
 import { isClipboardTextByteLengthOverLimit } from './clipboard-text'
 import { splitAiVaultSearchQuery } from './ai-vault-search-query-operators'
-import { createAiVaultScopeCwdMatcher } from './ai-vault-scope-cwd-match'
+import { parseWslUncPath } from './wsl-paths'
 import type {
   AiVaultAgent,
   AiVaultGroup,
@@ -79,9 +80,10 @@ export function filterAiVaultSessions(
 
   const agentSet = new Set(filters.agents)
   const parsedQuery = parseVaultQuery(filters.query)
-  const inWorkspace = createAiVaultScopeCwdMatcher(
-    filters.scope === 'workspace' ? filters.activeWorktreePaths : []
-  )
+  const workspaceMatchers =
+    filters.scope === 'workspace'
+      ? filters.activeWorktreePaths.map(createAiVaultWorkspaceMatcher)
+      : []
 
   const filtered = sessions.filter((session) => {
     if (!agentSet.has(session.agent)) {
@@ -99,7 +101,9 @@ export function filterAiVaultSessions(
       return false
     }
     if (filters.scope === 'workspace') {
-      if (!inWorkspace(session.cwd, session.filePath)) {
+      const cwd = session.cwd
+      const normalizedCwd = cwd ? normalizeRuntimePathForComparison(cwd) : null
+      if (normalizedCwd === null || !workspaceMatchers.some((matches) => matches(normalizedCwd))) {
         return false
       }
     }
@@ -299,4 +303,15 @@ function getGroupIdentity(
     }
   }
   return { key: folderGroupKey(session.cwd), label: folderLabel(session.cwd) }
+}
+
+function createAiVaultWorkspaceMatcher(workspacePath: string): (normalizedCwd: string) => boolean {
+  const matches = createNormalizedPathInsideOrEqualMatcher(workspacePath)
+  const workspaceWslPath = parseWslUncPath(workspacePath)
+  if (!workspaceWslPath) {
+    return matches
+  }
+  // WSL transcripts record Linux cwd even when the workspace uses a UNC path.
+  const matchesLinux = createNormalizedPathInsideOrEqualMatcher(workspaceWslPath.linuxPath)
+  return (cwd) => matches(cwd) || matchesLinux(cwd)
 }

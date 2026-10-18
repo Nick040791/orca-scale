@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import { getConnectionId } from '@/lib/connection-context'
-import { getRuntimeGitHistory } from '@/runtime/runtime-git-status-client'
+import { getRuntimeGitHistory, type RuntimeGitContext } from '@/runtime/runtime-git-client'
 import type { GitHistoryPanelState } from './git-history-panel'
 
 const EMPTY_GIT_HISTORY_STATE: GitHistoryPanelState = { status: 'idle' }
@@ -18,7 +16,7 @@ const EMPTY_GIT_HISTORY_STATE: GitHistoryPanelState = { status: 'idle' }
  * whenever the callback identity changes.
  */
 export function useSourceControlGitHistory({
-  activeRepoTarget,
+  activeRepoSettings,
   activeWorktreeId,
   worktreePath,
   compareBaseRef,
@@ -28,7 +26,7 @@ export function useSourceControlGitHistory({
   isGitHistoryVisible,
   worktreeMap
 }: {
-  activeRepoTarget: RuntimeClientTarget | null
+  activeRepoSettings: RuntimeGitContext['settings']
   activeWorktreeId: string | null
   worktreePath: string | null
   compareBaseRef: string | null
@@ -51,8 +49,7 @@ export function useSourceControlGitHistory({
     ? (gitHistoryByWorktree[activeWorktreeId] ?? EMPTY_GIT_HISTORY_STATE)
     : EMPTY_GIT_HISTORY_STATE
   // Why: the read is routed by owner host, so track it as a stable string — a new settings object alone must not refetch.
-  const ownerHostKey =
-    activeRepoTarget?.kind === 'environment' ? activeRepoTarget.environmentId : ''
+  const ownerHostKey = activeRepoSettings?.activeRuntimeEnvironmentId?.trim() ?? ''
 
   useEffect(() => {
     setGitHistoryByWorktree((prev) => {
@@ -103,7 +100,7 @@ export function useSourceControlGitHistory({
       const result = await getRuntimeGitHistory(
         {
           // Why: route the history read by the repo OWNER host, not the focused runtime.
-          target: requireGitOwnerTarget(activeRepoTarget),
+          settings: activeRepoSettings,
           worktreeId,
           worktreePath,
           connectionId
@@ -133,7 +130,7 @@ export function useSourceControlGitHistory({
       })
     }
   }, [
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     compareBaseRef,
     isBranchVisible,

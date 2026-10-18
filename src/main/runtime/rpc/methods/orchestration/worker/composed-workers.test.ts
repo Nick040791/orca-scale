@@ -155,13 +155,12 @@ describe('orchestration RPC methods', () => {
       // the tab without scrolling the sidebar to the worker's workspace.
       expect(runtime.createTerminal).toHaveBeenCalledWith('id:repo::worktree', {
         startupAgent: 'codex',
-        launchSource: 'orchestration',
         title: `worker-${task.id}`,
         surfaceOwner: false
       })
       expect(runtime.sendTerminalAgentPrompt).toHaveBeenCalledWith(
         'term_worker',
-        expect.any(String),
+        expect.stringContaining('--dispatch-capability dcap_'),
         expect.objectContaining(dispatchPreambleSendOptions(expect.any(String)))
       )
     })

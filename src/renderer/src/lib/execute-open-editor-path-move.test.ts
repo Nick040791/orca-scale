@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as RuntimeFileMutationClient from '@/runtime/runtime-file-mutation-client'
+import type * as RuntimeFileClient from '@/runtime/runtime-file-client'
 import type * as EditorAutosave from '@/components/editor/editor-autosave'
 
 const mocks = vi.hoisted(() => ({ renameRuntimePath: vi.fn() }))
-vi.mock('@/runtime/runtime-file-mutation-client', async (importOriginal) => {
-  const actual = await importOriginal<typeof RuntimeFileMutationClient>()
+vi.mock('@/runtime/runtime-file-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof RuntimeFileClient>()
   return { ...actual, renameRuntimePath: mocks.renameRuntimePath }
 })
 vi.mock('@/components/editor/editor-autosave', async (importOriginal) => {
@@ -16,10 +16,10 @@ import { useAppStore } from '@/store'
 import { executeOpenEditorPathMove } from './execute-open-editor-path-move'
 import { __activeEditorPathMoveCountForTests } from '@/components/editor/editor-path-move-inflight'
 import { getDiskBaselineSignature } from '@/components/editor/diff-content-signature'
-import { buildEditorExternalWatchEventHandler as createExternalWatchEventHandler } from '@/hooks/editor-external-watch-event-reconciliation'
+import { createExternalWatchEventHandler } from '@/hooks/useEditorExternalWatch'
 
 const CONTEXT = {
-  target: { kind: 'local' as const },
+  settings: null,
   worktreeId: 'wt-1',
   worktreePath: '/repo',
   connectionId: undefined
@@ -66,12 +66,7 @@ describe('executeOpenEditorPathMove', () => {
       worktreePath: '/repo'
     })
 
-    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(
-      CONTEXT,
-      '/repo/a.md',
-      '/repo/sub/a.md',
-      undefined
-    )
+    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(CONTEXT, '/repo/a.md', '/repo/sub/a.md')
     const moved = useAppStore.getState().openFiles[0]!
     expect(moved.filePath).toBe('/repo/sub/a.md')
     expect(moved.isDirty).toBe(true)
@@ -82,24 +77,6 @@ describe('executeOpenEditorPathMove', () => {
     expect(moved.pendingSelfMoveEcho?.targetPath).toBe('/repo/sub/a.md')
     // The in-flight transaction is settled (no leak).
     expect(__activeEditorPathMoveCountForTests()).toBe(0)
-  })
-
-  it('declares the moved file as the document for a document-scoped rename', async () => {
-    openDirtyTab()
-
-    await executeOpenEditorPathMove({
-      context: CONTEXT,
-      fromPath: '/repo/a.md',
-      toPath: '/repo/b.md',
-      worktreeId: 'wt-1',
-      worktreePath: '/repo',
-      documentScoped: true
-    })
-
-    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(CONTEXT, '/repo/a.md', '/repo/b.md', {
-      kind: 'document-folder',
-      documentPath: '/repo/a.md'
-    })
   })
 
   it('resolves the verify gate proactively when no destination watcher event arrives', async () => {
@@ -203,51 +180,10 @@ describe('executeOpenEditorPathMove', () => {
     ).rejects.toThrow(/retarget/)
 
     // Forward rename then inverse rename to undo the disk move.
-    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(
-      CONTEXT,
-      '/repo/a.md',
-      '/repo/sub/a.md',
-      undefined
-    )
-    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(
-      CONTEXT,
-      '/repo/sub/a.md',
-      '/repo/a.md',
-      undefined
-    )
+    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(CONTEXT, '/repo/a.md', '/repo/sub/a.md')
+    expect(mocks.renameRuntimePath).toHaveBeenCalledWith(CONTEXT, '/repo/sub/a.md', '/repo/a.md')
     // The stranded source session is left intact (not rekeyed).
     expect(useAppStore.getState().openFiles.map((f) => f.id)).toEqual(before)
-  })
-
-  it('undoes a document-scoped rename with the renamed file as the document', async () => {
-    openDirtyTab()
-    useAppStore.getState().openFile(
-      {
-        filePath: '/repo/b.md',
-        relativePath: 'b.md',
-        worktreeId: 'wt-1',
-        runtimeEnvironmentId: null,
-        language: 'markdown',
-        mode: 'edit'
-      },
-      { suppressActiveRuntimeFallback: true }
-    )
-
-    await expect(
-      executeOpenEditorPathMove({
-        context: CONTEXT,
-        fromPath: '/repo/a.md',
-        toPath: '/repo/b.md',
-        worktreeId: 'wt-1',
-        worktreePath: '/repo',
-        documentScoped: true
-      })
-    ).rejects.toThrow(/retarget/)
-
-    expect(mocks.renameRuntimePath).toHaveBeenLastCalledWith(CONTEXT, '/repo/b.md', '/repo/a.md', {
-      kind: 'document-folder',
-      documentPath: '/repo/b.md'
-    })
   })
 
   it('leaves the store untouched and settles the transaction when the rename fails', async () => {

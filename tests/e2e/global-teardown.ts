@@ -6,8 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, existsSync, realpathSync, rmSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { readFileSync, existsSync, realpathSync, rmSync } from 'node:fs'
 import { TEST_REPO_PATH_FILE } from './global-setup'
 
 export function linkedWorktreePaths(testRepoDir: string): string[] {
@@ -48,33 +47,16 @@ export function cleanupTestRepository(testRepoDir: string): void {
   rmSync(root, { recursive: true, force: true })
 }
 
-export function cleanupTestRepositoryPathFiles(runPathFile: string): void {
-  const directory = dirname(runPathFile)
-  if (!existsSync(directory)) {
+export default function globalTeardown(): void {
+  if (!existsSync(TEST_REPO_PATH_FILE)) {
     return
   }
-  const workerPrefix = `${basename(runPathFile)}.worker-`
-  const workerPathFiles = readdirSync(directory, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.startsWith(workerPrefix) &&
-        /^\d+$/.test(entry.name.slice(workerPrefix.length))
-    )
-    .map((entry) => join(directory, entry.name))
-  for (const pathFile of [runPathFile, ...workerPathFiles]) {
-    if (!existsSync(pathFile)) {
-      continue
-    }
-    const testRepoDir = readFileSync(pathFile, 'utf-8').trim()
-    if (testRepoDir && existsSync(testRepoDir)) {
-      cleanupTestRepository(testRepoDir)
-      console.error(`[e2e] Cleaned up test repo at ${testRepoDir}`)
-    }
-    rmSync(pathFile, { force: true })
-  }
-}
 
-export default function globalTeardown(): void {
-  cleanupTestRepositoryPathFiles(TEST_REPO_PATH_FILE)
+  const testRepoDir = readFileSync(TEST_REPO_PATH_FILE, 'utf-8').trim()
+  if (testRepoDir && existsSync(testRepoDir)) {
+    cleanupTestRepository(testRepoDir)
+    console.error(`[e2e] Cleaned up test repo at ${testRepoDir}`)
+  }
+
+  rmSync(TEST_REPO_PATH_FILE, { force: true })
 }

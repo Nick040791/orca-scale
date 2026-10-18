@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { setMainHttpClient } from '../network/http-client'
 
-const fetchMock = vi.fn()
+const netFetchMock = vi.hoisted(() => vi.fn())
 
+vi.mock('electron', () => ({
+  net: { fetch: netFetchMock },
+  session: { defaultSession: {} }
+}))
 vi.mock('../network/proxy-settings', () => ({
   ensureElectronProxyFromEnvironment: vi.fn().mockResolvedValue(undefined)
 }))
 
 import { fetchOpenCodeGoUsageWithApiKey, OPENCODE_GO_USAGE_API_URL } from './opencode-go-usage-api'
-
-setMainHttpClient({ fetch: fetchMock, proxySession: () => null })
 
 // Placeholder only — a real key must never reach a fixture.
 const API_KEY = 'placeholder-go-key'
@@ -28,15 +29,15 @@ const USAGE_BODY = {
 
 describe('fetchOpenCodeGoUsageWithApiKey', () => {
   beforeEach(() => {
-    fetchMock.mockReset()
+    netFetchMock.mockReset()
   })
 
   it('sends the key as a bearer token and maps every window', async () => {
-    fetchMock.mockResolvedValue(makeResponse(JSON.stringify(USAGE_BODY)))
+    netFetchMock.mockResolvedValue(makeResponse(JSON.stringify(USAGE_BODY)))
 
     const outcome = await fetchOpenCodeGoUsageWithApiKey(API_KEY)
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(netFetchMock).toHaveBeenCalledWith(
       OPENCODE_GO_USAGE_API_URL,
       expect.objectContaining({
         method: 'GET',
@@ -69,7 +70,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('keeps usage when the monthly window is absent', async () => {
-    fetchMock.mockResolvedValue(
+    netFetchMock.mockResolvedValue(
       makeResponse(
         JSON.stringify({
           usage: { rolling: USAGE_BODY.usage.rolling, weekly: USAGE_BODY.usage.weekly }
@@ -84,7 +85,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('reports a rejected key as unauthorized', async () => {
-    fetchMock.mockResolvedValue(
+    netFetchMock.mockResolvedValue(
       makeResponse(
         JSON.stringify({ type: 'error', error: { type: 'AuthError', message: 'Unauthorized' } }),
         401
@@ -95,7 +96,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('reports an entitlement refusal as a missing subscription, not a parse failure', async () => {
-    fetchMock.mockResolvedValue(
+    netFetchMock.mockResolvedValue(
       makeResponse(
         JSON.stringify({
           type: 'error',
@@ -111,7 +112,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('trusts the error name over the status when a proxied console answers differently', async () => {
-    fetchMock.mockResolvedValue(
+    netFetchMock.mockResolvedValue(
       makeResponse(JSON.stringify({ error: { type: 'EntitlementError' } }), 402)
     )
 
@@ -121,7 +122,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('reports a sign-in page reached through a redirect as unauthorized', async () => {
-    fetchMock.mockResolvedValue(
+    netFetchMock.mockResolvedValue(
       new Response('<!doctype html><title>Log in</title>', {
         status: 200,
         headers: { 'content-type': 'text/html; charset=utf-8' }
@@ -132,7 +133,7 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('reports a malformed success body as a parse failure', async () => {
-    fetchMock.mockResolvedValue(makeResponse('{"usage":{"rolling":{}}}'))
+    netFetchMock.mockResolvedValue(makeResponse('{"usage":{"rolling":{}}}'))
 
     await expect(fetchOpenCodeGoUsageWithApiKey(API_KEY)).resolves.toEqual({
       kind: 'failed',
@@ -141,12 +142,11 @@ describe('fetchOpenCodeGoUsageWithApiKey', () => {
   })
 
   it('never leaks the key through a network failure message', async () => {
-    fetchMock.mockRejectedValue(new Error(`request to ${OPENCODE_GO_USAGE_API_URL} failed`))
+    netFetchMock.mockRejectedValue(new Error(`request to ${OPENCODE_GO_USAGE_API_URL} failed`))
 
     const outcome = await fetchOpenCodeGoUsageWithApiKey(API_KEY)
 
     expect(outcome.kind).toBe('failed')
     expect(outcome.kind === 'failed' && outcome.message).not.toContain(API_KEY)
-    expect(outcome.kind === 'failed' && outcome.failureKind).toBe('network')
   })
 })

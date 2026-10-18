@@ -3,9 +3,7 @@ import { getSystemPrefersDarkSnapshot } from '../components/terminal-pane/use-sy
 import {
   canSkipRuntimeMobileSessionSyncKeyBuild,
   getRuntimeMobileSessionSyncKey,
-  runtimeMobileSessionSyncKeysEqual
-} from '../runtime/sync-runtime-graph/sync-key'
-import {
+  runtimeMobileSessionSyncKeysEqual,
   scheduleRuntimeGraphSync,
   setRuntimeGraphStoreStateGetter,
   setRuntimeGraphSyncEnabled
@@ -52,22 +50,6 @@ export function useRuntimeGraphSync(): void {
       scheduleRuntimeGraphSync()
     })
   }, [])
-
-  useEffect(
-    () =>
-      useAppStore.subscribe((state, previousState) => {
-        // Why: the graph carries the sidebar's Project catalog to paired phones; republish on change.
-        if (
-          state.repos !== previousState.repos ||
-          state.projects !== previousState.projects ||
-          state.projectHostSetups !== previousState.projectHostSetups ||
-          state.projectOrderBy !== previousState.projectOrderBy
-        ) {
-          scheduleRuntimeGraphSync()
-        }
-      }),
-    []
-  )
 
   useEffect(() => {
     setRuntimeGraphSyncEnabled(workspaceSessionReady)

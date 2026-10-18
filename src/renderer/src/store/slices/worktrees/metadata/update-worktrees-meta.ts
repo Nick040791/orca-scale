@@ -1,5 +1,4 @@
 import type { WorktreeMetaBatchUpdate, WorktreeSlice } from '../../worktree-helpers'
-import { runtimeTargetForWorktreeOwner } from '../listing/worktree-owner-target'
 import type { WorktreeSliceGet, WorktreeSliceSet } from '../listing/worktree-slice-types'
 import { applyWorktreeUpdates, getRepoIdFromWorktreeId } from '../../worktree-helpers'
 import {
@@ -8,6 +7,7 @@ import {
 } from '../listing/detected-worktree-meta'
 import { persistWorktreeMeta } from './worktree-meta-persist'
 import { isRuntimeSelectorNotFoundError } from '../listing/runtime-worktree-rpc-errors'
+import { settingsForWorktreeOwner } from '../listing/worktree-owner-settings'
 import { parseWorkspaceKey } from '../../../../../../shared/workspace-scope'
 import { parseExecutionHostId, type ExecutionHostId } from '../../../../../../shared/execution-host'
 import { getIndexedWorktreesById } from '../../../worktree-repo-index'
@@ -95,18 +95,14 @@ export function createUpdateWorktreesMeta(
             ? [executionHostId]
             : getKnownOwnerHostIds(state, worktreeId)
           await (ownerHostIds.length === 0
-            ? persistWorktreeMeta(
-                runtimeTargetForWorktreeOwner(state, worktreeId),
-                worktreeId,
-                updates
-              )
+            ? persistWorktreeMeta(settingsForWorktreeOwner(state, worktreeId), worktreeId, updates)
             : Promise.all(
                 ownerHostIds.map((hostId) => {
                   const worktree = getIndexedWorktreesById(state.worktreesByRepo, worktreeId).find(
                     (candidate) => candidate.hostId === hostId
                   )
                   return persistWorktreeMeta(
-                    runtimeTargetForWorktreeOwner(state, worktreeId, hostId),
+                    settingsForWorktreeOwner(state, worktreeId, hostId),
                     worktreeId,
                     updates,
                     hostId,

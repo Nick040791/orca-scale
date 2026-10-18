@@ -106,10 +106,10 @@ describe('every exit from a failed update read leaves one record', () => {
     ])
   })
 
-  it('a cached generation that never carried this route shows the download failure', () => {
+  it('a cached generation that never carried this route leaves it native', () => {
     const step = refusedUnder({}, { ...CACHED, routes: [] })
-    expect(step.session.state).toMatchObject({ kind: 'failed', reason: 'download-failed' })
-    expect(recorded(step)).toMatchObject([{ outcome: 'failed', wall: null }])
+    expect(step.session.state).toEqual({ kind: 'native-route' })
+    expect(recorded(step)).toMatchObject([{ outcome: 'native-route', wall: null }])
   })
 
   it('gates gone offline under the fetch open the cache unjudged', () => {
@@ -124,10 +124,10 @@ describe('every exit from a failed update read leaves one record', () => {
     expect(recorded(step)).toMatchObject([{ outcome: 'failed' }])
   })
 
-  it('gates that dropped the bundle capability wall the host', () => {
+  it('gates that dropped the bundle capability leave the route native', () => {
     const step = refusedUnder({ hostCapabilities: [] })
-    expect(step.session.state).toMatchObject({ kind: 'wall' })
-    expect(recorded(step)).toMatchObject([{ outcome: 'wall', wall: 'bundle-unavailable' }])
+    expect(step.session.state).toEqual({ kind: 'native-route' })
+    expect(recorded(step)).toMatchObject([{ outcome: 'native-route' }])
   })
 
   it('gates still dialling or pending leave the session waiting', () => {

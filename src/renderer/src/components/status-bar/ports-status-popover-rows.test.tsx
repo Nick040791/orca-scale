@@ -44,10 +44,13 @@ vi.mock('@/lib/worktree-activation', () => ({
   activateAndRevealWorktree: activateAndRevealWorktreeMock
 }))
 
-vi.mock('@/lib/worktree-runtime-owner', () => ({ getExecutionHostIdForWorktree: () => 'local' }))
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getExecutionHostIdForWorktree: () => 'local'
+}))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
-vi.mock('@/runtime/runtime-rpc-result', () => ({
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  getActiveRuntimeTarget: () => ({ kind: 'local' }),
+  callRuntimeRpc: vi.fn(),
   RuntimeRpcCallError: class RuntimeRpcCallError extends Error {
     code?: string
   }

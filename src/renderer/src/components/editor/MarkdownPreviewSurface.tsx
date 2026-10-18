@@ -1,12 +1,3 @@
-import { Loader2 } from 'lucide-react'
-import { useMemo, type RefObject } from 'react'
-import { extractFrontMatter, markdownFrontMatterInner } from './markdown-frontmatter'
-import {
-  VirtualMarkdownPreviewBody,
-  type VirtualMarkdownPreviewNavigation
-} from './VirtualMarkdownPreviewBody'
-import type { useMarkdownPreviewDocument } from './use-markdown-preview-document'
-import type { useMarkdownPreviewDocumentSearch } from './use-markdown-preview-document-search'
 import type { Components } from 'react-markdown'
 import { translate } from '@/i18n/i18n'
 import { MarkdownTableOfContentsPanel } from './MarkdownTableOfContentsPanel'
@@ -18,11 +9,6 @@ import type { MarkdownPreviewReviewActions } from './use-markdown-preview-review
 import type { MarkdownPreviewViewport } from './use-markdown-preview-viewport'
 
 export function MarkdownPreviewSurface({
-  largePreview,
-  documentState,
-  documentSearch,
-  largeNavigationRef,
-  scrollCacheKey,
   foundation,
   viewport,
   reviewActions,
@@ -31,11 +17,6 @@ export function MarkdownPreviewSurface({
   showTableOfContents,
   onCloseTableOfContents
 }: {
-  largePreview: boolean
-  documentState: ReturnType<typeof useMarkdownPreviewDocument>
-  documentSearch: ReturnType<typeof useMarkdownPreviewDocumentSearch>
-  largeNavigationRef: RefObject<VirtualMarkdownPreviewNavigation | null>
-  scrollCacheKey: string
   foundation: MarkdownPreviewFoundation
   viewport: MarkdownPreviewViewport
   reviewActions: MarkdownPreviewReviewActions
@@ -51,27 +32,17 @@ export function MarkdownPreviewSurface({
     editorFontSize,
     isDark,
     bodyRef,
+    frontMatter,
     frontmatterVisible,
+    frontMatterInner,
     renderedContent
   } = foundation
-
-  const displayedContent =
-    documentState.status === 'ready' ? documentState.content : renderedContent
-  const frontMatter = useMemo(() => extractFrontMatter(displayedContent), [displayedContent])
-  const frontMatterInner = useMemo(() => markdownFrontMatterInner(frontMatter), [frontMatter])
 
   return (
     <div className="markdown-preview-shell">
       {showTableOfContents ? (
         <MarkdownTableOfContentsPanel
-          virtualized={largePreview}
-          items={
-            largePreview
-              ? documentState.status === 'ready'
-                ? documentState.document.toc
-                : []
-              : tableOfContentsItems
-          }
+          items={tableOfContentsItems}
           onClose={onCloseTableOfContents ?? (() => {})}
           onNavigate={viewport.navigateToTableOfContentsItem}
         />
@@ -79,37 +50,21 @@ export function MarkdownPreviewSurface({
       <div
         ref={viewport.setRootRef}
         tabIndex={0}
-        style={{
-          fontSize: `${editorFontSize}px`,
-          overflowAnchor: largePreview ? 'none' : undefined
-        }}
+        style={{ fontSize: `${editorFontSize}px` }}
         className={`markdown-preview h-full min-h-0 overflow-auto scrollbar-editor ${isDark ? 'markdown-dark' : 'markdown-light'}`}
       >
         {isSearchOpen ? (
-          <MarkdownPreviewSearchBar
-            searchFailed={documentSearch.failed}
-            searchPending={documentSearch.pending}
-            searchTruncated={documentSearch.truncated}
-            foundation={foundation}
-            viewport={viewport}
-          />
+          <MarkdownPreviewSearchBar foundation={foundation} viewport={viewport} />
         ) : null}
         {canShowReviewTools ? (
-          <div inert={documentState.refreshing || undefined}>
-            <MarkdownPreviewReviewToolbar
-              foundation={foundation}
-              reviewActions={reviewActions}
-              filePath={filePath}
-            />
-          </div>
+          <MarkdownPreviewReviewToolbar
+            foundation={foundation}
+            reviewActions={reviewActions}
+            filePath={filePath}
+          />
         ) : null}
         {/* Why: OS page translation can replace react-owned text nodes and crash reconciliation. */}
-        <div
-          ref={bodyRef}
-          className="markdown-body"
-          translate="no"
-          data-markdown-preview-incomplete={largePreview || undefined}
-        >
+        <div ref={bodyRef} className="markdown-body" translate="no">
           {frontMatter && frontmatterVisible ? (
             <div className="mb-4 rounded border border-border/60 bg-muted/40 px-3 py-2">
               <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -120,61 +75,7 @@ export function MarkdownPreviewSurface({
               </pre>
             </div>
           ) : null}
-          {largePreview ? (
-            <>
-              <p className="relative text-xs text-muted-foreground">
-                {translate(
-                  'editor.markdownPreview.largeNotice',
-                  'Large preview. Use source view to copy the complete document. PDF export is unavailable.'
-                )}
-                {documentState.refreshing ? (
-                  <span
-                    role={documentState.refreshError ? 'alert' : 'status'}
-                    className="absolute inset-0 bg-background"
-                  >
-                    {documentState.refreshError
-                      ? translate(
-                          'editor.markdownPreview.refreshFailed',
-                          'Preview update failed. Showing the previous version; open source view for current content.'
-                        )
-                      : translate('editor.markdownPreview.preparing', 'Preparing preview…')}
-                  </span>
-                ) : null}
-              </p>
-              {documentState.status === 'ready' ? (
-                <VirtualMarkdownPreviewBody
-                  inert={documentState.refreshing}
-                  revision={documentState.revision}
-                  document={documentState.document}
-                  client={documentState.client}
-                  components={components}
-                  rootRef={foundation.rootRef}
-                  bodyRef={bodyRef}
-                  navigationRef={largeNavigationRef}
-                  query={foundation.query}
-                  matches={documentSearch.matches}
-                  activeMatchIndex={foundation.activeMatchIndex}
-                  searchInstance={foundation.searchInstanceRef.current}
-                  scrollCacheKey={scrollCacheKey}
-                  activeAnnotationBlockKey={foundation.activeAnnotationBlockKey}
-                />
-              ) : documentState.status === 'error' ? (
-                <p role="alert" className="text-sm text-muted-foreground">
-                  {translate(
-                    'editor.markdownPreview.processingFailed',
-                    'This document cannot be rendered within the preview limits. Open source view to read the complete file.'
-                  )}
-                </p>
-              ) : (
-                <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  {translate('editor.markdownPreview.preparing', 'Preparing preview…')}
-                </p>
-              )}
-            </>
-          ) : (
-            <MarkdownPreviewBody content={renderedContent} components={components} />
-          )}
+          <MarkdownPreviewBody content={renderedContent} components={components} />
         </div>
       </div>
     </div>

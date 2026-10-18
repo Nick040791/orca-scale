@@ -1,4 +1,4 @@
-import { spawnProcess } from '@orca/process-host'
+import { spawnProcess } from '../shared/child-process/run-process'
 
 export const LINUX_LID_SLEEP_ASSERTION_RETRY_MS = 30_000
 

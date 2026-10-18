@@ -10,11 +10,6 @@ const { acquireMock, clearTokenMock, getClientsMock, isAuthErrorMock, jiraReques
     jiraRequestMock: vi.fn()
   }))
 
-vi.mock('./jira-agile-fields', () => ({
-  getAgileFieldIds: async () => ({}),
-  agileFieldIdList: () => []
-}))
-
 vi.mock('./request-queue', () => ({
   acquire: (...args: unknown[]) => acquireMock(...args),
   release: vi.fn()

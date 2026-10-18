@@ -1,7 +1,6 @@
 import { applyWorktreeHeadIdentities } from '../worktree-head-identity-apply'
 import type { WorktreeChangeRefreshQueue } from '../worktree-change-refresh-queue'
 import { useAppStore } from '../../store'
-import { adoptFromEndpoint } from '../../store/adopt-from-endpoint'
 
 export function registerProjectCatalogIpcBridge(
   unsubs: (() => void)[],
@@ -23,11 +22,9 @@ export function registerProjectCatalogIpcBridge(
         })()
         return
       }
-      // Why: this event is this app's own catalog changing, whichever host is the default.
-      const localOwner = { runtimeEnvironmentId: null }
-      void state.fetchProjectGroups(localOwner)
-      void state.fetchFolderWorkspaces(localOwner)
-      void state.fetchRepos(localOwner).then(remountTerminalTabsAwaitingHostHydration)
+      void state.fetchProjectGroups()
+      void state.fetchFolderWorkspaces()
+      void state.fetchRepos().then(remountTerminalTabsAwaitingHostHydration)
     })
   )
 
@@ -41,9 +38,10 @@ export function registerProjectCatalogIpcBridge(
         // focus changes; otherwise an unbound repo can refresh from the wrong host.
         // A folder rename changes the worktree id; handleWorktreesChanged re-keys
         // state and shields it from the deletion diff.
-        worktreeChangeRefreshQueue.enqueue(
-          adoptFromEndpoint({ kind: 'local' }, { kind: 'worktreeEvent', row: data })
-        )
+        worktreeChangeRefreshQueue.enqueue({
+          ...data,
+          forceLocalOwner: true
+        })
       }
     )
   )
@@ -89,11 +87,7 @@ export function registerProjectCatalogIpcBridge(
       if (!data.creationId) {
         return
       }
-      // Why: every event without a live meter (a phase change, or null when git finished) clears it.
-      useAppStore.getState().updatePendingWorktreeCreation(data.creationId, {
-        phase: data.phase,
-        checkoutProgress: data.checkout ?? undefined
-      })
+      useAppStore.getState().updatePendingWorktreeCreation(data.creationId, { phase: data.phase })
     }) ?? (() => {})
   )
 

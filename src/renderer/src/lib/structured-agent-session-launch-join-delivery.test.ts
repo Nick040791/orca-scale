@@ -7,7 +7,6 @@ import type * as RecoveryModule from '@/lib/structured-agent-session-launch-reco
 const mocks = vi.hoisted(() => ({
   abandonIntent: vi.fn(),
   callStructuredAgentSession: vi.fn(),
-  callRuntimeRpc: vi.fn(),
   createIntent: vi.fn(),
   launch: vi.fn(),
   seedDraft: vi.fn(),
@@ -35,17 +34,12 @@ vi.mock('@/lib/structured-agent-session-launch-recovery', async () => {
   return { ...actual, launchAndReconcile: vi.fn(actual.launchAndReconcile) }
 })
 
-vi.mock('@/runtime/local-structured-session-tabs-sync/inventory-refresh', () => ({
+vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
   refreshLocalStructuredSessionTabs: vi.fn()
 }))
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.callStructuredAgentSession
-}))
-
-vi.mock('@/runtime/runtime-rpc-client', () => ({
-  callRuntimeRpc: mocks.callRuntimeRpc,
-  ensureRuntimeEnvironmentCompatible: vi.fn(async () => undefined)
 }))
 
 vi.mock('@/store', () => ({
@@ -74,18 +68,16 @@ vi.mock('@/lib/agent-catalog', () => ({
 }))
 
 import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured-agent-session'
-import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync/inventory-refresh'
+import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync'
 import {
   startStructuredAgentLaunch,
   type StructuredAgentLaunchOptions
 } from './structured-agent-session-launch'
-import { hasStagedStructuredLaunchPrompt } from './structured-agent-session-launch-prompt'
+import { readOutbox } from '@/components/native-chat/structured-agent-session-outbox-storage'
 
 function launchIntent(worktreeId: string, sessionId: string): StructuredAgentSessionLaunchIntent {
   return {
     worktreeId,
-    executionHostId: 'local',
-    target: { kind: 'local' },
     sessionId,
     agent: 'codex',
     params: {
@@ -135,10 +127,6 @@ describe('coalesced launch delivery mode', () => {
     mocks.rendererTabs = {}
     mocks.listeners.clear()
     mocks.callStructuredAgentSession.mockResolvedValue({ ok: true, page: { fence: 1 } })
-    mocks.callRuntimeRpc.mockResolvedValue({
-      ok: true,
-      value: { submission: { dispatchState: 'accepted' } }
-    })
   })
 
   async function coalesce(args: {
@@ -147,9 +135,7 @@ describe('coalesced launch delivery mode', () => {
     established: StructuredAgentLaunchOptions
     joining: StructuredAgentLaunchOptions
   }) {
-    const base = launchIntent(args.worktreeId, args.sessionId)
-    const { resumeFrom } = args.established
-    const intent = resumeFrom ? { ...base, params: { ...base.params, resumeFrom } } : base
+    const intent = launchIntent(args.worktreeId, args.sessionId)
     let resolveLaunch!: (receipt: { sessionId: string; fence: number }) => void
     mocks.createIntent.mockReturnValueOnce(intent)
     mocks.launch.mockImplementation(
@@ -167,27 +153,21 @@ describe('coalesced launch delivery mode', () => {
     return { intent, joiner }
   }
 
-  // Only a resume joins a launch started by a different request; a new start opens its own chat.
-  it('keeps a resume joiner as a draft when the launch it joined established no mode', async () => {
-    const resumeFrom = { providerSessionId: 'provider-unset-delivery' }
+  it('keeps a joiner as a draft when the launch it joined established no mode', async () => {
+    // The onboarding folder launch establishes an identity carrying neither prompt nor mode.
     const { intent, joiner } = await coalesce({
       worktreeId: 'wt-unset-delivery-mode',
       sessionId: 'unset-delivery-session',
-      established: { requestId: 'resume-click', resumeFrom },
-      joining: {
-        requestId: 'another-resume-click',
-        resumeFrom,
-        prompt: 'PR context',
-        promptDelivery: 'draft'
-      }
+      established: {},
+      joining: { prompt: 'PR context', promptDelivery: 'draft' }
     })
 
     // Why: an unset established mode must not read as submit; the joiner never consented to send.
-    expect(hasStagedStructuredLaunchPrompt(intent.sessionId)).toBe(false)
+    expect(readOutbox(intent.sessionId)).toEqual([])
     expect(joiner.promptDeliveryResult).toBeUndefined()
-    expect(mocks.callRuntimeRpc.mock.calls.some((call) => call[1] === 'agentSession.send')).toBe(
-      false
-    )
+    expect(
+      mocks.callStructuredAgentSession.mock.calls.some((call) => call[1] === 'agentSession.send')
+    ).toBe(false)
     expect(mocks.seedDraft).toHaveBeenLastCalledWith(
       expect.objectContaining({
         tabId: 'structured-agent-session-unset-delivery-session',

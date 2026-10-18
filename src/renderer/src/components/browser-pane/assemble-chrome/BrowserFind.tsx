@@ -1,4 +1,3 @@
-import { ImeInput } from '@/lib/ime-text-field'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronUp, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -169,7 +168,7 @@ export default function BrowserFind({
       style={{ width: 300 }}
       onKeyDown={handleKeyDown}
     >
-      <ImeInput
+      <input
         ref={inputRef}
         type="text"
         value={query}

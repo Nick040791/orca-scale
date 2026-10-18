@@ -6,7 +6,6 @@ import { deriveRunningAgentSendTargets } from '@/lib/running-agent-targets'
 // Why: selectors that opt out of a slice must return one stable reference, or every store tick looks like a change.
 const EMPTY_AGENT_STATUS_BY_PANE_KEY: AppState['agentStatusByPaneKey'] = {}
 const EMPTY_TABS_BY_WORKTREE: AppState['tabsByWorktree'] = {}
-const EMPTY_UNIFIED_TABS_BY_WORKTREE: AppState['unifiedTabsByWorktree'] = {}
 const EMPTY_TERMINAL_LAYOUTS_BY_TAB_ID: AppState['terminalLayoutsByTabId'] = {}
 const EMPTY_PTY_IDS_BY_TAB_ID: AppState['ptyIdsByTabId'] = {}
 const EMPTY_RUNTIME_PANE_TITLES_BY_TAB_ID: AppState['runtimePaneTitlesByTabId'] = {}
@@ -24,9 +23,6 @@ export function useAgentSendTargetWorktreeId(): string | null {
   )
   const agentTargetTabsByWorktree = useAppStore((s) =>
     agentSendPopoverTargetMode ? s.tabsByWorktree : EMPTY_TABS_BY_WORKTREE
-  )
-  const agentTargetUnifiedTabsByWorktree = useAppStore((s) =>
-    agentSendPopoverTargetMode ? s.unifiedTabsByWorktree : EMPTY_UNIFIED_TABS_BY_WORKTREE
   )
   const agentTargetTerminalLayoutsByTabId = useAppStore((s) =>
     agentSendPopoverTargetMode ? s.terminalLayoutsByTabId : EMPTY_TERMINAL_LAYOUTS_BY_TAB_ID
@@ -46,7 +42,6 @@ export function useAgentSendTargetWorktreeId(): string | null {
       {
         agentStatusByPaneKey: agentTargetStatusByPaneKey,
         tabsByWorktree: agentTargetTabsByWorktree,
-        unifiedTabsByWorktree: agentTargetUnifiedTabsByWorktree,
         terminalLayoutsByTabId: agentTargetTerminalLayoutsByTabId,
         ptyIdsByTabId: agentTargetPtyIdsByTabId,
         runtimePaneTitlesByTabId: agentTargetRuntimePaneTitlesByTabId
@@ -62,7 +57,6 @@ export function useAgentSendTargetWorktreeId(): string | null {
     agentSendPopoverTargetMode,
     agentTargetStatusByPaneKey,
     agentTargetTabsByWorktree,
-    agentTargetUnifiedTabsByWorktree,
     agentTargetTerminalLayoutsByTabId,
     agentTargetPtyIdsByTabId,
     agentTargetRuntimePaneTitlesByTabId

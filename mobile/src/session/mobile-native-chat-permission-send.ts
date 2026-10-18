@@ -22,7 +22,6 @@ export function sendMobileNativeChatPermissionResponse(args: {
     terminal: args.terminal,
     text: args.text,
     enter: false,
-    requireWriteSettlement: true,
     ...(args.deviceToken ? { mobileClient: { id: args.deviceToken, type: 'mobile' as const } } : {})
   })
 }

@@ -1,5 +1,5 @@
 import {
-  isOrcaSkillLockSource,
+  isOwnerManagedSkillScope,
   isSkillCopyNeedingAttention,
   skillPlacementParticipatesInGlobalFreshness,
   type SkillFreshnessInstallation
@@ -9,6 +9,8 @@ export type SkillGroupStatus = 'update-available' | 'cannot-update'
 
 export type SkillLocationChip =
   | 'current'
+  | 'newer'
+  | 'unrecognized'
   | 'inaccessible'
   | 'duplicate'
   | 'external-link'
@@ -29,15 +31,18 @@ export type SkillLocationRow = {
 export type SkillFreshnessGroupModel = {
   name: string
   status: SkillGroupStatus
-  /** The skills.sh lock says Orca installed this name, so its update is preselected. */
-  orcaOwned: boolean
-  lockSource: string | null
   locations: SkillLocationRow[]
 }
 
+// Why: an owner-managed scope outranks 'unrecognized', or a project copy reads "may be
+// modified — remove it" over content its own repo owns. A read failure outranks both, so
+// that rule cannot hide a genuine fault.
 export function locationChip(installation: SkillFreshnessInstallation): SkillLocationChip | null {
   if (installation.status === 'inaccessible') {
     return 'inaccessible'
+  }
+  if (!isOwnerManagedSkillScope(installation.topology) && installation.status === 'unrecognized') {
+    return 'unrecognized'
   }
   switch (installation.topology) {
     case 'independent-copy':
@@ -54,22 +59,28 @@ export function locationChip(installation: SkillFreshnessInstallation): SkillLoc
       return 'plugin-cache'
     case 'canonical-copy':
     case 'provider-alias':
-      // Why: the out-of-date copy the update rewrites is the bare one.
-      return installation.status === 'current' ? 'current' : null
+      // Why: a supported location only needs a chip when the update won't touch it —
+      // already current, or ahead of what this build knows. The out-of-date main copy
+      // is bare, and 'newer' is what keeps a bare chip meaning "behind, and fixable":
+      // reinstalling a copy that is ahead would quietly roll the user back.
+      if (installation.status === 'current') {
+        return 'current'
+      }
+      return installation.status === 'newer-known' ? 'newer' : null
   }
 }
 
 /**
  * Groups installations by skill for the review modal and derives each skill's
  * update disposition. A skill appears when a copy is out of date, or when a copy is
- * wrong in a way the update cannot fix — a link out of tree, one Orca could not read.
+ * wrong in a way the update cannot fix — an edited copy, one Orca could not read.
  *
  * That second half is what the badge already reports: it turns amber and offers
  * Details, and Details opens this modal. Returning only out-of-date skills left that
  * modal saying every skill was up to date over an empty list, contradicting the badge
  * that sent the user there. Skills where every copy is current are still omitted, as
- * is a plugin's or a project's own copy — neither is the user's to fix through the global
- * update. Skills Orca installed sort first, since only they are preselected.
+ * is a plugin's own copy of a same-named skill, and a project's own copy — neither is the
+ * user's to fix through the global update.
  *
  * `alwaysIncludeNames` overrides that filter. A successful update makes every
  * targeted skill current, which would otherwise drop its row the instant the
@@ -92,10 +103,10 @@ export function groupSkillFreshness(
   const groups: SkillFreshnessGroupModel[] = []
   for (const [name, entries] of byName) {
     // Why: the inclusion test only consults placements the global update can reach, so a
-    // skill whose only finding is a project's or plugin's own copy raises no row at all — a
-    // "Skipped" row would assert Orca considered an update it never could. Locations below
-    // are still listed in full, so such a copy stays visible whenever some other placement
-    // earns the group.
+    // skill whose only finding is a project-owned copy raises no row at all — a "Skipped"
+    // row would assert Orca considered an update it never could. Locations below are still
+    // listed in full, so a project copy stays visible whenever some other placement earns
+    // the group.
     if (
       !pinned.has(name) &&
       !entries
@@ -112,17 +123,11 @@ export function groupSkillFreshness(
         participatesInGlobalFreshness: skillPlacementParticipatesInGlobalFreshness(entry)
       }))
       .sort((left, right) => left.path.localeCompare(right.path, 'en'))
-    const lockSource = entries[0]?.lockSource ?? null
     groups.push({
       name,
       status: eligible.has(name) ? 'update-available' : 'cannot-update',
-      orcaOwned: isOrcaSkillLockSource(lockSource),
-      lockSource,
       locations
     })
   }
-  return groups.sort(
-    (left, right) =>
-      Number(right.orcaOwned) - Number(left.orcaOwned) || left.name.localeCompare(right.name, 'en')
-  )
+  return groups.sort((left, right) => left.name.localeCompare(right.name, 'en'))
 }

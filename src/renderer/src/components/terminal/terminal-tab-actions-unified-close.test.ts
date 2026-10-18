@@ -8,25 +8,17 @@ import type { AppState } from '@/store/types'
 
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
 
-vi.mock('@/runtime/web-runtime-session-tab-lifecycle', () => ({
+vi.mock('@/runtime/web-runtime-session', () => ({
   activateWebRuntimeSessionTab: vi.fn(),
-  closeWebRuntimeSessionTab: vi.fn()
-}))
-vi.mock('@/runtime/web-runtime-terminal-creation', () => ({
-  createWebRuntimeSessionTerminal: vi.fn()
-}))
-vi.mock('@/runtime/web-runtime-session-environment', () => ({
-  isWebRuntimeSessionActive: vi.fn(() => false)
-}))
-vi.mock('../../../../shared/terminal-surface-id', () => ({
+  closeWebRuntimeSessionTab: vi.fn(),
+  createWebRuntimeSessionTerminal: vi.fn(),
+  isWebRuntimeSessionActive: vi.fn(() => false),
   isWebTerminalSurfaceTabId: vi.fn(() => false),
   toHostSessionTabId: vi.fn((tabId: string) => tabId)
 }))
 
-vi.mock('@/runtime/web-session-tabs-sync/tracking-lifecycle', () => ({
-  getLatestWebSessionTabsPublicationEpoch: vi.fn(() => null)
-}))
-vi.mock('@/runtime/web-session-tabs-sync/tracking-mappings', () => ({
+vi.mock('@/runtime/web-session-tabs-sync', () => ({
+  getLatestWebSessionTabsPublicationEpoch: vi.fn(() => null),
   resolveHostSessionTabIdForWebSessionTab: vi.fn(() => null)
 }))
 

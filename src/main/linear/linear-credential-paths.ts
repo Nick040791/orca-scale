@@ -20,7 +20,7 @@ export function getWorkspaceFilePath(): string {
   return join(getOrcaDir(), 'linear-workspaces.json')
 }
 
-export function getWorkspaceTokenDir(): string {
+function getWorkspaceTokenDir(): string {
   return join(getOrcaDir(), 'linear-tokens')
 }
 

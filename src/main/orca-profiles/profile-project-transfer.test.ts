@@ -73,6 +73,7 @@ vi.mock('electron', () => ({
 }))
 
 async function loadTransferModule() {
+  vi.resetModules()
   return import('./profile-project-transfer')
 }
 

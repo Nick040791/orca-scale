@@ -3,16 +3,14 @@
 // Exit recovery runs on one chain so teardown can drain it: exit callbacks arrive from child
 // process tasks, and a fire-and-forget one could otherwise append after the host flushed and
 // removed its journal directory. That chain orders nothing across sessions, and a recovery on it
-// can run a whole reacquisition, so `started`, a dropped saved option and the end of a close the
-// host asked for stay off it: each takes only its own session's serialized step, and is tracked
-// here so the same drain still waits for it.
+// can run a whole reacquisition, so `started` stays off it: it takes only its own session's
+// serialized step, and is tracked here so the same drain still waits for it.
 
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 
 export function createStructuredAgentSessionLifecycleDelivery(input: {
   handle: (event: StructuredAgentSessionLifecycleEvent) => Promise<void> | undefined
-  logger: StructuredAgentSessionLogger
+  onError?: (input: { scope: string; error: unknown }) => void
   /** Exits the adapter has observed but not yet published. */
   drainObservedExits: () => Promise<void>
 }): {
@@ -26,17 +24,14 @@ export function createStructuredAgentSessionLifecycleDelivery(input: {
     try {
       await input.handle(event)
     } catch (error) {
-      input.logger.warn(`delivering a provider ${event.type} event to the host failed`, {
-        scope: event.type === 'ended' ? 'lifecycle-exit' : `lifecycle-${event.type}`,
-        sessionId: event.sessionId,
-        error
-      })
+      const scope = event.type === 'started' ? 'started' : 'exit'
+      input.onError?.({ scope: `structured-agent-session-${scope}:${event.sessionId}`, error })
     }
   }
   return {
     deliver: (event) => {
-      if (event.type !== 'ended' || event.cause === 'requested-close') {
-        // Called now, so the step is queued on its own session's lane, behind nothing of another's.
+      if (event.type === 'started') {
+        // Called now, so the step is queued on its session ahead of any later exit of that child.
         const settling = settle(event)
         settlingStarts.add(settling)
         void settling.finally(() => settlingStarts.delete(settling))

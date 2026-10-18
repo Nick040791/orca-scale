@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, rename, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -145,29 +145,32 @@ describe('startGitCommonPolling fan-out bounds (#17828)', () => {
   it('detects a HEAD rewrite via lock+rename on the next tick', async () => {
     const commonDir = await makeCommonDir(1)
     dirsToRemove.push(commonDir)
-    const entryDir = join(commonDir, 'worktrees', 'wt-0')
-    // Ensure rename changes the directory signature even on coarse-mtime filesystems.
-    await utimes(entryDir, new Date(0), new Date(0))
-    const received = Promise.withResolvers<WorktreeBasePollEvent[]>()
+    const events: WorktreeBasePollEvent[][] = []
     const pollIntervalMs = 20
-    vi.useFakeTimers()
     const sub = await startGitCommonPolling(
       commonDir,
-      received.resolve,
+      (batch) => events.push(batch),
       pollIntervalMs,
       alwaysVisible
     )
     cleanups.push(() => sub.unsubscribe())
+    // Let the bootstrap snapshot settle before mutating.
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
 
+    const entryDir = join(commonDir, 'worktrees', 'wt-0')
     const headPath = join(entryDir, 'HEAD')
     const headLockPath = join(entryDir, 'HEAD.lock')
+    // Every real git ref write goes through a lock file + rename inside the entry
+    // dir (never an in-place overwrite), which moves the entry dir's own signature.
     await writeFile(headLockPath, 'ref: refs/heads/feature\n')
     await rename(headLockPath, headPath)
 
-    readdirCalls.count = 0
-    await vi.advanceTimersByTimeAsync(pollIntervalMs)
-    expect(await received.promise).toContainEqual({ type: 'update', path: headPath })
-    expect(readdirCalls.count).toBe(1)
+    await vi.waitFor(
+      () => {
+        expect(events.flat()).toContainEqual({ type: 'update', path: headPath })
+      },
+      { timeout: pollIntervalMs * 10 }
+    )
   })
 
   it('detects an in-place gitdir rewrite only once the periodic backstop rescans it', async () => {

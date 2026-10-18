@@ -17,15 +17,11 @@ export async function antigravityGenerationCompatibilityError(
 ): Promise<string | null> {
   let params = overrides?.sourceControlAiResolvedParams
   if (!params) {
-    const settings = getRuntimeCommitMessageSettings(
-      context.target,
-      context.prefs,
-      context.connectionId
-    )
+    const settings = getRuntimeCommitMessageSettings(context.settings, context.connectionId)
     const resolved = resolveSourceControlAiForOperation({
       settings: {
         ...settings,
-        defaultTuiAgent: context.prefs?.defaultTuiAgent ?? null,
+        defaultTuiAgent: context.settings?.defaultTuiAgent ?? null,
         sourceControlAi: overrides?.sourceControlAi ?? settings.sourceControlAi,
         agentCmdOverrides: overrides?.agentCmdOverrides ?? settings.agentCmdOverrides ?? {}
       },

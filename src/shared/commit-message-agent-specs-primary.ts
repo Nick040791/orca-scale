@@ -110,12 +110,6 @@ export function buildPrimaryCommitMessageAgentSpecs({
       // by version so the frontier model lands on top and legacy models trail.
       models: [
         {
-          id: 'gpt-5.6-terra',
-          label: 'GPT-5.6 Terra',
-          thinkingLevels: OPENAI_THINKING_LEVELS,
-          defaultThinkingLevel: 'low'
-        },
-        {
           id: 'gpt-5.5',
           label: 'GPT-5.5',
           thinkingLevels: OPENAI_THINKING_LEVELS,
@@ -156,7 +150,7 @@ export function buildPrimaryCommitMessageAgentSpecs({
           defaultThinkingLevel: 'low'
         }
       ],
-      defaultModelId: 'gpt-5.6-terra'
+      defaultModelId: 'gpt-5.5'
     },
     opencode: {
       id: 'opencode',
@@ -167,25 +161,32 @@ export function buildPrimaryCommitMessageAgentSpecs({
       promptDelivery: 'stdin',
       buildArgs: ({ model, thinkingLevel }) => [
         'run',
-        ...(model && model !== 'default' ? ['--model', model] : []),
+        '--model',
+        model,
         '--agent',
         'build',
         '--format',
-        'json',
+        'default',
         ...(thinkingLevel ? ['--variant', thinkingLevel] : [])
       ],
       singletonOptions: [['--model', '-m'], ['--agent'], ['--format'], ['--variant']],
       modelSource: 'dynamic',
       modelDiscovery: { binary: 'opencode', args: ['models'], parse: parseLineModels },
       models: [
-        { id: 'default', label: 'Config default' },
+        {
+          // Why: OpenCode's hosted GPT models can require workspace billing even
+          // when `opencode models` lists them. This free model is available in
+          // discovery and works as a usable out-of-the-box default.
+          id: 'opencode/deepseek-v4-flash-free',
+          label: 'OpenCode DeepSeek V4 Flash Free'
+        },
         {
           id: 'opencode/gpt-5.4-mini',
           label: 'OpenCode GPT 5.4 Mini',
           ...withOpenAiThinking('gpt-5.4-mini')
         }
       ],
-      defaultModelId: 'default'
+      defaultModelId: 'opencode/deepseek-v4-flash-free'
     },
     opencode2: {
       id: 'opencode2',
@@ -194,26 +195,25 @@ export function buildPrimaryCommitMessageAgentSpecs({
       promptDelivery: 'stdin',
       buildArgs: ({ model, thinkingLevel }) => [
         'run',
-        ...(model && model !== 'default'
-          ? ['--model', thinkingLevel ? `${model}#${thinkingLevel}` : model]
-          : []),
+        '--model',
+        thinkingLevel ? `${model}#${thinkingLevel}` : model,
         '--agent',
         'build',
         '--format',
-        'json'
+        'default'
       ],
       singletonOptions: [['--model', '-m'], ['--agent'], ['--format']],
       modelSource: 'dynamic',
       modelDiscovery: { binary: 'opencode2', args: ['models'], parse: parseLineModels },
       models: [
-        { id: 'default', label: 'Config default' },
+        { id: 'opencode/deepseek-v4-flash-free', label: 'OpenCode DeepSeek V4 Flash Free' },
         {
           id: 'opencode/gpt-5.4-mini',
           label: 'OpenCode GPT 5.4 Mini',
           ...withOpenAiThinking('gpt-5.4-mini')
         }
       ],
-      defaultModelId: 'default'
+      defaultModelId: 'opencode/deepseek-v4-flash-free'
     },
     pi: {
       id: 'pi',

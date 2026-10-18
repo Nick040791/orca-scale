@@ -30,7 +30,7 @@ vi.mock('../store/slices/browser-webview-cleanup', () => ({
     void args
     return new Set<string>()
   },
-  destroyWebviewsRemovedFromStore: vi.fn()
+  destroyRemovedBrowserWebview: vi.fn()
 }))
 
 vi.mock('@/lib/updater-beforeunload', () => ({

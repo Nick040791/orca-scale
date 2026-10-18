@@ -3,7 +3,6 @@ import { useAppStore } from '@/store'
 import type { AgentType } from '../../../../../shared/agent-status-types'
 import { AGENT_INTERRUPT_SETTLE_MS } from '../../../../../shared/agent-interrupt-intent'
 import { resolvePaneAgentOwner } from '../../../../../shared/pane-agent-owner'
-import { titleAfterInferredInterrupt } from '../../../../../shared/terminal-pane-title-reset'
 
 import { MANUAL_AGENT_COMMAND_MAX_CHARS } from './pty-connect-limits'
 import {
@@ -139,13 +138,11 @@ export function installShellCommandInference(session: ConnectPanePtySession): vo
     const state = useAppStore.getState()
     const currentTitle = state.runtimePaneTitlesByTabId?.[session.deps.tabId]?.[session.pane.id]
     const statusTitle = state.agentStatusByPaneKey[session.cacheKey]?.terminalTitle
-    const neutralTitle = titleAfterInferredInterrupt(
-      currentTitle ?? statusTitle,
-      session.neutralTerminalTitle()
-    )
-    if (neutralTitle === null) {
+    const title = currentTitle ?? statusTitle
+    if (!title) {
       return
     }
+    const neutralTitle = session.neutralTerminalTitle()
     // Why: inferred interrupts update the explicit hook row, but many CLIs leave
     // their OSC title stuck on a working spinner. Replace only this fallback
     // title signal with a neutral terminal label so the existing process tracker

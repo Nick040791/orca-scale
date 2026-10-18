@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  diffViewStateCache,
+  editorSelectionCache,
+  pdfViewPositionCache,
+  scrollTopCache
+} from '@/lib/scroll-cache'
 import type { OpenFile } from '@/store/slices/editor'
-import { disposeClosedEditorModels } from './closed-editor-tab-disposal'
+import { disposeClosedEditorTabs } from './closed-editor-tab-disposal'
 import {
   getDiffViewerMonacoModelPaths,
   getDiffViewerMonacoModelPathPrefixes,
@@ -132,11 +138,18 @@ function buildScenario(): {
   return { closedTabs, models, prefixes }
 }
 
-describe('disposeClosedEditorModels', () => {
+beforeEach(() => {
+  scrollTopCache.clear()
+  editorSelectionCache.clear()
+  diffViewStateCache.clear()
+  pdfViewPositionCache.clear()
+})
+
+describe('disposeClosedEditorTabs', () => {
   it('scans the model registry once per batch instead of twice per closed diff tab', () => {
     const batched = buildScenario()
     const batchedRegistry = createRegistry(batched.models)
-    disposeClosedEditorModels(batchedRegistry, batched.closedTabs)
+    disposeClosedEditorTabs(batchedRegistry, batched.closedTabs)
 
     const perTab = buildScenario()
     const perTabRegistry = createRegistry(perTab.models)
@@ -154,7 +167,7 @@ describe('disposeClosedEditorModels', () => {
 
   it('disposes exactly the models the per-tab sweep disposed', () => {
     const batched = buildScenario()
-    disposeClosedEditorModels(createRegistry(batched.models), batched.closedTabs)
+    disposeClosedEditorTabs(createRegistry(batched.models), batched.closedTabs)
 
     const perTab = buildScenario()
     disposeByPrefixPerTab(createRegistry(perTab.models), perTab.prefixes)
@@ -174,6 +187,45 @@ describe('disposeClosedEditorModels', () => {
     ).toBe(true)
   })
 
+  it('sweeps pane-scoped cache entries for closed edit tabs in one pass per cache', () => {
+    scrollTopCache.set('/repo/a.ts', 10)
+    scrollTopCache.set('/repo/a.ts::pane-1', 20)
+    scrollTopCache.set('/repo/a.ts:rich', 30)
+    scrollTopCache.set('/repo/b.ts::pane-1', 40)
+    editorSelectionCache.set('/repo/a.ts::pane-2', [] as never)
+    pdfViewPositionCache.set('/repo/a.ts:pdf', {
+      pageNumber: 1,
+      top: 0,
+      left: 0
+    })
+    pdfViewPositionCache.set('/repo/a.ts::pane-1:pdf', {
+      pageNumber: 2,
+      top: 0,
+      left: 0
+    })
+
+    disposeClosedEditorTabs(createRegistry([]), [
+      { id: '/repo/a.ts', mode: 'edit', filePath: '/repo/a.ts' } as OpenFile
+    ])
+
+    expect([...scrollTopCache.keys()]).toEqual(['/repo/b.ts::pane-1'])
+    expect(editorSelectionCache.size).toBe(0)
+    expect(pdfViewPositionCache.size).toBe(0)
+  })
+
+  it('drops diff view state and preview scroll entries for closed diff tabs', () => {
+    diffViewStateCache.set('tab-1', {} as never)
+    diffViewStateCache.set('tab-1::pane-1', {} as never)
+    diffViewStateCache.set('tab-10', {} as never)
+    scrollTopCache.set('tab-1:preview', 5)
+    scrollTopCache.set('tab-1::pane-1', 6)
+
+    disposeClosedEditorTabs(createRegistry([]), [diffTab('tab-1')])
+
+    expect([...diffViewStateCache.keys()]).toEqual(['tab-10'])
+    expect(scrollTopCache.size).toBe(0)
+  })
+
   // Why this is not covered by the parity test above: `buildScenario` closes tab-0..tab-99, so
   // tab-10 is in the closed batch too. Prefix bleed from tab-1 would dispose tab-10's models, but
   // the per-tab oracle disposes them as well via tab-10's own prefix, so the two agree and the
@@ -190,7 +242,7 @@ describe('disposeClosedEditorModels', () => {
 
     // Batched entry point on purpose: the owned prefixes become a Set probed at the URI's own `:`
     // boundaries, which is a different predicate from the pre-batch per-prefix `startsWith`.
-    disposeClosedEditorModels(createRegistry(models), [diffTab('tab-1'), diffTab('tab-2')])
+    disposeClosedEditorTabs(createRegistry(models), [diffTab('tab-1'), diffTab('tab-2')])
 
     expect(models.filter((m) => m.disposed).map((m) => m.path)).toEqual([
       closed.originalModelPath,
@@ -200,7 +252,7 @@ describe('disposeClosedEditorModels', () => {
 
   it('is a no-op when nothing closed', () => {
     const registry = createRegistry([createModel('diff:original:tab-1:tab-1')])
-    disposeClosedEditorModels(registry, [])
+    disposeClosedEditorTabs(registry, [])
     expect(registry.counters.getModelsCalls).toBe(0)
     expect(registry.models[0].disposed).toBe(false)
   })

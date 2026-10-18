@@ -1,6 +1,6 @@
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import type { GitHubAssignableUser } from '../../../shared/github/pull-request-types'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type {
   ListAssignableUsersBySlugResult,
   ListLabelsBySlugResult
@@ -21,10 +21,11 @@ export function clearGitHubSlugMetadataCache(): void {
 export function useRepoLabelsBySlug(
   owner: string | null,
   repo: string | null,
-  ownerTarget?: RuntimeClientTarget | null,
+  settings?: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null,
   host?: string
 ): MetadataListState<string> {
-  const target: RuntimeClientTarget = ownerTarget ?? { kind: 'local' }
+  const activeRuntimeEnvironmentId = settings?.activeRuntimeEnvironmentId ?? null
+  const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId })
   const selectedOwner = owner ?? ''
   const selectedRepo = repo ?? ''
   const repositoryKey = owner && repo ? githubRepoIdentityKey({ owner, repo, host }) : null
@@ -63,11 +64,12 @@ export function useRepoAssigneesBySlug(
   owner: string | null,
   repo: string | null,
   seedLogins?: string[],
-  ownerTarget?: RuntimeClientTarget | null,
+  settings?: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null,
   host?: string
 ): MetadataListState<GitHubAssignableUser> {
   const seedKey = (seedLogins ?? []).slice().sort().join(',')
-  const target: RuntimeClientTarget = ownerTarget ?? { kind: 'local' }
+  const activeRuntimeEnvironmentId = settings?.activeRuntimeEnvironmentId ?? null
+  const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId })
   const selectedOwner = owner ?? ''
   const selectedRepo = repo ?? ''
   const repositoryKey = owner && repo ? githubRepoIdentityKey({ owner, repo, host }) : null

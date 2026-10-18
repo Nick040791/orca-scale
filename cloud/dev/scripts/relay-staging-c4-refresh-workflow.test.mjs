@@ -40,11 +40,6 @@ const launchDigest = '5aedbca5c86de24c8b4d4bf7e3b444b76c712f281ede916cb9d90f70ca
 const asiaCells = ['production-gce-c27', 'production-gce-c28', 'production-gce-c29']
 // C30 launches after the launch cells rolled, so it pins the director's digest instead.
 const c30Digest = '4158d8a2e18e9caec439d257f0c1e45d92ffea8c0262f057b2f08c76a134bcf0'
-// C31 launches on the digest the director served when it was declared.
-const c31Digest = 'f30b5cb1ec52b6b6145efecfa1b8be9e3d309403beffd8abcc64197a2087e269'
-// Staging C4 is declared on image G (main 2de73812, E-pre with the t_preauth metric); the staging
-// director deploy binds its digest to this line.
-const stagingC4Digest = '07b5bf67a7706b2a61ef5e9a6d8ce85ee37c2a08609496a94eb5254881b5b87d'
 
 function cellBlock(tfvars, cellId) {
   const start = tfvars.indexOf(`"${cellId}"`)
@@ -55,14 +50,13 @@ function cellBlock(tfvars, cellId) {
 const productionCell = (cellId) => cellBlock(productionTfvars, cellId)
 
 // Scoped to C4 by name: staging C3 serves this digest too since its 2026-09-03 re-pin.
-test('pins staging C4 to the step-5 image, the launch Asia cells to one image, and C30/C31 to director images', () => {
-  assert.match(cellBlock(stagingTfvars, 'staging-gce-c4'), new RegExp(`relay@sha256:${stagingC4Digest}"`))
+test('pins staging C4 and the launch Asia cells to one image, and C30 to the director image', () => {
+  assert.match(cellBlock(stagingTfvars, 'staging-gce-c4'), new RegExp(`relay@sha256:${launchDigest}"`))
   for (const cellId of asiaCells) {
     assert.match(productionCell(cellId), new RegExp(`relay@sha256:${launchDigest}"`), cellId)
   }
   assert.match(recoveryWorkflow, new RegExp(`TARGET_IMAGE_DIGEST: sha256:${launchDigest}`))
   assert.match(productionCell('production-gce-c30'), new RegExp(`relay@sha256:${c30Digest}"`))
-  assert.match(productionCell('production-gce-c31'), new RegExp(`relay@sha256:${c31Digest}"`))
 })
 
 test('refreshes only empty staging C4 through the trusted capacity identity', () => {

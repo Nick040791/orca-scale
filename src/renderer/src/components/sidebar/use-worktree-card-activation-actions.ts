@@ -24,7 +24,6 @@ export function useWorktreeCardActivationActions({
   isDeleting,
   isSshDisconnected,
   updateWorktreeMeta,
-  setWorkspaceUnreadByUser,
   openModal
 }: Pick<
   WorktreeCardProps,
@@ -38,10 +37,7 @@ export function useWorktreeCardActivationActions({
   | 'onWorktreeCardClick'
   | 'onImmediateActivate'
 > &
-  Pick<
-    Foundation,
-    'isSshDisconnected' | 'updateWorktreeMeta' | 'setWorkspaceUnreadByUser' | 'openModal'
-  > &
+  Pick<Foundation, 'isSshDisconnected' | 'updateWorktreeMeta' | 'openModal'> &
   Pick<LinkedDetails, 'isDeleting'>) {
   const worktreeRef = useRef(worktree)
   useLayoutEffect(() => {
@@ -159,9 +155,13 @@ export function useWorktreeCardActivationActions({
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault()
       event.stopPropagation()
-      setWorkspaceUnreadByUser(worktree.id, !worktree.isUnread, worktree.hostId ?? 'local')
+      updateWorktreeMeta(
+        worktree.id,
+        { isUnread: !worktree.isUnread },
+        { executionHostId: worktree.hostId ?? 'local' }
+      )
     },
-    [worktree.hostId, worktree.id, worktree.isUnread, setWorkspaceUnreadByUser]
+    [worktree.hostId, worktree.id, worktree.isUnread, updateWorktreeMeta]
   )
 
   return { handleClick, handleRenameTitle, handleDoubleClick, handleToggleUnreadQuick }

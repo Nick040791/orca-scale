@@ -1,11 +1,3 @@
-import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../../shared/sidebar-inputs-switch'
-import type { Worktree, WorkspaceAttachment } from '../../../../shared/worktree/types'
-import type { WorkspaceAttachmentMutation } from '../../../../shared/workspace-attachment-mutation'
-import { getLegacyWorkspaceReviewSelectionUpdates } from '../../../../shared/workspace-attachment-legacy'
-import {
-  WORKTREE_LINKED_ITEMS_RUNTIME_CAPABILITY,
-  WORKTREE_LINKED_ITEMS_DELTA_RUNTIME_CAPABILITY
-} from '../../../../shared/workspace-attachment-capabilities'
 import type { PreloadApi } from '../../../../preload/api-types'
 import type {
   ForceDeleteWorktreeBranchResult,
@@ -14,26 +6,20 @@ import type {
 import type { WorkspaceLineage, WorktreeLineage } from '../../../../shared/worktree/lineage-types'
 import { readRetiredNameRegistryForRepo } from '../../../../shared/worktree/retired-name-cache'
 import { EMPTY_RETIRED_NAME_REGISTRY } from '../../../../shared/worktree/retired-name-registry'
-import { worktreeRemovalReplyTimeoutMs } from '../../../../shared/worktree/archive-hook-removal-gate'
+import type { Worktree } from '../../../../shared/worktree/types'
 import { toRuntimeWorktreeSelector } from '../../runtime/runtime-worktree-selector'
 import {
-  getRemoteRuntimeStatus,
   callRuntimeResult,
   callRuntimeResultWithOwner,
   withRuntimeWorktreeOwner
 } from './web-runtime-calls'
-import {
-  invalidateRuntimeWorktreeCaches,
-  requireActiveEnvironment,
-  assertActiveEnvironment
-} from './web-runtime-session'
+import { invalidateRuntimeWorktreeCaches } from './web-runtime-session'
 import {
   WEB_RUNTIME_WORKTREE_LIST_LIMIT,
   callRuntimeDetectedWorktrees,
   listAllRuntimeWorktrees
 } from './web-runtime-worktree-catalog'
 import { noopUnsubscribe } from './web-storage'
-import { translate } from '@/i18n/i18n'
 
 export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
   return {
@@ -61,9 +47,6 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
     listDetected: async ({ repoId }) => callRuntimeDetectedWorktrees(repoId),
     listAll: () => listAllRuntimeWorktrees(),
     create: async (args) => {
-      if (args.linkedItems !== undefined) {
-        await assertAttachmentWriteSupported(args)
-      }
       invalidateRuntimeWorktreeCaches()
       const owned = await callRuntimeResultWithOwner<{ worktree: Worktree }>('worktree.create', {
         repo: args.repoId,
@@ -76,7 +59,6 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
         branchNameOverride: args.branchNameOverride,
         linkedIssue: args.linkedIssue,
         linkedPR: args.linkedPR,
-        ...(args.linkedItems !== undefined ? { linkedItems: args.linkedItems } : {}),
         linkedLinearIssue: args.linkedLinearIssue,
         linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId,
         linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey,
@@ -109,9 +91,7 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
         ...(args.parentWorkspace ? { parentWorkspaceOrigin: 'manual' } : {}),
         workspaceStatus: args.workspaceStatus,
         manualOrder: args.manualOrder,
-        automationProvenanceRequest: args.automationProvenanceRequest,
-        // Switch point: the host lists this creation under the window's id only on the dark path.
-        ...(ORCA_SIDEBAR_INPUTS_IS_MAIN ? { creationId: args.creationId } : {})
+        automationProvenanceRequest: args.automationProvenanceRequest
       })
       return {
         ...owned.result,
@@ -149,20 +129,15 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
       }),
     remove: async ({ worktreeId, hostId, force, allowUnverifiedPtyStop, skipArchive }) => {
       invalidateRuntimeWorktreeCaches()
-      return callRuntimeResult<RemoveWorktreeResult>(
-        'worktree.rm',
-        {
-          worktree: toRuntimeWorktreeSelector(worktreeId),
-          ...(hostId ? { hostId } : {}),
-          force,
-          // Why (#11960): the web client renders the same Force Delete affordances, so
-          // dropping this field here would leave paired clients permanently wedged.
-          allowUnverifiedPtyStop,
-          runHooks: skipArchive !== true
-        },
-        // Why: the host replies once Git has deleted the checkout, past the default 30 s budget.
-        worktreeRemovalReplyTimeoutMs(skipArchive !== true)
-      )
+      return callRuntimeResult<RemoveWorktreeResult>('worktree.rm', {
+        worktree: toRuntimeWorktreeSelector(worktreeId),
+        ...(hostId ? { hostId } : {}),
+        force,
+        // Why (#11960): the web client renders the same Force Delete affordances, so
+        // dropping this field here would leave paired clients permanently wedged.
+        allowUnverifiedPtyStop,
+        runHooks: skipArchive !== true
+      })
     },
     // Why: forget-locally clears a desktop workspace pinned to a dead SSH host; a paired web client has no such ghost state.
     forgetLocal: () => {
@@ -176,18 +151,6 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
         ...(hostId ? { hostId } : {})
       }),
     updateMeta: async ({ worktreeId, updates }) => {
-      if (updates.linkedItems !== undefined) {
-        await assertAttachmentWriteSupported(updates)
-      }
-      const legacySelection = getLegacyWorkspaceReviewSelectionUpdates(updates)
-      if (legacySelection !== updates) {
-        const environmentId = requireActiveEnvironment().id
-        const status = await getRemoteRuntimeStatus()
-        assertActiveEnvironment(environmentId)
-        if (!status.capabilities?.includes(WORKTREE_LINKED_ITEMS_RUNTIME_CAPABILITY)) {
-          updates = legacySelection
-        }
-      }
       const rpcUpdates =
         Object.hasOwn(updates, 'pushTarget') && updates.pushTarget === undefined
           ? { ...updates, pushTarget: null }
@@ -224,25 +187,5 @@ export function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees
     onHeadIdentitiesChanged: () => noopUnsubscribe,
     onBaseStatus: () => noopUnsubscribe,
     onRemoteBranchConflict: () => noopUnsubscribe
-  }
-}
-
-async function assertAttachmentWriteSupported(
-  updates: { linkedItems?: WorkspaceAttachment[] } & WorkspaceAttachmentMutation
-): Promise<void> {
-  const environmentId = requireActiveEnvironment().id
-  const status = await getRemoteRuntimeStatus()
-  assertActiveEnvironment(environmentId)
-  if (
-    !status.capabilities?.includes(WORKTREE_LINKED_ITEMS_RUNTIME_CAPABILITY) ||
-    (updates.linkedItemsBase !== undefined &&
-      !status.capabilities?.includes(WORKTREE_LINKED_ITEMS_DELTA_RUNTIME_CAPABILITY))
-  ) {
-    throw new Error(
-      translate(
-        'workspace.attachments.updateRuntimeSafely',
-        'Update the remote runtime to safely change workspace links'
-      )
-    )
   }
 }

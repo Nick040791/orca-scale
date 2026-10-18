@@ -15,8 +15,7 @@ import {
   getRuntimeEnvironmentConnectionGeneration
 } from './runtime-status'
 import { getProviderRuntimeContextKey } from '@/lib/provider-runtime-context'
-import { getPairedDeviceIdsByEnvironment } from '../../../../shared/workspace-creator-visibility'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
+import { getPairedDeviceIdsByEnvironment } from '@/components/sidebar/workspace-creator-visibility'
 
 vi.mock('sonner', () => ({
   toast: { warning: vi.fn(), dismiss: vi.fn() }
@@ -65,7 +64,14 @@ function stubRuntimeEnvironmentApi({
   getStatus?: ReturnType<typeof vi.fn>
   list?: ReturnType<typeof vi.fn>
 }) {
-  stubRuntimeEnvironmentBridge({ getStatus, list })
+  vi.stubGlobal('window', {
+    api: {
+      runtimeEnvironments: {
+        getStatus,
+        list
+      }
+    }
+  })
   return { getStatus, list }
 }
 
@@ -605,7 +611,7 @@ describe('runtime-status slice', () => {
       return Promise.resolve({ id: method, ok: true, result: { ok: true }, _meta: {} })
     })
     const getStatus = vi.fn().mockResolvedValue(createCompatibleRuntimeStatusResponse('runtime-a'))
-    stubRuntimeEnvironmentBridge({ getStatus, call })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { getStatus, call } } })
     const store = createSliceStore()
     const target = { kind: 'environment', environmentId: 'env-a' } as const
 
@@ -648,7 +654,7 @@ describe('runtime-status slice', () => {
       }
       return Promise.resolve({ id: method, ok: true, result: { ok: true }, _meta: {} })
     })
-    stubRuntimeEnvironmentBridge({ call })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call } } })
     const store = createSliceStore()
     const target = { kind: 'environment', environmentId: 'env-a' } as const
 
@@ -686,7 +692,7 @@ describe('runtime-status slice', () => {
       }
       return Promise.resolve({ id: method, ok: true, result: { ok: true }, _meta: {} })
     })
-    stubRuntimeEnvironmentBridge({ call })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call } } })
     const store = createSliceStore()
     const target = { kind: 'environment', environmentId: 'env-a' } as const
 
@@ -720,9 +726,13 @@ describe('runtime-status slice', () => {
 
   it('preserves successful reachability when reading its snapshot fails', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    stubRuntimeEnvironmentBridge({
-      getStatus: vi.fn().mockResolvedValue(createCompatibleRuntimeStatusResponse('runtime-a')),
-      getStatusSnapshots: vi.fn().mockRejectedValue(new Error('IPC read failed'))
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          getStatus: vi.fn().mockResolvedValue(createCompatibleRuntimeStatusResponse('runtime-a')),
+          getStatusSnapshots: vi.fn().mockRejectedValue(new Error('IPC read failed'))
+        }
+      }
     })
     try {
       const store = createSliceStore()

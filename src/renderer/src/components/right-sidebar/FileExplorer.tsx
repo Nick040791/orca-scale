@@ -1,19 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { getWorkspaceFileRevealOwner } from '@/lib/reveal-in-file-manager'
-import { getRouteForLocalPathOpenOwner } from '@/lib/local-path-open-guard'
 import { useActiveWorktree, useRepoById } from '@/store/selectors'
-import {
-  getExplorerDisplayRootOptions,
-  resolveExplorerDisplayRootChoice,
-  getExplorerDisplayRootPath,
-  getExplorerDisplayDepth,
-  getExplorerEffectiveExpanded
-} from './file-explorer-display-root'
-import { FileExplorerScopeNotice } from './FileExplorerScopeNotice'
-import { useFileExplorerRootNavigation } from './use-file-explorer-root-navigation'
-import { useFileExplorerScopeTransition } from './use-file-explorer-scope-transition'
 import { basename } from '@/lib/path'
 import { cn } from '@/lib/utils'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
@@ -33,36 +20,22 @@ import {
 } from './file-explorer-name-filter-projection'
 import { useFileExplorerManualRefresh } from './useFileExplorerManualRefresh'
 import { useFileExplorerTree } from './useFileExplorerTree'
-import { getFileExplorerOperationOwnerFromState } from './file-explorer-operation-owner'
 import { useFileExplorerSelection } from './useFileExplorerSelection'
 import { useFileExplorerVisibleRowProjection } from './useFileExplorerVisibleRowProjection'
 import { useFileExplorerBackgroundMenu } from './use-file-explorer-background-menu'
 import { useFileExplorerNameFilter } from './use-file-explorer-name-filter'
 import { useFileExplorerTreePaneState } from './use-file-explorer-tree-pane-state'
-import { useWslHostUnavailableReason } from '../terminal-pane/use-wsl-host-unavailable-reason'
 import { translate } from '@/i18n/i18n'
 import type { RightSidebarExplorerView } from '../../../../shared/ui-chrome-types'
 
-/** Coordinates scoped navigation while retaining the actual worktree root for file operations and runtime routing. */
 function FileExplorerFiles(): React.JSX.Element {
   const explorerView = useAppStore((s) => s.rightSidebarExplorerView)
   const showRightSidebarFiles = useAppStore((s) => s.showRightSidebarFiles)
   const showRightSidebarSearch = useAppStore((s) => s.showRightSidebarSearch)
   const searchPanel = useFileSearchPanel(explorerView)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
-  const runtimeEnvironmentId = useAppStore((s) =>
-    getRuntimeEnvironmentIdForWorktree(s, activeWorktreeId)
-  )
-  const wslHostUnavailable = useWslHostUnavailableReason(activeWorktreeId)
   const activeWorktree = useActiveWorktree()
   const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
-  // Why: a folder workspace has no repo row, so only the catalog owner names its SSH host.
-  const openInOwner = useAppStore((s) =>
-    getWorkspaceFileRevealOwner(s, activeWorktreeId, {
-      connectionId: activeRepo?.connectionId,
-      runtimeEnvironmentId
-    })
-  )
   const expandedDirs = useAppStore((s) => s.expandedDirs)
   const collapseAllDirs = useAppStore((s) => s.collapseAllDirs)
   const activeFileId = useAppStore((s) => s.activeFileId)
@@ -73,15 +46,7 @@ function FileExplorerFiles(): React.JSX.Element {
   )
   const toggleShowDotfilesForWorktree = useAppStore((s) => s.toggleShowDotfilesForWorktree)
 
-  const savedRoot = useAppStore((s) =>
-    activeWorktreeId ? s.explorerDisplayRootByWorktree[activeWorktreeId] : undefined
-  )
-  const rootOptions = useMemo(() => getExplorerDisplayRootOptions(activeWorktree), [activeWorktree])
-  const rootChoice = resolveExplorerDisplayRootChoice(rootOptions, savedRoot)
-  const rootNavigation = useFileExplorerRootNavigation(activeWorktreeId, rootChoice, rootOptions)
   const worktreePath = activeWorktree?.path ?? null
-  const displayRootPath = getExplorerDisplayRootPath(worktreePath, rootChoice)
-  const displayDepth = getExplorerDisplayDepth(worktreePath, displayRootPath)
   const isFilesViewActive = explorerView === 'files'
   const visibleFilesWorktreePath = getVisibleFileExplorerWorktreePath({
     explorerView,
@@ -97,15 +62,7 @@ function FileExplorerFiles(): React.JSX.Element {
     [activeWorktreeId, expandedDirs]
   )
 
-  const effectiveExpanded = useMemo(
-    () =>
-      getExplorerEffectiveExpanded(
-        expanded,
-        visibleFilesWorktreePath && displayRootPath !== worktreePath ? displayRootPath : null
-      ),
-    [expanded, visibleFilesWorktreePath, displayRootPath, worktreePath]
-  )
-  const tree = useFileExplorerTree(worktreePath, effectiveExpanded, activeWorktreeId)
+  const tree = useFileExplorerTree(worktreePath, expanded, activeWorktreeId)
   const {
     nameFilterQuery,
     setNameFilterQuery,
@@ -142,8 +99,7 @@ function FileExplorerFiles(): React.JSX.Element {
     activeRepoSupportsGit && isFilesViewActive,
     showDotfiles,
     nameFilterSource,
-    hasNameFilter ? nameFilterCollapsedPaths : null,
-    visibleFilesWorktreePath ? displayRootPath : null
+    hasNameFilter ? nameFilterCollapsedPaths : null
   )
   const rowExpandedPaths = useMemo(
     () =>
@@ -193,13 +149,10 @@ function FileExplorerFiles(): React.JSX.Element {
   // return, so a transient null worktree cannot unmount the tree's reset guard
   // and SSH generation refs and trigger a full cache-dropping reload on return.
   const paneState = useFileExplorerTreePaneState({
-    onRevealOutsideRoot: rootNavigation.revealOutsideRoot,
     activeWorktreeId,
     activeRepo,
     worktreePath,
     visibleFilesWorktreePath,
-    displayRootPath,
-    effectiveExpanded,
     expanded,
     activeFileId,
     openFiles,
@@ -221,18 +174,9 @@ function FileExplorerFiles(): React.JSX.Element {
     handleExplorerBackgroundContextMenuCapture,
     handleExplorerBackgroundDoubleClick
   } = useFileExplorerBackgroundMenu({
-    worktreePath: displayRootPath,
-    displayDepth,
+    worktreePath,
     inlineInput: inlineInputState.inlineInput,
     startNew: inlineInputState.startNew
-  })
-
-  useFileExplorerScopeTransition({
-    displayRootPath,
-    activeWorktreeId,
-    paneState,
-    selection,
-    setBgMenuOpen
   })
 
   if (!worktreePath) {
@@ -264,7 +208,7 @@ function FileExplorerFiles(): React.JSX.Element {
         <FileExplorerToolbar
           repoName={repoName}
           worktreePath={worktreePath}
-          {...getRouteForLocalPathOpenOwner(openInOwner)}
+          connectionId={activeRepo?.connectionId ?? null}
           refresh={manualRefresh}
           canRefresh={isFilesViewActive}
           canCollapseAll={canCollapseAll}
@@ -275,29 +219,6 @@ function FileExplorerFiles(): React.JSX.Element {
           showDotfiles={showDotfiles}
           onToggleDotfiles={handleToggleDotfiles}
         />
-        {activeWorktree?.isSparse && (
-          <FileExplorerScopeNotice
-            rootSelect={
-              isFilesViewActive && rootOptions
-                ? {
-                    options: rootOptions,
-                    value: rootChoice,
-                    onValueChange: rootNavigation.selectRoot,
-                    disabled:
-                      Boolean(paneState.dragDrop.dragSourcePath) ||
-                      paneState.dragDrop.isNativeDragOver
-                  }
-                : null
-            }
-            returnRoot={rootNavigation.returnRoot}
-            onSelectRoot={rootNavigation.selectRoot}
-            disabled={
-              Boolean(paneState.dragDrop.dragSourcePath) || paneState.dragDrop.isNativeDragOver
-            }
-            searching={!isFilesViewActive}
-            sparse={!!activeWorktree?.isSparse}
-          />
-        )}
         <FileExplorerQueryStrip view={explorerView} onSelectView={handleSelectExplorerView}>
           {/* Why: keep both query rows mounted and cross-fade so the Names/Contents
              switch does not remount or shift when changing modes. */}
@@ -309,7 +230,6 @@ function FileExplorerFiles(): React.JSX.Element {
             >
               <FileExplorerNameFilter
                 query={nameFilterQuery}
-                scopeLabel={rootOptions?.find((option) => option.value === rootChoice)?.label}
                 loading={nameFilterFiles.loading}
                 onQueryChange={setNameFilterQuery}
                 onClear={handleClearNameFilter}
@@ -338,10 +258,11 @@ function FileExplorerFiles(): React.JSX.Element {
            avoids remounting heavy virtualized panes while preserving full height. */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <FileExplorerFilesTreePane
-            displayRootPath={displayRootPath}
             activeRepo={activeRepo}
             worktreePath={worktreePath}
+            visibleFilesWorktreePath={visibleFilesWorktreePath}
             explorerView={explorerView}
+            isFilesViewActive={isFilesViewActive}
             activeFileId={activeFileId}
             hasNameFilter={hasNameFilter}
             nameFilterSource={nameFilterSource}
@@ -356,7 +277,6 @@ function FileExplorerFiles(): React.JSX.Element {
             visibleRowCount={visibleRowCount}
             handleExplorerBackgroundContextMenuCapture={handleExplorerBackgroundContextMenuCapture}
             handleExplorerBackgroundDoubleClick={handleExplorerBackgroundDoubleClick}
-            wslHostUnavailable={wslHostUnavailable}
           />
           <div
             className={cn(
@@ -382,8 +302,7 @@ function FileExplorerFiles(): React.JSX.Element {
         open={bgMenuOpen}
         onOpenChange={setBgMenuOpen}
         point={bgMenuPoint}
-        worktreePath={displayRootPath ?? worktreePath}
-        displayDepth={displayDepth}
+        worktreePath={worktreePath}
         onStartNew={inlineInputState.startNew}
       />
     </>
@@ -393,11 +312,7 @@ function FileExplorerFiles(): React.JSX.Element {
 const FileExplorerFilesMemo = React.memo(FileExplorerFiles)
 
 function FileExplorer(): React.JSX.Element {
-  const ownerKey = useAppStore((state) =>
-    JSON.stringify(getFileExplorerOperationOwnerFromState(state, state.activeWorktreeId))
-  )
-  // Different hosts can expose the same path; their explorer caches must have separate lifetimes.
-  return <FileExplorerFilesMemo key={ownerKey} />
+  return <FileExplorerFilesMemo />
 }
 
 export default React.memo(FileExplorer)

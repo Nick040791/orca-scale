@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
-import { useAppStore } from '@/store'
-import { resolveNotebookExecutionHost, type NotebookExecutionHost } from './ipynb-execution-host'
-import { clearIpynbOutputs, updateIpynbCellRuns, withIpynbCellIds } from './ipynb-cell-mutations'
+import { getConnectionId } from '@/lib/connection-context'
+import { clearIpynbOutputs, updateIpynbCellRun, withIpynbCellIds } from './ipynb-cell-mutations'
 import { toStoredOutputs } from './ipynb-kernel-outputs'
 import {
   forgetFinishedRuns,
@@ -19,28 +18,6 @@ import {
 } from './ipynb-kernel-store'
 import { parseIpynb } from './ipynb-parse'
 import { getIpynbCellKey } from './useIpynbDocumentEditing'
-
-function executionRefusal(host: NotebookExecutionHost, language: string): string | null {
-  switch (host) {
-    case 'remote':
-      return translate(
-        'auto.components.editor.IpynbViewer.localOnly',
-        'Notebook cells can only run for files on this computer.'
-      )
-    case 'unresolved':
-      return translate(
-        'auto.components.editor.IpynbViewer.ownerUnresolved',
-        "Orca can't tell which computer this notebook is on yet, so its cells can't run."
-      )
-    case 'local':
-      return language === 'python'
-        ? null
-        : translate(
-            'auto.components.editor.IpynbViewer.pythonOnly',
-            'Only Python notebooks can run in Orca.'
-          )
-  }
-}
 
 type UseIpynbCellExecutionArgs = {
   filePath: string
@@ -71,23 +48,18 @@ export function useIpynbCellExecution({
     let nextContent = latestContent
     try {
       const cells = parseIpynb(latestContent).cells
-      const updates: {
-        index: number
-        outputs: Record<string, unknown>[]
-        executionCount: number | null
-      }[] = []
       for (const key of uncommittedRunKeys) {
         const run = getCellRun(filePath, key)
         const index = cells.findIndex((cell, cellIndex) => getIpynbCellKey(cell, cellIndex) === key)
         if (run && index !== -1) {
-          updates.push({
+          nextContent = updateIpynbCellRun(
+            nextContent,
             index,
-            outputs: toStoredOutputs(run.outputs),
-            executionCount: run.executionCount
-          })
+            toStoredOutputs(run.outputs),
+            run.executionCount
+          )
         }
       }
-      nextContent = updateIpynbCellRuns(latestContent, updates)
     } catch {
       // An unparseable document has no cells to take outputs; drop them.
     }
@@ -106,12 +78,18 @@ export function useIpynbCellExecution({
     if (codeIndexes.length === 0) {
       return
     }
-    const refusal = executionRefusal(
-      resolveNotebookExecutionHost(useAppStore.getState(), worktreeId),
-      notebook.language
-    )
-    if (refusal) {
-      toast.error(refusal)
+    if (getConnectionId(worktreeId) || notebook.language !== 'python') {
+      toast.error(
+        getConnectionId(worktreeId)
+          ? translate(
+              'auto.components.editor.IpynbViewer.localOnly',
+              'Notebook cells can only run for files on this computer.'
+            )
+          : translate(
+              'auto.components.editor.IpynbViewer.pythonOnly',
+              'Only Python notebooks can run in Orca.'
+            )
+      )
       return
     }
     // Why: id-less (nbformat 4.4) cells are keyed by index, so a move mid-run would misroute output.

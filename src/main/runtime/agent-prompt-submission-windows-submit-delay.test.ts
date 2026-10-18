@@ -111,9 +111,7 @@ describe('agent prompt submit delay on a ConPTY host', () => {
     vi.useFakeTimers()
     const { runtime, handle, writes } = await createPromptRuntime()
     const delayMs = submitDelayFor('review this', 'win32')
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs - 1)
@@ -133,7 +131,7 @@ describe('agent prompt submit delay on a ConPTY host', () => {
     // Measured ConPTY ingest for 8 KB is 60-89 ms; the old constant charged 1_500 ms.
     const delayMs = submitDelayFor(prompt, 'win32')
     expect(delayMs).toBeLessThan(700)
-    const submission = runtime.sendTerminalAgentPrompt(handle, prompt, { inputKind: 'driving' })
+    const submission = runtime.sendTerminalAgentPrompt(handle, prompt)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs)
@@ -148,7 +146,7 @@ describe('agent prompt submit delay on a ConPTY host', () => {
     vi.useFakeTimers()
     const { runtime, handle, writes, submitTimes } = await createPromptRuntime()
     const prompt = 'y'.repeat(320_000)
-    const submission = runtime.sendTerminalAgentPrompt(handle, prompt, { inputKind: 'driving' })
+    const submission = runtime.sendTerminalAgentPrompt(handle, prompt)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     // Every byte is already handed to node-pty here -- the hazard is that the *host* is
@@ -163,15 +161,32 @@ describe('agent prompt submit delay on a ConPTY host', () => {
     await stalled
   })
 
+  it('does not send another Enter after cancellation during verification', async () => {
+    useHostPlatform('win32')
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const { runtime, handle, writes } = await createPromptRuntime()
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
+      signal: controller.signal
+    })
+    const rejected = expect(submission).rejects.toThrow('request_aborted')
+
+    await vi.advanceTimersByTimeAsync(submitDelayFor('review this', 'win32'))
+    expect(countSubmits(writes)).toBe(1)
+    controller.abort()
+    await vi.runAllTimersAsync()
+
+    await rejected
+    expect(countSubmits(writes)).toBe(1)
+  })
+
   it('charges a non-Windows host only the settle window', async () => {
     useHostPlatform('darwin')
     vi.useFakeTimers()
     const { runtime, handle, writes } = await createPromptRuntime()
     const delayMs = submitDelayFor(HOST_PROBE_PROMPT, 'darwin')
     expect(delayMs).toBeLessThan(submitDelayFor(HOST_PROBE_PROMPT, 'win32'))
-    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT, {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs - 1)
@@ -200,9 +215,7 @@ describe('agent prompt submit delay follows the execution host', () => {
     patchPtyRecord(runtime, { isWsl: true, wslDistro: 'Ubuntu' })
     const delayMs = submitDelayFor(HOST_PROBE_PROMPT, 'win32')
     expect(delayMs).toBeGreaterThan(submitDelayFor(HOST_PROBE_PROMPT, 'linux'))
-    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT, {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs - 1)
@@ -222,9 +235,7 @@ describe('agent prompt submit delay follows the execution host', () => {
     registerSshRemotePlatform('win32')
     const clientDelayMs = submitDelayFor(HOST_PROBE_PROMPT, 'darwin')
     const hostDelayMs = submitDelayFor(HOST_PROBE_PROMPT, 'win32')
-    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT, {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(clientDelayMs)
@@ -244,9 +255,7 @@ describe('agent prompt submit delay follows the execution host', () => {
     registerSshRemotePlatform('linux')
     const delayMs = submitDelayFor(HOST_PROBE_PROMPT, 'linux')
     expect(delayMs).toBeLessThan(submitDelayFor(HOST_PROBE_PROMPT, 'win32'))
-    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT, {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs - 1)
@@ -268,9 +277,7 @@ describe('agent prompt submit delay follows the execution host', () => {
     })
     registerSshRemotePlatform(undefined)
     const delayMs = submitDelayFor(HOST_PROBE_PROMPT, 'win32')
-    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT, {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, HOST_PROBE_PROMPT)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(delayMs - 1)
@@ -334,9 +341,7 @@ describe('agent prompt render gate on a ConPTY host', () => {
     useHostPlatform('win32')
     vi.useFakeTimers()
     const { runtime, handle, writes, submitTimes } = await createSettlementRuntime()
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'y'.repeat(320_000), {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'y'.repeat(320_000))
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     // Marker at 100 ms + a 1_500 ms quiet window would have submitted at ~1_600 ms, while
@@ -365,7 +370,7 @@ describe('agent prompt render gate on a ConPTY host', () => {
       markerDelayMs: ingestMs - 1_000,
       noiseUntilMs: ingestMs + 20_000
     })
-    const submission = runtime.sendTerminalAgentPrompt(handle, prompt, { inputKind: 'driving' })
+    const submission = runtime.sendTerminalAgentPrompt(handle, prompt)
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.advanceTimersByTimeAsync(ingestMs + 8_000 - 1)
@@ -382,9 +387,7 @@ describe('agent prompt render gate on a ConPTY host', () => {
     useHostPlatform('win32')
     vi.useFakeTimers()
     const { runtime, handle, submitTimes } = await createSettlementRuntime()
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     const stalled = expect(submission).rejects.toThrow('agent_prompt_stalled')
 
     await vi.runAllTimersAsync()
@@ -406,11 +409,7 @@ describe('plain terminal send suffix delay', () => {
     useHostPlatform('win32')
     vi.useFakeTimers()
     const { runtime, handle, writes, submitTimes } = await createPromptRuntime()
-    const send = runtime.sendTerminal(
-      handle,
-      { text: 'z'.repeat(320_000), enter: true },
-      { inputKind: 'driving' }
-    )
+    const send = runtime.sendTerminal(handle, { text: 'z'.repeat(320_000), enter: true })
 
     // Same hazard as the agent-prompt path: a flat 500 ms wrote Enter mid-paste here.
     await vi.advanceTimersByTimeAsync(3_342)
@@ -430,7 +429,7 @@ describe('plain terminal send suffix delay', () => {
     const send = runtime.sendTerminal(
       handle,
       { text: 'z'.repeat(320_000), enter: true },
-      { inputKind: 'driving', signal: controller.signal }
+      { signal: controller.signal }
     )
     const rejected = expect(send).rejects.toThrow('request_aborted')
 

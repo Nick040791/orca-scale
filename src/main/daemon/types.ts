@@ -1,12 +1,4 @@
 import type {
-  AsyncIoHealthRequest,
-  FullDiskAccessStatusRequest,
-  PingRequest,
-  PtySpawnHealthRequest,
-  SystemResolverHealthRequest
-} from './daemon-health-requests'
-import type { SpawnIntent } from '../../shared/host-spawn-admission'
-import type {
   ConfirmForegroundProcessRequest,
   ConfirmShellForegroundRequest,
   GetForegroundProcessRequest,
@@ -30,7 +22,6 @@ import type {
   AgentSessionSurfaceBinding
 } from '../../shared/agent-session-host-authority'
 import type * as HistorySeedProtocol from './terminal-history-seed-transfer-protocol'
-import type * as PtyOwnerQueryProtocol from './daemon-pty-owner-query-protocol'
 export type { TerminalModes } from './terminal-modes'
 import type { TerminalSnapshot } from './terminal-snapshot'
 export type { TerminalSnapshot } from './terminal-snapshot'
@@ -101,13 +92,17 @@ export type CreateOrAttachRequest = {
     /** Server-side fence that prevents a client timeout from publishing an orphan PTY. */
     cancelAfterMs?: number
     startupIngress?: PtyStartupIngressIntent
-    /** Optional; an old daemon ignores it and an old client omits it (legacy pacing). */
-    spawnIntent?: SpawnIntent
     agentSessionEnsure?: {
       claim: AgentSessionExecutionClaim
       surface: AgentSessionSurfaceBinding
     }
   }
+}
+
+export type CloseStartupQueryAuthorityRequest = {
+  id: string
+  type: 'closeStartupQueryAuthority'
+  payload: { sessionId: string }
 }
 
 export type CancelCreateOrAttachRequest = {
@@ -211,10 +206,9 @@ export type GetCwdRequest = {
   }
 }
 
-// Why resetInputModes is a type, not a clear flag: an older daemon rejects it instead of clearing.
-export type TerminalBufferActionRequest = {
+export type ClearScrollbackRequest = {
   id: string
-  type: 'clearScrollback' | 'resetInputModes'
+  type: 'clearScrollback'
   payload: {
     sessionId: string
   }
@@ -226,6 +220,21 @@ export type ShutdownRequest = {
   payload: {
     killSessions: boolean
   }
+}
+
+export type PingRequest = {
+  id: string
+  type: 'ping'
+}
+
+export type SystemResolverHealthRequest = {
+  id: string
+  type: 'systemResolverHealth'
+}
+
+export type PtySpawnHealthRequest = {
+  id: string
+  type: 'ptySpawnHealth'
 }
 
 export type GetSnapshotRequest = {
@@ -312,18 +321,15 @@ export type DaemonRequest =
   | InspectProcessRequest
   | ConfirmForegroundProcessRequest
   | ConfirmShellForegroundRequest
-  | TerminalBufferActionRequest
+  | ClearScrollbackRequest
   | ShutdownRequest
   | PingRequest
   | SystemResolverHealthRequest
   | PtySpawnHealthRequest
-  | AsyncIoHealthRequest
-  | FullDiskAccessStatusRequest
   | GetSnapshotRequest
   | GetSizeRequest
   | TakePendingOutputRequest
-  | PtyOwnerQueryProtocol.CloseStartupQueryAuthorityRequest
-  | PtyOwnerQueryProtocol.SetColorQueryReplyColorsRequest
+  | CloseStartupQueryAuthorityRequest
 
 // ─── RPC Responses (Daemon → Client, on control socket) ────────────
 

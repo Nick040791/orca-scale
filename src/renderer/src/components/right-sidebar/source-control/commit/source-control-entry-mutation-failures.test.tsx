@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   toastDismiss: vi.fn<(id: string) => void>(),
   stagePath: vi.fn(),
   unstagePath: vi.fn(),
-  bulkUnstagePaths: vi.fn(),
   discardPath: vi.fn()
 }))
 
@@ -22,12 +21,12 @@ vi.mock('@/components/editor/editor-autosave', () => ({
   notifyEditorExternalFileChange: vi.fn(),
   requestEditorSaveQuiesce: vi.fn(async () => {})
 }))
-vi.mock('@/runtime/runtime-git-working-tree-client', () => ({
+vi.mock('@/runtime/runtime-git-client', () => ({
   stageRuntimeGitPath: (...args: unknown[]) => mocks.stagePath(...args),
   unstageRuntimeGitPath: (...args: unknown[]) => mocks.unstagePath(...args),
   discardRuntimeGitPath: (...args: unknown[]) => mocks.discardPath(...args),
   bulkDiscardRuntimeGitPaths: vi.fn(),
-  bulkUnstageRuntimeGitPaths: (...args: unknown[]) => mocks.bulkUnstagePaths(...args)
+  bulkUnstageRuntimeGitPaths: vi.fn()
 }))
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(() => undefined, {
@@ -61,7 +60,7 @@ function clickRetry(): void {
 function renderMutations() {
   return renderHook(() =>
     useSourceControlEntryMutations({
-      activeRepoTarget: { kind: 'local' },
+      activeRepoSettings: null,
       activeWorktreeId: 'wt-1',
       worktreePath: '/repo',
       refreshActiveGitStatusAfterMutation: async () => {}
@@ -72,7 +71,7 @@ function renderMutations() {
 function renderDiscard(discardSingle: (path: string) => Promise<void>) {
   return renderHook(() =>
     useSourceControlDiscardConfirmation({
-      activeRepoTarget: { kind: 'local' },
+      activeRepoSettings: null,
       activeWorktreeId: 'wt-1',
       worktreePath: '/repo',
       grouped: EMPTY_GROUPS,
@@ -153,25 +152,6 @@ describe('source-control entry mutation failures', () => {
     })
 
     expect(lastToast().title).toBe('Failed to unstage “src/app.ts”')
-  })
-
-  it('unstages both rename paths in one request and retains them on retry', async () => {
-    mocks.bulkUnstagePaths.mockRejectedValueOnce(new Error('index.lock exists'))
-    mocks.bulkUnstagePaths.mockResolvedValueOnce(undefined)
-    const { result } = renderMutations()
-
-    await act(async () => {
-      await result.current.handleUnstage('src/new.ts', 'src/old.ts')
-    })
-    await act(async () => {
-      clickRetry()
-    })
-
-    expect(mocks.unstagePath).not.toHaveBeenCalled()
-    expect(mocks.bulkUnstagePaths).toHaveBeenCalledTimes(2)
-    for (const call of mocks.bulkUnstagePaths.mock.calls) {
-      expect(call[1]).toEqual(['src/new.ts', 'src/old.ts'])
-    }
   })
 
   it('leaves a successful stage silent, and clears a stale failure it supersedes', async () => {

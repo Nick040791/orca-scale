@@ -8,7 +8,7 @@ import { readWindowsPtyJobProcessIds } from '../../providers/windows-pty-job-mem
  *  never cached state. */
 export async function confirmPtyShellForeground(args: {
   process: pty.IPty
-  shellPath: string | undefined
+  shellPath: string
   isDead: () => boolean
 }): Promise<boolean> {
   if (args.isDead() || !args.process.pid) {

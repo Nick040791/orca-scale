@@ -16,6 +16,7 @@ describe('agent completion coordinator stamped turn replay', () => {
         paneKey: 'tab-1:leaf-1',
         statusLane: 'pty',
         getPtyId: () => 'pty-1',
+        getSettings: () => null,
         inspectProcess: vi.fn(),
         dispatchCompletion,
         isLive: () => true
@@ -24,6 +25,7 @@ describe('agent completion coordinator stamped turn replay', () => {
         paneKey: 'tab-1:leaf-1',
         statusLane: 'hook',
         getPtyId: () => 'pty-1',
+        getSettings: () => null,
         inspectProcess: vi.fn(),
         dispatchCompletion,
         isLive: () => true
@@ -79,6 +81,7 @@ describe('agent completion coordinator stamped turn replay', () => {
           paneKey: 'tab-1:leaf-1',
           statusLane: 'pty',
           getPtyId: () => 'pty-1',
+          getSettings: () => null,
           inspectProcess: vi.fn(),
           dispatchCompletion,
           isLive: () => true
@@ -88,6 +91,7 @@ describe('agent completion coordinator stamped turn replay', () => {
         paneKey: 'tab-1:leaf-1',
         statusLane: 'hook',
         getPtyId: () => 'pty-1',
+        getSettings: () => null,
         inspectProcess: vi.fn(),
         dispatchCompletion,
         isLive: () => true
@@ -138,6 +142,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchHookLifecycle,
@@ -191,6 +196,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const firstCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -215,6 +221,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const remounted = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -236,6 +243,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const firstCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -263,6 +271,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const remounted = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -284,6 +293,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const hookCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -291,6 +301,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const paneCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -339,6 +350,7 @@ describe('agent completion coordinator stamped turn replay', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true

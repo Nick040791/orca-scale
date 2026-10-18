@@ -119,9 +119,6 @@ function stripTrailingNewlines(lfText: string): string {
 }
 
 function detectDominantEol(text: string): '\n' | '\r\n' {
-  if (!text.includes('\r')) {
-    return '\n'
-  }
   const totalLf = (text.match(/\n/g) ?? []).length
   const crlf = (text.match(/\r\n/g) ?? []).length
   const lfOnly = totalLf - crlf

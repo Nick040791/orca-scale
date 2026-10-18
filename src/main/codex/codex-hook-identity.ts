@@ -1,6 +1,5 @@
 import type { HookCommandConfig, HookDefinition } from '../agent-hooks/installer-utils'
 import type { CodexEventLabel, CodexTrustEntry } from './config-toml-trust'
-import { normalizeCodexHookTimeoutSec } from './codex-trust-identity'
 
 // Why: Codex's trust hash key uses the snake_case event label (see
 // codex-rs/hooks/src/lib.rs::hook_event_key_label) while hooks.json uses the
@@ -15,7 +14,6 @@ export const CODEX_HOOK_EVENT_LABEL: Record<string, CodexEventLabel> = {
   PermissionRequest: 'permission_request',
   PostToolUse: 'post_tool_use',
   Stop: 'stop',
-  Interrupt: 'interrupt',
   PreCompact: 'pre_compact',
   PostCompact: 'post_compact'
 }
@@ -29,7 +27,6 @@ export const CODEX_EVENT_NAME_BY_LABEL: Record<CodexEventLabel, string> = {
   permission_request: 'PermissionRequest',
   post_tool_use: 'PostToolUse',
   stop: 'Stop',
-  interrupt: 'Interrupt',
   pre_compact: 'PreCompact',
   post_compact: 'PostCompact'
 }
@@ -71,7 +68,7 @@ export function getCodexHookTrustSignature(entry: CodexTrustEntry): string {
   return JSON.stringify({
     eventLabel: entry.eventLabel,
     command: entry.command,
-    timeoutSec: normalizeCodexHookTimeoutSec(entry.eventLabel, entry.timeoutSec),
+    timeoutSec: Math.max(1, entry.timeoutSec ?? 600),
     async: entry.async ?? false,
     matcher: entry.matcher ?? null,
     statusMessage: entry.statusMessage ?? null

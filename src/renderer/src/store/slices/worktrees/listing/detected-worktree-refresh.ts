@@ -1,3 +1,4 @@
+import { getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import { getEnvironmentSshStateGeneration } from '../../runtime-environment-ssh'
 import { getRuntimeEnvironmentConnectionGeneration } from '../../runtime-status'
 import {
@@ -9,6 +10,7 @@ import {
   parseExecutionHostId,
   type ExecutionHostId
 } from '../../../../../../shared/execution-host'
+import type { AppState } from '../../../types'
 import type { DetectedWorktreeListResult } from '../../../../../../shared/worktree/types'
 import type {
   HostQualifiedDetectedWorktreeResult,
@@ -23,7 +25,6 @@ import { teardownMissingWorktreeTerminalsBestEffort } from '../teardown/missing-
 import { directSshAuthorityIsComplete } from './direct-ssh-authority'
 import {
   detectedWorktreeRefreshKey,
-  detectedWorktreeTarget,
   isDetectedWorktreeListResult,
   listDetectedWorktreesForRepo,
   startDetectedWorktreeProviderRequest
@@ -53,6 +54,7 @@ export const detectedWorktreeRefreshLeaseRegistry = createDetectedWorktreeRefres
 })
 
 export function acquireDetectedWorktreeRefreshLeaseForRepo(
+  settings: AppState['settings'],
   repoId: string,
   options: DetectedWorktreeRefreshOptions
 ): DetectedWorktreeRefreshLease {
@@ -60,7 +62,7 @@ export function acquireDetectedWorktreeRefreshLeaseForRepo(
   if (!parsedHost || parsedHost.kind === 'runtime') {
     throw new Error('Provider leases require a local or direct SSH execution host')
   }
-  const publicKey = detectedWorktreeRefreshKey(repoId, options)
+  const publicKey = detectedWorktreeRefreshKey(settings, repoId, options)
   if (parsedHost.kind === 'local') {
     return detectedWorktreeRefreshLeaseRegistry.acquire(publicKey, {
       repoId,
@@ -141,18 +143,19 @@ export function normalizeNotAdmittedProviderResult(
 }
 
 async function listDetectedWorktreesForRuntimeRepoOnce(
+  settings: AppState['settings'],
   repoId: string,
   options: DetectedWorktreeRefreshOptions,
   environmentId: string
 ): Promise<DetectedWorktreeRefreshOutcome> {
   // Why recomputed per attempt: the key embeds both generations, so a retry after a
   // reconnect must not join the superseded connection's in-flight scan.
-  const key = detectedWorktreeRefreshKey(repoId, options)
+  const key = detectedWorktreeRefreshKey(settings, repoId, options)
   const connectionGeneration = getEnvironmentSshStateGeneration(environmentId)
   const runtimeConnectionGeneration = getRuntimeEnvironmentConnectionGeneration(environmentId)
   let refresh = runtimeDetectedWorktreeRefreshesInFlight.get(key)
   if (!refresh) {
-    refresh = listDetectedWorktreesForRepo({ kind: 'environment', environmentId }, repoId, {
+    refresh = listDetectedWorktreesForRepo(settings, repoId, {
       reuseRecentCompatibilityFailure: options.reuseRecentCompatibilityFailure
     })
     runtimeDetectedWorktreeRefreshesInFlight.set(key, refresh)
@@ -172,7 +175,7 @@ async function listDetectedWorktreesForRuntimeRepoOnce(
     // not stop terminals either.
     if (!options.isStaleCatalogPublication?.(result)) {
       await teardownMissingWorktreeTerminalsBestEffort(
-        { kind: 'environment', environmentId },
+        settings,
         repoId,
         options.connectionId,
         options.knownWorktreeIds,
@@ -197,14 +200,20 @@ async function listDetectedWorktreesForRuntimeRepoOnce(
 }
 
 export async function listDetectedWorktreesForRepoCoalesced(
+  settings: AppState['settings'],
   repoId: string,
   options: DetectedWorktreeRefreshOptions
 ): Promise<DetectedWorktreeRefreshOutcome> {
-  const target = detectedWorktreeTarget(options.executionHostId)
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'environment') {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await listDetectedWorktreesForRuntimeRepoOnce(repoId, options, target.environmentId)
+        return await listDetectedWorktreesForRuntimeRepoOnce(
+          settings,
+          repoId,
+          options,
+          target.environmentId
+        )
       } catch (err) {
         // Why re-read instead of surfacing: the fence proves this answer predates the
         // current connection, not that the repo has no worktrees. Callers drop the repo
@@ -217,7 +226,7 @@ export async function listDetectedWorktreesForRepoCoalesced(
     }
   }
 
-  const lease = acquireDetectedWorktreeRefreshLeaseForRepo(repoId, options)
+  const lease = acquireDetectedWorktreeRefreshLeaseForRepo(settings, repoId, options)
   let providerResult: HostQualifiedDetectedWorktreeResult
   try {
     providerResult = await lease.result
@@ -249,7 +258,7 @@ export async function listDetectedWorktreesForRepoCoalesced(
   }
   if (!options.isStaleCatalogPublication?.(providerResult.result)) {
     await teardownMissingWorktreeTerminalsBestEffort(
-      target,
+      settings,
       repoId,
       options.connectionId,
       options.knownWorktreeIds,

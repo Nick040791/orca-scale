@@ -3,7 +3,7 @@ import type {
   BrowserNetworkExecutionHost
 } from '../../shared/browser-client-host-protocol'
 import type { BrowserNetworkTunnelOpen } from '../../shared/browser-network-tunnel-protocol'
-import type { PairedRuntimeConnection } from '../../shared/paired-runtime-connection'
+import type { PairingOffer } from '../../shared/pairing'
 import type { RemoteRuntimeSubscriptionOptions } from '../../shared/remote-runtime-client'
 import { resolveBrowserHostReconnectDelay } from './browser-host-lease-reconnect-delay'
 import { retryBrowserNetworkRouteReconnect } from './browser-network-route-reconnect-retry'
@@ -17,7 +17,7 @@ import { RemoteBrowserSocksServer } from './remote-browser-socks-server'
 const outboundMemoryBudgets = new BrowserNetworkTunnelOutboundMemoryBudgetRegistry()
 
 type PairedRuntimeBrowserNetworkRouteOptions = {
-  connection: PairedRuntimeConnection
+  pairing: PairingOffer
   lease: BrowserHostLeaseAuthority
   executionHostRevision: number
   executionHost?: BrowserNetworkExecutionHost
@@ -139,7 +139,7 @@ export class PairedRuntimeBrowserNetworkRoute {
       throw new Error('Browser network route memory lease is unavailable')
     }
     const transport = new PairedRuntimeBrowserNetworkTransport({
-      connection: this.options.connection,
+      pairing: this.options.pairing,
       lease: this.options.lease,
       executionHost: this.options.executionHost ?? {
         kind: 'native',

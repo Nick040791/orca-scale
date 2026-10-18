@@ -1,6 +1,10 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../store'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
+import {
+  isDirectSshRemoteWorkspaceApplyInProgress,
+  onDirectSshRemoteWorkspaceApplyWindowClosed
+} from '../hooks/remote-workspace-snapshot-apply'
+import { terminalLayoutNodeEqual } from '../lib/terminal-layout-equality'
 import { createSessionWriteSubscriber } from '../lib/session-write-subscriber'
 import { buildActiveViewUnloadPatch } from '../lib/active-view-persist'
 import {
@@ -20,8 +24,6 @@ import {
   createShutdownCheckpointGuard
 } from '../lib/shutdown-checkpoint-guard'
 import { createShutdownCheckpointPersist } from './shutdown-checkpoint-persist'
-import { changedSleepingRecords } from '../store/terminals/terminal-sleep-layout-owner'
-import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { shutdownBufferCaptures } from '../components/terminal-pane/shutdown-buffer-captures'
 import {
   dispatchWindowCloseRequest,
@@ -35,21 +37,84 @@ import {
   ORCA_RENDERER_SHUTDOWN_CHECKPOINT_ABORTED_EVENT,
   ORCA_RENDERER_UNLOAD_PREVENTED_EVENT
 } from '../../../shared/renderer-shutdown-events'
-
-/** The quit capture, returning the resume records it changed of tabs the window holds. */
-function captureQuitSleepRecordsForMain(): SleepingAgentSessionRecord[] {
-  const previous = useAppStore.getState().sleepingAgentSessionsByPaneKey
-  useAppStore.getState().captureAllSleepingAgentSessions('quit')
-  const state = useAppStore.getState()
-  return changedSleepingRecords(state, previous, state.sleepingAgentSessionsByPaneKey).recorded
-}
+import type { AppState } from '../store/types'
+import type { DirectSshLayoutEdit } from '../store/terminals/terminal-state'
+import type { RemoteWorkspaceObservedPatchResult } from '../../../shared/remote-workspace-types'
+import { applyRemoteWorkspacePushStatus } from '../hooks/remote-workspace-push-status'
 
 // Why: bound the resume-record loss window on a hard kill to ~1 min; capture skips unchanged records so per-tick cost is negligible.
 const SLEEPING_AGENT_RESUME_CAPTURE_INTERVAL_MS = 60_000
 
+type RemoteWorkspaceUploadAuthority = {
+  targetId: string
+  revision: number
+  updatedAt?: number
+  hostObservationToken: string
+}
+
+function captureRemoteWorkspaceUploadAuthorities(
+  state: AppState
+): RemoteWorkspaceUploadAuthority[] {
+  return Array.from(state.remoteWorkspaceHydratedTargetIds).flatMap((targetId) => {
+    const syncStatus = state.remoteWorkspaceSyncStatusByTargetId[targetId]
+    const revision = syncStatus?.revision
+    const hostObservationToken = syncStatus?.hostObservationToken
+    if (
+      syncStatus?.phase === 'conflict' ||
+      typeof revision !== 'number' ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      typeof hostObservationToken !== 'string' ||
+      hostObservationToken.length === 0
+    ) {
+      return []
+    }
+    return [
+      {
+        targetId,
+        revision,
+        updatedAt: syncStatus.updatedAt,
+        hostObservationToken
+      }
+    ]
+  })
+}
+
+function remoteWorkspaceUploadAuthorityIsCurrent(
+  state: AppState,
+  authority: RemoteWorkspaceUploadAuthority
+): boolean {
+  const status = state.remoteWorkspaceSyncStatusByTargetId[authority.targetId]
+  return (
+    state.remoteWorkspaceHydratedTargetIds.has(authority.targetId) &&
+    status?.phase !== 'conflict' &&
+    status?.hostObservationToken === authority.hostObservationToken
+  )
+}
+
+function captureUploadedDirectSshLayoutEdits(
+  pendingLayoutEdits: AppState['pendingDirectSshLayoutEditsByTabId'],
+  targetId: string,
+  result: RemoteWorkspaceObservedPatchResult | undefined
+): Record<string, DirectSshLayoutEdit> {
+  if (!result?.ok) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(pendingLayoutEdits).flatMap(([tabId, entry]) => {
+      const uploaded = result.snapshot.session.terminalLayoutsByTabId[tabId]
+      return entry.targetId === targetId &&
+        uploaded &&
+        terminalLayoutNodeEqual(entry.root, uploaded.root)
+        ? [[tabId, entry]]
+        : []
+    })
+  )
+}
+
 /**
- * Writes durable renderer session state to disk: the debounced per-host writer and the synchronous
- * shutdown checkpoint.
+ * Writes durable renderer session state to disk: the debounced per-host writer, the remote
+ * workspace upload chain, and the synchronous shutdown checkpoint.
  */
 export function useAppSessionPersistence(): void {
   useEffect(() => registerUpdaterBeforeUnloadBypass(), [])
@@ -58,11 +123,76 @@ export function useAppSessionPersistence(): void {
   useEffect(() => {
     return createSessionWriteSubscriber({
       store: useAppStore,
-      onPersistError: (error) => console.warn('[session] Session patch failed:', error),
+      shouldSchedulePersist: () => !isDirectSshRemoteWorkspaceApplyInProgress(),
+      subscribeToPersistGateOpen: onDirectSshRemoteWorkspaceApplyWindowClosed,
       persist: ({ patch }) => {
-        // Why: route each host's worktree-scoped slice to its own partition.
-        return patchWorkspaceSessionByHost(window.api.session, patch, useAppStore.getState())
-          .written
+        const state = useAppStore.getState()
+        // Why: route each host's worktree-scoped slice to its own partition; return the local write so the remote-workspace upload chain below keeps its ordering.
+        const localWrite = patchWorkspaceSessionByHost(window.api.session, patch, state)
+        void localWrite
+        const uploadAuthorities = captureRemoteWorkspaceUploadAuthorities(state)
+        const pendingLayoutEdits = state.pendingDirectSshLayoutEditsByTabId
+        if (uploadAuthorities.length > 0) {
+          void (async () => {
+            try {
+              await localWrite
+              const currentState = useAppStore.getState()
+              const currentAuthorities = uploadAuthorities.filter((authority) =>
+                remoteWorkspaceUploadAuthorityIsCurrent(currentState, authority)
+              )
+              if (currentAuthorities.length === 0) {
+                return
+              }
+              const hydratedTargetIds = currentAuthorities.map(({ targetId }) => targetId)
+              const expectedRevisionsByTargetId = Object.fromEntries(
+                currentAuthorities.map(({ targetId, revision }) => [targetId, revision])
+              )
+              const expectedHostObservationTokensByTargetId = Object.fromEntries(
+                currentAuthorities.map(({ targetId, hostObservationToken }) => [
+                  targetId,
+                  hostObservationToken
+                ])
+              )
+              const results = await window.api.remoteWorkspace?.setForConnectedTargets({
+                hydratedTargetIds,
+                expectedRevisionsByTargetId,
+                expectedHostObservationTokensByTargetId
+              })
+              const resultState = useAppStore.getState()
+              const currentAuthorityByTargetId = new Map(
+                currentAuthorities.map((authority) => [authority.targetId, authority])
+              )
+              for (const { targetId, result } of results ?? []) {
+                const authority = currentAuthorityByTargetId.get(targetId)
+                if (authority && remoteWorkspaceUploadAuthorityIsCurrent(resultState, authority)) {
+                  if (result?.ok) {
+                    resultState.acknowledgeDirectSshLayoutEdits(
+                      captureUploadedDirectSshLayoutEdits(pendingLayoutEdits, targetId, result)
+                    )
+                  }
+                  applyRemoteWorkspacePushStatus(resultState, targetId, result, authority)
+                }
+              }
+            } catch (err) {
+              const errorState = useAppStore.getState()
+              for (const authority of uploadAuthorities) {
+                if (!remoteWorkspaceUploadAuthorityIsCurrent(errorState, authority)) {
+                  continue
+                }
+                const currentStatus =
+                  errorState.remoteWorkspaceSyncStatusByTargetId[authority.targetId]
+                errorState.setRemoteWorkspaceSyncStatus(authority.targetId, {
+                  phase: 'error',
+                  direction: 'push',
+                  revision: currentStatus?.revision ?? authority.revision,
+                  updatedAt: currentStatus?.updatedAt ?? authority.updatedAt,
+                  hostObservationToken: authority.hostObservationToken,
+                  message: err instanceof Error ? err.message : 'Workspace upload failed'
+                })
+              }
+            }
+          })()
+        }
       }
     })
   }, [])
@@ -92,10 +222,8 @@ export function useAppSessionPersistence(): void {
       // which is in-memory. Capture them into the persisted sleeping-session
       // map so a daemon/session death while the app is closed can still
       // cold-restore via the agent's resume command (#5232).
-      // Switch point: the stage writes only the capture's changes into main's records.
-      captureSleepingAgentSessions: ORCA_LAYOUT_OWNER_IS_MAIN
-        ? captureQuitSleepRecordsForMain
-        : () => useAppStore.getState().captureAllSleepingAgentSessions('quit'),
+      captureSleepingAgentSessions: () =>
+        useAppStore.getState().captureAllSleepingAgentSessions('quit'),
       // Why: re-read state after capture() calls populated scrollback buffers
       // into the store via Zustand setters. The shouldCaptureSession read is
       // only for the gating flags and would miss those updates.

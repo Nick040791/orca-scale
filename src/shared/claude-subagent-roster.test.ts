@@ -480,7 +480,7 @@ describe('claude-subagent-roster', () => {
   })
 })
 
-describe('restored-row confirmation', () => {
+describe('restored-row liveness reap', () => {
   const restored = (id: string): ClaudeSubagentRoster =>
     new Map([
       [

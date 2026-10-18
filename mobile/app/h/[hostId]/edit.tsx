@@ -17,9 +17,8 @@ import { colors, radii, spacing, typography } from '../../../src/theme/mobile-th
 import { loadHosts, updateHostNameAndEndpoint } from '../../../src/transport/host-store'
 import { displayHostEndpoint } from '../../../src/transport/host-endpoint'
 import { resolveHostEndpointEdit } from '../../../src/transport/host-endpoint-edit'
-import { usePrimeHosts, useRefreshHostClient } from '../../../src/transport/host-client-hooks'
+import { usePrimeHosts, useRefreshHostClient } from '../../../src/transport/client-context'
 import type { HostProfile } from '../../../src/transport/types'
-import { hostOs } from '../../../src/platform/host-os'
 
 export default function EditHostScreen() {
   const router = useRouter()
@@ -180,7 +179,7 @@ export default function EditHostScreen() {
       ) : (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={hostOs() === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
             contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.xl }]}

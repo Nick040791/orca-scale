@@ -1,47 +1,37 @@
 // Adopting an Agent Session History row into a brand-new structured chat.
 //
-// Credential homes and transcripts must come from runtime-owned facts, never client-supplied paths.
+// Kept out of the runtime class files because those are `@ts-nocheck`: this decides which
+// credential directory a provider child will launch against and which file gets imported into a
+// journal, and a call site written there would compile however wrong it was. The runtime hands over
+// the facts it owns — the account homes it recognises, the records it holds — and this decides.
 
-import { agentSessionRefusalError } from '../../shared/agent-session-wire-refusals'
 import type { AgentSessionOperationRow } from '../../shared/agent-session-operation-ledger'
-import type {
-  AgentSessionProviderHandle,
-  AgentSessionProviderHandleLink,
-  StructuredAgentId
-} from '../../shared/agent-session-provider-handle'
+import type { AgentSessionProviderHandle } from '../../shared/agent-session-journal-types'
 import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-session-record'
 import { agentSessionLeaseAdmitsWriter } from '../../shared/agent-session-lease-adjudication'
-import {
-  agentSessionAccountHomesEqual,
-  type AgentSessionAccountHome
-} from '../../shared/agent-session-account-home'
 
 export type StructuredAgentSessionAdoptionOwnership = {
   sessionId: string
-  workspaceId: string
-  /** Any agent's chat may hold the conversation, though only one with an importer adopts. */
-  provider: StructuredAgentId
+  provider: 'claude' | 'codex'
   providerSessionId: string
   lease: AgentSessionLease
 }
 
 export type StructuredAgentSessionAdoption = {
-  /** The account home the transcript was actually found under — never a client-supplied one. */
-  accountHome: AgentSessionAccountHome
+  /** The account home the transcript was actually found under — never a client-supplied path. */
+  accountHomePath: string
   transcriptPath: string
 }
 
 export type CommittedStructuredAgentSessionAdoptionReplay = {
   record: AgentSessionRecord
-  providerHandle: AgentSessionProviderHandle
+  providerHandle: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
 }
 
 /** Exact committed-operation identity; attach still validates its fingerprint. */
 export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
-  agent: StructuredAgentId
+  agent: 'claude' | 'codex'
   providerSessionId: string
-  /** The Session History row id a link of the agent's handle chain shows as. */
-  rowSessionId: (link: AgentSessionProviderHandleLink) => string
   selfSessionId: string
   callerKey: string
   operationId: string
@@ -67,10 +57,22 @@ export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
   ) {
     return null
   }
-  if (input.rowSessionId(adopted) !== input.providerSessionId) {
+  const providerSessionId =
+    adopted.handle.provider === 'codex' ? adopted.handle.threadId : adopted.handle.sessionId
+  if (providerSessionId !== input.providerSessionId) {
     return null
   }
-  return { record, providerHandle: adopted.handle }
+  return {
+    record,
+    providerHandle:
+      adopted.handle.provider === 'codex'
+        ? { kind: 'codex', threadId: adopted.handle.threadId }
+        : {
+            kind: 'claude',
+            sessionId: adopted.handle.sessionId,
+            leafUuid: adopted.handle.leafUuid
+          }
+  }
 }
 
 /**
@@ -84,7 +86,7 @@ export function findCommittedStructuredAgentSessionAdoptionReplay(input: {
  * ownership index — without this exemption the replay refuses instead of replaying.
  */
 export function findConflictingStructuredAdoption(input: {
-  agent: StructuredAgentId
+  agent: 'claude' | 'codex'
   providerSessionId: string
   selfSessionId: string
   ownership: readonly StructuredAgentSessionAdoptionOwnership[]
@@ -104,14 +106,10 @@ export function findConflictingStructuredAdoption(input: {
 export function structuredAdoptionConflictError(
   ownership: StructuredAgentSessionAdoptionOwnership
 ): Error {
-  return agentSessionRefusalError(
+  return new Error(
     agentSessionLeaseAdmitsWriter(ownership.lease)
       ? 'agent_session_conflict'
-      : 'agent_session_ownership_unknown',
-    {
-      reason: 'conversationHeldElsewhere',
-      owner: { sessionId: ownership.sessionId, workspaceId: ownership.workspaceId }
-    }
+      : 'agent_session_ownership_unknown'
   )
 }
 
@@ -127,36 +125,32 @@ export function structuredAdoptionConflictError(
  * (selected account before the system default).
  */
 export async function resolveStructuredAgentSessionAdoption(input: {
+  agent: 'claude' | 'codex'
   providerSessionId: string
-  candidateAccountHomes: readonly AgentSessionAccountHome[]
+  candidateAccountHomes: readonly string[]
   resolveTranscript: (args: {
+    agent: 'claude' | 'codex'
     providerSessionId: string
-    accountHome: AgentSessionAccountHome
-    launchEnv: NodeJS.ProcessEnv
-    workspaceCwd: string
+    accountHomePath: string
   }) => Promise<string | null>
-  launchEnv: NodeJS.ProcessEnv
-  workspaceCwd: string
 }): Promise<StructuredAgentSessionAdoption> {
-  const seen: AgentSessionAccountHome[] = []
-  for (const accountHome of input.candidateAccountHomes) {
-    if (seen.some((home) => agentSessionAccountHomesEqual(home, accountHome))) {
+  const seen = new Set<string>()
+  for (const accountHomePath of input.candidateAccountHomes) {
+    const trimmed = accountHomePath.trim()
+    if (!trimmed || seen.has(trimmed)) {
       continue
     }
-    seen.push(accountHome)
+    seen.add(trimmed)
     const transcriptPath = await input.resolveTranscript({
+      agent: input.agent,
       providerSessionId: input.providerSessionId,
-      accountHome,
-      launchEnv: input.launchEnv,
-      workspaceCwd: input.workspaceCwd
+      accountHomePath: trimmed
     })
     if (transcriptPath) {
-      return { accountHome, transcriptPath }
+      return { accountHomePath: trimmed, transcriptPath }
     }
   }
   // Refuse rather than fall back to the default home. Resuming under a home that does not hold the
   // conversation is how a "resume" silently becomes a blank chat wearing the old chat's name.
-  throw agentSessionRefusalError('agent_session_identity_required', {
-    reason: 'transcriptNotFound'
-  })
+  throw new Error('agent_session_identity_required')
 }

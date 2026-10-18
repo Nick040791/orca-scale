@@ -48,7 +48,7 @@ export function TroubleshootView({
   runDiagnostics: () => void
   onBack: () => void
   onConnectionLog: () => void
-  /** Developer and shell rows the route fills in. */
+  /** Slot the route fills in a development build and in an OTA build; null in a native build. */
   developerRow?: ReactNode
 }) {
   const insets = useSafeAreaInsets()

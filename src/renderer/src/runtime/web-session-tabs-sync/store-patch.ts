@@ -3,7 +3,6 @@ import { useAppStore } from '../../store'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
 import { pickParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import { normalizeTurnCompletedAtField } from '../../../../shared/agent-status-field-normalization'
-import { isSeenHostReplay } from '@/hooks/ipc-events/agent-status-routing'
 import { isClientAuthoritativeAgentStatusPane } from '@/components/terminal-pane/renderer-owned-agent-status-registry'
 import { observeAgentHookCompletionForNotification } from '@/hooks/agent-hook-completion-notifications'
 import { remapHostAgentStatus } from './agent-status-primitives'
@@ -127,22 +126,13 @@ export function applyWebSessionTabsStorePatch(
               }
             }
           }
-          // Why: a hydrated `done` unlike this renderer's prior row ended while the host was unreachable.
-          const notifyCompletion =
-            allowCompletionNotification ||
-            (!clientOwnedNotification &&
-              !isSeenHostReplay(
-                { isReplay: true, stateStartedAt: notificationStatus.stateStartedAt },
-                notificationStatus.state,
-                state.agentStatusByPaneKey[notificationStatus.paneKey]
-              ))
-          if (!notifyCompletion && notificationStatus.state !== 'working') {
+          if (!allowCompletionNotification && notificationStatus.state !== 'working') {
             continue
           }
           acceptedNotificationStatuses.push({
             paneKey: notificationStatus.paneKey,
             worktreeId: notificationStatus.worktreeId ?? snapshot.worktree,
-            ...(!notifyCompletion ? { seedOnly: true as const } : {}),
+            ...(!allowCompletionNotification ? { seedOnly: true as const } : {}),
             payload: {
               ...pickParsedAgentStatusPayload({
                 ...notificationStatus,

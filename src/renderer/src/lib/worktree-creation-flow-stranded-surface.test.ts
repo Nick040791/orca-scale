@@ -17,7 +17,8 @@ type TestActiveView = 'terminal' | 'tasks'
 const store = {
   settings: {
     activeRuntimeEnvironmentId: null as string | null,
-    experimentalNativeChat: undefined
+    experimentalNativeChat: undefined as boolean | undefined,
+    openAgentTabsInChatByDefault: undefined as boolean | undefined
   },
   activeView: 'terminal' as TestActiveView,
   activePendingCreationId: 'creation-1' as string | null,
@@ -62,7 +63,7 @@ vi.mock('@/store', () => ({
 }))
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), success: vi.fn() }
+  toast: { error: vi.fn() }
 }))
 
 vi.mock('@/lib/worktree-activation', () => ({

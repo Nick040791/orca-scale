@@ -34,8 +34,6 @@ import {
 type RepositoryHostSetupsSectionProps = {
   repo: Repo
   selectedProjectSetupId?: string
-  settingsSelectionKey?: string
-  settingsEntryRepoIds?: ReadonlySet<string>
   forceVisible: boolean
   searchQuery: string
   searchEntries: SettingsSearchEntry[]
@@ -62,8 +60,6 @@ function setupsByOwnedExecutionHost(
 export function RepositoryHostSetupsSection({
   repo,
   selectedProjectSetupId,
-  settingsSelectionKey,
-  settingsEntryRepoIds,
   forceVisible,
   searchQuery,
   searchEntries
@@ -120,43 +116,36 @@ export function RepositoryHostSetupsSection({
         setup.repoId === repo.id &&
         setup.projectId === repoProjectHostSetup?.projectId
     ) ?? repoProjectHostSetup
-  const allProjectHostSetups = selectedProjectHostSetup
-    ? projectHostSetupProjection.setups.filter(
-        (setup) => setup.projectId === selectedProjectHostSetup.projectId
+  const projectHostSetups = selectedProjectHostSetup
+    ? setupsByOwnedExecutionHost(
+        projectHostSetupProjection.setups.filter(
+          (setup) => setup.projectId === selectedProjectHostSetup.projectId
+        ),
+        selectedProjectHostSetup.id
       )
     : []
-  // Why: a sibling entry's setups can't be opened from this pane; not-set-up
-  // placeholders belong to the project, not a checkout, so every entry keeps them.
-  const projectHostSetups = setupsByOwnedExecutionHost(
-    allProjectHostSetups.filter(
-      (setup) =>
-        !settingsEntryRepoIds || !setup.repoId.trim() || settingsEntryRepoIds.has(setup.repoId)
-    ),
-    selectedProjectHostSetup?.id ?? ''
-  )
   const openableProjectHostSetups = projectHostSetups.filter((setup) => setup.repoId.trim())
   const switchableProjectHostSetups = setupsByOwnedExecutionHost(
     openableProjectHostSetups,
     selectedProjectHostSetup?.id ?? ''
   )
   const setupHostOptions = buildSetupHostOptions({
-    projectHostSetups: allProjectHostSetups,
+    projectHostSetups,
     hostOptions
   })
   const hostOptionById = new Map(hostOptions.map((option) => [option.id, option]))
   const [deletingSetupId, setDeletingSetupId] = useState<string | null>(null)
-  // Why: split clone entries share a projectId, so each keeps its own selection.
-  const selectionKey = settingsSelectionKey ?? selectedProjectHostSetup?.projectId
+  const projectId = selectedProjectHostSetup?.projectId
   // Why: the single project pane switches host in place — set the ephemeral
-  // per-entry selection instead of navigating to a separate repo section.
+  // per-project selection instead of navigating to a separate repo section.
   const selectHost = (hostId: ExecutionHostId) => {
-    if (selectionKey) {
-      setSettingsProjectHostSelection(selectionKey, hostId)
+    if (projectId) {
+      setSettingsProjectHostSelection(projectId, hostId)
     }
   }
   const selectSetup = (setup: ProjectHostSetup) => {
-    if (selectionKey) {
-      setSettingsProjectHostSelection(selectionKey, setup.hostId, setup.id)
+    if (projectId) {
+      setSettingsProjectHostSelection(projectId, setup.hostId, setup.id)
     }
   }
   if (
@@ -254,7 +243,14 @@ export function RepositoryHostSetupsSection({
           const nestedSshStatus =
             runtimeOwnerEnvironmentId && executionHost?.kind === 'ssh'
               ? selectRuntimeAwareSshStatus(
-                  { sshConnectionStates, sshStateByEnvironment, runtimeStatusByEnvironmentId },
+                  {
+                    sshConnectionStates,
+                    sshTargetLabels,
+                    removedSshTargetLabels,
+                    sshTargetsHydrated,
+                    sshStateByEnvironment,
+                    runtimeStatusByEnvironmentId
+                  },
                   runtimeOwnerEnvironmentId,
                   executionHost.targetId
                 )

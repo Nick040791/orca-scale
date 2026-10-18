@@ -6,8 +6,12 @@ import type { RichMarkdownEditorApi, RichMarkdownUrlPromptKind } from './documen
 import type { MobileRichMarkdownEditorMessage } from '../mobile-rich-markdown-editor-contract'
 
 /**
- * The rich Markdown editor document, mounted in the page: the stylesheet, the markup it reads its
- * surface out of, and the page's hooks for messages and the URL prompt.
+ * The rich Markdown editor document, mounted in the page instead of in a WebView.
+ *
+ * Same program: the factory the WebView's script is bundled from, called here with the page's own
+ * hooks instead of the WebView's window. What the WebView's HTML gave the document — a stylesheet,
+ * the markup it reads its surface out of, a `postMessage` back to React Native and a `prompt` for
+ * the two commands that need a URL — this supplies instead, through the seams and the host element.
  *
  * A call is a document. Nothing here is shared between two of them and nothing is reset: each call
  * builds its own scope and reads its own surface, so a second editor on the page cannot reach the
@@ -15,7 +19,7 @@ import type { MobileRichMarkdownEditorMessage } from '../mobile-rich-markdown-ed
  */
 
 export type RichMarkdownWebDocument = {
-  /** The running document's API. */
+  /** What the WebView reaches through its injected global, held directly. */
   send: RichMarkdownEditorApi
   dispose: () => void
 }
@@ -35,8 +39,8 @@ export const RICH_MARKDOWN_HOST_CLASS = 'orca-rich-markdown-document-host'
  * The stylesheet, planted in the head once per page and reaching only inside the host.
  *
  * The document's rules are written against element names — `h1`, `p`, `code`, `pre`, `a` — so the
- * sheet unscoped would restyle every screen the shell can show and keep doing it after the editor
- * is gone. `scopeDocumentStyleToHost` holds all of them under the host's
+ * sheet the WebView's `<head>` carries would restyle every screen the shell can show and keep
+ * doing it after the editor is gone. `scopeDocumentStyleToHost` holds all of them under the host's
  * class, the document's own four included: the host element *is* this editor's page, so the
  * variables the sheet reads, its surface colour and its font belong on it.
  *
@@ -93,7 +97,7 @@ function startDocumentOrGiveTheHostBack(host: HTMLElement, hooks: RichMarkdownWe
   try {
     return createRichMarkdownEditorDocument({
       // The mount's own element, so two editors on one page read their own surfaces: the markup's
-      // id is the same in every mount, and a stack transition keeps the outgoing screen mounted
+      // id is the same in both hosts, and a stack transition keeps the outgoing screen mounted
       // while the incoming one starts.
       root: host,
 

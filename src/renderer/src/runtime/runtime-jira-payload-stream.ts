@@ -3,7 +3,7 @@ import {
   isJiraPayloadStreamMessage,
   JIRA_PAYLOAD_MAX_CHARS
 } from '../../../shared/jira-payload-stream'
-import { RuntimeRpcCallError } from './runtime-rpc-result'
+import { RuntimeRpcCallError } from './runtime-rpc-client'
 
 type RuntimeJiraPayloadTarget = { kind: 'environment'; environmentId: string }
 

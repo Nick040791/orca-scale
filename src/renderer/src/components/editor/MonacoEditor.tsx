@@ -13,7 +13,6 @@ import { isLinuxUserAgent } from '../terminal-pane/pane-helpers'
 import { MAX_TOKENIZATION_LINE_LENGTH } from '@/lib/monaco-languages/monarch-embed-entry-budget'
 import { buildFileEditorWordWrapOptions } from './file-editor-word-wrap-options'
 import { toEditorModelUri } from './editor-model-uri'
-import { getEditorModelOwnerKey } from './editor-model-owner'
 import { getMonacoAutoHeightForContent, isMonacoAutoHeightCapped } from './monaco-auto-height'
 import { monacoFindOptions } from './monaco-find-options'
 import { useMonacoRevealScheduler } from './use-monaco-reveal-scheduler'
@@ -22,7 +21,6 @@ import { useMonacoContentSyncBridge } from './use-monaco-content-sync-bridge'
 import { useMonacoMarkdownAnnotations } from './use-monaco-markdown-annotations'
 import { useMonacoEditorDecorations } from './use-monaco-editor-decorations'
 import { useMonacoEditorMount } from './use-monaco-editor-mount'
-import { useDocumentDarkTheme } from '@/hooks/use-document-dark-theme'
 import { snapshotMonacoViewState } from './monaco-view-state-persistence'
 import { MonacoMarkdownAnnotationOverlay } from './MonacoMarkdownAnnotationOverlay'
 
@@ -98,16 +96,7 @@ export default function MonacoEditor({
   )
   const editorFontFamily = resolveEditorFontFamily(settings)
   const editorWordWrap = settings?.editorWordWrap
-  const modelOwnerKey = useAppStore((state) => {
-    const file = state.openFiles?.find((entry) => entry.id === fileId)
-    return file
-      ? getEditorModelOwnerKey(file, state)
-      : JSON.stringify([null, `unresolved:${fileId}`])
-  })
-  const modelUri = useMemo(
-    () => toEditorModelUri(filePath, modelOwnerKey),
-    [filePath, modelOwnerKey]
-  )
+  const modelUri = useMemo(() => toEditorModelUri(filePath), [filePath])
   const estimatedAutoHeight = useMemo(() => {
     if (!autoHeight) {
       return null
@@ -128,7 +117,9 @@ export default function MonacoEditor({
   const [gutterMenuOpen, setGutterMenuOpen] = useState(false)
   const [gutterMenuPoint, setGutterMenuPoint] = useState({ x: 0, y: 0 })
   const [gutterMenuLine, setGutterMenuLine] = useState(1)
-  const isDark = useDocumentDarkTheme()
+  const isDark =
+    settings?.theme === 'dark' ||
+    (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
   const { queueReveal, cancelScheduledReveal, clearTransientRevealHighlight } =
     useMonacoRevealScheduler()
@@ -137,7 +128,7 @@ export default function MonacoEditor({
     content,
     contentRef,
     contentSyncModeRef,
-    modelKey: modelUri,
+    filePath,
     onContentChange
   })
   const annotations = useMonacoMarkdownAnnotations({
@@ -164,7 +155,7 @@ export default function MonacoEditor({
       unregisterFileSearchSelectionRef.current?.()
       unregisterFileSearchSelectionRef.current = null
     }
-  }, [cancelScheduledReveal, clearTransientRevealHighlight, modelUri, viewStateKey])
+  }, [cancelScheduledReveal, clearTransientRevealHighlight, viewStateKey])
 
   // Update editor options when settings change
   useEffect(() => {
@@ -193,7 +184,6 @@ export default function MonacoEditor({
   const handleMount = useMonacoEditorMount({
     fileId,
     filePath,
-    modelOwnerKey,
     viewStateKey,
     viewStateId,
     worktreeId,
@@ -222,36 +212,11 @@ export default function MonacoEditor({
     if (!revealLine || !editorRef.current) {
       return
     }
-    const reveal = useAppStore.getState().pendingEditorReveal
-    if (reveal?.viewStateId && (reveal.fileId !== fileId || reveal.viewStateId !== viewStateId)) {
-      return
-    }
-    queueReveal(
-      editorRef.current,
-      revealLine,
-      revealColumn ?? 1,
-      revealMatchLength ?? 0,
-      () => {
-        reveal?.onApplied?.()
-        // Why: a newer request may arrive during the editor-owned reveal frames.
-        if (useAppStore.getState().pendingEditorReveal === reveal) {
-          setPendingEditorReveal(null)
-        }
-      },
-      reveal?.canApply
-        ? () =>
-            useAppStore.getState().pendingEditorReveal === reveal && reveal.canApply?.() !== false
-        : undefined
-    )
-  }, [
-    queueReveal,
-    revealLine,
-    revealColumn,
-    revealMatchLength,
-    setPendingEditorReveal,
-    fileId,
-    viewStateId
-  ])
+    queueReveal(editorRef.current, revealLine, revealColumn ?? 1, revealMatchLength ?? 0, () => {
+      // Why: clear the pending payload only after the queued reveal runs, so navigation isn't lost if the editor unmounts first.
+      setPendingEditorReveal(null)
+    })
+  }, [queueReveal, revealLine, revealColumn, revealMatchLength, setPendingEditorReveal])
 
   return (
     <div
@@ -268,7 +233,6 @@ export default function MonacoEditor({
         onSubmitMarkdownComment={annotations.handleSubmitMarkdownComment}
       />
       <Editor
-        key={modelUri}
         height={renderedEditorHeight === null ? '100%' : `${renderedEditorHeight}px`}
         language={language}
         // Why: defaultValue, not controlled value — Orca owns post-mount content sync; a controlled path would double setValue.
@@ -277,7 +241,6 @@ export default function MonacoEditor({
         onChange={contentSync.handleChange}
         onMount={handleMount}
         options={{
-          dropIntoEditor: { enabled: false },
           // `IGlobalEditorOptions`, not per-editor: setting it here pins it for every
           // Monaco surface (diff, Peek) too, so this is the only site that needs it.
           // Defense-in-depth only — it does NOT guard the Monarch embed recursion,

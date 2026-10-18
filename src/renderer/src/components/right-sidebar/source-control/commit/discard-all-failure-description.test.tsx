@@ -17,9 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, dismiss: vi.fn() } }))
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: () => undefined }))
-vi.mock('@/runtime/runtime-git-working-tree-client', () => ({
-  bulkUnstageRuntimeGitPaths: vi.fn()
-}))
+vi.mock('@/runtime/runtime-git-client', () => ({ bulkUnstageRuntimeGitPaths: vi.fn() }))
 vi.mock('./discard-all-sequence', () => ({
   getDiscardAllPaths: () => [],
   runDiscardAllForArea: (area: DiscardAllArea, paths: readonly string[], deps: DiscardAllDeps) =>
@@ -38,7 +36,7 @@ function lastDescription(): string | undefined {
 function renderDiscard() {
   return renderHook(() =>
     useSourceControlDiscardConfirmation({
-      activeRepoTarget: { kind: 'local' },
+      activeRepoSettings: null,
       activeWorktreeId: 'wt-1',
       worktreePath: '/repo',
       grouped: EMPTY_GROUPS,

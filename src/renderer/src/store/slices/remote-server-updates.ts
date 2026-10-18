@@ -1,11 +1,11 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import type { RemoteServerUpdaterSnapshot } from '../../../../shared/remote-server-update'
-import { isListedRemoteServer } from '../../../../shared/runtime-environments'
+import { isUserManagedRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import type { UpdateCheckOptions } from '../../../../shared/update-status-types'
-import { unwrapRuntimeRpcResult } from '@/runtime/runtime-rpc-result'
+import { unwrapRuntimeRpcResult } from '@/runtime/runtime-rpc-client'
 import {
   checkingRemoteServerUpdateEntry,
   inspectRemoteServerUpdate,
@@ -95,7 +95,7 @@ export const createRemoteServerUpdatesSlice: StateCreator<
     })
     try {
       const listed = await window.api.runtimeEnvironments.list()
-      const environments = listed.filter(isListedRemoteServer)
+      const environments = listed.filter(isUserManagedRuntimeEnvironment)
       get().setRuntimeEnvironments(listed)
       const previous = get().remoteServerUpdates
       const initial = new Map(

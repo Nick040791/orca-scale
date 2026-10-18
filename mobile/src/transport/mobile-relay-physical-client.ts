@@ -1,6 +1,5 @@
 import type { PairingRelay } from '../../../src/shared/mobile-relay-pairing-offer'
 import { RelayPhoneHelloSchema } from '../../../src/shared/mobile-relay-phone-protocol'
-import { latchHostToE2EEV2 } from './e2ee-v2-host-latch'
 import { MobileE2EEV2ClientSession } from './mobile-e2ee-v2-client-session'
 import { MobileE2EEV2PhysicalChannel } from './mobile-e2ee-v2-physical-channel'
 import { createPairingRelayLogger, pairingRelayErrorDetail } from './pairing-relay-log'
@@ -66,7 +65,6 @@ export function connectMobileRelayForPairing(args: {
     decodeBinary: websocketPayloadToUint8,
     onAuthenticated: () => {
       authenticated = true
-      latchHostToE2EEV2(args.desktopPublicKeyB64)
       log('success', 'Relay: authenticated', 'Channel ready for RPC')
       resolveAuthenticated()
     },
@@ -120,9 +118,6 @@ export function connectMobileRelayForPairing(args: {
   // WebSocket implementations commonly emit `error` immediately before
   // `close`; the bounded fallback represents an opaque 1006 close.
   socket.onerror = () => {
-    if (closed) {
-      return
-    }
     transportErrorTimer ??= setTimeout(() => {
       transportErrorTimer = null
       fail(new RelayOuterError(1006))
@@ -151,7 +146,7 @@ export function connectMobileRelayForPairing(args: {
       throw new Error('invalid relay hello')
     }
     if (!parsed.data.ok) {
-      throw new RelayOuterError(parsed.data.code, true)
+      throw new RelayOuterError(parsed.data.code)
     }
     if (parsed.data.credentialKind !== (args.expectedCredentialKind ?? 'invite')) {
       throw new Error('relay credential resolved as an unexpected credential kind')

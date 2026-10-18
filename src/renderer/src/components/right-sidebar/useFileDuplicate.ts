@@ -2,8 +2,7 @@ import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { basename, dirname, joinPath } from '@/lib/path'
 import type { TreeNode } from './file-explorer-types'
-import { copyRuntimePath } from '@/runtime/runtime-file-mutation-client'
-import { runtimePathExists } from '@/runtime/runtime-file-metadata-client'
+import { copyRuntimePath, runtimePathExists } from '@/runtime/runtime-file-client'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
 
 /**
@@ -50,7 +49,7 @@ export function useFileDuplicate({
           return
         }
         const context = {
-          target: operationGuard.route.target,
+          settings: operationGuard.route.settings,
           worktreeId: activeWorktreeId,
           worktreePath,
           connectionId: operationGuard.route.connectionId,

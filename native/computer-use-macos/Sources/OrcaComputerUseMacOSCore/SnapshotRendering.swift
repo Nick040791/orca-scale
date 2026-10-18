@@ -109,8 +109,8 @@ public enum SnapshotRenderHeuristics {
                 return action != "AXCancel" && action != "AXPick"
             }
             if role == "AXScrollArea",
-               action == "AXScrollLeftByPage" || action == "AXScrollRightByPage",
-               (rawActions.contains("AXScrollUpByPage") || rawActions.contains("AXScrollDownByPage")) {
+               (rawActions.contains("AXScrollUpByPage") || rawActions.contains("AXScrollDownByPage")),
+               action == "AXScrollLeftByPage" || action == "AXScrollRightByPage" {
                 return false
             }
             return true

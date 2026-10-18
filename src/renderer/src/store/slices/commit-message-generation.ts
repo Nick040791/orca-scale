@@ -1,14 +1,18 @@
 import type { StateCreator } from 'zustand'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { AppState } from '../types'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+
+export type CommitMessageGenerationRuntimeTargetSettings = Pick<
+  GlobalSettings,
+  'activeRuntimeEnvironmentId'
+>
 
 export type CommitMessageGenerationContext = {
   worktreeId: string
   worktreePath: string
   connectionId?: string
   requestId: number
-  /** The worktree owner's transport, captured when the request started. */
-  runtimeTarget: RuntimeClientTarget
+  runtimeTargetSettings?: CommitMessageGenerationRuntimeTargetSettings | null
 }
 
 export type CommitMessageGenerationStatus = 'idle' | 'running' | 'canceled' | 'failed' | 'succeeded'

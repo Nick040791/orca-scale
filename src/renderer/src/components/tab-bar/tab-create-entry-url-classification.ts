@@ -33,11 +33,6 @@ export type HostUrlClassification =
   | { kind: 'blocked'; message: string }
   | { kind: 'host-url'; url: string }
 
-export type HostUrlClassificationOptions = {
-  /** Require a listed suffix even without a path, so `App.vue` is not a host. */
-  requireListedDomain?: boolean
-}
-
 function invalidUrl(): { kind: 'blocked'; message: string } {
   return {
     kind: 'blocked',
@@ -59,16 +54,14 @@ function parseHttpUrl(query: string): ExplicitUrlClassification {
   }
 }
 
-// Hosting-provider suffixes such as `github.io` are themselves registrable ICANN domains.
+// Why: a bare public suffix (`api.br`) is not a navigable host, so the typed string stays a search.
+// tldts' PRIVATE section is included so `foo.github.io` still reads as a domain.
 function isListedDomain(host: string): boolean {
-  const parsed = parseDomain(host, { allowPrivateDomains: false })
-  return parsed.domain !== null && parsed.isIcann === true
+  const parsed = parseDomain(host, { allowPrivateDomains: true })
+  return parsed.domain !== null && (parsed.isIcann === true || parsed.isPrivate === true)
 }
 
-function splitHostCandidate(
-  query: string,
-  requireListedDomain = false
-): { host: string; port: string | null } | null {
+function splitHostCandidate(query: string): { host: string; port: string | null } | null {
   if (/[\\\s]/.test(query)) {
     return null
   }
@@ -87,8 +80,7 @@ function splitHostCandidate(
   if (
     host.toLowerCase() !== 'localhost' &&
     !IPV4_PATTERN.test(host) &&
-    (!DOMAIN_PATTERN.test(host) ||
-      ((authorityEnd !== -1 || requireListedDomain) && !isListedDomain(host)))
+    (!DOMAIN_PATTERN.test(host) || (authorityEnd !== -1 && !isListedDomain(host)))
   ) {
     return null
   }
@@ -147,11 +139,8 @@ export function classifyExplicitUrl(query: string): ExplicitUrlClassification | 
   return invalidUrl()
 }
 
-export function classifyHostUrl(
-  query: string,
-  options: HostUrlClassificationOptions = {}
-): HostUrlClassification | null {
-  const candidate = splitHostCandidate(query, options.requireListedDomain)
+export function classifyHostUrl(query: string): HostUrlClassification | null {
+  const candidate = splitHostCandidate(query)
   if (!candidate) {
     const localDevUrl = classifySchemeLessLocalDevAddress(query)
     if (localDevUrl?.hostname) {

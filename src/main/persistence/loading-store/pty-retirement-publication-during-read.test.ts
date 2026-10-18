@@ -7,7 +7,7 @@ vi.mock('../../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../../telemetry/cohort-classifier', () => ({
   getCohortAtEmit: () => ({ nth_repo_added: 2 })
 }))
-vi.mock('../../ssh/config/ssh-config-parser', () => ({
+vi.mock('../../ssh/ssh-config-parser', () => ({
   loadUserSshConfig: () => ({ hosts: [] }),
   sshConfigHostsToTargets: () => []
 }))
@@ -28,6 +28,9 @@ class RetirementRuntime extends OrcaRuntimeService {
   }
   generations(): number {
     return this.ptyLifecycleGenerationById.size
+  }
+  retirements(): number {
+    return this.pendingPtySurfaceRetirementsByPtyId.size
   }
   async closeTab(): Promise<void> {
     const snapshot = this.snapshot()
@@ -93,8 +96,10 @@ it.each(['read', 'replacement', 'legacy-replacement'] as const)(
     gate.finish.resolve()
     await exiting
     expect(readState().workspaceSession.terminalLayoutsByTabId[binding.tabId]).toBeUndefined()
-    // Why every action: the exit retired the leaf in memory before any of them could run.
-    expect(runtime.snapshot()?.tabs).toHaveLength(0)
+    expect(runtime.snapshot()?.tabs).toHaveLength(action === 'read' ? 0 : 1)
+    if (action === 'read') {
+      expect(runtime.retirements()).toBe(0)
+    }
   }
 )
 

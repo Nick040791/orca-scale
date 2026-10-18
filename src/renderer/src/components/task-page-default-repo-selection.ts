@@ -36,6 +36,13 @@ export function getDefaultTaskRepoSelection(repos: readonly Repo[]): Set<string>
   return new Set([...selectedByProject.values()].map((repo) => repo.id))
 }
 
+export function getTaskProjectPickerRepos(
+  repos: readonly Repo[],
+  preferredSelection: ReadonlySet<string> = new Set()
+): Repo[] {
+  return getTaskProjectPickerGroups(repos, preferredSelection).map((group) => group.repo)
+}
+
 export function getTaskProjectPickerGroups(
   repos: readonly Repo[],
   preferredSelection: ReadonlySet<string> = new Set()

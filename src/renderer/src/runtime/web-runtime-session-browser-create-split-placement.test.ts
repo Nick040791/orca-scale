@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createWebRuntimeSessionBrowserTab } from './web-runtime-browser-creation'
+import { createWebRuntimeSessionBrowserTab } from './web-runtime-session'
 import { peekWebSessionFocusIntent } from './web-session-focus-intent'
 import { resetWebSessionCloseIntentForTests } from './web-session-close-intent'
 import { isWebSessionBrowserPlacementGroupReserved } from './web-session-browser-placement'
@@ -10,9 +10,9 @@ import {
   makeSnapshot,
   resetBrowserTabCreateEnvironment,
   stagedBrowserWorkspaces,
-  stubBrowserTabCreateEnvironment
+  stubBrowserTabCreateEnvironment,
+  webRuntimeSessionWindowApi
 } from './web-runtime-session-test-harness'
-import { stubBrowserCreateRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -44,24 +44,16 @@ vi.mock('../store', () => ({
   }
 }))
 
-vi.mock('./web-session-tabs-sync/tracking-lifecycle', () => ({
+vi.mock('./web-session-tabs-sync', () => ({
   acceptReplayedWebSessionTabsSnapshot: mocks.acceptReplayedWebSessionTabsSnapshot,
-  getWebSessionTabsTrackingGeneration: mocks.getWebSessionTabsTrackingGeneration
-}))
-vi.mock('./web-session-tabs-sync/snapshot-api', () => ({
-  applyWebSessionTabsSnapshot: mocks.applyWebSessionTabsSnapshot
-}))
-vi.mock('./web-session-tabs-sync/tracking-decisions', () => ({
-  decideWebSessionTabsSnapshot: mocks.decideWebSessionTabsSnapshot
-}))
-vi.mock('./web-session-tabs-sync/store-patch', () => ({
+  applyWebSessionTabsSnapshot: mocks.applyWebSessionTabsSnapshot,
+  decideWebSessionTabsSnapshot: mocks.decideWebSessionTabsSnapshot,
+  getWebSessionTabsTrackingGeneration: mocks.getWebSessionTabsTrackingGeneration,
   applyWebSessionTabsStorePatch: (buildPatch: (state: unknown) => unknown) => {
     mocks.setState(buildPatch)
     // The production caller invokes the returned settle receipt.
     return () => {}
-  }
-}))
-vi.mock('./web-session-tabs-sync/tracking-mappings', () => ({
+  },
   resolveHostSessionTabIdForWebSessionTab: mocks.resolveHostSessionTabIdForWebSessionTab
 }))
 
@@ -128,7 +120,7 @@ describe('createWebRuntimeSessionBrowserTab', () => {
         result: { browserPageId: 'remote-browser-page-1' }
       })
       .mockResolvedValueOnce({ id: 'list', ok: true, result: makeSnapshot() })
-    stubBrowserCreateRuntimeEnvironmentBridge(runtimeCall)
+    vi.stubGlobal('window', webRuntimeSessionWindowApi(runtimeCall))
 
     await expect(
       createWebRuntimeSessionBrowserTab({
@@ -178,7 +170,10 @@ describe('createWebRuntimeSessionBrowserTab', () => {
   })
 
   it('releases and removes a newly-created split when host creation is ambiguous', async () => {
-    stubBrowserCreateRuntimeEnvironmentBridge(vi.fn().mockRejectedValue(new Error('offline')))
+    vi.stubGlobal(
+      'window',
+      webRuntimeSessionWindowApi(vi.fn().mockRejectedValue(new Error('offline')))
+    )
 
     await expect(
       createWebRuntimeSessionBrowserTab({
@@ -214,7 +209,7 @@ describe('createWebRuntimeSessionBrowserTab', () => {
       })
       .mockResolvedValueOnce({ id: 'close', ok: true, result: { closed: true } })
       .mockResolvedValueOnce({ id: 'list-after-close', ok: true, result: makeSnapshot() })
-    stubBrowserCreateRuntimeEnvironmentBridge(runtimeCall)
+    vi.stubGlobal('window', webRuntimeSessionWindowApi(runtimeCall))
 
     await expect(
       createWebRuntimeSessionBrowserTab({
@@ -290,7 +285,7 @@ describe('createWebRuntimeSessionBrowserTab', () => {
       (_state, _environmentId, _worktreeId, remotePageId) =>
         remotePageId === 'remote-browser-page-2'
     )
-    stubBrowserCreateRuntimeEnvironmentBridge(runtimeCall)
+    vi.stubGlobal('window', webRuntimeSessionWindowApi(runtimeCall))
 
     const first = createWebRuntimeSessionBrowserTab({
       worktreeId: WORKTREE_ID,
@@ -358,7 +353,7 @@ describe('createWebRuntimeSessionBrowserTab', () => {
           rejectSecond = reject
         })
       )
-    stubBrowserCreateRuntimeEnvironmentBridge(runtimeCall)
+    vi.stubGlobal('window', webRuntimeSessionWindowApi(runtimeCall))
 
     const first = createWebRuntimeSessionBrowserTab({
       worktreeId: WORKTREE_ID,
@@ -427,7 +422,7 @@ describe('createWebRuntimeSessionBrowserTab', () => {
       (_state, _environmentId, _worktreeId, remotePageId) =>
         remotePageId === 'remote-browser-page-2'
     )
-    stubBrowserCreateRuntimeEnvironmentBridge(runtimeCall)
+    vi.stubGlobal('window', webRuntimeSessionWindowApi(runtimeCall))
 
     const first = createWebRuntimeSessionBrowserTab({
       worktreeId: WORKTREE_ID,

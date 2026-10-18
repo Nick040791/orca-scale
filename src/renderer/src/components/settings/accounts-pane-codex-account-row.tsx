@@ -29,7 +29,7 @@ export function renderCodexAccountRow(
     isRemoteAccountScope,
     runCodexAccountAction,
     setRemoveCodexTarget,
-    accountOwner
+    settings
   } = model
   const isActive = providerAccountIsActiveInView(
     account,
@@ -73,7 +73,7 @@ export function renderCodexAccountRow(
             void runCodexAccountAction(
               `select:${account.id}`,
               () =>
-                selectCodexProviderAccount(accountOwner, {
+                selectCodexProviderAccount(settings, {
                   accountId: account.id,
                   ...accountRuntimeView
                 }),

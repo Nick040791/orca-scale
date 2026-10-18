@@ -18,6 +18,7 @@ function worktree(overrides: Partial<Worktree> & { worktreeId: string; path: str
     displayName: overrides.worktreeId,
     liveTerminalCount: 0,
     hasAttachedPty: false,
+    preview: '',
     unread: false,
     isPinned: false,
     linkedPR: null,

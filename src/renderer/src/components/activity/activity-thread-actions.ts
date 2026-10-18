@@ -1,10 +1,8 @@
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
-import { revealFloatingWorkspacePanel } from '@/lib/floating-workspace-panel-reveal'
 import { activateStructuredAgentSessionTab } from '@/lib/structured-agent-session-tab-activation'
 import { activateAndRevealWorkspace } from '@/lib/worktree-activation'
 import { jumpToWorktreeFromSidebar } from '@/lib/worktree-jump-navigation'
 import { useAppStore } from '@/store'
-import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
   getSettingsFocusedExecutionHostId,
   getWorktreeExecutionHostId,
@@ -26,7 +24,7 @@ function getActivityThreadExecutionHostId(
 
 type ActivityThreadWorkspaceCatalog = Pick<
   AppState,
-  'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces' | 'floatingWorkspacePath'
+  'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces'
 > & { defaultHostId: ExecutionHostId }
 
 function readActivityThreadWorkspaceCatalog(): ActivityThreadWorkspaceCatalog {
@@ -58,36 +56,25 @@ export function createActivityThreadActions({
    *  badge-coherent set (child-filter only), not the search/scope-narrowed one,
    *  so Mark all read always drives the Agents badge to zero. */
   getMarkAllReadThreads: () => AgentPaneThread[]
-  acknowledgeAgents: (paneKeys: string[], reads?: undefined, intent?: 'explicit') => void
+  acknowledgeAgents: (paneKeys: string[]) => void
   unacknowledgeAgents: (paneKeys: string[]) => void
   setSelectedPaneKey: (paneKey: string | null) => void
 }): {
   markThreadRead: (thread: AgentPaneThread) => void
   markThreadUnread: (thread: AgentPaneThread) => void
-  markThreadsRead: (threads: readonly AgentPaneThread[]) => void
-  markThreadsUnread: (threads: readonly AgentPaneThread[]) => void
   selectThread: (thread: AgentPaneThread) => void
   jumpToWorkspace: (thread: AgentPaneThread) => void
   markAllThreadsRead: () => void
 } {
-  const markThreadsRead = (threads: readonly AgentPaneThread[]): void => {
-    acknowledgeAgents(
-      threads.map((thread) => thread.paneKey),
-      undefined,
-      'explicit'
-    )
+  const markThreadRead = (thread: AgentPaneThread): void => {
+    acknowledgeAgents([thread.paneKey])
   }
 
-  const markThreadsUnread = (threads: readonly AgentPaneThread[]): void => {
-    unacknowledgeAgents(threads.map((thread) => thread.paneKey))
+  const markThreadUnread = (thread: AgentPaneThread): void => {
+    unacknowledgeAgents([thread.paneKey])
   }
-
-  const markThreadRead = (thread: AgentPaneThread): void => markThreadsRead([thread])
-
-  const markThreadUnread = (thread: AgentPaneThread): void => markThreadsUnread([thread])
 
   const activateThreadTarget = (thread: AgentPaneThread): void => {
-    const isFloatingTerminal = thread.worktree.id === FLOATING_TERMINAL_WORKTREE_ID
     const executionHostId = getActivityThreadExecutionHostId(
       thread,
       getSettingsFocusedExecutionHostId(useAppStore.getState().settings)
@@ -97,7 +84,6 @@ export function createActivityThreadActions({
     // resumeSleepingAgentSessionsForWorktree/ensureWorktreeHasInitialTerminal run inside here.
     // Probing tab residency first is what made a remote row click a silent no-op (#16731).
     if (
-      !isFloatingTerminal &&
       activateAndRevealWorkspace(thread.worktree.id, {
         executionHostId,
         revealInSidebar: false,
@@ -109,9 +95,6 @@ export function createActivityThreadActions({
     if (
       activateStructuredAgentSessionTab({ worktreeId: thread.worktree.id, tabId: thread.tab.id })
     ) {
-      if (isFloatingTerminal) {
-        revealFloatingWorkspacePanel(useAppStore.getState())
-      }
       return
     }
     // Read post-activation: the tab this thread points at may have only just been revived.
@@ -121,10 +104,6 @@ export function createActivityThreadActions({
       // Retained threads outlive their tab; the workspace is still activated, but there is
       // no pane to focus and focusing a sibling would be worse than focusing nothing.
       return
-    }
-    // Floating tabs have no catalog workspace; reveal their panel without changing the main workspace.
-    if (isFloatingTerminal) {
-      revealFloatingWorkspacePanel(activated)
     }
     activated.setActiveTabType('terminal', thread.worktree.id)
     const parsed = parsePaneKey(thread.paneKey)
@@ -158,14 +137,12 @@ export function createActivityThreadActions({
     if (unreadKeys.length === 0) {
       return
     }
-    acknowledgeAgents(unreadKeys, undefined, 'explicit')
+    acknowledgeAgents(unreadKeys)
   }
 
   return {
     markThreadRead,
     markThreadUnread,
-    markThreadsRead,
-    markThreadsUnread,
     selectThread,
     jumpToWorkspace,
     markAllThreadsRead

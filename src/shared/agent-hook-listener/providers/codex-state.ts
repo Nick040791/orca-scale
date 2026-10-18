@@ -66,17 +66,12 @@ export function setCodexMainAgentTurnState(
   return record
 }
 
-/** Interrupt is Codex's own cancel verdict. A root Stop that lands on an already finished turn
- *  (late, after an inferred cancel) restates that turn, so it keeps the recorded verdict; only a
- *  new turn clears it. */
-export function codexLeadOutcomeForEvent(
-  eventName: unknown,
+/** A root Stop that lands on an already finished turn (late, after an inferred cancel) restates
+ *  that turn, so it keeps the recorded verdict; only a new turn clears it. */
+export function codexOutcomeRestatedByStop(
   previous: CodexLeadTurnState | undefined,
   nextState: CodexLeadTurnState['state']
 ): Pick<CodexLeadTurnState, 'outcome'> {
-  if (eventName === 'Interrupt') {
-    return { outcome: 'cancellation' }
-  }
   return nextState === 'done' && previous?.state === 'done' && previous.outcome
     ? { outcome: previous.outcome }
     : {}
@@ -158,7 +153,7 @@ export function codexLeadStateForHookEvent(
   eventName: string | undefined,
   normalizedState?: ParsedAgentStatusPayload['state']
 ): CodexLeadTurnState['state'] | undefined {
-  if (eventName === 'Stop' || eventName === 'Interrupt') {
+  if (eventName === 'Stop') {
     return 'done'
   }
   if (eventName === 'PermissionRequest') {
@@ -214,19 +209,12 @@ export function reconcileRemoteCodexState(
       const previousLead = state.codexLeadStateByPaneKey.get(paneKey)
       setCodexMainAgentTurnState(state, paneKey, {
         state: leadState,
-        ...codexLeadOutcomeForEvent(eventName, previousLead, leadState),
+        ...codexOutcomeRestatedByStop(previousLead, leadState),
         model: payload.model ?? previousLead?.model
       })
     }
   }
 
-  if (!eventName && !agentId && payload.mainAgent && payload.mainAgent.state !== 'blocked') {
-    setCodexMainAgentTurnState(state, paneKey, {
-      ...payload.mainAgent,
-      state: payload.mainAgent.state,
-      model: payload.model ?? state.codexLeadStateByPaneKey.get(paneKey)?.model
-    })
-  }
   const lead = state.codexLeadStateByPaneKey.get(paneKey)
   if (!lead) {
     return payload

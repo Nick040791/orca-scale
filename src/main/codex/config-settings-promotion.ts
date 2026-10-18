@@ -195,9 +195,8 @@ function promoteCodexRuntimeSettingsToSystemUnsafe(
   // would leave a skeleton the next mirror treats as authoritative, deleting
   // every other runtime setting (mcp_servers, features). With no system config
   // the runtime IS the user's config, so carry its ordinary settings across.
-  // A blank file is seeded the same way, since the mirror skips it as missing.
   const systemContent =
-    writeTargetObservation.kind === 'present' && writeTargetObservation.value.trim() !== ''
+    writeTargetObservation.kind === 'present'
       ? writeTargetObservation.value
       : extractOrdinaryCodexSettings(runtimeTomlObservation.value)
   const withPromotedSettings = upsertPromotedSettingsInContent(systemContent, updates)

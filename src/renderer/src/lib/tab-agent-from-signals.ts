@@ -9,24 +9,21 @@ import {
 } from '../../../shared/agent-title-owner'
 import { isOpenCodeNativeTitle } from '../../../shared/opencode-terminal-title'
 import { resolvePaneAgentOwnerRecord } from '../../../shared/pane-agent-owner'
-import type { TerminalAgent } from '../../../shared/terminal-agent'
 import type { TuiAgent } from '../../../shared/tui-agent'
-import { agentTypeToIconAgent } from './agent-status'
 
 /**
  * Resolves wrapper-compatible signal identity against the pane owner.
  */
-export function resolveSignalAgentForLaunchOwner(
-  signalAgent: TerminalAgent | null | undefined,
-  ownerAgent: TerminalAgent | null,
+function resolveSignalAgentForLaunchOwner(
+  signalAgent: TuiAgent | null | undefined,
+  ownerAgent: TuiAgent | null,
   ownerIsLaunch = false
-): TerminalAgent | null {
+): TuiAgent | null {
   if (!signalAgent) {
     return null
   }
-  return agentTypeToIconAgent(
-    resolveCompatibleAgentTypeForOwner(signalAgent, ownerAgent, { ownerIsLaunch }) ?? signalAgent
-  )
+  return (resolveCompatibleAgentTypeForOwner(signalAgent, ownerAgent, { ownerIsLaunch }) ??
+    signalAgent) as TuiAgent
 }
 
 /**
@@ -39,10 +36,10 @@ export function resolveLaunchedAgentExitEvidence(args: {
   defaultTitle?: string
   isRemote: boolean
   hasObservedAgentSignal: boolean
-  hookAgent: TerminalAgent | null
-  siblingHookAgent?: TerminalAgent | null
+  hookAgent: TuiAgent | null
+  siblingHookAgent?: TuiAgent | null
   hasCompletedHook: boolean
-  processAgent?: TerminalAgent | null
+  processAgent?: TuiAgent | null
   processShellForeground?: boolean
 }): boolean {
   if (args.hookAgent || args.siblingHookAgent || args.processAgent) {
@@ -67,15 +64,15 @@ export function resolveTabAgentFromSignals(args: {
   isRemote: boolean
   title: string
   defaultTitle?: string
-  hookAgent: TerminalAgent | null
-  siblingHookAgent?: TerminalAgent | null
-  focusedCompletedHookAgent?: TerminalAgent | null
-  siblingCompletedHookAgent?: TerminalAgent | null
-  processAgent?: TerminalAgent | null
+  hookAgent: TuiAgent | null
+  siblingHookAgent?: TuiAgent | null
+  focusedCompletedHookAgent?: TuiAgent | null
+  siblingCompletedHookAgent?: TuiAgent | null
+  processAgent?: TuiAgent | null
   processShellForeground?: boolean
-  sleepingSessionAgent?: TerminalAgent | null
+  sleepingSessionAgent?: TuiAgent | null
   launchAgent?: TuiAgent
-}): TerminalAgent | null {
+}): TuiAgent | null {
   const launchAgent = args.launchAgent ?? null
   // Durable focused-pane owner (launch intent → hook → session); focused-pane-scoped so a sibling can't re-own the focused title (would mislabel a Pi pane as OMP).
   const ownerRecord = resolvePaneAgentOwnerRecord({
@@ -84,7 +81,7 @@ export function resolveTabAgentFromSignals(args: {
     completedHookAgent: args.focusedCompletedHookAgent,
     sleepingSessionAgent: args.sleepingSessionAgent
   })
-  const owner = agentTypeToIconAgent(ownerRecord?.agent)
+  const owner = (ownerRecord?.agent ?? null) as TuiAgent | null
   const ownerIsLaunch = ownerRecord?.ownerIsLaunch === true
 
   // The live/idle split governs title override; siblings normalize against launch intent only.

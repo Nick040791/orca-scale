@@ -30,8 +30,7 @@ export function LocalPortRow({
   port: WorkspacePort
   onStop: (port: WorkspacePort) => void
   onShowDetails: (port: WorkspacePort) => void
-  /** Absent when this client has no route to the port's host. */
-  onOpenInBrowser?: (port: WorkspacePort, event?: React.MouseEvent<HTMLButtonElement>) => void
+  onOpenInBrowser: (port: WorkspacePort, event?: React.MouseEvent<HTMLButtonElement>) => void
 }): React.JSX.Element {
   const handleCopy = useCallback(() => {
     void window.api.ui.writeClipboardText(addressForPort(port))
@@ -39,7 +38,7 @@ export function LocalPortRow({
 
   const handleOpenBrowser = useCallback(
     (event?: React.MouseEvent<HTMLButtonElement>) => {
-      void onOpenInBrowser?.(port, event)
+      void onOpenInBrowser(port, event)
     },
     [onOpenInBrowser, port]
   )
@@ -128,25 +127,23 @@ export function LocalPortRow({
         </ContextMenuTrigger>
         <TooltipProvider delayDuration={400}>
           <div className="flex items-center gap-0.5 can-hover:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-            {onOpenInBrowser && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={handleOpenBrowserButtonClick}
-                    aria-label={openBrowserLabel}
-                  >
-                    <ExternalLink size={13} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={4}>
-                  {getPortOpenBrowserTooltipLabel(openBrowserLabel)}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={handleOpenBrowserButtonClick}
+                  aria-label={openBrowserLabel}
+                >
+                  <ExternalLink size={13} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4}>
+                {getPortOpenBrowserTooltipLabel(openBrowserLabel)}
+              </TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -201,15 +198,13 @@ export function LocalPortRow({
         <ContextMenuLabel
           className={LOCAL_PORT_MENU_LABEL_CLASS}
         >{`:${port.port}`}</ContextMenuLabel>
-        {onOpenInBrowser && (
-          <ContextMenuItem
-            className={LOCAL_PORT_MENU_ITEM_CLASS}
-            onSelect={() => handleOpenBrowser()}
-          >
-            <ExternalLink size={13} />
-            {openBrowserLabel}
-          </ContextMenuItem>
-        )}
+        <ContextMenuItem
+          className={LOCAL_PORT_MENU_ITEM_CLASS}
+          onSelect={() => handleOpenBrowser()}
+        >
+          <ExternalLink size={13} />
+          {openBrowserLabel}
+        </ContextMenuItem>
         <ContextMenuItem className={LOCAL_PORT_MENU_ITEM_CLASS} onSelect={handleCopy}>
           <Copy size={13} />
           {translate('auto.components.right.sidebar.PortsPanel.792baeb7ed', 'Copy Address')}

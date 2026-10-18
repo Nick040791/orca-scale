@@ -1,4 +1,3 @@
-import '../unused-default-rpc-methods.test-fixture'
 /**
  * Replay safety for `agent.launch`, against the real durable ledger.
  *
@@ -8,11 +7,11 @@ import '../unused-default-rpc-methods.test-fixture'
  * harness rather than of the guard.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENT_LAUNCH_RUNTIME_CAPABILITY } from '../../../../shared/agent-launch-runtime-capability'
+import { AGENT_LAUNCH_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import {
   computeAgentLaunchFingerprint,
   deriveAgentLaunchChildOperationId,
@@ -25,12 +24,10 @@ import {
   settleAgentSessionOperation,
   type AgentSessionOperationRow
 } from '../../../../shared/agent-session-operation-ledger'
-import type { AgentSessionRecordStore } from '../../agent-session-record-store'
-import {
-  editPersistedTestAgentSessionStore,
-  openTestAgentSessionRecordStore,
-  readPersistedTestAgentSessionStore
-} from '../../agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../agent-session-record-store'
+import { agentSessionStorePath } from '../../agent-session-record-store-file'
+import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import type { RpcContext } from '../core'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
@@ -38,7 +35,6 @@ import {
   methodNamed,
   rpcContext,
   runtimeStub,
-  setAgentLaunchRecordStore,
   type AgentLaunchRuntimeStub
 } from './agent-launch.test-fixture'
 
@@ -124,13 +120,15 @@ beforeEach(async () => {
   attachCallerKeys.length = 0
   createStructuredSession.mockClear()
   directory = await mkdtemp(join(tmpdir(), 'orca-agent-launch-replay-'))
-  store = await openTestAgentSessionRecordStore(directory)
-  // The ledger alone, as admission opens it: no chat host is installed.
-  setAgentLaunchRecordStore(store)
+  store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
+  // The launch reaches the ledger through the installed host; nothing else on the host is used,
+  // because the structured create below it is mocked out.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: `deps.store` is the only member `agent.launch` reads, and a member it omits throws on call.
+  setStructuredAgentSessionHost({ deps: { store } } as unknown as StructuredAgentSessionHost)
 })
 
 afterEach(async () => {
-  setAgentLaunchRecordStore(null)
+  setStructuredAgentSessionHost(null)
   await rm(directory, { recursive: true, force: true })
 })
 
@@ -182,49 +180,6 @@ describe('exactly one execution per launch operation', () => {
   })
 })
 
-describe('a fresh launch writes the ledger once before its effect', () => {
-  it('admits and claims in one durable transaction, claimed on disk when the effect starts', async () => {
-    const admitAndClaim = vi.spyOn(store, 'admitAndClaimOperation')
-    const admit = vi.spyOn(store, 'admitOperation')
-    const claimOnly = vi.spyOn(store, 'claimOperation')
-    const runtime = runtimeStub()
-    let statusAtEffect: string | undefined
-    runtime.createManagedWorktree.mockImplementationOnce(async () => {
-      const persisted = await readPersistedTestAgentSessionStore(directory)
-      statusAtEffect =
-        persisted.operations[agentSessionOperationKey('device-1', OPERATION_ID)]?.outcome.status
-      return { worktree: { id: 'wt-new' }, startupTerminal: undefined }
-    })
-
-    await launch(createLaunch({ operationId: OPERATION_ID }), runtime)
-
-    expect(admitAndClaim).toHaveBeenCalledTimes(1)
-    expect(admit).not.toHaveBeenCalled()
-    expect(claimOnly).not.toHaveBeenCalled()
-    // A claim moves the row from `pending` to `unknown`: taken, not yet settled.
-    expect(statusAtEffect).toBe('unknown')
-  })
-
-  it('still lets exactly one of two concurrent admissions run the effect', async () => {
-    const admission = {
-      callerKey: 'device-1',
-      operationId: OPERATION_ID,
-      fingerprint: 'fp-1',
-      now: NOW
-    }
-    const claimAfter = (decision: { decision: string; row?: AgentSessionOperationRow }) =>
-      decision.decision === 'admit' ||
-      (decision.decision === 'replay' && decision.row?.outcome.status === 'pending')
-
-    const results = await Promise.all([
-      store.admitAndClaimOperation(admission, claimAfter),
-      store.admitAndClaimOperation(admission, claimAfter)
-    ])
-
-    expect(results.filter((result) => result.claim?.claim === 'won')).toHaveLength(1)
-  })
-})
-
 describe('stable replay identity', () => {
   it('replays across a bearer-credential change under the paired device subject', async () => {
     const params = createLaunch({ operationId: OPERATION_ID })
@@ -267,7 +222,9 @@ describe('a replay answers from the record', () => {
     // now say the user prefers a terminal; the recorded one still says what actually ran.
     const movedSettings = runtimeStub({
       settings: {
-        experimentalNativeChat: false
+        experimentalNativeChat: false,
+        experimentalStructuredNativeChat: false,
+        openAgentTabsInChatByDefault: false
       }
     })
     const replayed = await launch(params, movedSettings, PAIRED_CLIENT)
@@ -284,8 +241,11 @@ describe('a replay answers from the record', () => {
     const params = createLaunch({ operationId: OPERATION_ID })
     const first = await launch(params, runtime)
 
-    const reopened = await openTestAgentSessionRecordStore(directory)
-    setAgentLaunchRecordStore(reopened)
+    const reopened = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: see the setup above.
+    setStructuredAgentSessionHost({
+      deps: { store: reopened }
+    } as unknown as StructuredAgentSessionHost)
     const afterRestart = runtimeStub()
 
     expect(await launch(params, afterRestart)).toEqual(first)
@@ -451,13 +411,16 @@ describe('the recorded row stays readable by a build that predates it', () => {
       runtimeStub({ createSupport: { supported: false, reason: 'agent' } })
     )
 
-    const file: { operations: Record<string, { outcome: Record<string, unknown> }> } =
-      await readPersistedTestAgentSessionStore(directory)
+    const file: { operations: Record<string, { outcome: Record<string, unknown> }> } = JSON.parse(
+      await readFile(agentSessionStorePath(directory), 'utf-8')
+    )
     const outcome = Object.values(file.operations)[0].outcome
 
     // The ratchet, and the reason this is not a new status arm or an optional `sessionId`: a build
-    // without `launch` validates a row by these two fields and drops a row it rejects, losing its
-    // replay. A downgrade must skip only what it cannot understand.
+    // without `launch` validates a row by these two fields, one row it rejects returns null for the
+    // whole file, and the schema version cannot be bumped to excuse it — a store is unreadable to
+    // any build whose version is higher than the file's. A downgrade must skip what it cannot
+    // understand, not lose every lease.
     expect(outcome.status).toBe('succeeded')
     expect(typeof outcome.sessionId).toBe('string')
     expect(outcome.launch).toMatchObject({ outcome: { kind: 'terminal' } })
@@ -465,17 +428,24 @@ describe('the recorded row stays readable by a build that predates it', () => {
 })
 
 describe('an unreadable launch payload costs one replay, never the store', () => {
-  /** The recorded operation row, as a build that wrote another payload shape leaves it. */
+  /** The whole file, primary and backup: `loadAgentSessionStore` falls through to the backup, and
+   *  the backup is a copy of the validated primary, so both carry the same payload in real life. */
   async function rewriteRecordedLaunch(payload: unknown): Promise<void> {
-    await editPersistedTestAgentSessionStore(directory, (persisted) => {
-      const row: { outcome: Record<string, unknown> } = Object.values(persisted.operations)[0]
-      row.outcome.launch = payload
-    })
+    const path = agentSessionStorePath(directory)
+    const file: { operations: Record<string, { outcome: Record<string, unknown> }> } = JSON.parse(
+      await readFile(path, 'utf-8')
+    )
+    const row = Object.values(file.operations)[0]
+    row.outcome.launch = payload
+    const written = JSON.stringify(file)
+    await writeFile(path, written)
+    await writeFile(`${path}.bak`, written)
   }
 
-  it('still admits the row, because a load drops a row it rejects', () => {
+  it('still admits the row, because one rejected row makes the whole file unparseable', () => {
     // The ratchet. `isAgentLaunchResult` mirrors a result type by hand, so a field tightened there
-    // would reject rows this same build wrote and lose their replay.
+    // would reject rows this same build wrote — and a primary and backup that both fail to parse
+    // raise `agent_session_store_corrupt`, taking every lease in the profile with them.
     expect(
       isAgentSessionOperationRow({
         callerKey: 'device-1',
@@ -495,8 +465,11 @@ describe('an unreadable launch payload costs one replay, never the store', () =>
     await launch(params, runtime)
     await rewriteRecordedLaunch({ outcome: { kind: 'structured' }, worktreeId: 'wt-1' })
 
-    const reopened = await openTestAgentSessionRecordStore(directory)
-    setAgentLaunchRecordStore(reopened)
+    const reopened = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: see the setup above.
+    setStructuredAgentSessionHost({
+      deps: { store: reopened }
+    } as unknown as StructuredAgentSessionHost)
 
     expect(reopened.listOperationRows()).toHaveLength(1)
     const retry = runtimeStub()
@@ -612,8 +585,7 @@ describe('the inner attach reserves under its own id', () => {
     })
     expect(forwarded).toEqual({
       decision: 'refused',
-      code: 'agent_session_operation_conflict',
-      details: { reason: 'operationIdReused' }
+      code: 'agent_session_operation_conflict'
     })
 
     const derived = deriveAgentLaunchChildOperationId(OPERATION_ID)

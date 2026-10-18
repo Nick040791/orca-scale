@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 
 // Converts worktrees that already have their own Electron dist over to the shared cache.
-// Healthy installs also share now; this migrates worktrees without waiting for their next install.
+// A normal install only shares when Electron is (re)installed, and an existing healthy worktree
+// never reaches that path -- so without this, sharing only arrives at the next Electron upgrade.
 
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
-  accessSync,
-  constants,
   existsSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -32,24 +30,6 @@ const apply = process.argv.includes('--apply')
 const repoRoot = process.argv.includes('--repo')
   ? path.resolve(process.argv[process.argv.indexOf('--repo') + 1])
   : process.cwd()
-
-const excludeIndex = process.argv.indexOf('--exclude-worktree')
-const excludeArgument = excludeIndex === -1 ? undefined : process.argv[excludeIndex + 1]
-if (excludeIndex !== -1 && (!excludeArgument || excludeArgument.startsWith('-'))) {
-  throw new Error('--exclude-worktree requires a directory')
-}
-const excludeWorktree = excludeArgument ? realpathSync(excludeArgument) : null
-
-function isExcluded(worktree) {
-  if (!excludeWorktree) {
-    return false
-  }
-  try {
-    return realpathSync(worktree) === excludeWorktree
-  } catch {
-    return path.resolve(worktree) === excludeWorktree
-  }
-}
 
 function listWorktrees(root) {
   const raw = execFileSync('git', ['-C', root, 'worktree', 'list', '--porcelain'], {
@@ -107,9 +87,6 @@ function main() {
   let skipped = 0
 
   for (const worktree of listWorktrees(repoRoot)) {
-    if (isExcluded(worktree)) {
-      continue
-    }
     const electronPackageDir = path.join(worktree, 'node_modules', 'electron')
     const distPath = path.join(electronPackageDir, 'dist')
     if (!existsSync(path.join(electronPackageDir, 'package.json')) || !existsSync(distPath)) {
@@ -155,18 +132,6 @@ function main() {
       continue
     }
 
-    try {
-      // Elevated POSIX users can pass W_OK even when the install is deliberately read-only.
-      if (process.platform !== 'win32' && (statSync(electronPackageDir).mode & 0o222) === 0) {
-        throw new Error('Electron package directory has no write permission bits')
-      }
-      accessSync(electronPackageDir, constants.W_OK)
-    } catch {
-      console.log(`skip  ${worktree}  (Electron package directory is not writable)`)
-      skipped += 1
-      continue
-    }
-
     const size = measure(distPath)
     if (!apply) {
       console.log(`would share  ${worktree}  ${(size / 1024 ** 3).toFixed(2)} GiB  (${version})`)
@@ -181,9 +146,6 @@ function main() {
           recordAdoptedSharedElectronDist(entry, writeFileSync)
           console.log(`seeded  ${worktree}  -> ${entry.entryPath}`)
           converted += 1
-        } else {
-          console.warn(`skip  ${worktree}  (shared Electron cache could not be prepared)`)
-          skipped += 1
         }
         continue
       }
@@ -191,10 +153,7 @@ function main() {
         recordAdoptedSharedElectronDist(entry, writeFileSync)
         reclaimed += size
         converted += 1
-        console.log(`shared  ${worktree}  ${(size / 1024 ** 3).toFixed(2)} GiB logical file data`)
-      } else {
-        console.warn(`skip  ${worktree}  (shared Electron copy could not be prepared)`)
-        skipped += 1
+        console.log(`shared  ${worktree}  reclaimed ${(size / 1024 ** 3).toFixed(2)} GiB`)
       }
     } catch (error) {
       // A worktree that fails is left exactly as it was; it still has its own working dist.
@@ -205,7 +164,7 @@ function main() {
 
   console.log(
     `\n${apply ? 'Shared' : 'Would share'} ${converted} worktree(s); ` +
-      `logical file data ~${(reclaimed / 1024 ** 3).toFixed(2)} GiB (shared blocks affect disk savings)` +
+      `${apply ? 'reclaimed' : 'reclaimable'} ~${(reclaimed / 1024 ** 3).toFixed(2)} GiB` +
       `${skipped > 0 ? `; skipped ${skipped}` : ''}` +
       `${apply ? '' : '\nRe-run with --apply to do it.'}`
   )

@@ -37,7 +37,6 @@ import {
 } from './helpers/paired-electron-client'
 import { focusActiveTerminalInput } from './helpers/terminal'
 import { waitForTabParked } from './helpers/terminal-hidden-parking'
-import { quotePosixShell } from '../../src/shared/wsl-login-shell-command'
 
 const PARK_DELAY_MS = 2_000
 const LIVE_PAINT_BUDGET_MS = 12_000
@@ -76,11 +75,15 @@ test.afterAll(() => {
   rmSync(scratch, { recursive: true, force: true })
 })
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
 function fixtureCommand(sinkPath: string): string {
   const command = [process.execPath, fixturePath, sinkPath]
   return process.platform === 'win32'
     ? command.map((value) => `"${value.replaceAll('"', '""')}"`).join(' ')
-    : command.map(quotePosixShell).join(' ')
+    : command.map(shellQuote).join(' ')
 }
 
 function readSink(sinkPath: string): string {
@@ -191,22 +194,6 @@ async function readActivePaneGrid(
   }, webTabId)
 }
 
-/** The pane's grid, or null while it differs from what its container fits. */
-async function readFittedPaneGrid(
-  page: Page,
-  webTabId: string
-): Promise<{ cols: number; rows: number } | null> {
-  return page.evaluate((id) => {
-    const manager = window.__paneManagers?.get(id)
-    const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-    const fit = pane?.fitAddon.proposeDimensions()
-    if (!pane || !fit || pane.terminal.cols !== fit.cols || pane.terminal.rows !== fit.rows) {
-      return null
-    }
-    return { cols: fit.cols, rows: fit.rows }
-  }, webTabId)
-}
-
 /** Reads the target tab's own buffer. `getTerminalContent` resolves whatever
  *  tab the store thinks is active, which hides per-tab reveal failures. */
 async function readPaneContent(page: Page, webTabId: string): Promise<string> {
@@ -299,16 +286,8 @@ async function probeInteractivity(
     `LINE:${token}`,
     LIVE_PAINT_BUDGET_MS
   )
-  let paneGrid = await readActivePaneGrid(page, target.webTabId)
-  let ptyGrid = readPtyGridFromContent(readSink(target.sinkPath))
-  console.log(`[paired-grid-initial] ${JSON.stringify({ name, paneGrid, ptyGrid })}`)
+  const paneGrid = await readActivePaneGrid(page, target.webTabId)
   const diagnostics = await readPaneDiagnostics(page, worktreeId, target.webTabId)
-  const screenshotPath = test.info().outputPath(`paired-terminal-${name}.png`)
-  await page.screenshot({ path: screenshotPath })
-  await test.info().attach(`paired-terminal-${name}`, {
-    path: screenshotPath,
-    contentType: 'image/png'
-  })
   let paintedAfterFlip = paintedLive
   if (!paintedLive) {
     await openClientTab(page, worktreeId, flipTo.webTabId)
@@ -320,31 +299,6 @@ async function probeInteractivity(
       LIVE_PAINT_BUDGET_MS
     )
   }
-  // Preserve the scenario report even when geometry fails to converge.
-  await expect
-    .configure({ soft: true })
-    .poll(
-      async () => {
-        paneGrid = await readActivePaneGrid(page, target.webTabId)
-        ptyGrid = readPtyGridFromContent(readSink(target.sinkPath))
-        return {
-          paneGrid,
-          ptyGrid,
-          converged:
-            paneGrid !== null &&
-            ptyGrid !== null &&
-            paneGrid.cols > 0 &&
-            paneGrid.rows > 0 &&
-            paneGrid.cols === ptyGrid.cols &&
-            paneGrid.rows === ptyGrid.rows
-        }
-      },
-      {
-        timeout: REVEAL_BUDGET_MS,
-        message: `${name}: revealed pane and host PTY grids did not converge`
-      }
-    )
-    .toMatchObject({ converged: true })
   const sink = readSink(target.sinkPath)
   return {
     name,
@@ -353,7 +307,7 @@ async function probeInteractivity(
     paintedLive,
     paintedAfterFlip,
     paneGrid,
-    ptyGrid,
+    ptyGrid: readPtyGridFromContent(sink),
     diagnostics
   }
 }
@@ -439,25 +393,10 @@ test('paired client keeps revealed remote terminals interactive', async ({
       await openClientTab(client.page, worktreeId, decoys[0].webTabId)
       const originalGrid = await readActivePaneGrid(client.page, target.webTabId)
       await client.page.setViewportSize({ width: 960, height: 800 })
-      // Why fitted: a late reveal replay briefly parses at the host's old grid before refitting (#7279, #18132).
-      const fitted: { lastKey: string | null; settled: { cols: number; rows: number } | null } = {
-        lastKey: null,
-        settled: null
-      }
       await expect
-        .poll(
-          async () => {
-            const grid = await readFittedPaneGrid(client.page, decoys[0].webTabId)
-            const key = grid && JSON.stringify(grid)
-            const isNewFit = key !== null && key !== JSON.stringify(originalGrid)
-            fitted.settled = isNewFit && key === fitted.lastKey ? grid : null
-            fitted.lastKey = isNewFit ? key : null
-            return fitted.settled !== null
-          },
-          { timeout: 60_000, message: 'decoy never settled at the new viewport fit' }
-        )
-        .toBe(true)
-      const revealGrid = fitted.settled
+        .poll(() => readActivePaneGrid(client.page, decoys[0].webTabId))
+        .not.toEqual(originalGrid)
+      const revealGrid = await readActivePaneGrid(client.page, decoys[0].webTabId)
       if (!revealGrid) {
         throw new Error('visible decoy has no grid')
       }

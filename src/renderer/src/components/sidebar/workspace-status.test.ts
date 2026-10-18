@@ -12,11 +12,10 @@ import {
 
 class TestDataTransfer {
   effectAllowed = 'uninitialized'
-  files: unknown[] = []
   private readonly values = new Map<string, string>()
 
   get types(): string[] {
-    return this.files.length > 0 ? [...this.values.keys(), 'Files'] : [...this.values.keys()]
+    return [...this.values.keys()]
   }
 
   getData(type: string): string {
@@ -68,21 +67,19 @@ describe('workspace status drag data', () => {
     expect(readWorkspaceDragDataIds(dataTransfer)).toEqual(['wt-1', 'wt-2'])
   })
 
-  it('ignores a hybrid file drag carrying a workspace id as plain text', () => {
-    const transfer = new TestDataTransfer()
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The reader uses only types and getData, both supplied by this test transfer.
-    const dataTransfer = transfer as unknown as DataTransfer
-    dataTransfer.setData('text/plain', 'wt-1')
-    transfer.files = [{ name: 'notes.txt' }]
+  it('ignores oversized plain-text workspace drag fallbacks', () => {
+    const dataTransfer = new TestDataTransfer() as unknown as DataTransfer
+    const secret = 'workspace-drag-secret'
+    dataTransfer.setData('text/plain', secret + 'x'.repeat(WORKSPACE_STATUS_DRAG_PAYLOAD_MAX_BYTES))
 
     expect(readWorkspaceDragData(dataTransfer)).toBeNull()
     expect(readWorkspaceDragDataIds(dataTransfer)).toEqual([])
     expect(hasWorkspaceDragData(dataTransfer)).toBe(false)
   })
 
-  it('ignores plain text without an Orca workspace drag type', () => {
+  it('ignores multibyte oversized workspace drag fallbacks', () => {
     const dataTransfer = new TestDataTransfer() as unknown as DataTransfer
-    dataTransfer.setData('text/plain', 'wt-1')
+    dataTransfer.setData('text/plain', '😀'.repeat(4097))
 
     expect(readWorkspaceDragData(dataTransfer)).toBeNull()
     expect(readWorkspaceDragDataIds(dataTransfer)).toEqual([])

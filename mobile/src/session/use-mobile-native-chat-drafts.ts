@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
-import { appendReturnedDraftText } from '../../../src/shared/returned-draft-text'
 import {
   countUserTextOccurrences,
   findLandedImagePreviewEchoes,
-  mergeSentImagePreviews,
+  findLandedUnconfirmedSends,
+  mergeLandedImagePreviewEchoes,
   migrateImagePreviewMessageIds,
-  normalizeReconcileText
+  normalizeReconcileText,
+  type UnconfirmedSend
 } from './mobile-native-chat-draft-reconcile'
-import { useMobileNativeChatUnconfirmedSends } from './use-mobile-native-chat-unconfirmed-sends'
 import { rebaseMobileNativeChatPendingBaselines } from './mobile-native-chat-pending-baseline'
 import { retireLandedMobileNativeChatPending } from './mobile-native-chat-pending-retirement'
 import {
@@ -22,18 +22,15 @@ import {
 import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
 import { useMobileNativeChatLaunchDraftSeed } from './use-mobile-native-chat-launch-draft-seed'
 import type { MobileNativeChatLaunchDraftSeed } from './use-mobile-native-chat-launch-draft-seed'
-import {
-  clearMobileNativeChatDraftForSend,
-  editMobileNativeChatDraft,
-  readMobileNativeChatDraftEditGeneration,
-  setMobileNativeChatDraftText,
-  useMobileNativeChatDraft
-} from './mobile-native-chat-draft-store'
+import { MobileNativeChatDraftEditGenerations } from './mobile-native-chat-draft-edit-generations'
 
 export type { MobileNativeChatPendingMessage, MobileNativeChatSendOrigin }
 
 const NO_PENDING_MESSAGES: MobileNativeChatPendingMessage[] = []
 const NO_IMAGE_PREVIEWS: Record<string, string[]> = {}
+
+// Ack-lost sends wait for a transcript echo before surfacing as unconfirmed.
+const UNCONFIRMED_SEND_DEADLINE_MS = 20_000
 
 export function useMobileNativeChatDrafts(args: {
   hostId: string
@@ -58,15 +55,12 @@ export function useMobileNativeChatDrafts(args: {
 }): {
   composerText: string
   setComposerText: Dispatch<SetStateAction<string>>
-  /** Append after existing typing (newline-joined); a queued card's Edit copy lands here.
-   *  False when nothing was appended: no active draft, or no text. */
-  appendComposerText: (text: string) => boolean
   getComposerEditGeneration: () => number
   pending: MobileNativeChatPendingMessage[]
   /** Phone-local previews rebound to the transcript message that replaced the
    *  optimistic echo, keyed by authoritative message id. */
   imagePreviewsByMessageId: Record<string, string[]>
-  captureSendOrigin: (text: string, sentAt?: number) => MobileNativeChatSendOrigin | null
+  captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
   /** Launch-context text still believed to be parked on the agent's TUI input
    *  line, or null once it has been declined or retired. Send paths size their
    *  pre-clear from it, since one Ctrl+U clears only one logical line. */
@@ -74,7 +68,7 @@ export function useMobileNativeChatDrafts(args: {
   readSeededLaunchDraftSeed: () => MobileNativeChatLaunchDraftSeed | null
   /** Clear the composer at send time, before the RPC settles. */
   clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
-  /** Put the text back after a definite rejection, after whatever the composer holds now. */
+  /** Put the text back after a definite rejection, unless newer edits exist. */
   restoreRejectedDraft: (origin: MobileNativeChatSendOrigin, text: string) => void
   acceptSend: (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => void
   holdUnconfirmedSend: (
@@ -97,7 +91,7 @@ export function useMobileNativeChatDrafts(args: {
   } = args
   const draftKey = mobileNativeChatScopeKey(hostId, worktreeId, tabId)
   const pendingKey = draftKey && sessionId ? `${draftKey}\0${sessionId}` : null
-  const composerText = useMobileNativeChatDraft(draftKey)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pendingBySession, setPendingBySession] = useState<
     Record<string, MobileNativeChatPendingMessage[]>
   >({})
@@ -108,10 +102,14 @@ export function useMobileNativeChatDrafts(args: {
     Record<string, Record<string, string[]>>
   >({})
   const pendingCounterRef = useRef(0)
-  const composerEditGenerationRef = useRef(0)
-  const getComposerEditGeneration = useCallback(() => composerEditGenerationRef.current, [])
+  const draftEditGenerationsRef = useRef(new MobileNativeChatDraftEditGenerations())
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const activeDraftKeyRef = useRef(draftKey)
+  activeDraftKeyRef.current = draftKey
+  const activePendingKeyRef = useRef(pendingKey)
+  activePendingKeyRef.current = pendingKey
+  const mountedRef = useRef(false)
 
   const { readSeededLaunchDraft, readSeededLaunchDraftSeed } = useMobileNativeChatLaunchDraftSeed({
     draftKey,
@@ -120,7 +118,7 @@ export function useMobileNativeChatDrafts(args: {
     launchDraftCreatedAt,
     chatActive,
     transcriptLoading,
-    setDraftText: setMobileNativeChatDraftText
+    setDrafts
   })
 
   const setComposerText: Dispatch<SetStateAction<string>> = useCallback(
@@ -128,36 +126,24 @@ export function useMobileNativeChatDrafts(args: {
       if (!draftKey) {
         return
       }
-      composerEditGenerationRef.current += 1
-      editMobileNativeChatDraft(draftKey, value)
+      draftEditGenerationsRef.current.advance(draftKey)
+      setDrafts((previous) => {
+        const current = previous[draftKey] ?? ''
+        const next = typeof value === 'function' ? value(current) : value
+        return next === current ? previous : { ...previous, [draftKey]: next }
+      })
     },
     [draftKey]
   )
-  // Copied queued-card text goes after whatever is there, so newer typing is preserved.
-  const appendComposerText = useCallback(
-    (text: string): boolean => {
-      if (!draftKey || text.length === 0) {
-        return false
-      }
-      composerEditGenerationRef.current += 1
-      editMobileNativeChatDraft(draftKey, (current) =>
-        current.length === 0 ? text : `${current}\n${text}`
-      )
-      return true
-    },
-    [draftKey]
-  )
-
   const captureSendOrigin = useCallback(
-    // When Send was pressed, as desktop times its pending sends, not when the host took it.
-    (text: string, sentAt = Date.now()) => {
+    (text: string) => {
       if (!draftKey) {
         return null
       }
       const normalizedText = normalizeReconcileText(text)
       return {
         draftKey,
-        draftEditGeneration: readMobileNativeChatDraftEditGeneration(draftKey),
+        draftEditGeneration: draftEditGenerationsRef.current.readDraft(draftKey),
         pendingKey,
         normalizedText,
         baselineOccurrences: countUserTextOccurrences(messagesRef.current, normalizedText),
@@ -165,8 +151,7 @@ export function useMobileNativeChatDrafts(args: {
         // Only a settled read makes this a boundary. Anything else — hydrating,
         // or a read that failed — hands back an empty list that reads as "the
         // conversation was empty", which lets any row claim this send later.
-        baselineResolved: transcriptSettled,
-        sentAt
+        baselineResolved: transcriptSettled
       }
     },
     [draftKey, pendingKey, transcriptSettled]
@@ -176,13 +161,21 @@ export function useMobileNativeChatDrafts(args: {
   // composer that waits for settlement to empty reads as "my prompt didn't
   // send". Clear at send time; a definite rejection restores the text below.
   const clearDraftForSend = useCallback((origin: MobileNativeChatSendOrigin, text: string) => {
-    clearMobileNativeChatDraftForSend(origin.draftKey, origin.draftEditGeneration, text)
+    setDrafts((previous) =>
+      draftEditGenerationsRef.current.isCurrent(origin.draftKey, origin.draftEditGeneration) &&
+      (previous[origin.draftKey] ?? '') === text
+        ? { ...previous, [origin.draftKey]: '' }
+        : previous
+    )
   }, [])
 
   const restoreRejectedDraft = useCallback((origin: MobileNativeChatSendOrigin, text: string) => {
-    // Appended, so typing done while the send was in flight stays and the returned text isn't dropped.
-    setMobileNativeChatDraftText(origin.draftKey, (current) =>
-      appendReturnedDraftText(current, text)
+    // Why: never clobber text the user typed while the rejection was in flight.
+    setDrafts((previous) =>
+      draftEditGenerationsRef.current.isCurrent(origin.draftKey, origin.draftEditGeneration) &&
+      (previous[origin.draftKey] ?? '') === ''
+        ? { ...previous, [origin.draftKey]: text }
+        : previous
     )
   }, [])
 
@@ -207,11 +200,74 @@ export function useMobileNativeChatDrafts(args: {
     []
   )
 
-  const { holdUnconfirmedSend } = useMobileNativeChatUnconfirmedSends({
-    draftKey,
-    pendingKey,
-    messages
-  })
+  // Why: a relay drop mid-send loses only the ack in the common case — the
+  // desktop already delivered the message. Hold the send instead of claiming
+  // failure (which baits a duplicate): stay quiet when the transcript echo
+  // lands, and surface the uncertainty if the deadline passes without one.
+  // The composer was already cleared at send time, so this never touches drafts.
+  const unconfirmedRef = useRef<UnconfirmedSend[]>([])
+  const holdUnconfirmedSend = useCallback(
+    (origin: MobileNativeChatSendOrigin, text: string, onUnconfirmed: () => void) => {
+      if (!mountedRef.current) {
+        return
+      }
+      const isActiveTranscript =
+        activeDraftKeyRef.current === origin.draftKey &&
+        (origin.pendingKey === null || activePendingKeyRef.current === origin.pendingKey)
+      const entry: UnconfirmedSend = {
+        draftKey: origin.draftKey,
+        pendingKey: origin.pendingKey,
+        text,
+        normalizedText: origin.normalizedText,
+        baselineTailMessageId: origin.baselineTailMessageId,
+        deadline: null
+      }
+      // Why: the transcript event can beat the lost RPC acknowledgement.
+      if (
+        isActiveTranscript &&
+        findLandedUnconfirmedSends(messagesRef.current, [entry]).length > 0
+      ) {
+        return
+      }
+      entry.deadline = setTimeout(() => {
+        unconfirmedRef.current = unconfirmedRef.current.filter((held) => held !== entry)
+        onUnconfirmed()
+      }, UNCONFIRMED_SEND_DEADLINE_MS)
+      unconfirmedRef.current = [...unconfirmedRef.current, entry]
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!draftKey || unconfirmedRef.current.length === 0) {
+      return
+    }
+    const relevant = unconfirmedRef.current.filter(
+      (entry) =>
+        entry.draftKey === draftKey &&
+        (entry.pendingKey === null || entry.pendingKey === pendingKey)
+    )
+    const landed = findLandedUnconfirmedSends(messages, relevant)
+    if (landed.length === 0) {
+      return
+    }
+    const landedSet = new Set(landed)
+    unconfirmedRef.current = unconfirmedRef.current.filter((entry) => !landedSet.has(entry))
+    for (const entry of landed) {
+      clearTimeout(entry.deadline ?? undefined)
+    }
+  }, [messages, draftKey, pendingKey])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      for (const entry of unconfirmedRef.current) {
+        clearTimeout(entry.deadline ?? undefined)
+      }
+      unconfirmedRef.current = []
+    }
+  }, [])
 
   const waitingForSession = draftKey
     ? (pendingWaitingForSession[draftKey] ?? NO_PENDING_MESSAGES)
@@ -254,7 +310,7 @@ export function useMobileNativeChatDrafts(args: {
     const landedImagePendingIds = new Set(landedImagePreviews.map((preview) => preview.pendingId))
     if (landedImagePreviews.length > 0) {
       setImagePreviewsBySession((previous) =>
-        mergeSentImagePreviews(previous, pendingKey, landedImagePreviews)
+        mergeLandedImagePreviewEchoes(previous, pendingKey, landedImagePreviews)
       )
     }
     setPendingBySession((previous) => {
@@ -278,10 +334,9 @@ export function useMobileNativeChatDrafts(args: {
   }, [messages, pending, pendingKey, transcriptSettled])
 
   return {
-    composerText,
+    composerText: draftKey ? (drafts[draftKey] ?? '') : '',
     setComposerText,
-    appendComposerText,
-    getComposerEditGeneration,
+    getComposerEditGeneration: draftEditGenerationsRef.current.readComposer,
     pending,
     imagePreviewsByMessageId: pendingKey
       ? (imagePreviewsBySession[pendingKey] ?? NO_IMAGE_PREVIEWS)

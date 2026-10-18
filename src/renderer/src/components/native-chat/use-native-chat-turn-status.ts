@@ -1,6 +1,6 @@
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
+import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import {
-  NATIVE_CHAT_UNANCHORED_TURN_KEY,
   reduceNativeChatTurnTiming,
   selectNativeChatTurnStatuses,
   type NativeChatSettledTurns,
@@ -11,20 +11,18 @@ import {
 export type { NativeChatTurnStatus }
 
 export function useNativeChatTurnStatus({
-  turnKeys,
-  liveTurnKey,
+  messages,
+  latestUserIndex,
   isWorking,
   workingStartedAt,
   settledTurns,
   thinking = false
 }: {
-  /** Each row's turn, as `nativeChatTurnMembership` places it. */
-  turnKeys: readonly (string | undefined)[]
-  /** The live turn, whose bar carries the running clock (`nativeChatTurnMembership`). */
-  liveTurnKey: string | undefined
+  messages: readonly NativeChatMessage[]
+  latestUserIndex: number
   isWorking: boolean
   workingStartedAt?: number | null
-  /** Recorded durations (the host's journal or the transcript); they outrank what this client observed. */
+  /** Host-recorded durations; they outrank whatever this client observed. */
   settledTurns?: NativeChatSettledTurns | null
   /** Whether the turn is reasoning right now, derived from its journal content. */
   thinking?: boolean
@@ -32,14 +30,14 @@ export function useNativeChatTurnStatus({
   active: NativeChatTurnStatus | null
   completedByTurn: Readonly<Record<string, NativeChatTurnStatus>>
 } {
-  const activeTurnKey = liveTurnKey ?? NATIVE_CHAT_UNANCHORED_TURN_KEY
+  const latestUserId = latestUserIndex !== -1 ? (messages[latestUserIndex]?.id ?? null) : null
+  const activeTurnKey = latestUserId ?? '__unanchored__'
   const [timingByTurn, setTimingByTurn] = useState<NativeChatTurnTimingByTurn>({})
-  const validTurnKeys = useMemo(
-    () => new Set(turnKeys.filter((turnKey) => turnKey !== undefined)),
-    [turnKeys]
-  )
 
   useLayoutEffect(() => {
+    const validTurnKeys = new Set(
+      messages.filter((message) => message.role === 'user').map((message) => message.id)
+    )
     setTimingByTurn((current) =>
       reduceNativeChatTurnTiming(current, {
         activeTurnKey,
@@ -49,7 +47,7 @@ export function useNativeChatTurnStatus({
         now: Date.now()
       })
     )
-  }, [activeTurnKey, isWorking, validTurnKeys, workingStartedAt])
+  }, [activeTurnKey, isWorking, messages, workingStartedAt])
 
   return selectNativeChatTurnStatuses(timingByTurn, {
     activeTurnKey,

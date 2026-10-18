@@ -6,8 +6,7 @@ import type {
   RemoteBrowserOperationToken,
   RemoteBrowserViewportSize
 } from './remote-browser-stream-tokens'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import type { BrowserScreencastFrameMetadata } from '../../../../../shared/browser-screencast-protocol'
 import type { BrowserPage as BrowserPageState } from '../../../../../shared/browser-workspace-types'
@@ -22,7 +21,6 @@ import {
   type RemoteBrowserPaneNotice,
   type RemoteBrowserStreamBridge
 } from './remote-browser-page-input-model'
-import { subscribeRuntimeEnvironment } from '@/runtime/runtime-environment-pairing-refresh'
 
 export function useRemoteBrowserPageLifecycle({
   browserTab,
@@ -90,7 +88,8 @@ export function useRemoteBrowserPageLifecycle({
         browserPageExists
       },
       callRpc: callRuntimeRpc,
-      subscribeScreencast: (args, callbacks) => subscribeRuntimeEnvironment(args, callbacks),
+      subscribeScreencast: (args, callbacks) =>
+        window.api.runtimeEnvironments.subscribe(args, callbacks),
       getWorktreeSelector: () => runtimeWorktreeRef.current,
       getCurrentUrl: () => currentBrowserTabUrlRef.current,
       readStoredHandle: () =>

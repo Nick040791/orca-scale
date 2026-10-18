@@ -1,5 +1,4 @@
 import { app } from 'electron'
-import { quitProcess } from './process-quit-request'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -7,11 +6,8 @@ import { getVersionManagerBinPaths } from '../codex-cli/command'
 import { getMainE2EConfig } from '../e2e-config'
 import { DISABLED_CHROMIUM_FEATURES } from './disabled-chromium-features'
 import { readHttp1CompatibilityMarker } from './http1-compatibility-marker'
-import { checkServeUserDataPath } from './serve-user-data-path-guard'
-import { stampRuntimeSourceEnv } from '../../shared/runtime-source-env'
-import { isLinuxWaylandSession } from '../../shared/linux-wayland-session'
 import {
-  hasMissingProfileStateDatabaseWithRetainedAuthority,
+  hasMissingProfileStateDatabaseWithRetainedExport,
   readActiveProfileId,
   readPersistedHttp1CompatibilityMode
 } from './http1-compatibility-profile-state'
@@ -56,7 +52,7 @@ export function shouldDisableHttp2ForElectronNetworking(
   if (
     activeProfileId !== undefined &&
     activeProfileId !== null &&
-    hasMissingProfileStateDatabaseWithRetainedAuthority(userDataPath, activeProfileId)
+    hasMissingProfileStateDatabaseWithRetainedExport(userDataPath, activeProfileId)
   ) {
     return false
   }
@@ -104,7 +100,7 @@ function getProcessPathDelimiter(): string {
 
 function requestDevParentShutdown(): void {
   devParentShutdownRequested = true
-  quitProcess()
+  app.quit()
 
   const forceExitTimer = setTimeout(() => {
     // Why: app.quit() may stall on macOS quit handlers or window-close guards, so force-exit after a grace period to avoid a hung dev app.
@@ -234,19 +230,8 @@ function areSameE2EHomePath(left: string, right: string): boolean {
 }
 
 export function configureOrcaUserDataPathEnv(): void {
-  const userDataPath = app.getPath('userData')
-  // Why here: userData is final now and the instance lock is still ahead; preflight's catch exits serve.
-  const serveProfileRefusal = checkServeUserDataPath({
-    isServeMode: process.argv.includes('--serve'),
-    userDataPath
-  })
-  if (serveProfileRefusal) {
-    throw new Error(serveProfileRefusal)
-  }
   // Why: relaunches can inherit a stale ORCA_USER_DATA_PATH; canonicalize before CLI-shared modules build runtime-home paths.
-  process.env.ORCA_USER_DATA_PATH = userDataPath
-  // Why: an Orca started from another Orca's terminal must not fence its own CLI children to the parent.
-  stampRuntimeSourceEnv(process.env, null)
+  process.env.ORCA_USER_DATA_PATH = app.getPath('userData')
 }
 
 export function shouldInstallManagedHooks(isDev: boolean): boolean {
@@ -338,12 +323,18 @@ export function enableMainProcessGpuFeatures(): void {
   // 128 raises the ceiling for real layouts while staying bounded so context leaks still surface.
   app.commandLine.appendSwitch('max-active-webgl-contexts', '128')
 
-  const waylandSession = isLinuxWaylandSession({
-    platform: process.platform,
-    env: process.env,
-    ozonePlatform: app.commandLine.getSwitchValue('ozone-platform')
-  })
-  if (waylandSession) {
+  const ozonePlatform = (app.commandLine.getSwitchValue('ozone-platform') ?? '').toLowerCase()
+  const ozonePlatformHint = (process.env.ELECTRON_OZONE_PLATFORM_HINT ?? '').toLowerCase()
+  const isLinuxX11Override =
+    ozonePlatform === 'x11' || (ozonePlatform === '' && ozonePlatformHint === 'x11')
+  const isLinuxWaylandSession =
+    process.platform === 'linux' &&
+    !isLinuxX11Override &&
+    (Boolean(process.env.WAYLAND_DISPLAY) ||
+      process.env.XDG_SESSION_TYPE === 'wayland' ||
+      ozonePlatformHint === 'wayland' ||
+      ozonePlatform === 'wayland')
+  if (isLinuxWaylandSession) {
     // Why: #5319 — Wayland loses the eager GPU channel; drop the GPU sandbox so Chromium opens it lazily.
     app.commandLine.appendSwitch('disable-gpu-sandbox')
   }
@@ -351,7 +342,7 @@ export function enableMainProcessGpuFeatures(): void {
   const existingFeatures = app.commandLine.getSwitchValue('enable-features')
   const features = [
     // Why: mirror VS Code's conservative GPU-channel flags instead of global Vulkan/SkiaGraphite/WebGPU; terminal accel is xterm WebGL.
-    ...(waylandSession ? [] : ['EarlyEstablishGpuChannel', 'EstablishGpuChannelAsync']),
+    ...(isLinuxWaylandSession ? [] : ['EarlyEstablishGpuChannel', 'EstablishGpuChannelAsync']),
     existingFeatures
   ]
     .filter(Boolean)

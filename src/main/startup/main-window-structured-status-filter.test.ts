@@ -29,7 +29,8 @@ vi.mock('../window/dashboard-popout-window', () => ({
   getDashboardPopoutWindow: () => null
 }))
 vi.mock('./synthetic-title-runtime', () => ({
-  stopSyntheticTitleSpinnerTimer: vi.fn()
+  driveSyntheticTitleFromHook: vi.fn(),
+  stopAllSyntheticTitleSpinners: vi.fn()
 }))
 
 import { installMainWindowAgentStatusListeners } from './main-window-agent-status'
@@ -64,6 +65,7 @@ beforeEach(() => {
   } as unknown as typeof mainProcessState.mainWindow
   installMainWindowAgentStatusListeners({
     window: mainProcessState.mainWindow!,
+    maybeAutoRenameBranchOnFirstWork: vi.fn(),
     onRecordAgentState: vi.fn()
   })
 })
@@ -91,20 +93,4 @@ it('forwards retirement acknowledgement only on live status delivery', () => {
   hooks.listener!(statusPayload({ authorityRestartId: 'retirement-id', isReplay: true }))
   expect(sent[0].event).toHaveProperty('authorityRestartId', 'retirement-id')
   expect(sent[1].event).not.toHaveProperty('authorityRestartId')
-})
-
-// The live push picks fields one by one; the host's turn start must be one of them.
-it("forwards the host's turn start, and nothing when the host stamped none", () => {
-  hooks.listener!(statusPayload({ turnStartedAt: 1 }))
-  hooks.listener!(statusPayload({}))
-  expect(sent[0].event).toHaveProperty('turnStartedAt', 1)
-  expect(sent[1].event).not.toHaveProperty('turnStartedAt')
-})
-
-// Without the flag the renderer sees a reconnect replay as a fresh completion and re-notifies.
-it('marks replayed rows so the renderer can skip their completion notification', () => {
-  hooks.listener!(statusPayload({ payload: { state: 'done', prompt: 'ship it' } }))
-  hooks.listener!(statusPayload({ payload: { state: 'done', prompt: 'ship it' }, isReplay: true }))
-  expect(sent[0].event).not.toHaveProperty('isReplay')
-  expect(sent[1].event).toHaveProperty('isReplay', true)
 })

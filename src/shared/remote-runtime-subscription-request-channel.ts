@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type WebSocket from 'ws'
-import type { PairedE2EEChannel } from './paired-e2ee-client-handshake'
-import type { PairedRuntimeConnection } from './paired-runtime-connection'
+import { encrypt } from './e2ee-crypto'
+import type { PairingOffer } from './pairing'
 import { RemoteRuntimeClientError } from './remote-runtime-client-error'
 import { serializeRemoteRuntimeRpcRequest } from './remote-runtime-memory-limits'
 import type { RuntimeRpcResponse } from './runtime-rpc-envelope'
@@ -25,8 +25,8 @@ export class RemoteRuntimeSubscriptionRequestChannel {
 
   constructor(
     private readonly options: {
-      connection: PairedRuntimeConnection
-      channel: PairedE2EEChannel
+      pairing: PairingOffer
+      sharedKey: Uint8Array
       // The socket to write on, or null while the subscription is not ready to carry requests.
       resolveWritableSocket: () => WebSocket | null
       enqueue: (socket: WebSocket, frame: string) => boolean
@@ -70,7 +70,7 @@ export class RemoteRuntimeSubscriptionRequestChannel {
     try {
       serialized = serializeRemoteRuntimeRpcRequest({
         requestId,
-        deviceToken: this.options.connection.credential.deviceToken,
+        deviceToken: this.options.pairing.deviceToken,
         method,
         params
       })
@@ -81,7 +81,7 @@ export class RemoteRuntimeSubscriptionRequestChannel {
           : new RemoteRuntimeClientError('invalid_argument', String(error))
       )
     }
-    const encrypted = this.options.channel.sealText(serialized)
+    const encrypted = encrypt(serialized, this.options.sharedKey)
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.options.fail(

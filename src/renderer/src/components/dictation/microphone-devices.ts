@@ -195,6 +195,10 @@ export async function openMicrophoneCaptureStream(args: {
   }
 }
 
+export function microphoneSelectValueFromDeviceId(deviceId: string | null | undefined): string {
+  return normalizeMicrophoneDeviceId(deviceId) ?? SYSTEM_DEFAULT_MICROPHONE_SELECT_VALUE
+}
+
 export function microphoneDeviceIdFromSelectValue(value: string): string | null {
   if (value === SYSTEM_DEFAULT_MICROPHONE_SELECT_VALUE) {
     return null

@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { hasStateBackup } from './legacy-json/profile-state-legacy-backup-path'
 import { profileStateJsonExportPaths } from './legacy-json/profile-state-export-path'
 import { profileStateDatabaseBackups } from './profile-state-backup-path'
-import { hasProfileStateAuthorityMarker } from './profile-state-authority-marker'
 
 type ProfileStateRecoveryLocation = {
   dataFile: string
@@ -64,24 +63,23 @@ export class ProfileStateRecoveryRequiredError extends Error {
   }
 }
 
-/** Retained authority evidence rules out treating missing SQLite as a fresh profile. */
+/** A retained migration export proves that absent SQLite is not a fresh profile. */
 export function assertNoRetainedProfileStateExports(options: ProfileStateRecoveryLocation): void {
-  let hasRetainedEvidence: boolean
+  let hasRetainedExport: boolean
   try {
-    hasRetainedEvidence =
-      hasProfileStateAuthorityMarker(options.databaseFile) ||
+    hasRetainedExport =
       profileStateJsonExportPaths(options.dataFile).length > 0 ||
       profileStateDatabaseBackups(options.databaseFile).length > 0
   } catch {
     throw new ProfileStateRecoveryRequiredError(
       options,
-      new Error('Could not inspect retained profile state authority evidence')
+      new Error('Could not enumerate retained profile state exports')
     )
   }
-  if (hasRetainedEvidence) {
+  if (hasRetainedExport) {
     throw new ProfileStateRecoveryRequiredError(
       options,
-      new Error('SQLite profile state is missing while retained authority evidence exists')
+      new Error('SQLite profile state is missing while retained migration exports exist')
     )
   }
 }

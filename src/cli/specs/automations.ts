@@ -47,7 +47,6 @@ export const AUTOMATION_COMMAND_SPECS: CommandSpec[] = [
       'name',
       'prompt',
       'provider',
-      'extra-agent-args',
       ...AUTOMATION_PRECHECK_FLAGS,
       ...AUTOMATION_TARGET_FLAGS,
       ...AUTOMATION_SCHEDULE_FLAGS,
@@ -61,14 +60,12 @@ export const AUTOMATION_COMMAND_SPECS: CommandSpec[] = [
       'Use --source-context with a JSON TaskSourceContext when task/provider data should come from a specific host/account; pass null on edit to clear it.',
       'Use --workspace to run in an existing worktree; otherwise the automation creates a new worktree per run.',
       'Use --precheck to run a bounded command before scheduled runs; exit code 0 continues, anything else records a skipped run.',
-      'Use --reuse-session only with existing-workspace automations to submit later runs to the previous live automation session when it is still available. Use --fresh-session to disable reuse.',
-      'Use --extra-agent-args="--model opus --effort high" to add arguments after the host\'s default agent Arguments on each fresh run. Only model, effort, and a few safe options are accepted (Claude, Codex, CodeBuddy, Cursor, Grok, OMP); extras cannot be combined with --reuse-session. On edit, --extra-agent-args= clears them.'
+      'Use --reuse-session only with existing-workspace automations to submit later runs to the previous live automation session when it is still available. Use --fresh-session to disable reuse.'
     ],
     examples: [
       'orca automations create --name "Daily review" --trigger daily --prompt "Review open changes" --provider codex',
       'orca automations create --name "Weekday triage" --trigger "0 9 * * 1-5" --prompt "Triage issues" --provider claude --repo my-repo',
-      'orca automations create --name "PR review" --trigger hourly --precheck "gh pr list --json number -q .[0].number" --prompt "Review requested PRs" --provider codex',
-      'orca automations create --name "Docs pass" --trigger daily --prompt "Tidy the docs" --provider claude --extra-agent-args="--model opus --effort high --add-dir docs"'
+      'orca automations create --name "PR review" --trigger hourly --precheck "gh pr list --json number -q .[0].number" --prompt "Review requested PRs" --provider codex'
     ]
   },
   {
@@ -81,7 +78,6 @@ export const AUTOMATION_COMMAND_SPECS: CommandSpec[] = [
       'name',
       'prompt',
       'provider',
-      'extra-agent-args',
       ...AUTOMATION_PRECHECK_FLAGS,
       ...AUTOMATION_TARGET_FLAGS,
       ...AUTOMATION_SCHEDULE_FLAGS,
@@ -90,8 +86,7 @@ export const AUTOMATION_COMMAND_SPECS: CommandSpec[] = [
     positionalArgs: ['id'],
     examples: [
       'orca automations edit 2f9e... --disabled',
-      'orca automations edit --id 2f9e... --trigger "30 * * * *" --json',
-      'orca automations edit 2f9e... --extra-agent-args='
+      'orca automations edit --id 2f9e... --trigger "30 * * * *" --json'
     ]
   },
   {
@@ -114,17 +109,8 @@ export const AUTOMATION_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['automations', 'runs'],
     summary: 'List automation run history',
-    usage:
-      'orca automations runs [--id <automation-id>] [--limit <n>] [--cursor <cursor>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'id', 'limit', 'cursor'],
-    notes: [
-      'Without --limit or --cursor, reads the whole history in pages, so a large history from a paired server still fits in its replies.',
-      'With --limit or --cursor, prints one page (newest first, at most 100 runs) and its nextCursor; pass that as --cursor for the next page.'
-    ],
-    examples: [
-      'orca automations runs',
-      'orca automations runs --id 2f9e... --json',
-      'orca automations runs --limit 20 --json'
-    ]
+    usage: 'orca automations runs [--id <automation-id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'id'],
+    examples: ['orca automations runs', 'orca automations runs --id 2f9e... --json']
   }
 ]

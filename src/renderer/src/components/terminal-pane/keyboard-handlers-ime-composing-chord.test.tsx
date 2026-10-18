@@ -8,14 +8,14 @@
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 import {
   installTerminalImeCompositionRoute,
   XTERM_COMPOSITION_SESSION_END_EVENT,
   XTERM_COMPOSITION_SESSION_START_EVENT
 } from './terminal-ime-composition-route'
 import { TERMINAL_IME_DEFERRED_CHORD_ABANDON_MS } from './terminal-ime-deferred-chord'
-import { useTerminalKeyboardShortcuts } from './terminal-keyboard-hook'
+import { useTerminalKeyboardShortcuts } from './keyboard-handlers'
 
 type KeyboardHandlersDeps = Parameters<typeof useTerminalKeyboardShortcuts>[0]
 

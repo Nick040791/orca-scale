@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 import { realpathSync, writeFileSync } from 'node:fs'
 import type * as NodeFs from 'node:fs'
 import { join } from 'node:path'
@@ -93,7 +92,6 @@ vi.mock('electron', () => ({
     getPath: () => testState.userDataDir
   }
 }))
-beforeEach(() => installFakeAppEnvironment({ getPath: () => testState.userDataDir }))
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
@@ -123,7 +121,7 @@ describe('STA-4422 Codex sessions keep logging out', () => {
     )
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           createCodexAccountRecord('account-1', 'user@example.com', 'acct-1', managedHomePath)
         ],
@@ -195,7 +193,7 @@ describe('STA-4422 Codex sessions keep logging out', () => {
     writeFileSync(join(managedHomePath, '.orca-managed-home'), 'someone-else\n', 'utf-8')
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           createCodexAccountRecord('account-1', 'user@example.com', 'acct-1', managedHomePath)
         ],

@@ -53,7 +53,7 @@ server.listen(config.port, () => {
 
 const shutdown = (): void => {
   sessions.drain(0)
-  server.close(() => void realDatabase.close().catch(() => undefined))
+  server.close(() => void realDatabase.close())
 }
 process.once('SIGTERM', shutdown)
 process.once('SIGINT', shutdown)

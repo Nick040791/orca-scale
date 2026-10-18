@@ -1,13 +1,9 @@
 // Restart-timer policy: recovery must re-ensure a running distro, must NOT
 // boot a stopped one (wsl -d starts stopped distros), and must respect state
 // currency and disposal.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { WslRelayRecovery, type WslRelayRecoveryState } from './wsl-hook-relay-recovery'
-
-beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }))
-
-afterEach(() => vi.useRealTimers())
 
 function makeState(): WslRelayRecoveryState {
   return { distro: 'Ubuntu', cooldownUntil: Date.now() - 1_000 }
@@ -30,7 +26,6 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleRestart(state)
-    await vi.advanceTimersByTimeAsync(250)
     await waitFor(() => restart.mock.calls.length === 1)
     expect(restart).toHaveBeenCalledWith('Ubuntu')
   })
@@ -49,7 +44,6 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleRestart(state)
-    await vi.advanceTimersByTimeAsync(250)
     await waitFor(() => dropState.mock.calls.length === 1)
     expect(restart).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('distro not running'))
@@ -68,7 +62,7 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleRestart(state)
-    await vi.advanceTimersByTimeAsync(500)
+    await new Promise((resolve) => setTimeout(resolve, 500))
     expect(probe).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -89,12 +83,11 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleRestart(state)
-    await vi.advanceTimersByTimeAsync(250)
     await waitFor(() => probe.mock.calls.length === 1)
     // A fresh ensure() replaces this state while the probe is in flight.
     current = false
     resolveProbe?.(false)
-    await vi.advanceTimersByTimeAsync(100)
+    await new Promise((resolve) => setTimeout(resolve, 100))
     expect(dropState).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -114,11 +107,10 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleRestart(state)
-    await vi.advanceTimersByTimeAsync(250)
     await waitFor(() => probe.mock.calls.length === 1)
     current = false
     resolveProbe?.(true)
-    await vi.advanceTimersByTimeAsync(100)
+    await new Promise((resolve) => setTimeout(resolve, 100))
     expect(restart).not.toHaveBeenCalled()
   })
 
@@ -134,7 +126,7 @@ describe('WslRelayRecovery', () => {
     })
     const state = makeState()
     recovery.scheduleOneShotReinstall(state, 10, run)
-    await vi.advanceTimersByTimeAsync(100)
+    await new Promise((resolve) => setTimeout(resolve, 100))
     expect(run).not.toHaveBeenCalled()
     expect(state.reinstallTimer).toBeUndefined()
   })
@@ -154,7 +146,7 @@ describe('WslRelayRecovery', () => {
     recovery.scheduleRestart(state)
     recovery.scheduleOneShotReinstall(state, 100, reinstall)
     recovery.clearTimers(state)
-    await vi.advanceTimersByTimeAsync(500)
+    await new Promise((resolve) => setTimeout(resolve, 500))
     expect(restart).not.toHaveBeenCalled()
     expect(reinstall).not.toHaveBeenCalled()
     expect(state.restartTimer).toBeUndefined()

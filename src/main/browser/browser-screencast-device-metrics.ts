@@ -1,9 +1,5 @@
 import type { Debugger, WebContents } from 'electron'
-import {
-  runDebuggerCommandWithTimeout,
-  sendDebuggerCommand
-} from './browser-screencast-debugger-command'
-import { sendGuestCdpCommand } from './guest-cdp-command'
+import { sendDebuggerCommand } from './browser-screencast-debugger-command'
 import type { BrowserScreencastOptions } from './browser-screencast-stream-types'
 import { positiveInteger, positiveNumber } from './browser-screencast-viewport-fit'
 
@@ -19,8 +15,6 @@ export function createBrowserScreencastDeviceMetrics(
   options: BrowserScreencastOptions
 ): BrowserScreencastDeviceMetrics {
   let deviceMetricsOverridden = false
-  const sendViewportCommand = (method: string, params: Record<string, unknown>): Promise<unknown> =>
-    runDebuggerCommandWithTimeout(method, () => sendGuestCdpCommand(webContents, method, params))
 
   const clearDeviceMetricsOverride = async (): Promise<void> => {
     if (webContents.isDestroyed() || !dbg.isAttached()) {
@@ -44,13 +38,13 @@ export function createBrowserScreencastDeviceMetrics(
     // Why: Back/Forward and cross-process navigations can drop emulation while
     // the screencast remains attached. Reapply before fallback captures so the
     // page lays out at the client pane size, not the host BrowserView size.
-    await sendViewportCommand('Emulation.setDeviceMetricsOverride', {
+    await sendDebuggerCommand(dbg, 'Emulation.setDeviceMetricsOverride', {
       width: viewportWidth,
       height: viewportHeight,
       deviceScaleFactor,
       mobile: options.mobile === true
     })
-    await sendViewportCommand('Emulation.setVisibleSize', {
+    await sendDebuggerCommand(dbg, 'Emulation.setVisibleSize', {
       width: viewportWidth,
       height: viewportHeight
     }).catch(() => {})

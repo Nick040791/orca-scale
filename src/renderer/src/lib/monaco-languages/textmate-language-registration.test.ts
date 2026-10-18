@@ -47,6 +47,7 @@ describe('registerTextMateLanguage', () => {
         aliases: ['Nim']
       },
       configuration,
+      scopeName: 'source.nim',
       loadGrammar,
       loadProviderModule
     })
@@ -64,13 +65,12 @@ describe('registerTextMateLanguage', () => {
     expect(loadProviderModule).not.toHaveBeenCalled()
 
     const providerPromise = createTokensProvider()
-    expect(createTokensProvider()).toBe(providerPromise)
 
     await expect(providerPromise).resolves.toBe(provider)
-    expect(createTokensProvider()).toBe(providerPromise)
-    expect(loadProviderModule).toHaveBeenCalledTimes(1)
-    expect(createTextMateTokensProvider).toHaveBeenCalledTimes(1)
-    expect(createTextMateTokensProvider).toHaveBeenCalledWith({ loadGrammar })
+    expect(createTextMateTokensProvider).toHaveBeenCalledWith({
+      scopeName: 'source.nim',
+      loadGrammar
+    })
   })
 
   it('does not register duplicate language ids', () => {
@@ -81,6 +81,7 @@ describe('registerTextMateLanguage', () => {
         id: 'nim',
         extensions: ['.nim']
       },
+      scopeName: 'source.nim',
       loadGrammar: vi.fn()
     })
 

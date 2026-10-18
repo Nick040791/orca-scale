@@ -145,7 +145,7 @@ function getRenderer(service: MaybePausableRenderService): MaybeWebglRenderer | 
   return wrapped ?? null
 }
 
-export function isSynchronizedOutputHeld(terminal: unknown): boolean {
+function isSynchronizedOutputHeld(terminal: unknown): boolean {
   const core = (terminal as TerminalWithRenderService)._core
   return (
     (core?.coreService?.decPrivateModes ?? core?._coreService?.decPrivateModes)

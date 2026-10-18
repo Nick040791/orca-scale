@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GlobalSettings } from '../../shared/global-settings-types'
-import { RuntimeGitCommands } from './orca-runtime-git'
-import type { ResolvedRuntimeGitWorktree } from './runtime-git-command-target'
+import { RuntimeGitCommands, type ResolvedRuntimeGitWorktree } from './orca-runtime-git'
 
-const getBranchDiffMock = vi.hoisted(() => vi.fn())
+const getSshGitProviderMock = vi.hoisted(() => vi.fn())
 
-vi.mock('../git/status', () => ({ getBranchDiff: getBranchDiffMock }))
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: getSshGitProviderMock
+}))
 
 function makeWorktree(path: string): ResolvedRuntimeGitWorktree {
   const worktree = {
@@ -26,10 +27,10 @@ function makeWorktree(path: string): ResolvedRuntimeGitWorktree {
 
 describe('RuntimeGitCommands branch diff', () => {
   beforeEach(() => {
-    getBranchDiffMock.mockReset()
+    getSshGitProviderMock.mockReset()
   })
 
-  it('forwards the pinned head through normalized nested paths', async () => {
+  it('forwards the pinned head through normalized nested SSH paths', async () => {
     const mergeBase = 'a'.repeat(40)
     const headOid = 'b'.repeat(40)
     const result = {
@@ -39,11 +40,12 @@ describe('RuntimeGitCommands branch diff', () => {
       originalIsBinary: false,
       modifiedIsBinary: false
     }
-    getBranchDiffMock.mockResolvedValue(result)
+    const provider = { getBranchDiff: vi.fn().mockResolvedValue([result]) }
+    getSshGitProviderMock.mockReturnValue(provider)
     const commands = new RuntimeGitCommands({
       resolveRuntimeGitTarget: async () => ({
-        worktree: makeWorktree('/repo'),
-        executionHostId: 'local'
+        worktree: makeWorktree('/remote/repo'),
+        executionHostId: 'ssh:conn-1'
       }),
       getRuntimeSettings: () => ({}) as GlobalSettings
     })
@@ -57,10 +59,11 @@ describe('RuntimeGitCommands branch diff', () => {
       )
     ).resolves.toEqual(result)
 
-    expect(getBranchDiffMock).toHaveBeenCalledWith(
-      '/repo',
-      { mergeBase, headOid, filePath: 'src/file.ts', oldPath: 'src/old-file.ts' },
-      { admissionTier: 'interactive' }
-    )
+    expect(provider.getBranchDiff).toHaveBeenCalledWith('/remote/repo', mergeBase, {
+      includePatch: true,
+      headOid,
+      filePath: 'src/file.ts',
+      oldPath: 'src/old-file.ts'
+    })
   })
 })

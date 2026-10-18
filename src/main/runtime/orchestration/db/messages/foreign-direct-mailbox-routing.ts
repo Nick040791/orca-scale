@@ -2,7 +2,6 @@ import { parsePaneKey } from '../../../../../shared/stable-pane-id'
 import type { DispatchContextRow, MessageType } from '../../types'
 import { DISPATCH_PANE_KEY_MATCH_SUFFIX_SQL, paneKeyMatchSuffix } from '../pane-key-match'
 import type { OrchestrationDb } from '../orchestration-db'
-import { DISPATCH_CONTEXT_COLUMN_LIST } from '../row-column-lists'
 import {
   ORCHESTRATION_DELIVERY_BATCH_LIMIT,
   type ForeignDirectMailboxRoutingPage
@@ -14,29 +13,25 @@ export function findActiveDispatchForDirectMessageOwner(
   directHandle: string,
   paneKey?: string
 ): DispatchContextRow | undefined {
-  const rawExact = this.db
+  const exact = this.db
     .prepare(
-      `SELECT ${DISPATCH_CONTEXT_COLUMN_LIST} FROM dispatch_contexts
+      `SELECT * FROM dispatch_contexts
        WHERE run_id = ? AND assignee_handle = ? AND status IN ('pending', 'dispatched')
        ORDER BY rowid DESC LIMIT 1`
     )
-    .get(runId, directHandle)
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The schema-pinned complete Dispatch projection returns one Dispatch row or undefined; the adapter exposes unknown.
-  const exact = rawExact as DispatchContextRow | undefined
+    .get(runId, directHandle) as DispatchContextRow | undefined
   if (exact || !paneKey || !parsePaneKey(paneKey)) {
     return exact
   }
-  const reminted = this.db
+  return this.db
     .prepare(
-      `SELECT ${DISPATCH_CONTEXT_COLUMN_LIST} FROM dispatch_contexts
+      `SELECT * FROM dispatch_contexts
        WHERE run_id = ? AND assignee_pane_key IS NOT NULL
          AND status IN ('pending', 'dispatched') AND instr(assignee_pane_key, ':') > 1
          AND ${DISPATCH_PANE_KEY_MATCH_SUFFIX_SQL} = ?
        ORDER BY rowid DESC LIMIT 1`
     )
-    .get(runId, paneKeyMatchSuffix(paneKey))
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The schema-pinned complete Dispatch projection returns one Dispatch row or undefined; the adapter exposes unknown.
-  return reminted as DispatchContextRow | undefined
+    .get(runId, paneKeyMatchSuffix(paneKey)) as DispatchContextRow | undefined
 }
 
 export function routeForeignDirectMessagesToOwnedMailboxes(

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame
@@ -7,19 +7,6 @@ import {
   createRemoteRuntimeTransportMocks,
   type MultiplexSubscriptionCallbacks
 } from './remote-runtime-pty-transport-test-harness'
-
-// These transport fixtures never read abandoned-launch ownership from the app store.
-const appStore = vi.hoisted(() => ({
-  getState: vi.fn(() => {
-    throw new Error('These transport fixtures must not read app-store ownership')
-  })
-}))
-
-vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
-
-afterEach(() => {
-  expect(appStore.getState).not.toHaveBeenCalled()
-})
 
 let subscriptionCallbacks: MultiplexSubscriptionCallbacks = null
 let resolvedPaneHandle = 'terminal-1'
@@ -61,10 +48,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         return defaultRuntimeCall?.(args)
       })
       const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      let undeliveredWhenNotified: boolean | undefined
-      const onWriteUnavailable = vi.fn(() => {
-        undeliveredWhenNotified = transport.hasUndeliveredInput?.()
-      })
+      const onWriteUnavailable = vi.fn()
       const transport = createRemoteRuntimePtyTransport('env-1', {
         worktreeId: 'wt-1',
         tabId: 'tab-1',
@@ -76,12 +60,10 @@ describe('createRemoteRuntimePtyTransport', () => {
         callbacks: { onWriteUnavailable }
       })
       await vi.waitFor(() => expect(transport.getPtyId()).toBe('remote:env-1@@terminal-1'))
-      expect(transport.sendInput('ls\r', 'driving')).toBe(true)
+      expect(transport.sendInput('x')).toBe(true)
       await vi.advanceTimersByTimeAsync(8)
 
       await vi.waitFor(() => expect(onWriteUnavailable).toHaveBeenCalledOnce())
-      // Why: refused one-shot input never enters the journal; the remount must still warn of it.
-      expect(undeliveredWhenNotified).toBe(true)
       transport.destroy?.()
     } finally {
       vi.useRealTimers()
@@ -121,7 +103,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         callbacks: { onWriteUnavailable, onError }
       })
       await vi.waitFor(() => expect(transport.getPtyId()).toBe('remote:env-1@@terminal-1'))
-      expect(transport.sendInput('x', 'driving')).toBe(true)
+      expect(transport.sendInput('x')).toBe(true)
       await vi.advanceTimersByTimeAsync(8)
 
       await vi.waitFor(() => expect(onWriteUnavailable).toHaveBeenCalledOnce())
@@ -166,7 +148,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         callbacks: { onWriteUnavailable: oldWriteUnavailable }
       })
       await vi.waitFor(() => expect(transport.getPtyId()).toBe('remote:env-1@@terminal-1'))
-      expect(transport.sendInput('old', 'driving')).toBe(true)
+      expect(transport.sendInput('old')).toBe(true)
       await vi.advanceTimersByTimeAsync(8)
       await vi.waitFor(() =>
         expect(runtimeCall).toHaveBeenCalledWith(
@@ -223,7 +205,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         callbacks: {}
       })
       await vi.waitFor(() => expect(transport.getPtyId()).toBe('remote:env-1@@terminal-old'))
-      expect(transport.sendInput('queued-for-old', 'driving')).toBe(true)
+      expect(transport.sendInput('queued-for-old')).toBe(true)
 
       resolvedPaneHandle = 'terminal-new'
       transport.attach({
@@ -253,8 +235,6 @@ describe('createRemoteRuntimePtyTransport', () => {
     const newStream = {
       streamId: 2,
       sendInput: vi.fn(() => true),
-      acknowledgesInput: vi.fn(() => false),
-      inputLedgerId: vi.fn(() => null),
       resize: vi.fn(() => true),
       serializeBuffer: vi.fn(async () => null),
       close: vi.fn()
@@ -272,6 +252,7 @@ describe('createRemoteRuntimePtyTransport', () => {
         return newStream
       })
     vi.doMock('../../runtime/remote-runtime-terminal-multiplexer', () => ({
+      REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE: 'remote_terminal_snapshot_too_large',
       getRemoteRuntimeTerminalMultiplexer: vi.fn(() => ({ subscribeTerminal }))
     }))
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
@@ -340,8 +321,8 @@ describe('createRemoteRuntimePtyTransport', () => {
       })
       subscriptionSendBinary.mockClear()
 
-      // Why: replacement input is held for the new handle until terminal.resolvePane proves it belongs to this pane.
-      expect(transport.sendInput('x', 'driving')).toBe(true)
+      // Why: replacement input stays disabled until terminal.resolvePane proves the new handle belongs to this pane.
+      expect(transport.sendInput('x')).toBe(false)
       vi.advanceTimersByTime(8)
 
       const inputFrames = subscriptionSendBinary.mock.calls

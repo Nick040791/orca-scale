@@ -85,8 +85,7 @@ vi.mock('./github-api-repository', async (importOriginal) => {
   }
 })
 
-import { getWorkItem } from './client/fetch/get-work-item'
-import { _resetOwnerRepoCache } from './gh-utils'
+import { getWorkItem, _resetOwnerRepoCache } from './client'
 
 describe('GitHub issue open-by-number origin preference', () => {
   beforeEach(() => {

@@ -41,8 +41,7 @@ export type QuickCreationRequestInput = {
   linkedGitLabIssue: number | null
   includeGitLabLinks: boolean
   startup: WorktreeCreationRequest['startup']
-  issueCommand?: WorktreeCreationRequest['issueCommand']
-  hookPreparation?: WorktreeCreationRequest['hookPreparation']
+  issueCommand: WorktreeCreationRequest['issueCommand']
   pendingFirstAgentMessageRename: boolean
   note: string
   startupPlan: AgentStartupPlan | null
@@ -51,11 +50,6 @@ export type QuickCreationRequestInput = {
   promptDelivery: 'draft' | 'auto-submit'
   quickTelemetry: AgentStartedTelemetry | null
   suppressTerminalFocusOnCompletion: boolean
-  setupOnly: boolean
-}
-
-export type QuickSubmitOptions = {
-  setupOnly?: boolean
 }
 
 export function buildQuickCreationRequest(
@@ -109,7 +103,6 @@ export function buildQuickCreationRequest(
       ? { linkedGitLabIssue: input.linkedGitLabIssue }
       : {}),
     ...(input.startup ? { startup: input.startup } : {}),
-    ...(input.hookPreparation ? { hookPreparation: input.hookPreparation } : {}),
     ...(input.issueCommand ? { issueCommand: input.issueCommand } : {}),
     pendingFirstAgentMessageRename: input.pendingFirstAgentMessageRename,
     note: input.note,
@@ -118,7 +111,6 @@ export function buildQuickCreationRequest(
     ...(input.launchDraftPrompt ? { launchDraftPrompt: input.launchDraftPrompt } : {}),
     promptDelivery: input.promptDelivery,
     quickTelemetry: input.quickTelemetry,
-    ...(input.suppressTerminalFocusOnCompletion ? { suppressTerminalFocusOnCompletion: true } : {}),
-    ...(input.agent === null ? { setupOnly: input.setupOnly } : {})
+    ...(input.suppressTerminalFocusOnCompletion ? { suppressTerminalFocusOnCompletion: true } : {})
   }
 }

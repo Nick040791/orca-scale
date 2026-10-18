@@ -8,13 +8,10 @@
 //
 // The release CHAINS off the hold rather than racing it: an unmount during the hold's round trip
 // would otherwise release a hold that has not landed yet, and the late hold would never be undone.
-//
-// A current host ignores both: it starts an agent only for a send. They stay for older hosts, until
-// MIN_COMPATIBLE_RUNTIME_SERVER_VERSION passes the first host that ignores them.
 
 import { useEffect, useRef } from 'react'
 import { structuredAgentSessionHolderId } from '../../../../shared/structured-agent-session-holder'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 
 export function useStructuredAgentSessionHold(args: {

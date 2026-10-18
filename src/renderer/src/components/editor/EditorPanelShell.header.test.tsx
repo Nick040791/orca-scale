@@ -82,6 +82,7 @@ function renderShell(file: OpenFile, isCombinedDiff = false): string {
       onOpenDiffTargetFile={noop}
       onOpenPreviewToSide={noop}
       onOpenMarkdownPreview={noop}
+      onOpenContainingFolder={noop}
       onToggleSideBySide={noop}
       onEditorToggleChange={noop}
       onToggleMarkdownTableOfContents={noop}

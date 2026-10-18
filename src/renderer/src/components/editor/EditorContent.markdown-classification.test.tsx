@@ -62,7 +62,6 @@ vi.mock('./useEditorConflictNavigation', () => ({
 vi.mock('@/store', () => {
   const state = {
     markdownRichModeSizeOverridden: false,
-    markdownRichModeSizeOverride: {},
     setMarkdownRichModeSizeOverride: () => {},
     reloadOpenCheckRunDetailsTab: () => {}
   }

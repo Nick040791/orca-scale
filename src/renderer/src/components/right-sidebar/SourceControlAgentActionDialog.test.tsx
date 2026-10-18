@@ -14,12 +14,11 @@ import type { TuiAgent } from '../../../../shared/tui-agent'
 const mocks = vi.hoisted(() => ({
   ensureDetectedAgents: vi.fn(),
   ensureRemoteDetectedAgents: vi.fn(),
-  ensureRuntimeDetectedAgents: vi.fn(),
   onOpenChange: vi.fn(),
   onSaveAgentDefault: vi.fn(),
   onLaunched: vi.fn(),
   onStart: vi.fn(),
-  checkSourceControlAgentActionLaunch: vi.fn(),
+  planSourceControlAgentActionLaunch: vi.fn(),
   toastError: vi.fn()
 }))
 vi.mock('@/components/agent/AgentCombobox', () => ({
@@ -52,8 +51,8 @@ vi.mock('@/components/ui/select', () => ({
 vi.mock('../source-control/SourceControlActionVariableChips', () => ({
   SourceControlActionVariableChips: () => React.createElement('div')
 }))
-vi.mock('@/lib/source-control-agent-action-launch-check', () => ({
-  checkSourceControlAgentActionLaunch: mocks.checkSourceControlAgentActionLaunch
+vi.mock('@/lib/source-control-agent-action-plan', () => ({
+  planSourceControlAgentActionLaunch: mocks.planSourceControlAgentActionLaunch
 }))
 vi.mock('sonner', () => ({
   toast: { error: mocks.toastError }
@@ -61,7 +60,6 @@ vi.mock('sonner', () => ({
 import { useAppStore, type AppState } from '@/store'
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
 import { SourceControlAgentActionDialog } from './SourceControlAgentActionDialog'
-import { makeWorktree } from '@/store/slices/worktrees-slice-test-fixtures'
 let container: HTMLDivElement
 let root: Root
 let initialState: AppState
@@ -119,8 +117,7 @@ function resetStore(settings: GlobalSettings, repos: Repo[] = []): void {
       settings,
       repos,
       ensureDetectedAgents: mocks.ensureDetectedAgents,
-      ensureRemoteDetectedAgents: mocks.ensureRemoteDetectedAgents,
-      ensureRuntimeDetectedAgents: mocks.ensureRuntimeDetectedAgents
+      ensureRemoteDetectedAgents: mocks.ensureRemoteDetectedAgents
     },
     true
   )
@@ -183,9 +180,13 @@ describe('SourceControlAgentActionDialog', () => {
     vi.clearAllMocks()
     mocks.ensureDetectedAgents.mockResolvedValue(['codex'])
     mocks.ensureRemoteDetectedAgents.mockResolvedValue(['codex'])
-    mocks.ensureRuntimeDetectedAgents.mockResolvedValue(['codex'])
     mocks.onStart.mockResolvedValue(true)
-    mocks.checkSourceControlAgentActionLaunch.mockReturnValue({ ok: true })
+    mocks.planSourceControlAgentActionLaunch.mockReturnValue({
+      ok: true,
+      summary: 'Ready to launch.',
+      commandLabel: 'codex',
+      caveat: 'The prompt will be submitted after the agent is ready.'
+    })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -238,7 +239,9 @@ describe('SourceControlAgentActionDialog', () => {
     resetStore(
       {
         ...settingsWithGlobalRecipe(null),
-        experimentalNativeChat: true
+        experimentalNativeChat: true,
+        experimentalStructuredNativeChat: true,
+        openAgentTabsInChatByDefault: true
       },
       [repoWithSavedRecipe('--model saved', 'build-box', 'ssh:build-box')]
     )
@@ -256,21 +259,6 @@ describe('SourceControlAgentActionDialog', () => {
       agentArgs: '--model saved'
     })
   })
-  // Why (#21429): a paired server's workspace has no SSH connection on this client; its agents
-  // are on the server, and this client's own list says nothing about them.
-  it('detects agents on the paired server that owns the workspace', async () => {
-    mocks.ensureDetectedAgents.mockResolvedValue([])
-    resetStore(settingsWithGlobalRecipe(), [repoWithSavedRecipe('', null, 'runtime:env-1')])
-    useAppStore.setState({
-      worktreesByRepo: { 'repo-1': [makeWorktree({ id: 'repo-1::wt-1', repoId: 'repo-1' })] }
-    })
-
-    renderControlledDialog({ repoId: 'repo-1', worktreeId: 'repo-1::wt-1', connectionId: null })
-
-    await vi.waitFor(() => expect(mocks.onStart).toHaveBeenCalledTimes(1))
-    expect(mocks.ensureRuntimeDetectedAgents).toHaveBeenCalledWith('env-1', 'repo-1::wt-1')
-    expect(mocks.ensureDetectedAgents).not.toHaveBeenCalled()
-  })
   it('omits saved arguments from a structured local launch', async () => {
     setLocalRuntimeCapabilitiesForTests([STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY])
     const recipe = {
@@ -281,7 +269,9 @@ describe('SourceControlAgentActionDialog', () => {
     resetStore(
       {
         ...settingsWithGlobalRecipe(recipe),
-        experimentalNativeChat: true
+        experimentalNativeChat: true,
+        experimentalStructuredNativeChat: true,
+        openAgentTabsInChatByDefault: true
       },
       []
     )

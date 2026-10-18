@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
+import * as sshFilesystemDispatch from '../../../../../providers/ssh-filesystem-dispatch'
 import { readExactWorkerOutput } from './worker-output'
 
 function codexMessage(id: string, text: string): string {
@@ -19,6 +20,7 @@ describe('exact orchestration worker output', () => {
   let providerSession: ReturnType<OrcaRuntimeService['getExactWorkerProviderSession']>
   let runtime: OrcaRuntimeService
   const readTerminal = vi.fn()
+  let sshProviderLookup: { mockRestore: () => void }
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'orca-worker-output-'))
@@ -45,6 +47,7 @@ describe('exact orchestration worker output', () => {
       truncated: false,
       nextCursor: '9'
     })
+    sshProviderLookup = vi.spyOn(sshFilesystemDispatch, 'getSshFilesystemProvider')
     runtime = {
       getExactWorkerProviderSession: vi.fn(() => providerSession),
       getTerminalProcessIncarnation: vi.fn(() => 'pty:incarnation-1'),
@@ -54,6 +57,7 @@ describe('exact orchestration worker output', () => {
   })
 
   afterEach(async () => {
+    sshProviderLookup.mockRestore()
     await rm(directory, { recursive: true, force: true })
   })
 
@@ -130,6 +134,7 @@ describe('exact orchestration worker output', () => {
         messages: [{ id: 'a', blocks: [{ type: 'text', text: 'worker A only' }] }]
       }
     })
+    expect(sshProviderLookup).not.toHaveBeenCalled()
   })
 
   it('falls back safely when a WSL session lacks an attested distro', async () => {
@@ -162,7 +167,7 @@ describe('exact orchestration worker output', () => {
     expect(result.cursor).toMatch(/^owr1_/)
   })
 
-  it('falls back to the terminal for an SSH transcript', async () => {
+  it('keeps SSH transcript reads behind the remote filesystem capability', async () => {
     providerSession = {
       ...providerSession!,
       connectionId: 'ssh-target'
@@ -174,6 +179,7 @@ describe('exact orchestration worker output', () => {
       source: 'terminal',
       fallbackReason: 'remote_capability_unavailable'
     })
+    expect(sshProviderLookup).toHaveBeenCalledWith('ssh-target')
   })
 
   it('reads Grok through the shared Native Chat transcript decoder', async () => {
@@ -232,10 +238,7 @@ describe('exact orchestration worker output', () => {
       source: 'terminal',
       fallbackReason: 'provider_unsupported',
       terminal: { tail: ['opencode --dispatch-capability [dispatch capability redacted]'] },
-      warnings: [
-        'Dispatch capability tokens were redacted from terminal output.',
-        'Terminal wrap information was unavailable; capability masking used complete lines.'
-      ]
+      warnings: ['Dispatch capability tokens were redacted from terminal output.']
     })
     expect(JSON.stringify(result)).not.toContain(capability)
   })
@@ -260,10 +263,7 @@ describe('exact orchestration worker output', () => {
         tail: ['safe output'],
         draft: 'send --dispatch-capability [dispatch capability redacted]'
       },
-      warnings: [
-        'Dispatch capability tokens were redacted from terminal output.',
-        'Terminal wrap information was unavailable; capability masking used complete lines.'
-      ]
+      warnings: ['Dispatch capability tokens were redacted from terminal output.']
     })
     expect(JSON.stringify(result)).not.toContain(capability)
   })

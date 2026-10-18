@@ -18,14 +18,6 @@ import {
 } from '../../../../shared/usage-percentage-display'
 import { formatUsagePercentageLabel } from './usage-percentage-label'
 import { useResetCountdownClock } from '@/hooks/useResetCountdownClock'
-import { barColor, ProviderExtraUsageSection } from './provider-extra-usage-section'
-
-export {
-  barColor,
-  getExtraUsageLabel,
-  USAGE_URGENT_PERCENT,
-  USAGE_WARNING_PERCENT
-} from './provider-extra-usage-section'
 
 // Re-exported from its shared home so status-bar callers keep a single import.
 export { clampUsedPercent }
@@ -104,9 +96,6 @@ export function ProviderIcon({ provider }: { provider: string }): React.JSX.Elem
   }
   if (provider === 'grok') {
     return <AgentIcon agent="grok" size={13} />
-  }
-  if (provider === 'zcode') {
-    return <AgentIcon agent="zcode" size={13} />
   }
   if (provider === 'cursor') {
     return <AgentIcon agent="cursor" size={13} />
@@ -197,10 +186,7 @@ export function getWindowSections(
   }
   if (p.monthly !== undefined && p.monthly !== null) {
     sections.push({
-      label:
-        p.provider === 'zcode'
-          ? translate('auto.components.status.bar.tooltip.zcode.mcp', 'MCP')
-          : translate('auto.components.status.bar.tooltip.7f7f208060', 'Monthly'),
+      label: translate('auto.components.status.bar.tooltip.7f7f208060', 'Monthly'),
       window: p.monthly
     })
   }
@@ -215,6 +201,18 @@ export function getWindowSections(
 // inverts the color scheme (light bg in dark mode). These rich tooltips use
 // `text-background` for primary text and `text-background/50` for secondary
 // to stay readable inside the inverted tooltip container.
+
+// Why: urgency color tracks % used even when fill represents % remaining;
+// low usage stays neutral so persistent chrome stays quiet.
+export function barColor(usedPct: number): string {
+  if (usedPct < 60) {
+    return 'bg-muted-foreground/40'
+  }
+  if (usedPct < 80) {
+    return 'bg-yellow-500'
+  }
+  return 'bg-red-500'
+}
 
 function ProviderRateLimitWindowSection({
   window,
@@ -370,18 +368,6 @@ export function ProviderPanel({
           now={now}
         />
       ))}
-
-      {p.extraUsage ? (
-        <ProviderExtraUsageSection
-          balance={p.extraUsage}
-          provider={p.provider}
-          textClass={textClass}
-          mutedClass={mutedClass}
-          faintClass={faintClass}
-          emptyBarClass={emptyBarClass}
-          usagePercentageDisplay={usagePercentageDisplay}
-        />
-      ) : null}
 
       {p.error ? (
         <ErrorMessage

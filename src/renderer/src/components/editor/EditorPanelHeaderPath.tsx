@@ -1,6 +1,5 @@
-import { ImeInput } from '@/lib/ime-text-field'
 import { useEffect, useRef, useState } from 'react'
-import { Eye, Pencil } from 'lucide-react'
+import { Copy, ExternalLink, Eye, Pencil } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,12 +12,28 @@ import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import { translate } from '@/i18n/i18n'
 import type { OpenFile } from '@/store/slices/editor'
-import { isVirtualEditorFile } from '@/store/slices/editor/tabs/editor-tab-content-type'
-import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from '@/lib/close-all-context-menus'
+import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from '../tab-bar/SortableTab'
 import { useEditorHeaderFileRename } from './editor-header-file-rename'
 import { getEditorHeaderCopyState } from './editor-header'
 import { splitPathForDisplay } from './editor-path-display'
-import { EditorFileLocationMenuItems } from './EditorFileLocationMenuItems'
+
+const isMac = navigator.userAgent.includes('Mac')
+const isLinux = navigator.userAgent.includes('Linux')
+
+/** Platform-appropriate label: macOS -> Finder, Windows -> File Explorer, Linux -> Files */
+function getRevealLabel(): string {
+  return isMac
+    ? translate('auto.components.editor.EditorPanelHeader.revealInFinder', 'Reveal in Finder')
+    : isLinux
+      ? translate(
+          'auto.components.editor.EditorPanelHeader.openContainingFolder',
+          'Open Containing Folder'
+        )
+      : translate(
+          'auto.components.editor.EditorPanelHeader.revealInFileExplorer',
+          'Reveal in File Explorer'
+        )
+}
 
 type EditorPanelHeaderPathProps = {
   activeFile: OpenFile
@@ -26,6 +41,7 @@ type EditorPanelHeaderPathProps = {
   canShowMarkdownPreview: boolean
   onCopyPath: () => void
   onOpenMarkdownPreview: () => void
+  onOpenContainingFolder: () => void
 }
 
 export function EditorPanelHeaderPath({
@@ -33,7 +49,8 @@ export function EditorPanelHeaderPath({
   copiedPathVisible,
   canShowMarkdownPreview,
   onCopyPath,
-  onOpenMarkdownPreview
+  onOpenMarkdownPreview,
+  onOpenContainingFolder
 }: EditorPanelHeaderPathProps): React.JSX.Element {
   const [pathMenuOpen, setPathMenuOpen] = useState(false)
   const [pathMenuPoint, setPathMenuPoint] = useState({ x: 0, y: 0 })
@@ -41,8 +58,7 @@ export function EditorPanelHeaderPath({
   const headerCopyState = getEditorHeaderCopyState(activeFile)
   const displayPath = splitPathForDisplay(headerCopyState.pathLabel)
   const canCopyHeaderPath = headerCopyState.copyText !== null
-  // Why: virtual editor tabs use synthetic ids instead of on-disk paths.
-  const isVirtualEditorTab = isVirtualEditorFile(activeFile)
+  const isVirtualEditorTab = activeFile.mode === 'check-details'
   const markdownPreviewShortcutLabel = useShortcutLabel('editor.markdownPreview')
   const {
     canRename,
@@ -72,7 +88,7 @@ export function EditorPanelHeaderPath({
         }}
       >
         {isRenaming ? (
-          <ImeInput
+          <input
             ref={renameInputRef}
             data-editor-header-rename-input="true"
             aria-label={translate(
@@ -164,20 +180,45 @@ export function EditorPanelHeaderPath({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {!isVirtualEditorTab && (
-            <EditorFileLocationMenuItems file={activeFile} onCopyPath={onCopyPath} />
+            <>
+              <DropdownMenuItem
+                onSelect={() => {
+                  void window.api.ui.writeClipboardText(activeFile.filePath)
+                }}
+              >
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+                {translate('auto.components.editor.EditorPanelHeader.7c08a1f990', 'Copy Path')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  void window.api.ui.writeClipboardText(activeFile.relativePath)
+                }}
+              >
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+                {translate(
+                  'auto.components.editor.EditorPanelHeader.269ce4842b',
+                  'Copy Relative Path'
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
           )}
           {canShowMarkdownPreview && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onOpenMarkdownPreview}>
-                <Eye className="w-3.5 h-3.5 mr-1.5" />
-                {translate(
-                  'auto.components.editor.EditorPanelHeader.4157f3cbf3',
-                  'Open Markdown Preview'
-                )}
-                <DropdownMenuShortcut>{markdownPreviewShortcutLabel}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem onSelect={onOpenMarkdownPreview}>
+              <Eye className="w-3.5 h-3.5 mr-1.5" />
+              {translate(
+                'auto.components.editor.EditorPanelHeader.4157f3cbf3',
+                'Open Markdown Preview'
+              )}
+              <DropdownMenuShortcut>{markdownPreviewShortcutLabel}</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
+          {canShowMarkdownPreview && <DropdownMenuSeparator />}
+          {!isVirtualEditorTab && (
+            <DropdownMenuItem onSelect={onOpenContainingFolder}>
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+              {getRevealLabel()}
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

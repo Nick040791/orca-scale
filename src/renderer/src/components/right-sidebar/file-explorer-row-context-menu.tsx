@@ -26,15 +26,8 @@ import { useAppStore } from '@/store'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { detectLanguage } from '@/lib/language-detect'
 import { openFileInBrowserTab } from '@/lib/file-preview'
+import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/local-path-open-guard'
 import { translate } from '@/i18n/i18n'
-import { LocalOnlyMenuHint } from '@/components/local-only-menu-hint'
-import {
-  getRevealInFileManagerLabel,
-  getWorkspaceFileRevealOwner,
-  revealInFileManager
-} from '@/lib/reveal-in-file-manager'
-import { isRevealOrEditorOpenBlocked } from '@/lib/local-path-open-guard'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import type { FileExplorerRowProps } from './FileExplorerRow'
 import {
   shouldShowCollapseFolderAction,
@@ -47,6 +40,22 @@ import {
 import { copyFileToOsClipboard, downloadRemoteFile } from './file-explorer-row-file-transfer'
 
 const isMac = navigator.userAgent.includes('Mac')
+const isLinux = navigator.userAgent.includes('Linux')
+
+/** Platform-appropriate label: macOS → Finder, Windows → File Explorer, Linux → Files */
+function getRevealLabel(): string {
+  return isMac
+    ? translate('auto.components.right.sidebar.FileExplorerRow.revealInFinder', 'Reveal in Finder')
+    : isLinux
+      ? translate(
+          'auto.components.right.sidebar.FileExplorerRow.openContainingFolder',
+          'Open Containing Folder'
+        )
+      : translate(
+          'auto.components.right.sidebar.FileExplorerRow.revealInFileExplorer',
+          'Reveal in File Explorer'
+        )
+}
 
 function stopRightButtonMenuSelection(event: React.PointerEvent): void {
   if (event.button !== 2) {
@@ -120,13 +129,6 @@ export function FileExplorerRowContextMenu({
     supportsFolderDownload
   )
   const showCopyFileAction = shouldShowCopyFileAction(node, connectionId, selectionSize)
-  const revealOwner = useAppStore((s) =>
-    getWorkspaceFileRevealOwner(s, s.activeWorktreeId, {
-      connectionId,
-      runtimeEnvironmentId: getRuntimeEnvironmentIdForWorktree(s, s.activeWorktreeId)
-    })
-  )
-  const revealBlocked = isRevealOrEditorOpenBlocked(revealOwner)
   const handleOpenInOrcaBrowser = useCallback(() => {
     if (!activeWorktreeId) {
       return
@@ -276,12 +278,27 @@ export function FileExplorerRowContextMenu({
         </ContextMenuItem>
       )}
       <ContextMenuItem
-        disabled={revealBlocked}
-        onSelect={() => void revealInFileManager(node.path, revealOwner)}
+        onSelect={() => {
+          const state = useAppStore.getState()
+          const activeWorktree = Object.values(state.worktreesByRepo)
+            .flat()
+            .find((worktree) => worktree.id === activeWorktreeId)
+          const activeRepo = activeWorktree
+            ? state.repos.find((repo) => repo.id === activeWorktree.repoId)
+            : null
+          if (
+            isLocalPathOpenBlocked(state.settings, {
+              connectionId: activeRepo?.connectionId ?? null
+            })
+          ) {
+            showLocalPathOpenBlockedToast()
+            return
+          }
+          window.api.shell.openPath(node.path)
+        }}
       >
         <ExternalLink />
-        {getRevealInFileManagerLabel()}
-        {revealBlocked ? <LocalOnlyMenuHint /> : null}
+        {getRevealLabel()}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => onStartRename(node)}>

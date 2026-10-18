@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { spawnProcess } from '@orca/process-host'
+import { spawnProcess } from '../../src/shared/child-process/run-process'
 
 const buildScript = fileURLToPath(new URL('./build-native-for-platform.mjs', import.meta.url))
 const directories = []
@@ -35,14 +35,6 @@ function startBuild(mode, options = {}) {
   writeFileSync(
     join(directory, 'config', 'scripts', 'build-windows-cli-launcher.mjs'),
     "console.log('windows launcher only')"
-  )
-  writeFileSync(
-    join(directory, 'config', 'scripts', 'build-windows-agent-hook.mjs'),
-    "console.log('windows agent hook only')"
-  )
-  writeFileSync(
-    join(directory, 'config', 'scripts', 'build-wayland-clipboard.mjs'),
-    "console.log('wayland clipboard only')"
   )
   writeFileSync(
     cli,
@@ -336,9 +328,7 @@ describe.skipIf(process.platform !== 'darwin')('parallel native builds', () => {
     )
     await sleep(300)
     build.releaseExit()
-    await waitFor(() =>
-      build.events().some(({ event, name }) => event === 'completed' && name.includes('computer'))
-    )
+    await waitFor(() => build.events().some(({ event }) => event === 'completed'))
     const accepted = Math.max(
       ...build
         .events()
@@ -363,10 +353,9 @@ describe.skipIf(process.platform !== 'darwin')('parallel native builds', () => {
     expect(result).toMatchObject({ code: 0, signal: null })
     expect(build.events()).toEqual([])
     expect(result.output).toContain(
-      platform === 'win32' ? 'windows launcher only' : 'wayland clipboard only'
+      platform === 'win32'
+        ? 'windows launcher only'
+        : 'no macOS native computer build required on linux'
     )
-    if (platform === 'win32') {
-      expect(result.output).toContain('windows agent hook only')
-    }
   })
 })

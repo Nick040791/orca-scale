@@ -7,18 +7,13 @@ import { mainProcessState as state } from './main-process-state'
 import { prepareCodexAiVaultSessionResume } from '../codex/codex-ai-vault-session-resume'
 import { resolveHostCodexSessionSourceHome } from '../codex/codex-session-source-home'
 import { preserveAgentAuthBeforeRestart } from '../agent-auth-restart-preservation'
-import { preserveStateBeforeUpdateRestart } from '../update-restart-preservation'
 import {
   emitPluginWorktreeLifecycle,
   handleCodexHomePtySpawned,
   handlePtyExit
 } from './main-process-pty-startup'
 import { prepareCodexRuntimeHomeForLaunch } from './codex-launch-preparation'
-import { resolveHostAgentBaseEnvironment } from '../runtime/structured-agent-shell-environment'
-import {
-  prepareCodexPinnedLaunchHome,
-  prepareCodexSessionResumeForLaunch
-} from './codex-session-resume-launch'
+import { prepareCodexSessionResumeForLaunch } from './codex-session-resume-launch'
 import { isRecoveryReloadInFlight } from './main-window-lifecycle-flags'
 import { RELAY_HOST_CLOSE_REASON } from '../../shared/relay-host-close-reason'
 
@@ -76,8 +71,7 @@ export function attachMainWindowCoreServices(
     automations,
     {
       prepareForCodexLaunch: prepareCodexRuntimeHomeForLaunch,
-      prepareForClaudeLaunch: (target) => claudeRuntimeAuth.prepareForClaudeLaunch(target),
-      resolveBaseEnvironment: () => resolveHostAgentBaseEnvironment(store.getSettings())
+      prepareForClaudeLaunch: (target) => claudeRuntimeAuth.prepareForClaudeLaunch(target)
     },
     state.agentAwakeService ?? undefined,
     state.crashReports ?? undefined,
@@ -88,25 +82,22 @@ export function attachMainWindowCoreServices(
       prepareAiVaultSessionResume: (args) =>
         prepareCodexAiVaultSessionResume(args, {
           runtimeHome: codexRuntimeHome,
-          systemCodexHomePath: resolveHostCodexSessionSourceHome(store.getSettings()),
-          preparePinnedLaunchHome: (home) => prepareCodexPinnedLaunchHome(home)
+          systemCodexHomePath: resolveHostCodexSessionSourceHome(store.getSettings())
         }),
       onBeforeRelaunch: async () => {
         state.isQuitting = true
         state.desktopRelayService?.fenceAndCloseNow()
-        await preserveAgentAuthBeforeRestart({ codexRuntimeHome, store })
+        await preserveAgentAuthBeforeRestart({
+          codexRuntimeHome,
+          claudeRuntimeAuth,
+          store
+        })
       },
-      onOrcaProfileAuthMutation: () => {
-        // Why: a provider whose launch-time install failed is installed by the next auth change.
-        void state.desktopRelayInstaller?.authChanged()
-        state.desktopRelayService?.authMutated()
-      },
+      onOrcaProfileAuthMutation: () => state.desktopRelayService?.authMutated(),
       // Sign-out is the one fence a paired phone can be told about; quit and
       // relaunch above stay reasonless so a restart never reads as signed out.
-      onBeforeOrcaProfileSignOut: () => {
-        state.desktopRelayInstaller?.suspend()
+      onBeforeOrcaProfileSignOut: () =>
         state.desktopRelayService?.fenceAndCloseNow(RELAY_HOST_CLOSE_REASON.SIGNED_OUT)
-      }
     },
     state.pluginService ?? undefined,
     state.pluginMarketplaceService && state.pluginMarketplaceInstaller
@@ -135,7 +126,10 @@ export function attachMainWindowCoreServices(
       isRecoveryReloadInFlight,
       onCodexHomePtySpawned: handleCodexHomePtySpawned,
       onPtyExit: handlePtyExit,
-      onBeforeUpdateQuit: () => preserveStateBeforeUpdateRestart({ codexRuntimeHome, store }),
+      onBeforeUpdateQuit: async () => {
+        await preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
+        await store.writeLatestProfileStateJsonCompatibilityExportAsync()
+      },
       onBeforeUpdateQuitFailure: 'abort',
       updateInstallMode: resolveUpdateInstallMode(state.isServeMode),
       onWorktreeLifecycle: emitPluginWorktreeLifecycle

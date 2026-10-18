@@ -41,7 +41,7 @@ vi.mock('../ephemeral-vm-runtime-ssh', () => ({
   removeRuntimeOwnedSshTarget: removeRuntimeOwnedSshTargetMock
 }))
 
-vi.mock('./runtime-environments/runtime-environments', () => ({
+vi.mock('./runtime-environments', () => ({
   invalidateRuntimeEnvironmentTransport: invalidateRuntimeEnvironmentTransportMock
 }))
 

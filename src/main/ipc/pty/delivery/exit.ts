@@ -7,7 +7,56 @@ import { allocatePtyLifecycleSequence } from '../host-env/types'
 import { makePtyDataPayload, sendPtyDataToRenderer } from './payload'
 import { getRendererInFlightCharsForPty } from './accounting'
 import { clearFlushTimerIfIdle } from './flush'
+import { ptyIncarnationById } from '../provider/ownership-state'
 import type { PtyIpcSession } from '../session'
+
+export type ReplacedPtyStop = {
+  incarnationId: string | undefined
+  expiryTimer?: NodeJS.Timeout
+}
+
+/** Labels the exit of a PTY that main stops so a new process can take its pane. Settle with
+ *  whether the stop succeeded; a failed stop leaves no label behind. */
+export function markReplacedPtyStop(
+  session: PtyIpcSession,
+  id: string
+): (stopped: boolean) => void {
+  clearTimeout(session.replacedPtyStopsById.get(id)?.expiryTimer)
+  const mark: ReplacedPtyStop = { incarnationId: ptyIncarnationById.get(id) }
+  session.replacedPtyStopsById.set(id, mark)
+  return (stopped) => {
+    if (session.replacedPtyStopsById.get(id) !== mark) {
+      return
+    }
+    if (!stopped) {
+      session.replacedPtyStopsById.delete(id)
+      return
+    }
+    // Why a window: an SSH exit can reach the renderer after the stop settles; bound it like a synthetic kill.
+    mark.expiryTimer = setTimeout(() => {
+      if (session.replacedPtyStopsById.get(id) === mark) {
+        session.replacedPtyStopsById.delete(id)
+      }
+    }, SYNTHETIC_KILL_EXIT_DUPLICATE_WINDOW_MS)
+    mark.expiryTimer.unref?.()
+  }
+}
+
+function consumeReplacedPtyStop(
+  session: PtyIpcSession,
+  payload: { id: string; incarnationId?: string }
+): boolean {
+  const mark = session.replacedPtyStopsById.get(payload.id)
+  if (
+    !mark ||
+    (mark.incarnationId && payload.incarnationId && mark.incarnationId !== payload.incarnationId)
+  ) {
+    return false
+  }
+  clearTimeout(mark.expiryTimer)
+  session.replacedPtyStopsById.delete(payload.id)
+  return true
+}
 
 export function rememberSyntheticKillExit(
   session: PtyIpcSession,
@@ -52,11 +101,12 @@ export function consumeSyntheticKillExit(
   return true
 }
 
-function preparePtyExitForRenderer(
+export function preparePtyExitForRenderer(
   session: PtyIpcSession,
   payload: { id: string; code: number; incarnationId?: string }
 ): (() => void) | null {
   if (!session.mainWindow || session.mainWindow.isDestroyed()) {
+    session.sshOutputIntake?.transferPtyProjections(payload.id, 'renderer-destroyed')
     return () => {}
   }
   if (session.rendererExitingPtyIds.has(payload.id)) {
@@ -84,11 +134,16 @@ function preparePtyExitForRenderer(
     if (remaining) {
       if (remaining.droppedOutput === true) {
         // Sentinel entry: only salvaged query bytes remain; keep the flag so the renderer knows the span was dropped.
-        sendPtyDataToRenderer(session, payload.id, {
-          id: payload.id,
-          data: remaining.data,
-          droppedOutput: true
-        })
+        sendPtyDataToRenderer(
+          session,
+          payload.id,
+          {
+            id: payload.id,
+            data: remaining.data,
+            droppedOutput: true
+          },
+          remaining.projectionAdmissionIds
+        )
       } else {
         sendPtyDataToRenderer(
           session,
@@ -100,7 +155,8 @@ function preparePtyExitForRenderer(
             remaining.containsBackgroundOutput,
             remaining.rawLength,
             remaining.transformed
-          )
+          ),
+          remaining.projectionAdmissionIds
         )
       }
     }
@@ -111,7 +167,7 @@ function preparePtyExitForRenderer(
   }
 }
 
-function finalizePtyExitForRenderer(
+export function finalizePtyExitForRenderer(
   session: PtyIpcSession,
   payload: { id: string; code: number; incarnationId?: string }
 ): void {
@@ -125,6 +181,7 @@ function finalizePtyExitForRenderer(
   session.rendererCreditBeforeExitByPty.delete(payload.id)
   // Why resume a dead PTY (no-op): avoid leaving a stale paused mark behind for a reused id.
   session.producerFlowControl.release(payload.id)
+  session.sourceCreditPendingPtys.delete(payload.id)
   session.pendingOverflowMarkedPtys.delete(payload.id)
   session.rendererDeliveryRestoreNeededPtys.delete(payload.id)
   lastInputAtByPty.delete(payload.id)
@@ -145,12 +202,12 @@ function finalizePtyExitForRenderer(
       session.schedulePendingDataAfterCreditReport(true)
     }
   }
-  const intentionalStops =
-    session.runtime?.intentionalPtyStops?.claimExit(payload.id, payload.incarnationId) ?? []
   session.mainWindow.webContents.send('pty:exit', {
     ...payload,
-    ...(intentionalStops.includes('reversible') ? { preserveRendererBinding: true } : {}),
-    ...(intentionalStops.includes('replaced') ? { replacedByRestart: true } : {})
+    ...(session.reversibleStopOwnersByPtyId.has(payload.id)
+      ? { preserveRendererBinding: true }
+      : {}),
+    ...(consumeReplacedPtyStop(session, payload) ? { replacedByRestart: true } : {})
   })
 }
 
@@ -164,6 +221,7 @@ export function sendPtyExitToRenderer(
     return
   }
   try {
+    session.sshOutputIntake?.transferPtyProjections(payload.id, 'legacy-pty-exit')
     finalizePtyExitForRenderer(session, payload)
   } finally {
     release()

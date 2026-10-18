@@ -26,7 +26,7 @@ export function getGitCloneFailureMessage(
 
 /** Guidance the raw git error omits: where the clone ran, and why nothing could prompt there. */
 function appendCloneTransportGuidance(message: string, scrubbedStderr: string): string {
-  // Re-entrant: a message that already carries the note is returned unchanged.
+  // Re-entrant: remote-repo-clone re-parses a message the relay already built.
   if (message.includes(CLONE_HOST_NOTE)) {
     return message
   }

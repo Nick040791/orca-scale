@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { cleanupE2ECrashpad } from './electron-crashpad-cleanup'
-import { recordElectronShutdownTiming } from './electron-shutdown-timing'
 import type { ElectronApplication } from '@stablyai/playwright-test'
 
 const GRACEFUL_CLOSE_TIMEOUT_MS = 10_000
@@ -113,15 +112,6 @@ function killPid(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-function hasPidExited(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return false
-  } catch (error) {
-    return error instanceof Error && 'code' in error && error.code === 'ESRCH'
-  }
-}
-
 async function forceKillPidTree(pid: number): Promise<void> {
   if (!pid) {
     return
@@ -143,17 +133,7 @@ async function forceKillPidTree(pid: number): Promise<void> {
   for (const targetPid of [...pids].toReversed()) {
     killPid(targetPid, 'SIGTERM')
   }
-  const deadline = performance.now() + FORCE_KILL_WAIT_MS
-  while (true) {
-    if (pids.every(hasPidExited)) {
-      return
-    }
-    const remainingMs = deadline - performance.now()
-    if (remainingMs <= 0) {
-      break
-    }
-    await delay(Math.min(50, remainingMs))
-  }
+  await delay(FORCE_KILL_WAIT_MS)
   for (const targetPid of [...pids].toReversed()) {
     killPid(targetPid, 'SIGKILL')
   }
@@ -215,35 +195,10 @@ export async function forceQuitElectronAppForE2E(
   ).catch(() => undefined)
 }
 
-export async function closeElectronAppForE2E(
-  app: ElectronApplication,
-  options: { cleanupDaemonsForUserDataDir?: string } = {}
-): Promise<void> {
+export async function closeElectronAppForE2E(app: ElectronApplication): Promise<void> {
   const proc = app.process()
-  const started = performance.now()
-  let rootExitMs: number | null = hasExited(proc) ? 0 : null
-  let pipesClosedMs: number | null = null
-  let outcome = 'closed'
-  let daemonCleanup: Promise<void> | undefined
-  const startDaemonCleanup = (): void => {
-    if (options.cleanupDaemonsForUserDataDir && !daemonCleanup) {
-      daemonCleanup = cleanupE2EDaemons(options.cleanupDaemonsForUserDataDir)
-      void daemonCleanup.catch(() => undefined)
-    }
-  }
-  const releasePipes = (): void => {
-    if (hasExited(proc)) {
-      rootExitMs ??= performance.now() - started
-      // Linux daemon trees retain Chromium sockets that block Playwright's public close.
-      startDaemonCleanup()
-    }
-    releaseExitedProcessPipes(proc)
-  }
-  const pipesClosed = (): void => {
-    pipesClosedMs = performance.now() - started
-  }
+  const releasePipes = (): void => releaseExitedProcessPipes(proc)
   proc.once('exit', releasePipes)
-  proc.once('close', pipesClosed)
   releasePipes()
   try {
     await withTimeout(app.close(), GRACEFUL_CLOSE_TIMEOUT_MS, 'Timed out closing Electron app')
@@ -254,23 +209,13 @@ export async function closeElectronAppForE2E(
       }
     }
   } catch {
-    outcome = 'fallback'
     if (proc) {
       await forceKillProcessTree(proc)
     }
   } finally {
     proc.off('exit', releasePipes)
-    proc.off('close', pipesClosed)
     releasePipes()
-    recordElectronShutdownTiming('close', started, {
-      pid: proc.pid,
-      outcome,
-      rootExitMs,
-      pipesClosedMs
-    })
   }
-  startDaemonCleanup()
-  await daemonCleanup
 }
 
 function readDaemonPidFiles(userDataDir: string): number[] {
@@ -284,20 +229,14 @@ function readDaemonPidFiles(userDataDir: string): number[] {
     if (!entry.endsWith('.pid')) {
       continue
     }
-    let raw: string
     try {
-      raw = readFileSync(path.join(daemonDir, entry), 'utf8').trim()
-    } catch {
-      // Why: an exiting daemon removes its pid file between readdir and read.
-      continue
-    }
-    try {
+      const raw = readFileSync(path.join(daemonDir, entry), 'utf8').trim()
       const parsed = JSON.parse(raw) as { pid?: unknown }
       if (typeof parsed.pid === 'number' && Number.isInteger(parsed.pid)) {
         pids.push(parsed.pid)
       }
     } catch {
-      const pid = Number(raw)
+      const pid = Number(readFileSync(path.join(daemonDir, entry), 'utf8').trim())
       if (Number.isInteger(pid)) {
         pids.push(pid)
       }
@@ -310,14 +249,8 @@ export async function cleanupE2EDaemons(userDataDir: string): Promise<void> {
   // Why: app quit intentionally leaves daemon PTYs alive for warm reattach.
   // E2E temp profiles are deleted after each test, so their detached daemons
   // must be stopped explicitly or CI accumulates orphan Electron/shell trees.
-  const started = performance.now()
-  const pids = readDaemonPidFiles(userDataDir)
-  try {
-    for (const pid of pids) {
-      await forceKillPidTree(pid)
-    }
-    cleanupE2ECrashpad(userDataDir)
-  } finally {
-    recordElectronShutdownTiming('daemon-cleanup', started, { daemonCount: pids.length })
+  for (const pid of readDaemonPidFiles(userDataDir)) {
+    await forceKillPidTree(pid)
   }
+  cleanupE2ECrashpad(userDataDir)
 }

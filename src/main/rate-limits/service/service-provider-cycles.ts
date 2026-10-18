@@ -12,7 +12,7 @@ export abstract class RateLimitServiceProviderCycles extends RateLimitServiceFul
     }
     const codexTarget = this.codexFetchTarget
     const codexGeneration = this.codexFetchGeneration
-    const codexHome = await this.resolveCodexHome(codexTarget)
+    const codexHome = this.resolveCodexHome(codexTarget)
     // Why: return before the "fetching" mark — a skipped cycle never settles it (#STA-4422).
     if (codexHome.skip) {
       if (
@@ -40,7 +40,7 @@ export abstract class RateLimitServiceProviderCycles extends RateLimitServiceFul
         ? Promise.resolve(missingWslCodexHome)
         : fetchCodexRateLimits({
             codexHomePath,
-            networkProxySettings: this.networkProxySettingsResolver?.(),
+            allowPtyFallback: this.shouldAllowCodexPtyFallback(),
             signal
           })
     ).catch((err): ProviderRateLimits => ({
@@ -56,7 +56,7 @@ export abstract class RateLimitServiceProviderCycles extends RateLimitServiceFul
       return
     }
 
-    const latestCodexHome = await this.resolveCodexHome(codexTarget)
+    const latestCodexHome = this.resolveCodexHome(codexTarget)
     if (latestCodexHome.skip && codexGeneration === this.codexFetchGeneration) {
       this.updateState({
         ...this.state,

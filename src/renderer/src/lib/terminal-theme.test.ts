@@ -4,6 +4,7 @@ import {
   DEFAULT_TERMINAL_THEME_LIGHT,
   getAvailableTerminalThemeOptions,
   getBuiltinTheme,
+  getTerminalThemePreview,
   isTerminalBackgroundLight,
   resolveOpaqueTerminalBackground,
   resolveEffectiveTerminalAppearance
@@ -138,7 +139,7 @@ describe('resolveEffectiveTerminalAppearance', () => {
     )
 
     expect(appearance.themeName).toBe('Invalid Theme Name')
-    expect(appearance.theme).toEqual(getBuiltinTheme(DEFAULT_TERMINAL_THEME_LIGHT))
+    expect(appearance.theme).toEqual(getTerminalThemePreview(DEFAULT_TERMINAL_THEME_LIGHT))
   })
 
   it('resolves custom theme selections by id', () => {
@@ -187,7 +188,7 @@ describe('resolveEffectiveTerminalAppearance', () => {
     )
 
     expect(appearance.themeName).toBe('custom:warp:missing')
-    expect(appearance.theme).toEqual(getBuiltinTheme(DEFAULT_TERMINAL_THEME_DARK))
+    expect(appearance.theme).toEqual(getTerminalThemePreview(DEFAULT_TERMINAL_THEME_DARK))
   })
 
   it('falls back visually to the light default when a light custom selection is missing', () => {
@@ -205,7 +206,7 @@ describe('resolveEffectiveTerminalAppearance', () => {
     )
 
     expect(appearance.themeName).toBe('custom:warp:missing')
-    expect(appearance.theme).toEqual(getBuiltinTheme(DEFAULT_TERMINAL_THEME_LIGHT))
+    expect(appearance.theme).toEqual(getTerminalThemePreview(DEFAULT_TERMINAL_THEME_LIGHT))
   })
 
   it('includes imported themes as grouped picker options', () => {

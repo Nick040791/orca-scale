@@ -25,8 +25,8 @@ export type FeatureWallSetupSectionId = 'parallel-work' | 'setup'
 export const FEATURE_WALL_SETUP_STEPS: readonly FeatureWallSetupStep[] = [
   {
     id: 'two-worktrees',
-    name: 'Work on two tasks at once',
-    subtitle: 'Work on two tasks at once',
+    name: 'Multi-task',
+    subtitle: 'Multi-task',
     description:
       'Work in 2 different worktrees at once. Each one is isolated (even in the same project). Perfect for working on 2 features at once.'
   },
@@ -51,10 +51,10 @@ export const FEATURE_WALL_SETUP_STEPS: readonly FeatureWallSetupStep[] = [
   },
   {
     id: 'agent-capabilities',
-    name: 'Give agents Orca skills',
-    subtitle: 'Give agents Orca skills',
+    name: 'Enable Orca CLI',
+    subtitle: 'Enable Orca CLI',
     description:
-      "Install the skills agents use to drive Orca's browser, control your computer, and coordinate multi-step work."
+      'Register the Orca shell command and install agent skills for browser, computer, and orchestration workflows.'
   },
   {
     id: 'task-sources',

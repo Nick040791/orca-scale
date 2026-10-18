@@ -61,6 +61,7 @@ async function retiredPty(
   if (destroy) {
     ;(term as unknown as { destroy?: () => void }).destroy?.()
   }
+  await new Promise<void>((resolve) => setTimeout(resolve, 400))
   return { term, spawnFd }
 }
 

@@ -478,7 +478,7 @@ describe('WorkspaceCleanupDialog stale-while-revalidate', () => {
     expect(holders.infoToasts).toContain('1 selected workspace no longer exists.')
   })
 
-  it('includes the active workspace and live-agent rows in select-all', async () => {
+  it('keeps selected active workspaces outside the select-all scope', async () => {
     installApi({
       scannedAt: CACHED_AT,
       candidates: [
@@ -488,12 +488,6 @@ describe('WorkspaceCleanupDialog stale-while-revalidate', () => {
           displayName: 'active',
           reasons: [],
           blockers: ['active-workspace']
-        }),
-        makeCandidate({
-          worktreeId: 'repo1::/tmp/agent',
-          displayName: 'agent',
-          reasons: [],
-          blockers: ['live-agent']
         })
       ],
       errors: []
@@ -501,19 +495,18 @@ describe('WorkspaceCleanupDialog stale-while-revalidate', () => {
     await renderDialog()
     await openDialog()
 
+    await act(async () => rowCheckbox('active')?.click())
     const selectAll = container?.querySelector<HTMLElement>(
-      '[aria-label="Select all 3 safety-checked workspaces"]'
+      '[aria-label="Select 1 safety-checked workspace"]'
     )
     expect(selectAll?.getAttribute('aria-checked')).toBe('false')
 
     await act(async () => selectAll?.click())
     expect(rowCheckbox('ready')?.getAttribute('aria-checked')).toBe('true')
     expect(rowCheckbox('active')?.getAttribute('aria-checked')).toBe('true')
-    expect(rowCheckbox('agent')?.getAttribute('aria-checked')).toBe('true')
 
     await act(async () => selectAll?.click())
     expect(rowCheckbox('ready')?.getAttribute('aria-checked')).toBe('false')
-    expect(rowCheckbox('active')?.getAttribute('aria-checked')).toBe('false')
-    expect(rowCheckbox('agent')?.getAttribute('aria-checked')).toBe('false')
+    expect(rowCheckbox('active')?.getAttribute('aria-checked')).toBe('true')
   })
 })

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { worktreeRemovalReplyTimeoutMs } from '../../../../shared/worktree/archive-hook-removal-gate'
+import { ARCHIVE_HOOK_TIMEOUT_MS } from '../../../../shared/worktree/archive-hook-removal-gate'
 import type { AppState } from '../types'
 import type { RuntimeEnvironmentCallRequest } from '../../runtime/runtime-compatibility-test-fixture'
 import { makeWorktree } from './worktrees-slice-test-fixtures'
@@ -66,7 +66,7 @@ describe('worktree remote runtime mutations', () => {
         runHooks: true
       },
       // Hooks run here, so the client must outlast the host's archive-hook budget (#19334).
-      timeoutMs: worktreeRemovalReplyTimeoutMs(true),
+      timeoutMs: ARCHIVE_HOOK_TIMEOUT_MS + 60_000,
       expectedEnvironmentPairingRevision: undefined,
       expectedRuntimeId: undefined
     })
@@ -130,7 +130,7 @@ describe('worktree remote runtime mutations', () => {
         runHooks: true
       },
       // Hooks run here, so the client must outlast the host's archive-hook budget (#19334).
-      timeoutMs: worktreeRemovalReplyTimeoutMs(true),
+      timeoutMs: ARCHIVE_HOOK_TIMEOUT_MS + 60_000,
       expectedEnvironmentPairingRevision: undefined,
       expectedRuntimeId: undefined
     })
@@ -188,13 +188,6 @@ describe('worktree remote runtime mutations', () => {
       runtimeOwnerEnvironmentId: 'owner-hub'
     })
     runtimeEnvironmentCall
-      // Why: the archive-hook check runs on the HUB too; this app cannot reach its SSH target.
-      .mockResolvedValueOnce({
-        id: 'rpc-hooks-check',
-        ok: true,
-        result: { hasHooks: false, hooks: null, mayNeedUpdate: false },
-        _meta: { runtimeId: 'runtime-owner-hub' }
-      })
       .mockResolvedValueOnce({
         id: 'rpc-rm-nested',
         ok: true,
@@ -227,12 +220,6 @@ describe('worktree remote runtime mutations', () => {
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
       selector: 'owner-hub',
-      method: 'repo.hooksCheck',
-      params: { repo: 'repo-ssh' },
-      timeoutMs: 15_000
-    })
-    expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(2, {
-      selector: 'owner-hub',
       method: 'worktree.rm',
       params: {
         worktree: `id:${wt.id}`,
@@ -242,7 +229,7 @@ describe('worktree remote runtime mutations', () => {
         runHooks: true
       },
       // Hooks run here, so the client must outlast the host's archive-hook budget (#19334).
-      timeoutMs: worktreeRemovalReplyTimeoutMs(true)
+      timeoutMs: ARCHIVE_HOOK_TIMEOUT_MS + 60_000
     })
     expect(mockApi.worktrees.remove).not.toHaveBeenCalled()
     expect(store.getState().worktreesByRepo['repo-ssh']).toEqual([])
@@ -252,7 +239,7 @@ describe('worktree remote runtime mutations', () => {
       .forceDeletePreservedBranch(wt.id, 'feature/nested', 'saved-head')
 
     expect(forceResult).toEqual({ ok: true, deleted: true })
-    expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(3, {
+    expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(2, {
       selector: 'owner-hub',
       method: 'worktree.forceDeleteBranch',
       params: {

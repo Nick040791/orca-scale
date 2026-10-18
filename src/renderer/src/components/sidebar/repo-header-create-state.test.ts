@@ -20,7 +20,7 @@ describe('repo header create state', () => {
       getRepoHeaderCreateState({
         repo: makeRepo(),
         label: 'orca',
-        sshGate: { connectionId: null, status: null }
+        sshStatus: null
       })
     ).toEqual({
       disabled: false,
@@ -35,7 +35,7 @@ describe('repo header create state', () => {
       getRepoHeaderCreateState({
         repo: makeRepo({ kind: 'folder' }),
         label: 'docs',
-        sshGate: { connectionId: null, status: null }
+        sshStatus: null
       })
     ).toMatchObject({
       disabled: false,
@@ -49,7 +49,7 @@ describe('repo header create state', () => {
       getRepoHeaderCreateState({
         repo: makeRepo({ connectionId: 'ssh-1' }),
         label: 'remote',
-        sshGate: { connectionId: 'ssh-1', status: 'connected' }
+        sshStatus: 'connected'
       })
     ).toMatchObject({
       disabled: false,
@@ -71,7 +71,7 @@ describe('repo header create state', () => {
         getRepoHeaderCreateState({
           repo: makeRepo({ connectionId: 'ssh-1' }),
           label: 'remote',
-          sshGate: { connectionId: 'ssh-1', status: sshStatus }
+          sshStatus
         })
       ).toEqual({
         disabled: true,

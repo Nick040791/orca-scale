@@ -87,6 +87,18 @@ describe('ClientHostedBrowserPagePane popup notices', () => {
     )
   })
 
+  it('collapses a retrying site onto one notice per origin', () => {
+    renderPane()
+
+    emitPopup()
+    emitPopup()
+    emitPopup()
+
+    expect(toastMocks.message).toHaveBeenCalledTimes(3)
+    const ids = toastMocks.message.mock.calls.map((call) => (call[1] as { id: string }).id)
+    expect(new Set(ids).size).toBe(1)
+  })
+
   it('silences in-Orca opens but reports external opens', () => {
     renderPane()
 

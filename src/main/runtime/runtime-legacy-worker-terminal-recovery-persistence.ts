@@ -11,9 +11,9 @@ import type {
   LegacyWorkerRecoveryCandidate,
   LegacyWorkerRecoveryResolution
 } from './runtime-legacy-worker-terminal-recovery-types'
+import { runtimeWorktreeIdsEqual } from './runtime-worktree-path-identity'
 import { cloneWorkspaceSessionState } from '../persistence/restoring-sessions/session-owner-fields'
 import { rollbackWorkspaceSessionAfterFailedAsyncWrite } from '../persistence/restoring-sessions/workspace-session-write-rollback'
-import { worktreeIdsEqual } from '../../shared/worktree/id'
 
 export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
   constructor(
@@ -22,16 +22,13 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     private readonly getHostId: (worktreeId: string) => ExecutionHostId | null
   ) {}
 
-  prepare(dispatchIds?: readonly string[]): LegacyWorkerTerminalRecoveryPlan {
-    return this.getPlan(dispatchIds) ?? { candidates: [], ambiguousDispatchIds: [] }
+  prepare(): LegacyWorkerTerminalRecoveryPlan {
+    return this.getPlan() ?? { candidates: [], ambiguousDispatchIds: [] }
   }
 
   async persist(
     resolutions: readonly LegacyWorkerRecoveryResolution[]
   ): Promise<ReadonlySet<string>> {
-    if (resolutions.length === 0) {
-      return new Set()
-    }
     const store = this.getStore()
     if (!store?.getWorkspaceSession || !store.setWorkspaceSession || !store.runDurableMutation) {
       return new Set()
@@ -41,15 +38,15 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     const originals = new Map<ExecutionHostId, WorkspaceSessionState>()
     const staged = new Map<ExecutionHostId, WorkspaceSessionState>()
     const dispatchIds = new Set<string>()
-    let adopted = false
     try {
       return await store.runDurableMutation(() => {
-        for (const { candidate, resolution, hostId: observedHostId } of resolutions) {
-          const hostId = observedHostId ?? this.getHostId(candidate.worktreeId)
+        for (const { candidate, resolution } of resolutions) {
+          const hostId = this.getHostId(candidate.worktreeId)
           const session = hostId ? getWorkspaceSession(hostId) : null
           if (!hostId || !session) {
             continue
           }
+          originals.set(hostId, originals.get(hostId) ?? cloneWorkspaceSessionState(session))
           let next =
             resolution === 'exited'
               ? retireTerminalSurfaceFromPersistence(session, {
@@ -61,25 +58,20 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
                 })
               : session
           const record = next.sleepingAgentSessionsByPaneKey?.[candidate.paneKey]
-          if (record && worktreeIdsEqual(record.worktreeId, candidate.worktreeId)) {
+          if (record && runtimeWorktreeIdsEqual(record.worktreeId, candidate.worktreeId)) {
             const sleeping = { ...next.sleepingAgentSessionsByPaneKey }
             delete sleeping[candidate.paneKey]
             next = { ...next, sleepingAgentSessionsByPaneKey: sleeping }
           }
           if (next !== session) {
-            originals.set(hostId, originals.get(hostId) ?? cloneWorkspaceSessionState(session))
             setWorkspaceSession(next, hostId)
           }
-          adopted ||= resolution === 'adopted'
-          dispatchIds.add(candidate.dispatchId)
-        }
-        // Rollback needs the final stored state, not a full-session copy after every worker.
-        for (const hostId of originals.keys()) {
           staged.set(hostId, cloneWorkspaceSessionState(getWorkspaceSession(hostId)))
+          dispatchIds.add(candidate.dispatchId)
         }
         return {
           value: dispatchIds,
-          persist: originals.size > 0 || adopted,
+          persist: dispatchIds.size > 0,
           rollback: () => {
             for (const [hostId, original] of originals) {
               const stagedSession = staged.get(hostId)
@@ -109,6 +101,9 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
   }
 
   reconcileMissing(candidate: LegacyWorkerRecoveryCandidate): boolean {
+    if (candidate.dispatchStatus !== 'pending' && candidate.dispatchStatus !== 'dispatched') {
+      return true
+    }
     try {
       this.getDb().reconcileMissingWorkerTerminal(
         candidate.dispatchId,
@@ -124,18 +119,11 @@ export class RuntimeLegacyWorkerTerminalRecoveryPersistence {
     }
   }
 
-  private getPlan(dispatchIds?: readonly string[]): LegacyWorkerTerminalRecoveryPlan | null {
+  private getPlan(): LegacyWorkerTerminalRecoveryPlan | null {
     try {
-      return planLegacyWorkerTerminalRecovery(
-        dispatchIds
-          ? this.getDb().listLegacyWorkerTerminalRecoveryRows(dispatchIds)
-          : this.getDb().listLegacyWorkerTerminalRecoveryRows()
-      )
+      return planLegacyWorkerTerminalRecovery(this.getDb().listLegacyWorkerTerminalRecoveryRows())
     } catch (error) {
       console.warn('[orchestration] failed to plan legacy worker terminal recovery', error)
-      if (dispatchIds) {
-        throw error
-      }
       return null
     }
   }

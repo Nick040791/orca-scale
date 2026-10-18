@@ -1,4 +1,3 @@
-import type { SleepingAgentLaunchConfig } from './agent-session-resume'
 import type { GlobalSettings } from './global-settings-types'
 import { isTuiAgent } from './tui-agent-config'
 import { YOLO_TUI_AGENT_ARGS, YOLO_TUI_AGENT_ENV } from './tui-agent-permissions'
@@ -15,10 +14,9 @@ const UNSUPPORTED_TUI_AGENT_ARGS: Partial<Record<TuiAgent, readonly string[]>> =
   kilo: ['--dangerously-skip-permissions']
 }
 
-export const DEFAULT_TUI_AGENT_ARGS: Partial<Record<TuiAgent, string>> &
-  Readonly<Record<string, string | undefined>> = YOLO_TUI_AGENT_ARGS
+export const DEFAULT_TUI_AGENT_ARGS: Partial<Record<TuiAgent, string>> = YOLO_TUI_AGENT_ARGS
 
-export const DEFAULT_TUI_AGENT_ENV: Partial<Record<string, Record<string, string>>> =
+export const DEFAULT_TUI_AGENT_ENV: Partial<Record<TuiAgent, Record<string, string>>> =
   YOLO_TUI_AGENT_ENV
 
 function argPattern(arg: string): RegExp {
@@ -49,16 +47,12 @@ export function tuiAgentArgsBypassPermissions(
     return false
   }
   const tokenized = tokenizeStartupCommand(value, shell)
-  const bypass = tokenizeStartupCommand(bypassArg, shell)
-  if (!tokenized.ok || !bypass.ok || bypass.tokens.length === 0) {
+  if (!tokenized.ok) {
     return false
   }
   const terminator = tokenized.tokens.indexOf('--')
   const options = terminator === -1 ? tokenized.tokens : tokenized.tokens.slice(0, terminator)
-  // A token sequence: several agents' bypass is a flag and its value (`--permission-mode X`).
-  return options.some((_, start) =>
-    bypass.tokens.every((token, offset) => options[start + offset] === token)
-  )
+  return options.includes(bypassArg)
 }
 
 function sanitizeTuiAgentLaunchArgs(agent: TuiAgent, args: string): string {
@@ -96,30 +90,30 @@ export function normalizeTuiAgentEnvRecord(
     if (!isTuiAgent(agent) || !env || typeof env !== 'object') {
       continue
     }
-    const entries: [string, string][] = []
+    const nextEnv: Record<string, string> = {}
     for (const [name, raw] of Object.entries(env)) {
       const key = name.trim()
       if (!key || typeof raw !== 'string') {
         continue
       }
-      entries.push([key, raw])
+      nextEnv[key] = raw
     }
-    normalized[agent] = Object.fromEntries(entries)
+    normalized[agent] = nextEnv
   }
   return normalized
 }
 
-export function getTuiAgentDefaultArgs(agent: string): string {
+export function getTuiAgentDefaultArgs(agent: TuiAgent): string {
   return DEFAULT_TUI_AGENT_ARGS[agent] ?? ''
 }
 
-export function getTuiAgentDefaultEnv(agent: string): Record<string, string> {
+export function getTuiAgentDefaultEnv(agent: TuiAgent): Record<string, string> {
   return { ...DEFAULT_TUI_AGENT_ENV[agent] }
 }
 
 export function resolveTuiAgentLaunchArgs(
-  agent: string,
-  configuredArgs: Readonly<Record<string, string | undefined>> | null | undefined
+  agent: TuiAgent,
+  configuredArgs: Partial<Record<TuiAgent, string>> | null | undefined
 ): string {
   if (
     configuredArgs &&
@@ -162,30 +156,11 @@ export function resolvedTuiAgentArgsBypassPermissions(
 }
 
 export function resolveTuiAgentLaunchEnv(
-  agent: string,
-  configuredEnv: Partial<Record<string, Record<string, string>>> | null | undefined
+  agent: TuiAgent,
+  configuredEnv: Partial<Record<TuiAgent, Record<string, string>>> | null | undefined
 ): Record<string, string> {
   if (configuredEnv && Object.hasOwn(configuredEnv, agent)) {
     return { ...configuredEnv[agent] }
   }
   return getTuiAgentDefaultEnv(agent)
-}
-
-/**
- * The command, args and env a resume relaunches with: only what its original Orca launch recorded.
- * Why not settings defaults: an unrecorded launch (`claude` typed by hand) ran with none, and the
- * defaults carry the permission bypass, so filling the gap would widen the resumed session.
- */
-export function resolveResumeLaunchRecipe(
-  launchConfig: SleepingAgentLaunchConfig | undefined
-): SleepingAgentLaunchConfig {
-  if (!launchConfig) {
-    return { agentArgs: '', agentEnv: {} }
-  }
-  return {
-    agentArgs: launchConfig.agentArgs,
-    agentEnv: launchConfig.agentEnv,
-    ...(launchConfig.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
-    ...(launchConfig.ompResumeFilePath ? { ompResumeFilePath: launchConfig.ompResumeFilePath } : {})
-  }
 }

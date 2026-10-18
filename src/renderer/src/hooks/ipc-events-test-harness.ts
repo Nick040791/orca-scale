@@ -129,37 +129,28 @@ export async function loadIpcEventsHarness(
   }))
   vi.doMock('@/lib/floating-workspace-terminal-actions', () => ({
     createFloatingWorkspaceTerminalTab: vi.fn(),
+    isEmptyFloatingWorkspacePanelVisible: () => false,
     isFloatingWorkspacePanelFocused: () => false
   }))
-  vi.doMock('@/runtime/web-runtime-session-tab-lifecycle', () => ({
+  vi.doMock('@/runtime/web-runtime-session', () => ({
     activateWebRuntimeSessionTab: vi.fn(),
-    closeWebRuntimeSessionTab: vi.fn()
-  }))
-  vi.doMock('@/runtime/web-runtime-browser-creation', () => ({
-    createWebRuntimeSessionBrowserTab: vi.fn().mockResolvedValue(false)
-  }))
-  vi.doMock('@/runtime/web-runtime-terminal-creation', () => ({
-    createWebRuntimeSessionTerminal: vi.fn().mockResolvedValue({ status: 'failed', message: '' })
-  }))
-  vi.doMock('@/runtime/web-runtime-session-environment', () => ({
+    closeWebRuntimeSessionTab: vi.fn(),
+    createWebRuntimeSessionBrowserTab: vi.fn().mockResolvedValue(false),
+    createWebRuntimeSessionTerminal: vi.fn().mockResolvedValue({ status: 'failed', message: '' }),
     isWebRuntimeSessionActive: vi.fn(() => false)
   }))
   vi.doMock('@/lib/focus-terminal-tab-surface', () => ({ focusTerminalTabSurface: vi.fn() }))
-  vi.doMock('@/runtime/mounted-terminal-tab-registry', () => ({
+  vi.doMock('@/runtime/sync-runtime-graph', () => ({
     focusRuntimeTerminalSurface: vi.fn(() => false)
   }))
   vi.doMock('@/lib/activate-tab-and-focus-pane', () => ({ activateTabAndFocusPane: vi.fn() }))
 
   vi.stubGlobal('window', {
     dispatchEvent: vi.fn(),
-    api: new Proxy<Record<string, unknown>>(
+    api: new Proxy(
       {
         runtimeEnvironments: createApiNamespaceStub({
-          getStatusSnapshots: () => Promise.resolve([]),
-          subscribe: async () => ({ unsubscribe: () => {} })
-        }),
-        legacyRelayBridge: createApiNamespaceStub({
-          listPanes: () => Promise.resolve([])
+          getStatusSnapshots: () => Promise.resolve([])
         }),
         ui: createApiNamespaceStub({
           getZoomLevel: () => 0,
@@ -251,8 +242,9 @@ export async function loadIpcEventsHarness(
         }),
         mobile: createApiNamespaceStub({
           consumePendingUnpairedDeviceAuthFailure: () => Promise.resolve(false)
-        })
-      },
+        }),
+        remoteWorkspace: createApiNamespaceStub({ clientId: () => Promise.resolve(null) })
+      } as Record<string, unknown>,
       { get: (target, prop: string) => target[prop] ?? createApiNamespaceStub() }
     )
   })

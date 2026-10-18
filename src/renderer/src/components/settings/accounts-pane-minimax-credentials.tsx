@@ -8,7 +8,6 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { SearchableSetting } from './SearchableSetting'
-import { UnsealedCredentialNotice } from './UnsealedCredentialNotice'
 import type { AccountsPaneSectionModel } from './accounts-pane-types'
 
 function formatMiniMaxRelativeRefresh(updatedAt: number, now: number): string {
@@ -75,7 +74,6 @@ export function MiniMaxCredentials({
     miniMaxCookieDraft,
     setMiniMaxCookieDraft,
     miniMaxConfigured,
-    miniMaxCookieProtection,
     miniMaxCredentialBusy,
     miniMaxRateLimits,
     saveMiniMaxCookie,
@@ -83,7 +81,6 @@ export function MiniMaxCredentials({
     miniMaxApiKeyDraft,
     setMiniMaxApiKeyDraft,
     miniMaxApiKeyConfigured,
-    miniMaxApiKeyProtection,
     saveMiniMaxApiKey,
     clearMiniMaxApiKey
   } = model
@@ -136,13 +133,6 @@ export function MiniMaxCredentials({
             </PopoverContent>
           </Popover>
         </div>
-        <UnsealedCredentialNotice
-          protection={miniMaxCookieProtection}
-          credentialName={translate(
-            'auto.components.settings.AccountsPane.21d6eb141e',
-            'MiniMax Session Cookie'
-          )}
-        />
         <div className="flex gap-2">
           <Input
             id="minimax-cookie"
@@ -236,13 +226,6 @@ export function MiniMaxCredentials({
             </Badge>
           </div>
         </div>
-        <UnsealedCredentialNotice
-          protection={miniMaxApiKeyProtection}
-          credentialName={translate(
-            'auto.components.settings.AccountsPane.83b6a1f7c4',
-            'MiniMax API key'
-          )}
-        />
         <div className="flex gap-2">
           <Input
             id="minimax-api-key"

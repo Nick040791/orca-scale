@@ -1,11 +1,14 @@
 import { z } from 'zod'
-import type { RuntimeBrowserCommandHost } from '../runtime/browser/browser-command-contracts'
-import type { RuntimeBrowserCommands } from '../runtime/browser/browser-commands'
+import type {
+  RuntimeBrowserCommandHost,
+  RuntimeBrowserCommands
+} from '../runtime/orca-runtime-browser'
 import { BrowserError } from '../browser/browser-error'
 import {
   ExternalChromiumBrowserSession,
   type ExternalChromiumLaunch
 } from './external-chromium-browser-session'
+export type { ExternalChromiumLaunch } from './external-chromium-browser-session'
 import { normalizeBrowserNavigationUrl } from '../../shared/browser-url'
 import {
   externalChromiumCommandArguments,
@@ -34,17 +37,13 @@ export class ExternalChromiumBrowserProcess {
     this.tabs = new ExternalChromiumTabRegistry(this.session)
   }
 
-  async start(signal?: AbortSignal): Promise<void> {
-    const activeTabId = await this.session.start(signal)
-    signal?.throwIfAborted()
-    this.tabs.initialize(activeTabId)
+  async start(): Promise<void> {
+    this.tabs.initialize(await this.session.start())
     this.available = true
   }
 
   createCommands(host: RuntimeBrowserCommandHost): RuntimeBrowserCommands {
     return new Proxy({} as RuntimeBrowserCommands, {
-      // Why: startup checks membership before invoking dynamically resolved commands.
-      has: (_target, property) => typeof property === 'string' && property !== 'then',
       get: (_target, property) => {
         if (property === 'then') {
           return undefined

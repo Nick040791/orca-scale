@@ -1,6 +1,5 @@
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { InFlightPromiseDedupe, stableInFlightKey } from '../../shared/in-flight-promise-dedupe'
 import { openTranscriptReadStream, wslGatedStat } from '../native-chat/wsl-transcript-fs-access'
 import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-gate'
 import { extractString, normalizeTitleText, parseJsonObject } from './session-scanner-values'
@@ -19,14 +18,9 @@ type CodexSessionIndexTitleCacheEntry = {
 }
 
 const codexSessionIndexTitleCache = new Map<string, Promise<CodexSessionIndexTitleCacheEntry>>()
-const inFlightTitleReads = new InFlightPromiseDedupe<Map<string, string>>(
-  0,
-  CODEX_SESSION_INDEX_TITLE_CACHE_MAX
-)
 
 export function resetCodexSessionIndexTitleCacheForTests(): void {
   codexSessionIndexTitleCache.clear()
-  inFlightTitleReads.clear()
 }
 
 export function _getCodexSessionIndexTitleCacheSizeForTest(): number {
@@ -89,22 +83,6 @@ async function readCodexSessionIndexTitles(codexHome: string): Promise<Map<strin
     return new Map()
   }
 
-  const cachedTitles = await readCachedCodexSessionIndexTitles(codexHome, signature)
-  if (cachedTitles) {
-    return cachedTitles
-  }
-
-  // A shared WSL stat resumes cache misses together; share the reload before opening the index.
-  return inFlightTitleReads.run(stableInFlightKey([codexHome, signature]), () =>
-    loadCodexSessionIndexTitles(codexHome, indexPath, signature)
-  )
-}
-
-async function loadCodexSessionIndexTitles(
-  codexHome: string,
-  indexPath: string,
-  signature: string
-): Promise<Map<string, string>> {
   const cachedTitles = await readCachedCodexSessionIndexTitles(codexHome, signature)
   if (cachedTitles) {
     return cachedTitles

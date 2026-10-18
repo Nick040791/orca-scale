@@ -4,9 +4,9 @@ import { getExternalAutomationActionDisabledMessage } from './external-automatio
 
 function manager(overrides: Partial<ExternalAutomationManager> = {}): ExternalAutomationManager {
   return {
-    id: 'openclaw-local',
-    provider: 'openclaw',
-    label: 'OpenClaw',
+    id: 'hermes-local',
+    provider: 'hermes',
+    label: 'Hermes',
     targetLabel: 'Local Mac',
     target: { type: 'local' },
     status: 'unavailable',
@@ -21,11 +21,9 @@ describe('external automation action availability', () => {
   it('explains disabled local automation actions when the source tool is missing', () => {
     expect(
       getExternalAutomationActionDisabledMessage({
-        manager: manager({
-          error: 'OpenClaw jobs were found, but the openclaw CLI is not on PATH.'
-        })
+        manager: manager({ error: 'Hermes jobs were found, but the hermes CLI is not on PATH.' })
       })
-    ).toBe('OpenClaw jobs were found, but the openclaw CLI is not on PATH.')
+    ).toBe('Hermes jobs were found, but the hermes CLI is not on PATH.')
   })
 
   it('explains disabled SSH automation actions before the host is connected', () => {
@@ -35,11 +33,11 @@ describe('external automation action availability', () => {
           target: { type: 'ssh', connectionId: 'devbox' },
           error: 'SSH target is not connected.'
         }),
-        providerLabel: 'OpenClaw',
+        providerLabel: 'Hermes',
         targetKindLabel: 'SSH host',
         sshStatus: 'disconnected'
       })
-    ).toBe('Connect this ssh host before managing OpenClaw automations.')
+    ).toBe('Connect this ssh host before managing Hermes automations.')
   })
 
   it('explains disabled SSH automation actions while the host is connecting', () => {
@@ -60,11 +58,11 @@ describe('external automation action availability', () => {
       getExternalAutomationActionDisabledMessage({
         manager: manager({
           target: { type: 'ssh', connectionId: 'devbox' },
-          error: 'OpenClaw CLI is not on the remote PATH.'
+          error: 'Hermes CLI is not on the remote PATH.'
         }),
         sshStatus: 'connected'
       })
-    ).toBe('OpenClaw CLI is not on the remote PATH.')
+    ).toBe('Hermes CLI is not on the remote PATH.')
   })
 
   it('keeps concrete remote source errors when SSH status is unavailable to the caller', () => {
@@ -72,10 +70,10 @@ describe('external automation action availability', () => {
       getExternalAutomationActionDisabledMessage({
         manager: manager({
           target: { type: 'ssh', connectionId: 'devbox' },
-          error: 'OpenClaw CLI is not on the remote PATH.'
+          error: 'Hermes CLI is not on the remote PATH.'
         })
       })
-    ).toBe('OpenClaw CLI is not on the remote PATH.')
+    ).toBe('Hermes CLI is not on the remote PATH.')
   })
 
   it('explains disabled actions while another automation action is running', () => {

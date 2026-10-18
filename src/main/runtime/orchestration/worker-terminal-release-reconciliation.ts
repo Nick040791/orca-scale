@@ -1,4 +1,4 @@
-import type { WorkerTerminalReleaseRuntime } from './worker-terminal-release-runtime'
+import type { OrcaRuntimeService } from '../orca-runtime'
 import { inspectRemoteAttachment } from '../rpc/methods/orchestration/federation/federation-attachment-observation'
 import { releaseRemoteAttachment } from '../rpc/methods/orchestration/federation/federated-worker-release-host'
 import { completeWorkerTerminalRelease } from '../rpc/methods/orchestration/worker/worker-release-completion'
@@ -16,16 +16,13 @@ type ActiveReconciliation = {
   promise?: Promise<WorkerTerminalReleaseReconciliationResult>
 }
 
-const activeReconciliationByRuntime = new WeakMap<
-  WorkerTerminalReleaseRuntime,
-  ActiveReconciliation
->()
+const activeReconciliationByRuntime = new WeakMap<OrcaRuntimeService, ActiveReconciliation>()
 
 // Finishes ONLY previously requested releases after startup/reconnect terminal discovery.
 // It never invents release intent: resources outside requested/releasing are untouched, and
 // unresolved identity defers (release_pending) rather than settling or broadening the close.
 export function reconcileRequestedWorkerTerminalReleases(
-  runtime: WorkerTerminalReleaseRuntime
+  runtime: OrcaRuntimeService
 ): Promise<WorkerTerminalReleaseReconciliationResult> {
   const active = activeReconciliationByRuntime.get(runtime)
   if (active?.promise) {
@@ -44,7 +41,7 @@ export function reconcileRequestedWorkerTerminalReleases(
 }
 
 async function runReconciliationPasses(
-  runtime: WorkerTerminalReleaseRuntime,
+  runtime: OrcaRuntimeService,
   state: ActiveReconciliation
 ): Promise<WorkerTerminalReleaseReconciliationResult> {
   const combined = emptyResult()
@@ -65,7 +62,7 @@ async function runReconciliationPasses(
 }
 
 async function reconcileRequestedWorkerTerminalReleasesOnce(
-  runtime: WorkerTerminalReleaseRuntime
+  runtime: OrcaRuntimeService
 ): Promise<WorkerTerminalReleaseReconciliationResult> {
   const db = runtime.getOrchestrationDb()
   const backlog = db.listWorkerTerminalReleaseBacklog()

@@ -1,8 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { BROWSER_SIDECAR_OWNER_ENV } from '../shared/browser-sidecar-lifetime'
 import { app } from 'electron'
-import { quitProcess } from './startup/process-quit-request'
 import {
   SERVE_UPDATE_HANDOFF_PATH_ENV,
   getServeUpdateHandoffPath,
@@ -74,21 +72,15 @@ export function notifyServeSupervisorReady(runtimeId: string): void {
 export function installServeSupervisorDisconnectQuit(
   isServeMode: boolean,
   parent: {
-    connected?: boolean
     once(event: 'disconnect', listener: () => void): unknown
     off(event: 'disconnect', listener: () => void): unknown
   } = process
 ): () => void {
-  const isBrowserSidecar = process.env[BROWSER_SIDECAR_OWNER_ENV] === '1'
-  delete process.env[BROWSER_SIDECAR_OWNER_ENV]
-  if (!isServeMode || (!isBrowserSidecar && !hasServeUpdateSupervisor())) {
+  if (!isServeMode || !hasServeUpdateSupervisor()) {
     return () => undefined
   }
-  const quit = (): void => quitProcess()
+  const quit = (): void => app.quit()
   parent.once('disconnect', quit)
-  if (isBrowserSidecar && parent.connected !== true) {
-    quit()
-  }
   return () => parent.off('disconnect', quit)
 }
 

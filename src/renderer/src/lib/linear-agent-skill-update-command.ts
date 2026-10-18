@@ -4,9 +4,10 @@ import {
   hasInstalledAgentSkill
 } from '@/hooks/useInstalledAgentSkills'
 import {
-  buildAgentFeatureSkillInstallCommand,
   LINEAR_TICKETS_SKILL_NAME,
-  ORCA_LINEAR_SKILL_NAME
+  LINEAR_TICKETS_SKILL_UPDATE_COMMAND,
+  ORCA_LINEAR_SKILL_NAME,
+  ORCA_LINEAR_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
 
 export type LinearAgentSkillUpdateTarget = {
@@ -26,11 +27,9 @@ export function getLinearAgentSkillUpdateTarget(
   const legacySkillInstalled = hasInstalledAgentSkill(skills, LINEAR_TICKETS_SKILL_NAME, {
     sourceKinds: GLOBAL_AGENT_SKILL_SOURCE_KINDS
   })
-  const skillName =
-    !installed || canonicalSkillInstalled || !legacySkillInstalled
-      ? ORCA_LINEAR_SKILL_NAME
-      : LINEAR_TICKETS_SKILL_NAME
-  return { skillName, command: buildAgentFeatureSkillInstallCommand([skillName]) }
+  return !installed || canonicalSkillInstalled || !legacySkillInstalled
+    ? { skillName: ORCA_LINEAR_SKILL_NAME, command: ORCA_LINEAR_SKILL_UPDATE_COMMAND }
+    : { skillName: LINEAR_TICKETS_SKILL_NAME, command: LINEAR_TICKETS_SKILL_UPDATE_COMMAND }
 }
 
 export function getLinearAgentSkillUpdateCommand(

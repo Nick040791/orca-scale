@@ -11,13 +11,9 @@ import { reconcileTaskAfterDispatchInterruption } from '../dispatch-context/task
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
 
 export function listLegacyWorkerTerminalRecoveryRows(
-  this: OrchestrationDb,
-  dispatchIds?: readonly string[]
+  this: OrchestrationDb
 ): LegacyWorkerTerminalRecoveryRow[] {
-  if (dispatchIds?.length === 0) {
-    return []
-  }
-  const rows = this.db
+  return this.db
     .prepare(
       `SELECT dc.id AS dispatch_id, dc.task_id, dc.status AS dispatch_status,
               dc.contract_version, dc.assignee_handle, dc.assignee_pane_key,
@@ -26,12 +22,9 @@ export function listLegacyWorkerTerminalRecoveryRows(
        FROM dispatch_contexts dc
        INNER JOIN worker_dispatches wd ON wd.dispatch_id = dc.id
        WHERE wd.state IN ('starting', 'ready', 'start_unknown', 'stopping', 'stop_unknown')
-       ${dispatchIds ? 'AND wd.dispatch_id IN (SELECT value FROM json_each(?))' : ''}
        ORDER BY dc.rowid`
     )
-    .all(...(dispatchIds ? [JSON.stringify(dispatchIds)] : []))
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Static SQL aliases match the recovery row contract; the planner validates terminal identity before use.
-  return rows as LegacyWorkerTerminalRecoveryRow[]
+    .all() as LegacyWorkerTerminalRecoveryRow[]
 }
 
 export function reconcileMissingWorkerTerminal(

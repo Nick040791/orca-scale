@@ -1,10 +1,10 @@
-import { useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react'
+import { useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Platform, View } from 'react-native'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { TerminalWebViewHandle, TerminalWebViewProps } from './terminal-webview-contract'
 import { TerminalWebViewEngineErrorOverlay } from './terminal-webview-engine-error-state'
 import { TERMINAL_WEBVIEW_FRAME_STYLES } from './terminal-webview-frame-styles'
-import { xtermWebViewSource } from './terminal-webview-html'
+import { XTERM_WEBVIEW_SOURCE } from './terminal-webview-html'
 import type { TerminalWebViewCommand } from './terminal-webview-messages'
 import { useTerminalWebViewController } from './use-terminal-webview-controller'
 
@@ -34,13 +34,6 @@ export const TerminalWebView = forwardRef<TerminalWebViewHandle, Props>(
     })
 
     useImperativeHandle(ref, () => handle, [handle])
-    // Why: the document builds its terminal before ready, so it needs the text scale before any
-    // message can reach it; later changes arrive as set-font-scale.
-    // Why: in the page source rather than injected: Android can run an injected script after the
-    // document's own, which then starts without them.
-    const [source] = useState(() =>
-      xtermWebViewSource({ textScale: props.textScale ?? 1, shown: props.shownAtMount ?? true })
-    )
 
     const handleMessage = useCallback(
       (event: WebViewMessageEvent) => {
@@ -72,7 +65,7 @@ export const TerminalWebView = forwardRef<TerminalWebViewHandle, Props>(
       <View style={[TERMINAL_WEBVIEW_FRAME_STYLES.container, props.style]}>
         <WebView
           ref={webViewRef}
-          source={source}
+          source={XTERM_WEBVIEW_SOURCE}
           style={TERMINAL_WEBVIEW_FRAME_STYLES.webview}
           originWhitelist={['*']}
           javaScriptEnabled

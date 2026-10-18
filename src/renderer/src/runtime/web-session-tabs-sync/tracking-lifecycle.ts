@@ -9,6 +9,7 @@ import {
   sessionTabsRuntimeHistoryByEnvironment,
   trackedSessionTabsWorktreeIdsByEnvironment,
   sessionTabsEnvironmentsByWorktree,
+  sessionTabsTrackingGenerationByEnvironment,
   lastHostTerminalTabCountByWorktree,
   sessionTabsInventoryOmissionsByWorktree,
   hostSessionTabIdByLocalKey,
@@ -27,10 +28,6 @@ import {
 import { clearWebSessionReorderIntentsForWorktree } from '../web-session-reorder-intent'
 import { clearWebSessionCloseIntentsForWorktree } from '../web-session-close-intent'
 import {
-  forgetRetiredEpochCensuses,
-  resetRetiredEpochCensusesForTests
-} from './retired-epoch-census'
-import {
   clearWebAgentSessionHandoffsForWorktree,
   clearWebAgentSessionHandoffsForEnvironment
 } from '../web-agent-session-handoff'
@@ -45,7 +42,6 @@ import {
 } from '../web-session-terminal-placement'
 import { clearHostSessionMirrorHydration } from '../host-session-mirror-hydration'
 import { clearHostMirrorHandleGapVerdictsForEnvironment } from '@/lib/host-mirror-handle-gap-wait'
-import { createBoundedGenerationMap } from '@/lib/bounded-generation-map'
 import { clearHostSessionTabIdMappings } from './tracking-mappings'
 import {
   sessionTabsFreshnessKey,
@@ -53,16 +49,33 @@ import {
   removeWebSessionTabsEnvironment
 } from './tracking'
 
-const sessionTabsTrackingGenerations = createBoundedGenerationMap(512)
+const MAX_SESSION_TABS_TRACKING_GENERATIONS = 512
+let sessionTabsTrackingGenerationSequence = 0
+let evictedSessionTabsTrackingGeneration = 0
 
-/** Null until the host has sent a frame for the worktree: unknown is not zero. */
+function advanceSessionTabsTrackingGeneration(environmentId: string): void {
+  const next = ++sessionTabsTrackingGenerationSequence
+  sessionTabsTrackingGenerationByEnvironment.set(environmentId, next)
+  while (sessionTabsTrackingGenerationByEnvironment.size > MAX_SESSION_TABS_TRACKING_GENERATIONS) {
+    const oldest = sessionTabsTrackingGenerationByEnvironment.keys().next()
+    if (oldest.done) {
+      break
+    }
+    const oldestEnvironmentId = oldest.value
+    evictedSessionTabsTrackingGeneration = Math.max(
+      evictedSessionTabsTrackingGeneration,
+      sessionTabsTrackingGenerationByEnvironment.get(oldestEnvironmentId) ?? 0
+    )
+    sessionTabsTrackingGenerationByEnvironment.delete(oldestEnvironmentId)
+  }
+}
+
 export function getLastKnownHostTerminalTabCount(
   environmentId: string,
   worktreeId: string
-): number | null {
+): number {
   return (
-    lastHostTerminalTabCountByWorktree.get(sessionTabsFreshnessKey(environmentId, worktreeId)) ??
-    null
+    lastHostTerminalTabCountByWorktree.get(sessionTabsFreshnessKey(environmentId, worktreeId)) ?? 0
   )
 }
 
@@ -105,9 +118,10 @@ export function resetWebSessionTabsSnapshotFreshnessForTests(): void {
   hostSessionTabIdByLocalKey.clear()
   hostSessionTabMappingKeysByEnvironmentAndWorktree.clear()
   hostWorkingClientBoundaryByPaneKey.clear()
-  sessionTabsTrackingGenerations.reset()
+  sessionTabsTrackingGenerationByEnvironment.clear()
+  sessionTabsTrackingGenerationSequence = 0
+  evictedSessionTabsTrackingGeneration = 0
   resetWebSessionBrowserPlacementsForTests()
-  resetRetiredEpochCensusesForTests()
 }
 
 export function _getWebSessionTabsTrackingCountsForTest(): {
@@ -144,7 +158,6 @@ export function clearWebSessionTabsTrackingForWorktree(
   const key = sessionTabsFreshnessKey(environmentId, worktreeId)
   latestSessionTabsSnapshotByWorktree.delete(key)
   replayableSessionTabsSnapshotByWorktree.delete(key)
-  forgetRetiredEpochCensuses((candidate) => candidate === key)
   // The receipt ledger and removal watermark are deliberately kept: they order a delayed
   // predecessor frame against the live publisher's next one, which is the whole point of a
   // retraction. Clearing the live view is this function's job; forgetting what was received is not.
@@ -168,8 +181,7 @@ export function clearWebSessionTabsTrackingForEnvironment(environmentId: string)
     return
   }
   const keyPrefix = `${trimmedEnvironmentId}:`
-  sessionTabsTrackingGenerations.advance(trimmedEnvironmentId)
-  forgetRetiredEpochCensuses((key) => key.startsWith(keyPrefix))
+  advanceSessionTabsTrackingGeneration(trimmedEnvironmentId)
   for (const key of latestSessionTabsSnapshotByWorktree.keys()) {
     if (key.startsWith(keyPrefix)) {
       latestSessionTabsSnapshotByWorktree.delete(key)
@@ -233,5 +245,5 @@ export function clearWebSessionTabsTrackingForEnvironment(environmentId: string)
 
 export function getWebSessionTabsTrackingGeneration(environmentId: string): number {
   const key = environmentId.trim()
-  return sessionTabsTrackingGenerations.get(key)
+  return sessionTabsTrackingGenerationByEnvironment.get(key) ?? evictedSessionTabsTrackingGeneration
 }

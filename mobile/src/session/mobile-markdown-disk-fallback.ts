@@ -1,29 +1,34 @@
-import { isRendererUnavailableReply } from '../transport/renderer-unavailable-reply'
 import type { RpcFailure } from '../transport/types'
-import type { MarkdownDocState } from './mobile-session-route-types'
+
+const RENDERER_UNAVAILABLE = 'renderer_unavailable'
 
 export function shouldReadMarkdownFromDiskAfterReadTabFailure(response: RpcFailure): boolean {
-  return isRendererUnavailableReply(response)
+  return (
+    response.error.code === RENDERER_UNAVAILABLE ||
+    (response.error.code === 'runtime_error' && response.error.message === RENDERER_UNAVAILABLE)
+  )
 }
 
+// `truncated` is optional because the preview reader salvages it: an absent flag reads as not
+// truncated here, which is the branch main took for a reply that omitted it.
 export function buildMarkdownDiskFallbackDoc(args: {
   content: string
-  truncated?: boolean
-  byteLength?: number
+  truncated: boolean | undefined
   tabIsDirty: boolean
-}): Extract<MarkdownDocState, { status: 'ready' }> {
-  const readOnlyReason = args.tabIsDirty
-    ? 'Desktop has unsaved changes. Showing disk content.'
-    : 'Editing needs Orca desktop running.'
+}) {
+  const readOnlyReason = args.truncated
+    ? 'File too large for mobile preview'
+    : args.tabIsDirty
+      ? 'Desktop has unsaved changes. Showing disk content.'
+      : 'Editing needs Orca desktop running.'
   return {
-    status: 'ready',
+    status: 'ready' as const,
     content: args.content,
     localContent: args.content,
     baseVersion: '',
     isDirty: false,
     editable: false,
     stale: args.tabIsDirty,
-    readOnlyReason,
-    ...(args.truncated ? { truncated: true, byteLength: args.byteLength } : {})
+    readOnlyReason
   }
 }

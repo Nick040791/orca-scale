@@ -31,8 +31,6 @@ export function selectPreferredAttachmentIds(args: {
   renderedHtmlIds: string[]
   attachmentField: unknown
   mediaAttrs: readonly JiraAdfMediaAttrs[]
-  maxBytes?: number
-  maxImages?: number
 }): { preferredIds: string[]; fallbackRan: boolean; needCount: number } {
   const needing = args.mediaAttrs.filter((attrs) => !(attrs.url && /^https?:\/\//i.test(attrs.url)))
   const needCount = needing.length
@@ -46,10 +44,10 @@ export function selectPreferredAttachmentIds(args: {
   let fallbackRan = false
 
   if (needCount > preferredIds.length) {
-    const metas = parseImageAttachmentMetas(args.attachmentField, args.maxBytes)
+    const metas = parseImageAttachmentMetas(args.attachmentField)
     // Why: multiple Jira screenshots often share image.png — assign next unused meta per node.
     for (const node of needing) {
-      if (preferredIds.length >= (args.maxImages ?? MAX_IMAGES)) {
+      if (preferredIds.length >= MAX_IMAGES) {
         break
       }
       const alt = (node.alt ?? '').trim()
@@ -70,7 +68,7 @@ export function selectPreferredAttachmentIds(args: {
   }
 
   return {
-    preferredIds: preferredIds.slice(0, args.maxImages ?? MAX_IMAGES),
+    preferredIds: preferredIds.slice(0, MAX_IMAGES),
     fallbackRan,
     needCount
   }

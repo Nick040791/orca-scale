@@ -50,16 +50,6 @@ function findPrefixCarry(data: string): string {
   return ''
 }
 
-/**
- * TUIs such as OMP end each prompt bubble with `B C D;0`, closing their own zone while they keep
- * running (#10923). A shell's `C` follows the typed command line, never its own prompt's `B`
- * directly. `adjacentMarkers` holds the markers seen back to back before this one, e.g. 'BC'.
- */
-export function closesAppOsc133Zone(adjacentMarkers: string, payload: string): boolean {
-  const [sequence, exitCode] = payload.split(';')
-  return sequence === 'D' && exitCode === '0' && adjacentMarkers.endsWith('BC')
-}
-
 export type Osc133CommandFinishedScanner = {
   /** Feed one raw PTY chunk; fires once per complete OSC 133;D sequence. */
   scan: (data: string) => void
@@ -69,31 +59,15 @@ export type Osc133CommandFinishedScanner = {
 
 export function createOsc133CommandFinishedScanner(
   onCommandFinished: (bestEffortExitCode: number | null) => void,
-  /**
-   * OSC 133;C — the shell exec'd a command; the pane's foreground changed.
-   * `endInChunk` is the index in the scanned chunk just past the sequence, where the command's own
-   * output begins.
-   */
-  onCommandStarted?: (endInChunk: number) => void
+  /** OSC 133;C — the shell exec'd a command; the pane's foreground changed. */
+  onCommandStarted?: () => void
 ): Osc133CommandFinishedScanner {
   let carry = ''
-  // OSC 133 markers seen back to back since the last other output, e.g. 'BC'.
-  let adjacentMarkers = ''
 
-  const noteOutput = (): void => {
-    adjacentMarkers = ''
-  }
-
-  const handleOsc133 = (payload: string, endInChunk: number): void => {
+  const handleOsc133 = (payload: string): void => {
     const [sequence, exitCode] = payload.split(';')
-    // Why: read as the command's exit, that `D` retired a live agent's status.
-    const closesAppZone = closesAppOsc133Zone(adjacentMarkers, payload)
-    adjacentMarkers = (adjacentMarkers + sequence.slice(0, 1)).slice(-2)
-    if (closesAppZone) {
-      return
-    }
     if (sequence === 'C') {
-      onCommandStarted?.(endInChunk)
+      onCommandStarted?.()
       return
     }
     if (sequence === 'D') {
@@ -103,21 +77,13 @@ export function createOsc133CommandFinishedScanner(
 
   const scan = (data: string): void => {
     let combined = carry + data
-    // `combined` starts at this index in `data`; negative while it still holds the carry.
-    let combinedStartInChunk = -carry.length
     carry = ''
 
     while (combined.length > 0) {
       const start = combined.indexOf(OSC_133_PREFIX)
       if (start === -1) {
         carry = findPrefixCarry(combined)
-        if (carry.length < combined.length) {
-          noteOutput()
-        }
-        break
-      }
-      if (start > 0) {
-        noteOutput()
+        return
       }
 
       const payloadStart = start + OSC_133_PREFIX.length
@@ -128,16 +94,11 @@ export function createOsc133CommandFinishedScanner(
           carry = carry.slice(carry.length - MAX_OSC_CARRY_LENGTH)
         }
         carry = ownRetainedString(carry)
-        break
+        return
       }
 
-      const sequenceEnd = terminator.index + terminator.length
-      handleOsc133(
-        combined.slice(payloadStart, terminator.index),
-        combinedStartInChunk + sequenceEnd
-      )
-      combined = combined.slice(sequenceEnd)
-      combinedStartInChunk += sequenceEnd
+      handleOsc133(combined.slice(payloadStart, terminator.index))
+      combined = combined.slice(terminator.index + terminator.length)
     }
   }
 
@@ -145,7 +106,6 @@ export function createOsc133CommandFinishedScanner(
     scan,
     reset() {
       carry = ''
-      adjacentMarkers = ''
     }
   }
 }

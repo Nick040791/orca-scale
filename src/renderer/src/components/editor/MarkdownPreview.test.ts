@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { Worktree } from '../../../../shared/worktree/types'
 import {
+  decodeMarkdownPreviewAnchor,
   deriveMarkdownPreviewSourceRoot,
   getMarkdownPreviewSourceRelativePath,
   findMarkdownPreviewOpenedEditFileId,
   findMarkdownPreviewSourceOpenFile,
+  getMarkdownPreviewAnchorScrollTop,
   resolveMarkdownPreviewSourceWorktree
-} from './markdown-preview-source-routing'
-import {
-  decodeMarkdownPreviewAnchor,
-  getMarkdownPreviewAnchorScrollTop
-} from './markdown-preview-anchor-navigation'
+} from './MarkdownPreview'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 
 function makeWorktree(id: string, path: string): Worktree {

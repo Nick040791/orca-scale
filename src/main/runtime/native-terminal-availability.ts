@@ -31,6 +31,10 @@ export function setRuntimeTerminalUnavailableCause(
   unavailableCause = cause
 }
 
+export function runtimeTerminalUnavailableCause(): RuntimeTerminalUnavailableCause | null {
+  return unavailableCause
+}
+
 /** The degradation entry for the recorded cause, or null when nothing is degraded. */
 export function runtimeTerminalDegradation(): RuntimeDegradation | null {
   const cause = unavailableCause

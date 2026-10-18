@@ -2,7 +2,6 @@ import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
 import { hangDetectionMarkerPath } from './hang-detection-marker'
 import { resolveHangWatchdogWorkerPath } from './hang-watchdog-worker-path'
-import { resolveObservabilityConsent } from '../observability'
 import {
   HANG_WATCHDOG_CHECK_INTERVAL_MS,
   HANG_WATCHDOG_HEARTBEAT_INTERVAL_MS,
@@ -27,9 +26,6 @@ export function installMainThreadHangWatchdog(options: {
   if (process.platform !== 'darwin') {
     return null
   }
-  if (!resolveObservabilityConsent().localFileEnabled) {
-    return null
-  }
   // Why: dev main threads pause in debuggers routinely; watch packaged builds only unless forced.
   if (!app.isPackaged && process.env.ORCA_HANG_WATCHDOG_FORCE !== '1') {
     return null
@@ -46,7 +42,7 @@ export function installMainThreadHangWatchdog(options: {
   }
   let worker: Worker
   try {
-    // The worker observes a blocked main thread without another Electron process.
+    // Why: the worker survives an AppKit main-thread deadlock without another Electron process.
     worker = new Worker(workerPath, {
       name: 'orca-main-thread-hang-watchdog',
       workerData
@@ -55,6 +51,9 @@ export function installMainThreadHangWatchdog(options: {
     console.error('[hang-watchdog] failed to start watchdog worker:', error)
     return null
   }
+  worker.on('error', (error) => {
+    console.error('[hang-watchdog] watchdog worker failed:', error)
+  })
   let stopped = false
   const postMessage = (message: MainToHangWatchdogWorkerMessage): void => {
     if (stopped && message.type === 'heartbeat') {
@@ -80,10 +79,6 @@ export function installMainThreadHangWatchdog(options: {
     clearInterval(heartbeatTimer)
     postMessage({ type: 'shutdown' })
   }
-  worker.on('error', (error) => {
-    console.error('[hang-watchdog] watchdog worker failed:', error)
-    stop()
-  })
   worker.once('exit', () => {
     stopped = true
     app.off('will-quit', stop)

@@ -5,11 +5,13 @@ const {
   gitExecFileAsyncMock,
   gitExecFileSyncMock,
   translateWslOutputPathsMock,
+  moveWorktreeDirectoryToTrashMock,
   detectSparseCheckoutMock
 } = vi.hoisted(() => ({
   gitExecFileAsyncMock: vi.fn(),
   gitExecFileSyncMock: vi.fn(),
   translateWslOutputPathsMock: vi.fn((output: string) => output),
+  moveWorktreeDirectoryToTrashMock: vi.fn(),
   detectSparseCheckoutMock: vi.fn()
 }))
 
@@ -17,6 +19,13 @@ vi.mock('./runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock,
   gitExecFileSync: gitExecFileSyncMock,
   translateWslOutputPaths: translateWslOutputPathsMock
+}))
+
+// Default: the checkout cannot be renamed aside, so removal deletes it in place.
+vi.mock('../worktree-trash', () => ({
+  moveWorktreeDirectoryToTrash: moveWorktreeDirectoryToTrashMock.mockResolvedValue(undefined),
+  restoreWorktreeDirectoryFromTrash: vi.fn().mockResolvedValue(true),
+  scheduleWorktreeTrashDeletion: vi.fn()
 }))
 
 vi.mock('./worktree-sparse-state', () => ({

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PtyPendingDataDrainQueue } from './pty-pending-data-drain-queue'
-import type { PendingPtyData } from './pty-pending-data-drain-contract'
+import { PtyPendingDataDrainQueue, type PendingPtyData } from './pty-pending-data-drain-queue'
 
 const CHUNK_CHARS = 4
 const MAX_WRITES = 2

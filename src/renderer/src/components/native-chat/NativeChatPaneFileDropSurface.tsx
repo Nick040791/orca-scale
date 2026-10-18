@@ -1,9 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Paperclip } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
-import { toast } from 'sonner'
-import { createOsFileDropSequence, useOsFileDropOwner } from '@/hooks/use-os-file-drop-owner'
-import { getNativeFileDropRejectionMessage } from '@/lib/native-file-drop-rejection-message'
+import { NATIVE_FILE_DROP_TARGET } from '../../../../shared/native-file-drop'
 import {
   makeNativeChatPaneFileDropHandlers,
   type NativeChatPaneDropClaim
@@ -13,7 +11,7 @@ import {
  *  event time, so a guarded composer answers for the drag in front of it. */
 export type NativeChatPaneDropRegistration = {
   getClaim: () => NativeChatPaneDropClaim
-  destinationKey: string
+  scopeKey: string
 }
 
 type RegisterPaneDropClaim = (registration: NativeChatPaneDropRegistration) => () => void
@@ -30,10 +28,10 @@ export function useNativeChatPaneFileDropClaim(claim: NativeChatPaneDropClaim): 
   useLayoutEffect(() => {
     claimRef.current = claim
   })
-  const { destinationKey, disabled } = claim
+  const { scopeKey, disabled } = claim
   const registration = useMemo<NativeChatPaneDropRegistration>(
-    () => ({ getClaim: () => claimRef.current, destinationKey }),
-    [destinationKey]
+    () => ({ getClaim: () => claimRef.current, scopeKey }),
+    [scopeKey]
   )
   // A guard transition ends the current hover before the next paint.
   useLayoutEffect(() => register?.(registration), [disabled, register, registration])
@@ -48,22 +46,6 @@ export function NativeChatPaneFileDropSurface({
 }): React.JSX.Element {
   const [registration, setRegistration] = useState<NativeChatPaneDropRegistration | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
-  const ownerRef = useRef<HTMLElement | null>(null)
-  const [sequence] = useState(createOsFileDropSequence)
-  const attachOwner = useOsFileDropOwner(ownerRef, {
-    consumer: 'agent',
-    sequence,
-    canAccept: () => Boolean(registration && !registration.getClaim().disabled),
-    captureDestination: () => registration?.getClaim().captureExternalDrop(),
-    onDrop: async (prepared, { destination }) => {
-      setIsDragActive(false)
-      for (const failure of prepared.failures) {
-        const message = getNativeFileDropRejectionMessage(failure)
-        toast.error(message.title, { description: message.description })
-      }
-      await destination?.(prepared.paths)
-    }
-  })
   const register = useMemo<RegisterPaneDropClaim>(
     () => (next) => {
       setRegistration(next)
@@ -82,7 +64,7 @@ export function NativeChatPaneFileDropSurface({
       }),
     [registration]
   )
-  // End hover even when the gesture finishes outside this pane.
+  // Subscribe before hover renders: preload can consume a drop before that commit.
   useLayoutEffect(() => {
     if (!registration) {
       return
@@ -98,7 +80,14 @@ export function NativeChatPaneFileDropSurface({
 
   return (
     <NativeChatPaneFileDropContext.Provider value={register}>
-      <div className={className} ref={attachOwner} {...handlers}>
+      <div
+        className={className}
+        // Why: the preload route reads the nearest marker, so publishing the
+        // composer's scope here is what widens an OS drop to the whole pane.
+        data-native-file-drop-target={registration ? NATIVE_FILE_DROP_TARGET.composer : undefined}
+        data-composer-scope-key={registration?.scopeKey}
+        {...handlers}
+      >
         {children}
         {isDragActive ? <NativeChatPaneFileDropOverlay /> : null}
       </div>
@@ -110,7 +99,7 @@ function NativeChatPaneFileDropOverlay(): React.JSX.Element {
   return (
     <div
       data-native-chat-drop-overlay="true"
-      className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-chat-canvas/80"
+      className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-background/80"
     >
       <div className="flex flex-col items-center gap-1 rounded-xl border border-dashed border-foreground/30 bg-card px-8 py-5 text-center shadow-floating">
         <span className="mb-1 flex size-9 items-center justify-center rounded-full bg-foreground/10">

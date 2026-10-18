@@ -15,27 +15,27 @@
 // process (`repoSlug` reads `.git/config`).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { Repo } from '../../../shared/repo-types'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   deleteRepoSlugCacheKey,
   nextRepoSlugFailureRetryDelay,
   readRepoSlugCache,
   rememberRepoSlug,
-  repoSlugCacheKey,
-  repoSlugOwnerTarget,
   repoUpstreamIdentityKey,
+  settingsForRepoOwner,
   slugByRepoId,
   slugCacheKey,
   type RepoSlugMatches,
   type SlugIndex
 } from './repo-slug-cache'
 import { githubRepoIdentityKey } from '../../../shared/github/repository-identity-key'
-import { createBoundedGenerationMap } from './bounded-generation-map'
 
 export { lookupReposBySlugFromCache } from './repo-slug-cache'
 
 const slugResolutionInFlight = new Map<string, Promise<string | null>>()
+const MAX_SLUG_RESOLUTION_GENERATIONS = 1024
 
 // Why: an invalidation (repo removed, remote changed) can land while a
 // resolution is in-flight — before it ever wrote to `slugByRepoId`. Deleting
@@ -43,11 +43,24 @@ const slugResolutionInFlight = new Map<string, Promise<string | null>>()
 // stale slug would repopulate the cache after invalidation. Bump the key's
 // generation on every invalidation and commit a result only if the generation
 // it started with is still current.
-const slugResolutionGenerations = createBoundedGenerationMap(1024)
+const slugResolutionGeneration = new Map<string, number>()
+let slugResolutionGenerationSequence = 0
+let evictedSlugResolutionGeneration = 0
 
 function invalidateSlugResolution(cacheKey: string): void {
   slugResolutionInFlight.delete(cacheKey)
-  slugResolutionGenerations.advance(cacheKey)
+  slugResolutionGeneration.set(cacheKey, ++slugResolutionGenerationSequence)
+  while (slugResolutionGeneration.size > MAX_SLUG_RESOLUTION_GENERATIONS) {
+    const oldest = slugResolutionGeneration.keys().next()
+    if (oldest.done) {
+      return
+    }
+    evictedSlugResolutionGeneration = Math.max(
+      evictedSlugResolutionGeneration,
+      slugResolutionGeneration.get(oldest.value) ?? 0
+    )
+    slugResolutionGeneration.delete(oldest.value)
+  }
 }
 
 // Why: clear after remove/remote-change so the next index build re-resolves.
@@ -72,14 +85,11 @@ export function clearRepoSlugCacheEntry(repoId: string): void {
   }
 }
 
-async function resolveRepoSlug(repo: Repo): Promise<string | null> {
-  // Why: the project slug index spans repos from multiple hosts; each repo's remote metadata
-  // must be read from its owner.
-  const target = repoSlugOwnerTarget(repo)
-  if (!target) {
-    return null
-  }
-  const cacheKey = slugCacheKey(repo.id, target)
+async function resolveRepoSlug(
+  repo: Repo,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
+): Promise<string | null> {
+  const cacheKey = slugCacheKey(repo.id, settings)
   const cached = readRepoSlugCache(cacheKey)
   if (cached.hit) {
     return cached.value
@@ -88,20 +98,21 @@ async function resolveRepoSlug(repo: Repo): Promise<string | null> {
   if (inFlight) {
     return inFlight
   }
-  const generation = slugResolutionGenerations.get(cacheKey)
+  const generation = slugResolutionGeneration.get(cacheKey) ?? evictedSlugResolutionGeneration
   const resolution = (async () => {
     // Why: only write the resolved value if this key wasn't invalidated
     // mid-flight; otherwise a stale slug would repopulate the cache.
     const commit = (value: string | null): string | null => {
       if (
         slugResolutionInFlight.get(cacheKey) === resolution &&
-        slugResolutionGenerations.get(cacheKey) === generation
+        (slugResolutionGeneration.get(cacheKey) ?? evictedSlugResolutionGeneration) === generation
       ) {
         rememberRepoSlug(cacheKey, value)
       }
       return value
     }
     try {
+      const target = getActiveRuntimeTarget(settings)
       const result =
         target.kind === 'environment'
           ? await callRuntimeRpc<{ owner: string; repo: string; host?: string } | null>(
@@ -133,13 +144,14 @@ async function resolveRepoSlug(repo: Repo): Promise<string | null> {
 }
 
 async function buildIndex(
-  repos: readonly Repo[]
+  repos: readonly Repo[],
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 ): Promise<{ index: SlugIndex; upstreamIndex: SlugIndex; retryDelayMs: number | null }> {
   // Why: evict cached entries for repos that no longer exist in state so
   // the cache cannot grow unbounded across long sessions where users add
   // and remove repos. Without this, every removed repo's id (and its
   // negative-cached null) lingers forever.
-  const liveKeys = new Set(repos.flatMap((r) => repoSlugCacheKey(r) ?? []))
+  const liveKeys = new Set(repos.map((r) => slugCacheKey(r.id, settingsForRepoOwner(r, settings))))
   for (const key of slugByRepoId.keys()) {
     if (!liveKeys.has(key)) {
       deleteRepoSlugCacheKey(key)
@@ -151,7 +163,9 @@ async function buildIndex(
   const results = await Promise.all(
     repos.map(async (r) => ({
       repo: r,
-      slug: await resolveRepoSlug(r)
+      // Why: the project slug index spans repos from multiple hosts; each
+      // repo's remote metadata must be read from its owner.
+      slug: await resolveRepoSlug(r, settingsForRepoOwner(r, settings))
     }))
   )
   for (const { repo, slug } of results) {
@@ -186,6 +200,7 @@ export type RepoSlugIndexState = {
  *  deep trees can treat it as referentially equal inside a single render cycle. */
 export function useRepoSlugIndex(): RepoSlugIndexState {
   const repos = useAppStore((s) => s.repos)
+  const settings = useAppStore((s) => s.settings)
   const [index, setIndex] = useState<SlugIndex>(() => new Map())
   const [upstreamIndex, setUpstreamIndex] = useState<SlugIndex>(() => new Map())
   const [ready, setReady] = useState(false)
@@ -202,7 +217,7 @@ export function useRepoSlugIndex(): RepoSlugIndexState {
     const gen = ++generationRef.current
     setReady(false)
     setRetryDelayMs(null)
-    void buildIndex(repos).then(
+    void buildIndex(repos, settings).then(
       ({ index: next, upstreamIndex: nextUpstream, retryDelayMs: nextRetryDelayMs }) => {
         if (gen !== generationRef.current) {
           return
@@ -216,7 +231,7 @@ export function useRepoSlugIndex(): RepoSlugIndexState {
     return () => {
       generationRef.current += 1
     }
-  }, [repos, retryGeneration])
+  }, [repos, retryGeneration, settings])
 
   useEffect(() => {
     if (retryDelayMs === null) {

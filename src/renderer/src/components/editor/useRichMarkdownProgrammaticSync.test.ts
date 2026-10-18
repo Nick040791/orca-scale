@@ -70,7 +70,8 @@ describe('useRichMarkdownProgrammaticSync external-reload baseline adoption (#60
           baseCanonicalRef,
           markdownDocuments: undefined,
           rootRef: { current: null },
-          runtimeTarget: { kind: 'local' },
+          runtimeEnvironmentId: null,
+          settings: null,
           slashMenuSetter: vi.fn(),
           worktreeId: 'w1',
           worktreeRoot: null

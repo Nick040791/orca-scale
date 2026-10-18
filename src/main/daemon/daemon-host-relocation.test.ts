@@ -40,15 +40,13 @@ function installHostApp(): void {
 }
 
 import { buildDaemonHostManifest } from './daemon-host-manifest'
-import { buildInstallFixture } from './daemon-host-relocation.test-fixture'
 import {
   collectPinnedDaemonVersions,
-  getDaemonHostRootDir,
   getRelocatedDaemonHost,
   materializeRelocatedDaemonHost,
-  pruneOldDaemonHosts
+  pruneOldDaemonHosts,
+  reclaimUnownedDaemonHostDir
 } from './daemon-host-relocation'
-import { reclaimUnownedDaemonHostDir } from './daemon-host-reclaim'
 import type { ProcessLivenessVerdict } from './daemon-incarnation-evidence-types'
 
 let tempDir: string
@@ -64,12 +62,49 @@ function setProcessProp(key: string, value: unknown): void {
   Object.defineProperty(process, key, { value, configurable: true, writable: true })
 }
 
-function relocatedHostRoot(): string {
-  const host = getRelocatedDaemonHost()
-  if (!host) {
-    throw new Error('fixture host was not materialized')
+// Build a win-unpacked fixture: exe + blobs + DLLs at root, daemon bundle and
+// node-pty under resources, mirroring the packaged layout the copy expects.
+function buildInstallFixture(root: string): void {
+  mkdirSync(root, { recursive: true })
+  writeFileSync(join(root, 'Orca.exe'), 'exe-bytes')
+  for (const name of ['icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin']) {
+    writeFileSync(join(root, name), name)
   }
-  return dirname(host.execPath)
+  writeFileSync(join(root, 'ffmpeg.dll'), 'dll')
+  writeFileSync(join(root, 'libEGL.dll'), 'dll')
+  const mainDir = join(root, 'resources', 'app.asar.unpacked', 'out', 'main')
+  mkdirSync(join(mainDir, 'chunks'), { recursive: true })
+  writeFileSync(join(mainDir, 'daemon-entry.js'), 'entry')
+  writeFileSync(join(mainDir, 'chunks', 'a.js'), 'chunk')
+  writeFileSync(join(root, 'resources', 'app.asar.unpacked', 'out', 'package.json'), '{}')
+  const nativeDir = join(root, 'resources', 'node_modules', 'node-pty', 'build', 'Release')
+  mkdirSync(nativeDir, { recursive: true })
+  writeFileSync(join(nativeDir, 'conpty.node'), 'native')
+  writeFileSync(join(nativeDir, 'conpty.pdb'), 'debug-symbols')
+  mkdirSync(join(nativeDir, 'conpty'), { recursive: true })
+  writeFileSync(join(nativeDir, 'conpty', 'conpty.dll'), 'conpty-dll')
+  // Both win32 prebuilds exist in the packaged tree (build-time prune keeps the
+  // `win32-` prefix); the copy filter keeps the host arch's and drops the other.
+  const prebuildsRoot = join(root, 'resources', 'node_modules', 'node-pty', 'prebuilds')
+  for (const arch of ['win32-x64', 'win32-arm64']) {
+    mkdirSync(join(prebuildsRoot, arch), { recursive: true })
+    writeFileSync(join(prebuildsRoot, arch, 'pty.node'), `${arch}-prebuild`)
+  }
+  const processTreeDir = join(root, 'resources', 'node_modules', '@vscode', 'windows-process-tree')
+  mkdirSync(join(processTreeDir, 'build', 'Release'), { recursive: true })
+  mkdirSync(join(processTreeDir, 'lib'), { recursive: true })
+  mkdirSync(join(processTreeDir, 'src'), { recursive: true })
+  writeFileSync(join(processTreeDir, 'package.json'), '{"main":"lib/index.js"}')
+  writeFileSync(join(processTreeDir, 'lib', 'index.js'), 'module.exports = {}')
+  writeFileSync(
+    join(processTreeDir, 'build', 'Release', 'windows_process_tree.node'),
+    'process-tree-native'
+  )
+  writeFileSync(join(processTreeDir, 'build', 'Release', 'windows_process_tree.pdb'), 'symbols')
+  writeFileSync(join(processTreeDir, 'src', 'process.cc'), 'source')
+  writeFileSync(join(processTreeDir, 'lib', 'promises.js'), 'require("./index")')
+  mkdirSync(join(processTreeDir, 'build', 'Release', 'obj'), { recursive: true })
+  writeFileSync(join(processTreeDir, 'build', 'Release', 'obj', 'addon.obj'), 'intermediate')
 }
 
 const PROCESS_TREE_DIR_REL = join('resources', 'node_modules', '@vscode', 'windows-process-tree')
@@ -167,7 +202,7 @@ describe('materializeRelocatedDaemonHost', () => {
   it('copies the tree, writes the marker, and returns mirrored fork paths', () => {
     const result = materializeRelocatedDaemonHost()
     expect(result).not.toBeNull()
-    const dest = relocatedHostRoot()
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
     expect(result?.execPath).toBe(join(dest, 'Orca.exe'))
     expect(result?.entryPath).toBe(
       join(dest, 'resources', 'app.asar.unpacked', 'out', 'main', 'daemon-entry.js')
@@ -244,7 +279,7 @@ describe('materializeRelocatedDaemonHost', () => {
     renameSync(join(installDir, 'Orca.exe'), join(installDir, 'Orca Nightly.exe'))
     setProcessProp('execPath', join(installDir, 'Orca Nightly.exe'))
     const result = materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
     expect(result?.execPath).toBe(join(dest, 'Orca Nightly.exe'))
     expect(existsSync(join(dest, 'orca-terminal-daemon.exe'))).toBe(false)
     // Re-resolution must agree with materialization or the fork would target a missing exe.
@@ -259,7 +294,7 @@ describe('materializeRelocatedDaemonHost', () => {
     // Any one of them missing means require() cannot reach the addon, and a host
     // that cannot load it runs anyway -- forking a shell per snapshot (#16905).
     materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
     expect(getRelocatedDaemonHost()).not.toBeNull()
 
     rmSync(join(dest, relativePath))
@@ -269,26 +304,26 @@ describe('materializeRelocatedDaemonHost', () => {
 
   it('rematerializes a host whose copied addon went missing', () => {
     materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
     const relocatedAddon = join(dest, PROCESS_TREE_ADDON_REL)
 
     rmSync(relocatedAddon)
+    // A sentinel proves the host was rebuilt rather than reused.
     const sentinel = join(dest, 'sentinel.txt')
-    writeFileSync(sentinel, 'keep')
+    writeFileSync(sentinel, 'remove')
 
-    const rebuilt = materializeRelocatedDaemonHost()
-    expect(rebuilt).not.toBeNull()
-    expect(dirname(rebuilt!.execPath)).not.toBe(dest)
-    expect(readFileSync(join(dirname(rebuilt!.execPath), PROCESS_TREE_ADDON_REL), 'utf8')).toBe(
-      'process-tree-native'
-    )
-    expect(existsSync(sentinel)).toBe(true)
+    expect(materializeRelocatedDaemonHost()).not.toBeNull()
+    expect(readFileSync(relocatedAddon, 'utf8')).toBe('process-tree-native')
+    expect(existsSync(sentinel)).toBe(false)
   })
 
-  it('keeps a complete host ready when the install dir disappears', () => {
-    // A disappearing install tree during an update cannot invalidate the copied runtime.
+  it('does not read the install dir to decide an existing host is still good', () => {
+    // Relocation exists to outlive the install dir, so validity cannot depend on
+    // it: an updater mid-copy would otherwise condemn an intact host. A real
+    // upgrade changes the version keying this directory, which already forces a
+    // rebuild, and nothing else in the mirror is source-verified either.
     materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
     const sentinel = join(dest, 'sentinel.txt')
     writeFileSync(sentinel, 'keep')
 
@@ -313,13 +348,13 @@ describe('materializeRelocatedDaemonHost', () => {
 
     expect(materializeRelocatedDaemonHost()).toBeNull()
     // Not even the host root: the source is checked before any directory is made.
-    expect(existsSync(getDaemonHostRootDir())).toBe(false)
+    expect(existsSync(join(localAppDataDir, 'Orca', 'daemon-host'))).toBe(false)
   })
 
   it('is idempotent: a valid marker short-circuits without recopying', () => {
     materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
-    // The same build must be reused, including unrelated files already in its mirror.
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
+    // A recopy would rm the dest; a sentinel inside it must survive the 2nd call.
     const sentinel = join(dest, 'sentinel.txt')
     writeFileSync(sentinel, 'keep')
     const result = materializeRelocatedDaemonHost()
@@ -334,7 +369,7 @@ describe('materializeRelocatedDaemonHost', () => {
     })
     const result = materializeRelocatedDaemonHost()
     expect(result).toBeNull()
-    const hostRoot = getDaemonHostRootDir()
+    const hostRoot = join(localAppDataDir, 'Orca', 'daemon-host')
     // Neither the published dest nor any leftover staging dir remains.
     const remaining = existsSync(hostRoot) ? readdirSync(hostRoot) : []
     expect(remaining).toEqual([])
@@ -343,7 +378,7 @@ describe('materializeRelocatedDaemonHost', () => {
   it('returns null off win32', () => {
     setProcessProp('platform', 'darwin')
     expect(materializeRelocatedDaemonHost()).toBeNull()
-    expect(existsSync(getDaemonHostRootDir())).toBe(false)
+    expect(existsSync(join(localAppDataDir, 'Orca', 'daemon-host'))).toBe(false)
   })
 
   it('does nothing for a packaged host with no asar root (orcad on win32)', () => {
@@ -355,17 +390,35 @@ describe('materializeRelocatedDaemonHost', () => {
     installHostApp()
     expect(materializeRelocatedDaemonHost()).toBeNull()
     expect(getRelocatedDaemonHost()).toBeNull()
-    expect(existsSync(getDaemonHostRootDir())).toBe(false)
+    expect(existsSync(join(localAppDataDir, 'Orca', 'daemon-host'))).toBe(false)
   })
 })
 
 describe('getRelocatedDaemonHost', () => {
   it('returns null when the marker version does not match the current version', () => {
-    materializeRelocatedDaemonHost()
-    const dest = relocatedHostRoot()
-    const markerPath = join(dest, '.materialized.json')
-    const marker = JSON.parse(readFileSync(markerPath, 'utf8'))
-    writeFileSync(markerPath, JSON.stringify({ ...marker, version: '8.8.8' }))
+    const dest = join(localAppDataDir, 'Orca', 'daemon-host', '9.9.9')
+    mkdirSync(dirname(join(dest, 'x')), { recursive: true })
+    writeFileSync(join(dest, 'Orca.exe'), 'exe')
+    mkdirSync(join(dest, 'resources', 'app.asar.unpacked', 'out', 'main'), { recursive: true })
+    writeFileSync(
+      join(dest, 'resources', 'app.asar.unpacked', 'out', 'main', 'daemon-entry.js'),
+      'e'
+    )
+    // The process-table files too, or this passes because the mirror has no addon
+    // and never exercises the version comparison it is named for.
+    mkdirSync(join(dest, PROCESS_TREE_DIR_REL, 'lib'), { recursive: true })
+    mkdirSync(dirname(join(dest, PROCESS_TREE_ADDON_REL)), { recursive: true })
+    writeFileSync(join(dest, PROCESS_TREE_DIR_REL, 'package.json'), '{}')
+    writeFileSync(join(dest, PROCESS_TREE_DIR_REL, 'lib', 'index.js'), 'm')
+    writeFileSync(join(dest, PROCESS_TREE_ADDON_REL), 'n')
+    writeFileSync(
+      join(dest, '.materialized.json'),
+      JSON.stringify({
+        version: '8.8.8',
+        completedAt: '',
+        entryRelPath: 'resources/app.asar.unpacked/out/main/daemon-entry.js'
+      })
+    )
     expect(getRelocatedDaemonHost()).toBeNull()
   })
 })
@@ -379,7 +432,7 @@ function ageRecordPastQuarantineFloor(recordPath: string): void {
 
 describe('pruneOldDaemonHosts', () => {
   it('removes unpinned non-current version dirs, keeping current and pinned', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     for (const v of ['9.9.9', '1.0.0', '2.0.0']) {
       mkdirSync(join(root, v), { recursive: true })
     }
@@ -393,7 +446,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('keeps a host when its pid liveness query is permission denied', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '8.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -417,7 +470,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('keeps a host when its pid liveness query is unavailable', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '7.0.0'), { recursive: true })
     mkdirSync(join(root, '6.0.0'), { recursive: true })
@@ -445,7 +498,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('prunes nothing and never throws when the evidence is unverifiable', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     for (const v of ['1.0.0', '2.0.0']) {
       mkdirSync(join(root, v), { recursive: true })
     }
@@ -468,7 +521,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('skips pruning when the runtime directory cannot be read', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
 
     const evidence = collectPinnedDaemonVersions(join(userDataDir, 'daemon-never-created'))
@@ -482,7 +535,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('keeps a version live when any of its pid records is live', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '7.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -515,7 +568,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('preserves a host dir for any verdict that is not positively exited', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     // Why: deliberate out-of-contract cast — deletion must require a positive 'exited' match,
     // so a future verdict status the prune does not know preserves the host dir, not deletes it.
@@ -538,7 +591,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('quarantines a record torn inside the pid digits without probing the truncated prefix', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -567,7 +620,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('never lets an immortal-pid prefix turn a torn record into a permanent prune veto', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -601,7 +654,7 @@ describe('pruneOldDaemonHosts', () => {
     // A live daemon's record is created before it is written (writeFileSync 'wx'), so a
     // concurrent launch can read it as empty. Quarantining it would strand the running daemon's
     // record and let the NEXT launch reclaim its host image.
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -628,7 +681,7 @@ describe('pruneOldDaemonHosts', () => {
     // pid 0 with appVersion null. Skipping it as "pins no host dir" would leave the version
     // unpinned and let the prune below reclaim a live daemon's host image. Aged past the
     // quarantine floor so this pins the pid guard rather than the freshness guard.
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -649,7 +702,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('vetoes pruning while a pid salvaged from a corrupt record still answers', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -675,7 +728,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('quarantines a corrupt record naming no live pid so pruning resumes next launch', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -711,7 +764,7 @@ describe('pruneOldDaemonHosts', () => {
     if (originalPlatform === 'win32') {
       return ctx.skip()
     }
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     const runtimeDir = join(userDataDir, 'daemon')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
@@ -739,7 +792,7 @@ describe('pruneOldDaemonHosts', () => {
   })
 
   it('reclaims nothing for a packaged host with no asar root (orcad on win32)', () => {
-    const root = getDaemonHostRootDir()
+    const root = join(localAppDataDir, 'Orca', 'daemon-host')
     mkdirSync(join(root, '1.0.0'), { recursive: true })
     hostApp.appPath = join(installDir, 'resources', 'app')
     installHostApp()

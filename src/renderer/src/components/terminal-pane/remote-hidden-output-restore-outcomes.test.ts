@@ -1,14 +1,25 @@
 import type * as React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  installTerminalTestGlobals,
-  restoreTerminalTestGlobals
-} from './pty-connection-test-environment'
+import { resetAgentStartupDelayedDeliveryForTests } from '@/lib/agent-startup-delayed-delivery'
 
 async function flushAsyncTicks(count = 6): Promise<void> {
   for (let i = 0; i < count; i++) {
     await Promise.resolve()
   }
+}
+
+async function drainFakeTimerWork(limit = 20): Promise<void> {
+  await flushAsyncTicks(20)
+  if (!vi.isFakeTimers()) {
+    return
+  }
+  for (let iteration = 0; iteration < limit && vi.getTimerCount() > 0; iteration += 1) {
+    await vi.runOnlyPendingTimersAsync()
+    await flushAsyncTicks(20)
+  }
+  vi.clearAllTimers()
+  await flushAsyncTicks(20)
+  vi.clearAllTimers()
 }
 
 const LEAF_1 = '11111111-1111-4111-8111-111111111111' as const
@@ -314,7 +325,12 @@ function createDeps(overrides: Record<string, unknown> = {}) {
             : [...current, ptyId]
       mockStoreState.ptyIdsByTabId = { ...byTab, [tabId]: next }
     }),
-    markTerminalBell: vi.fn(),
+    markWorktreeUnread: vi.fn(),
+    markTerminalTabUnread: vi.fn(),
+    markTerminalPaneUnread: vi.fn(),
+    clearWorktreeUnread: vi.fn(),
+    clearTerminalTabUnread: vi.fn(),
+    clearTerminalPaneUnread: vi.fn(),
     dispatchNotification: vi.fn(),
     onShowSessionRestoredBanner: vi.fn(),
     setCacheTimerStartedAt: vi.fn(),
@@ -437,10 +453,13 @@ async function advanceModernRetryProbe(): Promise<void> {
 }
 
 describe('remote hidden-output restore outcomes', () => {
-  beforeEach(async () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+  const originalDocument = globalThis.document
+
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
-    await installTerminalTestGlobals()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
@@ -502,6 +521,7 @@ describe('remote hidden-output restore outcomes', () => {
       }),
       registerAgentLaunchConfig: vi.fn(),
       clearAgentLaunchConfig: vi.fn(),
+      markWorktreeUnread: vi.fn(),
       observeTerminalGitHubPullRequestLink: vi.fn(),
       recordTerminalInput: vi.fn(),
       setAgentStatus: vi.fn(),
@@ -514,8 +534,9 @@ describe('remote hidden-output restore outcomes', () => {
       clearPaneForegroundAgent: vi.fn((paneKey: string) => {
         delete (mockStoreState.paneForegroundAgentByPaneKey as Record<string, unknown>)[paneKey]
       }),
-      markTerminalBell: vi.fn(),
-      markAgentAttentionUnread: vi.fn()
+      markTerminalTabUnread: vi.fn(),
+      markTerminalPaneUnread: vi.fn(),
+      markAgentCompletionPaneUnread: vi.fn()
     }
     ;(globalThis as unknown as { window: unknown }).window = {
       api: {
@@ -576,7 +597,30 @@ describe('remote hidden-output restore outcomes', () => {
     globalThis.cancelAnimationFrame = vi.fn()
   })
 
-  afterEach(restoreTerminalTestGlobals)
+  afterEach(async () => {
+    await drainFakeTimerWork()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    if (originalRequestAnimationFrame) {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    } else {
+      delete (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame })
+        .requestAnimationFrame
+    }
+    if (originalCancelAnimationFrame) {
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+    } else {
+      delete (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame })
+        .cancelAnimationFrame
+    }
+    if (originalDocument) {
+      globalThis.document = originalDocument
+    } else {
+      delete (globalThis as { document?: Document }).document
+    }
+    delete (globalThis as unknown as { window?: unknown }).window
+    resetAgentStartupDelayedDeliveryForTests()
+  })
 
   it('[modern] repaints a recovered visible pane from the retained host buffer', async () => {
     const serializeBuffer = vi.fn()
@@ -591,10 +635,6 @@ describe('remote hidden-output restore outcomes', () => {
     await flushAsyncTicks(20)
 
     expect(serializeBufferOutcome).toHaveBeenCalledTimes(1)
-    // Why: the multiplexer only moves its gap baseline for images a pane repaints from.
-    expect(serializeBufferOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ repaintsPane: true })
-    )
     expect(drive.writtenChunks().join('')).toContain(HOST_SNAPSHOT_MARKER)
     expect(serializeBuffer).not.toHaveBeenCalled()
     drive.disposable.dispose()

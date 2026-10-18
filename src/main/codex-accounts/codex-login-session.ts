@@ -59,8 +59,6 @@ type CodexLoginSessionDependencies = {
   setCancel: (cancel: () => boolean) => void
   /** The browser link codex printed, published as soon as it is complete. */
   onAuthUrl: (url: string) => void
-  /** Opens a WSL login's link on this computer; absent where Orca cannot open one. */
-  openWslAuthUrl?: ((url: string) => void) | null
 }
 
 type LoginCancellation = {
@@ -116,16 +114,11 @@ async function runCodexLoginProcess(
     throw new Error(CODEX_LOGIN_CANCELLED_MESSAGE)
   }
 
-  // Why WSL only: a stock distro has no opener, so codex there cannot open a browser itself.
-  const openAuthUrl = wslInfo ? (dependencies.openWslAuthUrl ?? null) : null
-
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const spawnConfig = wslInfo
       ? {
           command: dependencies.wslCommand,
-          args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath, {
-            orcaOpensSignInLink: openAuthUrl !== null
-          }),
+          args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath),
           env: process.env,
           codexCommand: 'codex',
           interactiveLogin: null
@@ -162,7 +155,6 @@ async function runCodexLoginProcess(
       if (authUrl) {
         publishedAuthUrl = true
         dependencies.onAuthUrl(authUrl)
-        openAuthUrl?.(authUrl)
       }
     }
 

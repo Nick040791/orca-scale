@@ -91,9 +91,6 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   if (command === 'linear issue' && flag === 'id') {
     return '--id <id>             Linear issue key, id, or URL'
   }
-  if ((command === 'linear comment edit' || command === 'linear comment delete') && flag === 'id') {
-    return '--id <commentId>      Linear comment id (a UUID)'
-  }
   if (command === 'linear issue' && flag === 'workspace') {
     return '--workspace <id>      Connected Linear workspace id'
   }
@@ -181,10 +178,7 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   // Why: the shared --agent help describes launching a TUI agent in a terminal,
   // which is the wrong meaning here — this selects the account provider.
   if (command === 'account add' && flag === 'agent') {
-    return '--agent <id>           Account provider: claude, codex, opencode, or devin (default claude)'
-  }
-  if (command.startsWith('account ') && flag === 'agent') {
-    return '--agent <id>           Account provider: opencode or devin'
+    return '--agent <id>           Account provider: claude or codex (default claude)'
   }
   if (flag === 'key' && command === 'computer hotkey') {
     return '--key <key-combo>      Modifier chord with one key, e.g. CmdOrCtrl+A'

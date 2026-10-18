@@ -6,28 +6,26 @@ import { useAppStore } from '@/store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import type { Repo } from '../../../../shared/repo-types'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { upsertAddedRepoWithProjectHostSetup } from './add-repo-store-upsert'
-import { resolveAddRepoRuntimeTarget, worktreeRefreshOptions } from './add-repo-runtime-owner'
+import { worktreeRefreshOptions } from './add-repo-runtime-owner'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 
 export function useCreateRepo(
   fetchWorktrees: (
     repoId: string,
-    options?: {
-      requireAuthoritative?: boolean
-      executionHostId?: ExecutionHostId
-    }
+    options?: { requireAuthoritative?: boolean; executionHostId?: ExecutionHostId }
   ) => Promise<boolean>,
   closeModal: () => void,
   onGitRepoReady?: (repoId: string, executionHostId?: ExecutionHostId) => void | Promise<void>,
   options: {
     hostId?: string | null
     runtimeEnvironmentId?: string | null
+    sshTargetId?: string | null
   } = {}
 ) {
   const [createName, setCreateName] = useState('')
@@ -35,7 +33,7 @@ export function useCreateRepo(
   const [createError, setCreateError] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const mountedRef = useMountedRef()
-  const hostToken = options.hostId ?? ''
+  const hostToken = options.hostId ?? options.sshTargetId ?? ''
   const hostTokenRef = useRef(hostToken)
   hostTokenRef.current = hostToken
 
@@ -53,6 +51,17 @@ export function useCreateRepo(
   }, [])
 
   const handlePickParent = useCallback(async (): Promise<string | null> => {
+    if (options.sshTargetId) {
+      // Why: the native picker can only browse the client machine. SSH create
+      // uses a host path typed by the user until remote folder picking exists.
+      toast.error(
+        translate(
+          'auto.components.sidebar.AddRepoCreateStep.ssh_parent_manual',
+          'Enter an SSH parent path.'
+        )
+      )
+      return null
+    }
     if (options.runtimeEnvironmentId?.trim()) {
       // Why: the native folder picker returns a client-local path. Runtime
       // project creation needs an explicit host parent path.
@@ -72,31 +81,36 @@ export function useCreateRepo(
       return dir
     }
     return null
-  }, [mountedRef, options.runtimeEnvironmentId])
+  }, [mountedRef, options.runtimeEnvironmentId, options.sshTargetId])
 
   const handleCreate = useCallback(async () => {
     const name = createName.trim()
     const parentPath = createParent.trim()
-    // Why: null means the chosen host is unresolved (e.g. its server is coming up); without a
-    // host id the request below would run on this computer.
-    if (!name || !parentPath || options.hostId === null) {
+    if (!name || !parentPath) {
       return
     }
     const requestHostToken = hostTokenRef.current
     const gen = ++createGenRef.current
-    const isCurrent = (): boolean =>
-      gen === createGenRef.current &&
-      requestHostToken === hostTokenRef.current &&
-      mountedRef.current
     setIsCreating(true)
     setCreateError(null)
     try {
-      const target = resolveAddRepoRuntimeTarget(options.runtimeEnvironmentId)
+      const target = options.runtimeEnvironmentId?.trim()
+        ? { kind: 'environment' as const, environmentId: options.runtimeEnvironmentId.trim() }
+        : getActiveRuntimeTarget({
+            ...useAppStore.getState().settings,
+            activeRuntimeEnvironmentId: null
+          })
       // Why: Create Project is intentionally Git-only; non-Git folders use the
       // existing add-folder flows instead of this path.
       const createKind = 'git' as const
-      const result =
-        target.kind === 'environment'
+      const result = options.sshTargetId
+        ? await window.api.repos.createRemote({
+            connectionId: options.sshTargetId,
+            parentPath,
+            name,
+            kind: createKind
+          })
+        : target.kind === 'environment'
           ? await callRuntimeRpc<{ repo: Repo } | { error: string }>(
               target,
               'repo.create',
@@ -114,7 +128,11 @@ export function useCreateRepo(
             })
       // Why: if the user closed the dialog or clicked Back mid-create,
       // createGenRef was bumped by resetCreateState. Ignore stale results.
-      if (!isCurrent()) {
+      if (
+        gen !== createGenRef.current ||
+        requestHostToken !== hostTokenRef.current ||
+        !mountedRef.current
+      ) {
         return
       }
       if ('error' in result) {
@@ -124,7 +142,8 @@ export function useCreateRepo(
       const { alreadyPresent: wasDeduped, repo } = upsertAddedRepoWithProjectHostSetup(
         result.repo,
         {
-          runtimeEnvironmentId: options.runtimeEnvironmentId
+          runtimeEnvironmentId: options.runtimeEnvironmentId,
+          sshConnectionId: options.sshTargetId
         }
       )
       // Why: the IPC handler dedupes by path (see repos:create) and returns
@@ -149,25 +168,40 @@ export function useCreateRepo(
           }
         )
       }
-      const ownerOptions = worktreeRefreshOptions(options.runtimeEnvironmentId)
       if (isGitRepoKind(repo)) {
         // Why: Git repos use the shared default-checkout completion path.
         // Why: if refresh is temporarily non-authoritative, the shared opener
         // still reveals the project so the user is not left in a completed add flow.
+        const ownerOptions = worktreeRefreshOptions(
+          options.runtimeEnvironmentId,
+          options.sshTargetId
+        )
         await fetchWorktrees(repo.id, ownerOptions)
-        if (!isCurrent()) {
+        if (
+          gen !== createGenRef.current ||
+          requestHostToken !== hostTokenRef.current ||
+          !mountedRef.current
+        ) {
           return
         }
-        await onGitRepoReady?.(repo.id, ownerOptions.executionHostId)
+        await (ownerOptions.executionHostId
+          ? onGitRepoReady?.(repo.id, ownerOptions.executionHostId)
+          : onGitRepoReady?.(repo.id))
       } else {
         // Why: folder repos skip the Git default-checkout handoff, so activate the synthetic
         // root workspace before closing. Matches addNonGitFolder's behavior.
+        const ownerOptions = worktreeRefreshOptions(
+          options.runtimeEnvironmentId,
+          options.sshTargetId
+        )
         await (ownerOptions.executionHostId
-          ? fetchWorktrees(repo.id, {
-              executionHostId: ownerOptions.executionHostId
-            })
+          ? fetchWorktrees(repo.id, { executionHostId: ownerOptions.executionHostId })
           : fetchWorktrees(repo.id))
-        if (!isCurrent()) {
+        if (
+          gen !== createGenRef.current ||
+          requestHostToken !== hostTokenRef.current ||
+          !mountedRef.current
+        ) {
           return
         }
         const folderWorktree = useAppStore
@@ -189,14 +223,22 @@ export function useCreateRepo(
         closeModal()
       }
     } catch (err) {
-      if (!isCurrent()) {
+      if (
+        gen !== createGenRef.current ||
+        requestHostToken !== hostTokenRef.current ||
+        !mountedRef.current
+      ) {
         return
       }
       setCreateError(extractIpcErrorMessage(err, String(err)))
     } finally {
       // Why: only clear the loading state if this invocation is still current;
       // a superseded create must not flip the flag back off for a new flow.
-      if (isCurrent()) {
+      if (
+        gen === createGenRef.current &&
+        requestHostToken === hostTokenRef.current &&
+        mountedRef.current
+      ) {
         setIsCreating(false)
       }
     }
@@ -207,8 +249,8 @@ export function useCreateRepo(
     mountedRef,
     closeModal,
     onGitRepoReady,
-    options.hostId,
-    options.runtimeEnvironmentId
+    options.runtimeEnvironmentId,
+    options.sshTargetId
   ])
 
   return {

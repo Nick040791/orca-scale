@@ -3,12 +3,12 @@ import {
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_PROTOCOL_VERSION,
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_RUNTIME_CAPABILITY
 } from '../../../shared/protocol-version'
-import type { FederationRuntime } from './federation-runtime'
+import type { OrcaRuntimeService } from '../orca-runtime'
 import type { FederatedDispatchRow } from './types'
 import { getOrchestrationPeerCapabilityCache } from './orchestration-peer-capability-cache'
 
 export async function resolveFederatedLifecycleSettlementCapability(
-  runtime: FederationRuntime,
+  runtime: OrcaRuntimeService,
   federated: FederatedDispatchRow,
   pairingRevision: number | undefined
 ) {

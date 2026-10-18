@@ -7,9 +7,6 @@ import { resolveLeafScrollbackBuffers } from './leaf-scrollback-resolution'
 import type { TerminalPaneLifecycleRefs } from './use-terminal-pane-lifecycle-refs'
 import type { UseTerminalPaneLifecycleDeps } from './terminal-pane-lifecycle-types'
 import type { PtyConnectionDeps } from './pty-connection-types'
-import { resolveParkRevealLiveTuiLeafIds } from './park-reveal-live-tui-leaves'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import { withoutQueuedMainSplits } from './terminal-pane-split-request-routing'
 import {
   mapRestoredPaneTitlesByPaneId,
   replayLayoutWithOneShotParkIntent
@@ -24,21 +21,8 @@ export function restoreTerminalPaneLayout(args: {
 }): Map<string, number> {
   const { manager, deps, refs, ptyDeps, initialLayoutHadBuffers } = args
   const { initialLayoutRef, tabId, worktreeId, isActive, managerRef } = deps
-  // Read before replay consumes the one-shot park intent.
-  const liveAltScreenLeafIds = resolveParkRevealLiveTuiLeafIds(
-    ptyDeps.mountFollowsTerminalPark,
-    initialLayoutRef.current.ptyIdsByLeafId
-  )
   const restoredPaneByLeafId = replayLayoutWithOneShotParkIntent(ptyDeps, () =>
-    replayTerminalLayout(
-      manager,
-      // Switch point: main's frames already hold a split main asked for; its queued request mounts
-      // it, with its startup command.
-      ORCA_LAYOUT_OWNER_IS_MAIN
-        ? withoutQueuedMainSplits(initialLayoutRef.current, tabId, worktreeId)
-        : initialLayoutRef.current,
-      isActive
-    )
+    replayTerminalLayout(manager, initialLayoutRef.current, isActive)
   )
   const localOnlyBuffers = useAppStore.getState().localOnlyScrollbackByTabId[tabId]
   const restoredBuffers = resolveLeafScrollbackBuffers({
@@ -50,8 +34,7 @@ export function restoreTerminalPaneLayout(args: {
     restoredBuffers,
     restoredPaneByLeafId,
     deps.replayingPanesRef,
-    refs.restoredViewportBlankingPanesRef,
-    liveAltScreenLeafIds
+    refs.restoredViewportBlankingPanesRef
   )
   const hasScrollbackRefs = Boolean(initialLayoutRef.current.scrollbackRefsByLeafId)
   if (

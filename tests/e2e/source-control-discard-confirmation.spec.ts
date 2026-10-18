@@ -20,7 +20,7 @@ async function seedUntrackedFile(
   page: Page,
   requestedFileName?: string
 ): Promise<SeededUntrackedFile> {
-  const seeded = await page.evaluate(async (requestedFileName) => {
+  return page.evaluate(async (requestedFileName) => {
     const store = window.__store
     if (!store) {
       throw new Error('window.__store is not available')
@@ -43,26 +43,24 @@ async function seedUntrackedFile(
       content: 'delete me\n'
     })
 
+    const status = await window.api.git.status({ worktreePath: worktree.path })
+    state.setGitStatus(worktree.id, status)
+    const statusEntry = status.entries.find((entry) => entry.path.endsWith(fileName))
+    if (!statusEntry) {
+      throw new Error(`git status did not include ${fileName}`)
+    }
+
     return {
       fileName
     }
   }, requestedFileName)
-
-  // Why: a status read already in flight when the file was written can be joined and miss it.
-  await expect
-    .poll(
-      async () => (await refreshGitStatus(page)).some((path) => path.endsWith(seeded.fileName)),
-      { timeout: 10_000, message: `git status did not include ${seeded.fileName}` }
-    )
-    .toBe(true)
-  return seeded
 }
 
-async function refreshGitStatus(page: Page): Promise<string[]> {
-  return page.evaluate(async () => {
+async function refreshGitStatus(page: Page): Promise<void> {
+  await page.evaluate(async () => {
     const store = window.__store
     if (!store) {
-      throw new Error('window.__store is not available')
+      return
     }
     const state = store.getState()
     const worktreeId = state.activeWorktreeId
@@ -70,11 +68,9 @@ async function refreshGitStatus(page: Page): Promise<string[]> {
       .flat()
       .find((entry) => entry.id === worktreeId)
     if (!worktree) {
-      throw new Error('active worktree not found')
+      return
     }
-    const status = await window.api.git.status({ worktreePath: worktree.path })
-    state.setGitStatus(worktree.id, status)
-    return status.entries.map((entry) => entry.path)
+    state.setGitStatus(worktree.id, await window.api.git.status({ worktreePath: worktree.path }))
   })
 }
 

@@ -54,9 +54,7 @@ describe('fetch-armed ref maintenance', () => {
 
     await controller.getOrStartRemoteFetch('/repo/worktrees/a', 'origin')
 
-    await vi.waitFor(() =>
-      expect(armedTargets().map((target) => target.key)).toEqual(['local::/repo/.git'])
-    )
+    expect(armedTargets().map((target) => target.key)).toEqual(['local::/repo/.git'])
   })
 
   it('gives every worktree of one repo the same maintenance key', async () => {
@@ -70,12 +68,8 @@ describe('fetch-armed ref maintenance', () => {
       base: 'origin/main'
     })
 
-    await vi.waitFor(() =>
-      expect(armedTargets().map((target) => target.key)).toEqual([
-        'local::/repo/.git',
-        'local::/repo/.git'
-      ])
-    )
+    const keys = new Set(armedTargets().map((target) => target.key))
+    expect(keys).toEqual(new Set(['local::/repo/.git']))
   })
 
   it('scopes the key to the WSL distro that executes the repo', async () => {
@@ -85,7 +79,7 @@ describe('fetch-armed ref maintenance', () => {
       wslDistro: 'Ubuntu'
     })
 
-    await vi.waitFor(() => expect(armedTargets()[0]?.key).toBe('wsl:Ubuntu::/repo/.git'))
+    expect(armedTargets()[0]?.key).toBe('wsl:Ubuntu::/repo/.git')
   })
 
   it('does not collapse every repo onto one key on Git older than 2.31', async () => {
@@ -101,18 +95,15 @@ describe('fetch-armed ref maintenance', () => {
     await controller.getOrStartRemoteFetch('/repo/one', 'origin')
     await controller.getOrStartRemoteFetch('/repo/two', 'origin')
 
-    await vi.waitFor(() =>
-      expect(armedTargets().map((entry) => entry.key)).toEqual([
-        'local::/repo/one/.git',
-        'local::/repo/two/.git'
-      ])
-    )
+    expect(armedTargets().map((entry) => entry.key)).toEqual([
+      'local::/repo/one/.git',
+      'local::/repo/two/.git'
+    ])
   })
 
   it('reports the repo as busy while another fetch on it is in flight', async () => {
     const controller = new RuntimeRemoteFetchController()
     await controller.getOrStartRemoteFetch('/repo', 'first')
-    await vi.waitFor(() => expect(busyProbeFor('local::/repo/.git')).toBeDefined())
     const isBusy = busyProbeFor('local::/repo/.git')
     expect(isBusy?.()).toBe(false)
 
@@ -149,6 +140,6 @@ describe('fetch-armed ref maintenance', () => {
       ok: false,
       errorKind: 'git_error'
     })
-    await vi.waitFor(() => expect(armedTargets()).toHaveLength(1))
+    expect(armedTargets()).toHaveLength(1)
   })
 })

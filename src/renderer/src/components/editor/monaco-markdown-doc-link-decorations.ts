@@ -33,6 +33,15 @@ function collectInlineCodeSpans(
   }
 }
 
+function isInsideSpan(index: number, spans: number[]): boolean {
+  for (let cursor = 0; cursor < spans.length; cursor += 2) {
+    if (index >= spans[cursor] && index < spans[cursor + 1]) {
+      return true
+    }
+  }
+  return false
+}
+
 export function getMarkdownDocLinkDecorationRanges(content: string): IRange[] {
   const ranges: IRange[] = []
   const inlineCodeSpans: number[] = []
@@ -49,7 +58,6 @@ export function getMarkdownDocLinkDecorationRanges(content: string): IRange[] {
     }
 
     let spansCollected = false
-    let spanCursor = 0
     let searchFrom = lineStart
     while (searchFrom < lineEnd) {
       if (nextOpen !== -1 && nextOpen < searchFrom) {
@@ -72,11 +80,7 @@ export function getMarkdownDocLinkDecorationRanges(content: string): IRange[] {
         collectInlineCodeSpans(content, lineStart, lineEnd, inlineCodeSpans)
         spansCollected = true
       }
-      // Why: spans and link offsets are ordered, so each span needs only one forward visit.
-      while (spanCursor < inlineCodeSpans.length && inlineCodeSpans[spanCursor + 1] <= start) {
-        spanCursor += 2
-      }
-      if (spanCursor >= inlineCodeSpans.length || start < inlineCodeSpans[spanCursor]) {
+      if (!isInsideSpan(start, inlineCodeSpans)) {
         const target = getMarkdownDocLinkTarget(content.slice(start + 2, end))
         if (target) {
           ranges.push({

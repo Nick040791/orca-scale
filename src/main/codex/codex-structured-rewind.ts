@@ -280,6 +280,7 @@ export async function rewindCodexSession(
   if (record(reply.thread).id !== session.threadId) {
     throw new Error('agent_session_rewind:foreign-thread')
   }
+  await input.onReverted?.()
   const items = await verifyCodexRevertedHistory(session, reply, input.beforeTurnId, timeoutMs)
   if (
     items.length !== expectedItems.size ||
@@ -304,6 +305,5 @@ export function observeCodexRewindActivity(
   }
   if (turnId && method === 'turn/completed') {
     session.activeTurnIds?.delete(turnId)
-    session.abortedTurnIds?.delete(turnId)
   }
 }

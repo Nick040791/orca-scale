@@ -1,4 +1,3 @@
-import { ImeInput } from '@/lib/ime-text-field'
 import type { TaskPageComposerActionsModel } from '../../use-task-page-composer-actions'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
@@ -106,7 +105,7 @@ export function TaskPageLinearIssueDialog({
         {/* Form Content */}
         <div className="flex flex-col px-6 py-4 gap-3">
           {/* Title */}
-          <ImeInput
+          <input
             autoFocus
             value={newLinearIssueTitle}
             onChange={(e) => setNewLinearIssueTitle(e.target.value)}

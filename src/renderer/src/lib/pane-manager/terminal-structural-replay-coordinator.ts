@@ -9,10 +9,6 @@ import {
   endTerminalScrollIntentBufferRebuild
 } from './terminal-scroll-intent-rebuild'
 import { cancelDeferredScrollRestore } from './pane-scroll'
-import {
-  beginTerminalReplayPresentation,
-  type TerminalReplayPresentationTarget
-} from './terminal-replay-presentation'
 
 type StructuralReplayTask = () => void | Promise<void>
 
@@ -29,7 +25,7 @@ export type TerminalStructuralReplayCoordinator = {
 // Why: clear-and-replay bytes parse later and can overlap. One pane-scoped
 // queue prevents dimension changes and stale viewport restores from interleaving.
 export function createTerminalStructuralReplayCoordinator(
-  terminal: TerminalScrollIntentTarget & TerminalReplayPresentationTarget
+  terminal: TerminalScrollIntentTarget
 ): TerminalStructuralReplayCoordinator {
   let disposed = false
   let activeCancellation: (() => void) | null = null
@@ -50,8 +46,6 @@ export function createTerminalStructuralReplayCoordinator(
         // and restore a stale marker over the authoritative replay viewport.
         cancelDeferredScrollRestore(terminal)
         beginTerminalScrollIntentBufferRebuild(terminal)
-        const releasePresentation = beginTerminalReplayPresentation(terminal)
-        let shouldPresent = false
         let cancelTask = (): void => {}
         const cancellation = new Promise<void>((resolve) => {
           cancelTask = resolve
@@ -71,10 +65,8 @@ export function createTerminalStructuralReplayCoordinator(
               // Why: live bytes must remain serialized behind replay until any
               // post-restore fit has produced the authoritative destination grid.
               await Promise.race([Promise.resolve(options.afterRestore?.()), cancellation])
-              shouldPresent = true
             }
           } finally {
-            releasePresentation(!disposed && shouldPresent)
             activeCancellation = null
           }
         }

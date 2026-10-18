@@ -20,10 +20,10 @@ export function registerQuestionTool(toolName: string, parser: InteractiveQuesti
 }
 
 function parseCanonicalQuestionsInput(input: unknown): AskPrompt | null {
-  if (!input || typeof input !== 'object' || !('questions' in input)) {
+  if (!input || typeof input !== 'object') {
     return null
   }
-  const rawQuestions = input.questions
+  const rawQuestions = (input as { questions?: unknown }).questions
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
     return null
   }
@@ -32,16 +32,14 @@ function parseCanonicalQuestionsInput(input: unknown): AskPrompt | null {
     if (!raw || typeof raw !== 'object') {
       continue
     }
-    const text = 'question' in raw && typeof raw.question === 'string' ? raw.question : ''
-    const options = parseOptions('options' in raw ? raw.options : undefined)
+    const question = raw as Record<string, unknown>
+    const text = typeof question.question === 'string' ? question.question : ''
+    const options = parseOptions(question.options)
     if (text || options.length > 0) {
       questions.push({
         question: text,
-        header: 'header' in raw && typeof raw.header === 'string' ? raw.header : undefined,
-        multiSelect:
-          'multiSelect' in raw
-            ? raw.multiSelect === true
-            : 'multiple' in raw && raw.multiple === true,
+        header: typeof question.header === 'string' ? question.header : undefined,
+        multiSelect: question.multiSelect === true,
         options
       })
     }
@@ -61,15 +59,12 @@ function parseOptions(raw: unknown): AskOption[] {
       if (
         option &&
         typeof option === 'object' &&
-        'label' in option &&
-        typeof option.label === 'string'
+        typeof (option as { label?: unknown }).label === 'string'
       ) {
+        const value = option as { label: string; description?: unknown }
         return {
-          label: option.label,
-          description:
-            'description' in option && typeof option.description === 'string'
-              ? option.description
-              : undefined
+          label: value.label,
+          description: typeof value.description === 'string' ? value.description : undefined
         }
       }
       return null

@@ -1,4 +1,3 @@
-import { getDefaultSettings } from '../../src/shared/constants'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SleepingAgentSessionRecord } from '../../src/shared/agent-session-resume'
@@ -15,7 +14,7 @@ import {
   resolveLegacyWorkerTerminalRecoveryAction,
   rollbackLegacyWorkerTerminalSurfaceInStore
 } from '@/hooks/legacy-worker-terminal-recovery-event'
-import { useAppStore } from '@/store'
+import { useAppStore, type AppState } from '@/store'
 import { buildWorkspaceSessionPayload } from '@/lib/workspace-session'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { resumeSleepingAgentSessionsForWorktree } from '@/lib/resume-sleeping-agent-session'
@@ -156,16 +155,16 @@ function seedWorkspace(options: { helper?: boolean } = {}): void {
     sleepingAgentSessionsByPaneKey: {},
     everActivatedWorktreeIds: new Set([CANARY_WORKTREE_ID]),
     settings: {
-      ...getDefaultSettings(''),
       ...initialAppStoreState.settings,
       agentCmdOverrides: {},
-      agentDefaultArgs: { codex: '--dangerously-bypass-approvals-and-sandbox' }
+      agentDefaultArgs: { codex: '--dangerously-bypass-approvals-and-sandbox' },
+      setupScriptLaunchMode: 'new-tab'
     },
     markWorktreeVisited: vi.fn(),
     recordWorktreeVisit: vi.fn(),
     refreshGitHubForWorktreeIfStale: vi.fn(),
     revealWorktreeInSidebar: vi.fn()
-  })
+  } as Partial<AppState>)
 }
 
 function recordWorkingWorker() {
@@ -464,6 +463,17 @@ describe('completed background-worker retirement resume matrix', () => {
       resolution: 'exited'
     })
     expect(exitedAction).toEqual({ kind: 'clear-sleeping', paneKey: ORIGINAL_PANE_KEY })
+
+    // Case 5: coordinator manual close is the same safe exact-tab retirement boundary.
+    seedWorkspace()
+    recordCompletedWorker()
+    closeTerminalTab(ORIGINAL_TAB_ID, {
+      force: true,
+      skipRunningProcessConfirm: true,
+      localPtyTeardownOwnedExternally: true
+    })
+    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[ORIGINAL_PANE_KEY]).toBeUndefined()
+    expectCanaryUnchanged()
 
     // Case 6: normal Codex exit leaves the shell pane; helper close retires only the helper.
     seedWorkspace({ helper: true })

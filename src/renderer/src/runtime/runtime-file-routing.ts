@@ -1,20 +1,23 @@
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import {
   isWindowsAbsolutePathLike,
   relativePathInsideRoot
 } from '../../../shared/cross-platform-path'
 import { normalizeRelativePath } from '@/lib/path'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
-import { chatScratchFileAddress } from './runtime-chat-scratch-file-address'
 
 export function assertExternalSshReadOwnership(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   connectionId: string | undefined,
   expectedExternalSshTargetId: string | undefined
 ): void {
   const expectedTargetId = expectedExternalSshTargetId?.trim()
-  if (expectedTargetId && (target.kind === 'environment' || connectionId !== expectedTargetId)) {
+  if (
+    expectedTargetId &&
+    (getActiveRuntimeTarget(settings).kind === 'environment' || connectionId !== expectedTargetId)
+  ) {
     throw new Error('External SSH files are not available after the workspace host changes.')
   }
 }
@@ -43,9 +46,10 @@ export function withSshMutationExpectation<T extends object>(
 }
 
 export function getRuntimeFileReadScope(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   connectionId: string | undefined
 ): string | undefined {
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'environment' ? `runtime:${target.environmentId}` : connectionId
 }
 
@@ -70,34 +74,31 @@ export function getRemoteFileArgs(
   context: RuntimeFileOperationArgs,
   absolutePath: string
 ): {
-  target: RuntimeClientTarget & { kind: 'environment' }
+  target: ReturnType<typeof getActiveRuntimeTarget> & { kind: 'environment' }
   worktreeId: string
   worktreeSelector: string
   relativePath: string
 } | null {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind !== 'environment' || !context.worktreeId) {
     return null
   }
   const relativePath = getRelativePathInsideWorktree(context.worktreePath, absolutePath)
-  // Outside every workspace, a chat's scratch file is addressed by its folder on the host.
-  const address =
-    relativePath === null
-      ? chatScratchFileAddress(absolutePath)
-      : { worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId), relativePath }
-  if (!address) {
+  if (relativePath === null) {
     return null
   }
   return {
     target,
     worktreeId: context.worktreeId,
-    worktreeSelector: address.worktreeSelector,
-    relativePath: address.relativePath
+    worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId),
+    relativePath
   }
 }
 
 export function hasRemoteRuntimeOwner(context: RuntimeFileOperationArgs): boolean {
-  return context.target.kind === 'environment' && Boolean(context.worktreeId)
+  return (
+    getActiveRuntimeTarget(context.settings).kind === 'environment' && Boolean(context.worktreeId)
+  )
 }
 
 export function assertLocalFilesystemFallbackAllowed(context: RuntimeFileOperationArgs): void {

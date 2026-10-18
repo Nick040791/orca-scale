@@ -20,8 +20,6 @@ export type HostRepoListResource<Repo> = {
   ensureLoaded: () => Promise<Repo[]>
   /** Discards the cache so an explicit refresh re-reads the host. */
   reload: () => Promise<Repo[]>
-  /** The bound client's last answer, readable before React commits it. */
-  current: () => Repo[]
 }
 
 /** Binds the repo list to `clientKey`. Pass `fetchRepos: null` while there is no
@@ -127,10 +125,5 @@ export function useHostRepoList<Repo>(
     [reload]
   )
 
-  const current = useCallback((): Repo[] => reposRef.current, [])
-
-  return useMemo(
-    () => ({ state, ensureLoaded, reload, current }),
-    [current, ensureLoaded, reload, state]
-  )
+  return useMemo(() => ({ state, ensureLoaded, reload }), [ensureLoaded, reload, state])
 }

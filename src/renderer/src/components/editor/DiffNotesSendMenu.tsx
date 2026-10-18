@@ -54,18 +54,20 @@ export function DiffNotesSendMenu({
     [consumeOpenRequest, worktreeId]
   )
   const unsentNotes = useMemo(() => comments.filter((comment) => !comment.sentAt), [comments])
+  const unsentPrompt = useMemo(() => formatDiffComments(unsentNotes), [unsentNotes])
   const fileNotes = useMemo(
     () => (filePath ? comments.filter((comment) => comment.filePath === filePath) : []),
     [comments, filePath]
   )
   const unsentFileNotes = useMemo(() => fileNotes.filter((comment) => !comment.sentAt), [fileNotes])
+  const unsentFilePrompt = useMemo(() => formatDiffComments(unsentFileNotes), [unsentFileNotes])
   const canSendFileScope = showFileScope && Boolean(filePath)
   const scopes = useMemo<NotesSendMenuScope<DiffComment>[]>(() => {
     const allNotesScope = {
       id: 'all',
       label: translate('auto.components.editor.DiffNotesSendMenu.8b87612461', 'All unsent notes'),
       notes: unsentNotes,
-      formatPrompt: formatDiffComments
+      prompt: unsentPrompt
     }
     if (!canSendFileScope) {
       return [allNotesScope]
@@ -75,11 +77,11 @@ export function DiffNotesSendMenu({
         id: 'file',
         label: translate('auto.components.editor.DiffNotesSendMenu.f1aa04b5cf', 'This file'),
         notes: unsentFileNotes,
-        formatPrompt: formatDiffComments
+        prompt: unsentFilePrompt
       },
       allNotesScope
     ]
-  }, [canSendFileScope, unsentFileNotes, unsentNotes])
+  }, [canSendFileScope, unsentFileNotes, unsentFilePrompt, unsentNotes, unsentPrompt])
 
   return (
     <NotesSendMenu

@@ -1,4 +1,3 @@
-import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { RuntimeCapability } from '../../../shared/protocol-version'
@@ -6,9 +5,20 @@ import { withBrowserPaneUiRuntimeRpcSource } from '../../../shared/runtime-rpc-f
 import { assertRuntimeStatusCompatible } from './runtime-protocol-compat'
 import { createRuntimeRpcAbortError } from './abortable-runtime-environment-call'
 import { callRuntimeEnvironmentWithRevision } from './runtime-rpc-environment-call'
-import { unwrapRuntimeRpcResult } from './runtime-rpc-result'
+import { RuntimeRpcCallError, unwrapRuntimeRpcResult } from './runtime-rpc-result'
 import { captureRuntimeEnvironmentRequestRevision } from './runtime-environment-revision'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import type { RuntimeClientTarget } from './runtime-client-target'
+
+export {
+  getActiveRuntimeTarget,
+  settingsForRuntimeOwner,
+  type RuntimeClientTarget
+} from './runtime-client-target'
+export {
+  hasRuntimeRpcErrorCode,
+  RuntimeRpcCallError,
+  unwrapRuntimeRpcResult
+} from './runtime-rpc-result'
 
 const RUNTIME_COMPATIBILITY_CACHE_MAX = 32
 const RECENT_RUNTIME_COMPATIBILITY_FAILURE_TTL_MS = 60_000
@@ -26,6 +36,13 @@ type RuntimeCompatibilityCacheEntry = {
 
 const runtimeCompatibilityChecks = new Map<string, RuntimeCompatibilityCacheEntry>()
 
+// Why: mobile-scope device tokens are denied non-allowlisted runtime methods
+// with code 'forbidden'. Callers use this to surface one scope-mismatch banner
+// instead of silently swallowing the failure into empty/retry-looping UI.
+export function isRuntimeScopeForbiddenError(error: unknown): boolean {
+  return error instanceof RuntimeRpcCallError && error.code === 'forbidden'
+}
+
 export async function callRuntimeRpc<TResult>(
   target: RuntimeClientTarget,
   method: string,
@@ -38,12 +55,8 @@ export async function callRuntimeRpc<TResult>(
     signal?: AbortSignal
     expectedEnvironmentPairingRevision?: number
     expectedEnvironmentRuntimeId?: string
-    beforeSend?: () => void
   } = {}
 ): Promise<TResult> {
-  if (options.signal?.aborted) {
-    throw createRuntimeRpcAbortError()
-  }
   const expectedEnvironmentPairingRevision =
     target.kind === 'environment'
       ? captureRuntimeEnvironmentRequestRevision(
@@ -56,13 +69,10 @@ export async function callRuntimeRpc<TResult>(
     method !== 'status.get' &&
     options.skipCompatibilityCheck !== true
   ) {
-    await waitForPromiseWithSignal(
-      ensureRuntimeEnvironmentCompatible(target.environmentId, {
-        ...options,
-        expectedEnvironmentPairingRevision
-      }),
-      options.signal
-    )
+    await ensureRuntimeEnvironmentCompatible(target.environmentId, {
+      ...options,
+      expectedEnvironmentPairingRevision
+    })
   }
   if (options.signal?.aborted) {
     throw createRuntimeRpcAbortError()
@@ -70,7 +80,6 @@ export async function callRuntimeRpc<TResult>(
   const nextParams = options.suppressFeatureInteraction
     ? withBrowserPaneUiRuntimeRpcSource(params)
     : params
-  options.beforeSend?.()
   const response =
     target.kind === 'local'
       ? await window.api.runtime.call({ method, params: nextParams })
@@ -96,7 +105,8 @@ export async function ensureRuntimeEnvironmentCompatible(
 ): Promise<void> {
   const cached = getCachedRuntimeCompatibilityCheck(environmentId, options)
   if (cached) {
-    return cached.check
+    await cached.check
+    return
   }
   const entry: RuntimeCompatibilityCacheEntry = {
     check: Promise.resolve(),
@@ -106,10 +116,9 @@ export async function ensureRuntimeEnvironmentCompatible(
     statusCheckedAt: null
   }
   const check = (async () => {
-    const response = await callRuntimeEnvironmentWithRevision({
-      environmentId,
+    const response = await window.api.runtimeEnvironments.call({
+      selector: environmentId,
       method: 'status.get',
-      params: undefined,
       timeoutMs: options.timeoutMs,
       expectedEnvironmentPairingRevision: options.expectedEnvironmentPairingRevision
     })

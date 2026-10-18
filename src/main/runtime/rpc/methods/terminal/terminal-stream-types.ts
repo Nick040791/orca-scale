@@ -1,5 +1,7 @@
 import type { TerminalOscLinkRange } from '../../../../../shared/terminal-osc-link-ranges'
 import type { TerminalSnapshotUnavailableReason } from '../../../../../shared/terminal-snapshot-unavailability'
+import type { TerminalSourceRangeLedger } from '../../terminal-source-range-ledger'
+import type { RemoteTerminalSourceRangeReplacementReservation } from '../../../remote-terminal-source-range-consumer'
 import type {
   TerminalOutputFrameChunk,
   TerminalOutputMeta
@@ -18,8 +20,6 @@ export type SnapshotFrameOptions = {
   cwd?: string | null
   truncated?: boolean
   truncatedByByteBudget?: boolean
-  /** History rows this image carries above its screen; 0 tells the client to keep its own. */
-  scrollbackRows?: number
   // Why: distinguishes "I could not answer right now" from a genuinely empty buffer; omitted on success.
   unavailable?: TerminalSnapshotUnavailableReason
   source?: 'headless' | 'renderer'
@@ -60,17 +60,15 @@ export type TerminalMultiplexStream = {
   client: TerminalViewportClient | undefined
   isMobile: boolean
   ackOutput: boolean
+  ackOutputSourceRanges: boolean
+  streamGeneration: string
+  sourceRangeLedger: TerminalSourceRangeLedger | null
+  sourceRangeConsumerAttached: boolean
+  sourceRangeReplacement: RemoteTerminalSourceRangeReplacementReservation | null
   ackInFlightBytes: number
   ackWindowBytes: number
   supportsOutputPause: boolean
-  // Why: lets the client skip the reveal snapshot when a pause discarded nothing.
-  supportsOutputPauseDropNotice: boolean
-  pausedOutputDropNoticeSent: boolean
   supportsWriteUnavailable: boolean
-  // Also sends WriteUnavailable unprompted when the PTY's daemon endpoint drops.
-  supportsEndpointLossNotice: boolean
-  // Set only when the client negotiated `inputAck`; sequenced Input frames are then deduped and acked.
-  inputSessionId: string | null
   outputPaused: boolean
   supportsDesktopViewportClaims: boolean
   desktopClaimTail: Promise<boolean>
@@ -83,8 +81,6 @@ export type TerminalMultiplexStream = {
   ackPendingOutputBytes: number
   ackPendingOutputOverflowed: boolean
   ackRecoverySnapshotInFlight: boolean
-  /** A recovery went out screen-only while the link was saturated; history follows once it drains. */
-  ackRecoveryHistoryOwed: boolean
   pendingOutput: TerminalOutputChunk[]
   pendingOutputBytes: number
   pendingOutputOverflowed: boolean

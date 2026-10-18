@@ -1,4 +1,3 @@
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
 import type { ManagedPaneInternal } from '@/lib/pane-manager/pane-manager-types'
 import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { requestStablePaneFit } from '@/lib/pane-manager/pane-fit-resize-observer'
@@ -8,7 +7,9 @@ import { reconcilePtySizeAcrossFrames } from '../pty-size-reconcile'
 import { shouldClaimRemoteDesktopViewport } from '../remote-desktop-viewport-claim'
 import { deferTerminalGeometryMutationDuringRebuild } from '@/lib/pane-manager/terminal-scroll-intent-rebuild'
 import { waitForStableStartupGrid } from '../terminal-startup-grid-settle'
-import { getWindowParkVisible, subscribeWindowParkVisibility } from '@/lib/window-park-visibility'
+
+import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
+import { isSetupSplitGeometryReady } from './setup-split-geometry'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
@@ -206,30 +207,36 @@ export function installPtyResizeGeometry(session: ConnectPanePtySession): void {
     const rows = session.pane.terminal.rows
     return cols > 0 && rows > 0 ? { cols, rows } : null
   }
-  // Why: the settle only prevents visible artifacts, and a hidden pane or window paints none
-  // (nor produces the frames the settle counts).
   session.shouldSettleStartupGridBeforeConnect = (): boolean =>
-    Boolean(session.paneStartup?.command || session.paneStartup?.agentLaunch) &&
+    Boolean(session.paneStartup?.command) &&
     session.deps.isVisibleRef.current &&
-    getWindowParkVisible() &&
-    !session.unservedSshTargetId &&
+    !session.connectionId &&
     session.runtimeEnvironmentId === null
+  session.isStartupGridReadyForConnect = (): boolean => {
+    const setupSplitDirection = session.paneStartup?.waitForSetupSplitDirection
+    if (!setupSplitDirection) {
+      return true
+    }
+    // Why: the setup split reparents the main pane before its xterm grid
+    // necessarily reflects the new flex geometry; wait for both to agree.
+    return isSetupSplitGeometryReady(session.pane, session.manager, setupSplitDirection)
+  }
   session.settleStartupGridBeforeConnect = (connect: () => void): void => {
     session.startupGridSettleHandle?.cancel()
-    let settled = false
-    let unsubscribeWindowVisibility = (): void => {}
-    const finish = (): void => {
-      settled = true
-      unsubscribeWindowVisibility()
-      session.startupGridSettleHandle = null
-      connect()
-    }
+    let settledSynchronously = false
     // Why: local startup commands can launch a TUI before the split-pane grid
     // has settled; spawn from a briefly stable grid so the TUI paints cleanly.
     const handle = waitForStableStartupGrid({
       isAlive: () => !session.disposed,
+      isReadyToSettle: session.paneStartup?.waitForSetupSplitDirection
+        ? session.isStartupGridReadyForConnect
+        : undefined,
       measure: session.measureStartupGrid,
-      onSettled: finish,
+      onSettled: () => {
+        settledSynchronously = true
+        session.startupGridSettleHandle = null
+        connect()
+      },
       requestFrame: (callback) => requestAnimationFrame(callback),
       cancelFrame: (handle) => {
         if (typeof cancelAnimationFrame === 'function') {
@@ -237,21 +244,8 @@ export function installPtyResizeGeometry(session: ConnectPanePtySession): void {
         }
       }
     })
-    if (settled) {
-      return
-    }
-    // Why: a window hidden mid-settle stops producing frames; spawn now, not when it is shown again.
-    unsubscribeWindowVisibility = subscribeWindowParkVisibility(() => {
-      if (!getWindowParkVisible()) {
-        handle.cancel()
-        finish()
-      }
-    })
-    session.startupGridSettleHandle = {
-      cancel: () => {
-        handle.cancel()
-        unsubscribeWindowVisibility()
-      }
+    if (!settledSynchronously) {
+      session.startupGridSettleHandle = handle
     }
   }
 }

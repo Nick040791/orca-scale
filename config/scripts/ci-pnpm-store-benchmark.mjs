@@ -10,12 +10,11 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { parseArgs } from 'node:util'
 import { resolvePnpmCliInvocation } from './pnpm-cli-invocation.mjs'
-import { runProcessSync } from '@orca/process-host'
-import { workspacePackageManifests } from './workspace-source-exports.mjs'
+import { runProcessSync } from './script-child-process.mjs'
 
 const { values } = parseArgs({
   options: { samples: { type: 'string', default: '3' }, output: { type: 'string' } }
@@ -28,12 +27,7 @@ const checkout = join(temporary, 'checkout')
 const store = join(temporary, 'store')
 const archive = join(temporary, 'store.tar.zst')
 const uncompressed = join(temporary, 'store.tar')
-const manifests = [
-  'package.json',
-  'pnpm-lock.yaml',
-  'pnpm-workspace.yaml',
-  ...workspacePackageManifests(repository)
-]
+const manifests = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']
 const pnpm = resolvePnpmCliInvocation()
 const results = []
 
@@ -67,15 +61,6 @@ function install() {
     .milliseconds
 }
 
-function resetModules() {
-  const packageDirs = new Set(
-    manifests.filter((file) => file.endsWith('package.json')).map(dirname)
-  )
-  for (const directory of packageDirs) {
-    rmSync(join(checkout, directory, 'node_modules'), { recursive: true, force: true })
-  }
-}
-
 function transferArchive(restore) {
   const start = performance.now()
   // Windows BSD tar needs a separate zstd process, as in the Actions cache toolkit.
@@ -101,7 +86,7 @@ function transferArchive(restore) {
 
 try {
   mkdirSync(checkout)
-  for (const file of [...manifests, 'config/patches']) {
+  for (const file of [...manifests, 'native/windows-registry/package.json', 'config/patches']) {
     const target = join(checkout, file)
     mkdirSync(resolve(target, '..'), { recursive: true })
     cpSync(join(repository, file), target, { recursive: true })
@@ -114,7 +99,7 @@ try {
   for (let sample = 0; sample < samples; sample++) {
     const policies = sample % 2 === 0 ? ['save', 'restore-only'] : ['restore-only', 'save']
     for (const policy of policies) {
-      resetModules()
+      rmSync(join(checkout, 'node_modules'), { recursive: true, force: true })
       rmSync(store, { recursive: true, force: true })
       const installMs = install()
       assert.equal(digest(), sourceDigest, 'frozen install changed a manifest')
@@ -138,7 +123,7 @@ try {
   }
 
   // Both policies restore identical bytes on a hit; measure that common cost separately.
-  resetModules()
+  rmSync(join(checkout, 'node_modules'), { recursive: true, force: true })
   rmSync(store, { recursive: true, force: true })
   mkdirSync(store)
   const restoreMs = transferArchive(true)

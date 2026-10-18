@@ -6,10 +6,7 @@ import {
   getLocalProjectGitExecOptions,
   getLocalProjectGhExecOptions
 } from '../../../project-runtime-git-options'
-import {
-  SSH_GIT_RECONNECT_MESSAGE,
-  SshHostNotServedError
-} from '../../../providers/ssh-host-not-served-error'
+import { getSshGitProvider } from '../../../providers/ssh-git-dispatch'
 import {
   fetchPrHeadTrackingRef,
   fetchGitHubPullRequestHeadRef
@@ -44,21 +41,36 @@ export function registerReviewBaseHandlers(context: WorktreeIpcContext): void {
         if (!repo.connectionId) {
           return gitExecFileAsync(args, getLocalProjectGitExecOptions(store, repo))
         }
-        throw new SshHostNotServedError(repo.connectionId, SSH_GIT_RECONNECT_MESSAGE)
+        const provider = getSshGitProvider(repo.connectionId)
+        if (!provider) {
+          throw new Error(
+            'SSH Git provider is not available. Reconnect to this target and try again.'
+          )
+        }
+        return provider.exec(args, repo.path)
       }
       const localGhOptions = repo.connectionId
         ? repo.ghAccount
           ? { ghAccount: repo.ghAccount }
           : undefined
         : getLocalProjectGhExecOptions(store, repo)
+      // Why: SSH review-head fetches require narrow write-capable RPCs.
       const fetchRemoteTrackingRef = (remote: string, branch: string): Promise<void> =>
-        fetchPrHeadTrackingRef(repo, remote, branch, {
-          localGitExecOptions: getLocalProjectGitExecOptions(store, repo)
-        })
+        fetchPrHeadTrackingRef(
+          repo,
+          repo.connectionId ? getSshGitProvider(repo.connectionId) : undefined,
+          remote,
+          branch,
+          { localGitExecOptions: getLocalProjectGitExecOptions(store, repo) }
+        )
       const fetchPullRequestHeadRef = (remote: string, prNumber: number): Promise<string> =>
-        fetchGitHubPullRequestHeadRef(repo, remote, prNumber, {
-          localGitExecOptions: getLocalProjectGitExecOptions(store, repo)
-        })
+        fetchGitHubPullRequestHeadRef(
+          repo,
+          repo.connectionId ? getSshGitProvider(repo.connectionId) : undefined,
+          remote,
+          prNumber,
+          { localGitExecOptions: getLocalProjectGitExecOptions(store, repo) }
+        )
 
       return resolveGitHubPrStartPoint({
         repoPath: repo.path,

@@ -1,7 +1,5 @@
 import { getPowerShellOmpShellWrapper } from './pty/omp-shell-wrapper'
-import { MANAGED_DATA_ACCOUNT_POWERSHELL_RESTORE } from '../shared/managed-data-account-shell'
-import { getPowerShellCodexShellLaunchPreflight } from '../shared/codex-shell-function'
-import { getPowerShellClaudeShellFunction } from '../shared/claude-shell-function'
+import { getPowerShellCodexShellLaunchPreflight } from './pty/codex-shell-launch-preflight'
 export { encodePowerShellCommand } from '../shared/powershell-command-encoding'
 
 /**
@@ -41,7 +39,6 @@ const POWERSHELL_OSC133_BOOTSTRAP = `# Orca OSC 133 shell integration for PowerS
 # Profiles have already loaded normally by the time -EncodedCommand runs.
 # Restore managed ownership before the shell-integration compatibility guard.
 if ($env:ORCA_OPENCODE_CONFIG_DIR) { $env:OPENCODE_CONFIG_DIR = $env:ORCA_OPENCODE_CONFIG_DIR }
-${MANAGED_DATA_ACCOUNT_POWERSHELL_RESTORE}
 if ($env:ORCA_MIMOCODE_HOME) { $env:MIMOCODE_HOME = $env:ORCA_MIMOCODE_HOME }
 if ($env:ORCA_CODEX_HOME) { $env:CODEX_HOME = $env:ORCA_CODEX_HOME }
 
@@ -59,7 +56,7 @@ if ($ExecutionContext.SessionState.LanguageMode -eq "FullLanguage" -and
     } catch { Write-Error $_ -ErrorAction Continue }
 
 ${getPowerShellOmpShellWrapper()}
-${getPowerShellCodexShellLaunchPreflight() + getPowerShellClaudeShellFunction()}
+${getPowerShellCodexShellLaunchPreflight()}
 
     $Global:__OrcaOsc133State = @{
         OriginalPrompt = $function:prompt

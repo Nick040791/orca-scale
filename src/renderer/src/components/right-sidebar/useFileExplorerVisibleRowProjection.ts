@@ -29,15 +29,13 @@ type VisibleFileExplorerRowProjectionInput = {
   dirCache: Record<string, DirCache>
   expanded: Set<string>
   worktreePath: string | null
-  displayRootPath?: string | null
 }
 
-/** Collects worktree-relative paths beneath the displayed root, respecting expanded folders and dotfile visibility. */
 export function getFileExplorerIgnoredQueryRelativePaths(
   input: VisibleFileExplorerRowProjectionInput,
   showDotfiles: boolean
 ): string[] {
-  const { dirCache, expanded, worktreePath, displayRootPath = worktreePath } = input
+  const { dirCache, expanded, worktreePath } = input
   if (!worktreePath) {
     return []
   }
@@ -49,7 +47,7 @@ export function getFileExplorerIgnoredQueryRelativePaths(
       return
     }
     for (const row of cached.children) {
-      if (!showDotfiles && isDotfileRelativePath(row.relativePath, worktreePath)) {
+      if (!showDotfiles && isDotfileRelativePath(row.relativePath)) {
         continue
       }
       relativePaths.push(row.relativePath)
@@ -58,18 +56,15 @@ export function getFileExplorerIgnoredQueryRelativePaths(
       }
     }
   }
-  if (displayRootPath) {
-    visitChildren(displayRootPath)
-  }
+  visitChildren(worktreePath)
   return relativePaths
 }
 
-/** Projects the displayed subtree without rebasing row paths, including when filename filtering synthesizes nodes. */
 export function createVisibleFileExplorerRowProjection(
   input: VisibleFileExplorerRowProjectionInput,
   options: VisibleFileExplorerRowProjectionOptions
 ): FileExplorerRowProjection {
-  const { dirCache, expanded, worktreePath, displayRootPath = worktreePath } = input
+  const { dirCache, expanded, worktreePath } = input
   const visibleFlatRows: TreeNode[] = []
   const rowsByPath = new Map<string, TreeNode>()
   if (!worktreePath) {
@@ -82,13 +77,12 @@ export function createVisibleFileExplorerRowProjection(
       nameFilter: options.nameFilter,
       showDotfiles: options.showDotfiles,
       showGitIgnoredFiles: options.showGitIgnoredFiles,
-      worktreePath,
-      displayRootPath: displayRootPath ?? worktreePath
+      worktreePath
     })
   }
 
   const shouldHideRow = (row: TreeNode): boolean => {
-    if (!options.showDotfiles && isDotfileRelativePath(row.relativePath, worktreePath)) {
+    if (!options.showDotfiles && isDotfileRelativePath(row.relativePath)) {
       return true
     }
     return !options.showGitIgnoredFiles && isPathIgnored(options.ignoredSet, row.relativePath)
@@ -110,9 +104,7 @@ export function createVisibleFileExplorerRowProjection(
       }
     }
   }
-  if (displayRootPath) {
-    visitChildren(displayRootPath)
-  }
+  visitChildren(worktreePath)
 
   return createFileExplorerRowProjectionFromParts(visibleFlatRows, rowsByPath)
 }
@@ -154,7 +146,6 @@ function useContentStableRelativePaths(relativePaths: string[], enabled: boolean
   return stable
 }
 
-/** Combines scoped rows with host-aware ignore checks while retaining worktree-relative Git query paths. */
 export function useFileExplorerVisibleRowProjection(
   activeWorktreeId: string | null,
   worktreePath: string | null,
@@ -163,8 +154,7 @@ export function useFileExplorerVisibleRowProjection(
   activeRepoSupportsGit: boolean,
   showDotfiles: boolean,
   nameFilter: FileExplorerNameFilterProjectionSource | null,
-  nameFilterCollapsedPaths: ReadonlySet<string> | null = null,
-  displayRootPath: string | null = worktreePath
+  nameFilterCollapsedPaths: ReadonlySet<string> | null = null
 ): {
   rowProjection: FileExplorerRowProjection
   ignoredByRelativePath: Set<string>
@@ -179,25 +169,13 @@ export function useFileExplorerVisibleRowProjection(
     () =>
       activeRepoSupportsGit
         ? nameFilter
-          ? getFileExplorerNameFilterIgnoredQueryRelativePaths(
-              nameFilter,
-              showDotfiles,
-              worktreePath
-            )
+          ? getFileExplorerNameFilterIgnoredQueryRelativePaths(nameFilter, showDotfiles)
           : getFileExplorerIgnoredQueryRelativePaths(
-              { dirCache, expanded, worktreePath, displayRootPath },
+              { dirCache, expanded, worktreePath },
               showDotfiles
             )
         : EMPTY_RELATIVE_PATHS,
-    [
-      activeRepoSupportsGit,
-      dirCache,
-      expanded,
-      nameFilter,
-      showDotfiles,
-      worktreePath,
-      displayRootPath
-    ]
+    [activeRepoSupportsGit, dirCache, expanded, nameFilter, showDotfiles, worktreePath]
   )
   // Why: the name-filter list is debounced per keystroke, so it must keep a fresh
   // identity; only the dirCache-derived list needs stability across wave commits.
@@ -215,14 +193,11 @@ export function useFileExplorerVisibleRowProjection(
     shouldDebounceIgnoredQuery,
     worktreePath
   })
-  const ignoredSet = useMemo(
-    () => buildIgnoredSet(effectiveIgnoredPaths, worktreePath),
-    [effectiveIgnoredPaths, worktreePath]
-  )
+  const ignoredSet = useMemo(() => buildIgnoredSet(effectiveIgnoredPaths), [effectiveIgnoredPaths])
   const rowProjection = useMemo(
     () =>
       createVisibleFileExplorerRowProjection(
-        { dirCache, expanded, worktreePath, displayRootPath },
+        { dirCache, expanded, worktreePath },
         {
           ignoredSet,
           nameFilter,
@@ -239,8 +214,7 @@ export function useFileExplorerVisibleRowProjection(
       nameFilterCollapsedPaths,
       showDotfiles,
       showGitIgnoredFiles,
-      worktreePath,
-      displayRootPath
+      worktreePath
     ]
   )
   const nameFilterExpandedPaths = useMemo(

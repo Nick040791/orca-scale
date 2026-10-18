@@ -15,8 +15,9 @@ function runWithBase(base) {
 }
 
 describe('check-react-doctor-changed diff base', () => {
-  // Invalid bases must fail before installing or running a tool.
-  it.each(['main & calc', 'main | whoami', 'main"x', '%PATH%', 'main $(id)', '--help'])(
+  // The pnpm invocation can still fall back to a shell, so an unvalidated base
+  // would reach cmd.exe unquoted. Rejection has to happen before the spawn.
+  it.each(['main & calc', 'main | whoami', 'main"x', '%PATH%', 'main $(id)'])(
     'refuses %j',
     (base) => {
       const result = runWithBase(base)

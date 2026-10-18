@@ -11,7 +11,6 @@ import {
   orchestrationLabelsMatchLiveDispatch
 } from './agent-row-primary-text'
 import { formatAgentToolPreview } from './agent-row-tool-preview'
-import { agentVerdictStatusLine } from './agent-verdict-status-line'
 
 // Why: follow-up replies ("yes", "ok proceed") are valid hook prompts but are
 // terrible scan labels for a cross-worktree agent list — treat them as non-titles.
@@ -195,14 +194,12 @@ export function getActivityThreadStatusPreview(
     | 'lastAssistantMessage'
     | 'lastCompletedAssistantMessage'
     | 'interrupted'
-    | 'mainAgent'
     | 'prompt'
   >,
   agentState?: AgentStatusState | null
 ): string {
-  const verdictLine = agentVerdictStatusLine(entry)
-  if (verdictLine) {
-    return verdictLine
+  if (entry.interrupted === true) {
+    return 'Interrupted by user'
   }
   const state = agentState ?? entry.state
   const toolPreview = formatAgentToolPreview(entry, state)
@@ -231,7 +228,6 @@ export function resolveActivityThreadStatusPreview(
     | 'lastAssistantMessage'
     | 'lastCompletedAssistantMessage'
     | 'interrupted'
-    | 'mainAgent'
     | 'prompt'
   >,
   agentState: AgentStatusState | null | undefined,

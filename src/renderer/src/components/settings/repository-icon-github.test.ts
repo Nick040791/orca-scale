@@ -6,7 +6,9 @@ import {
   resolveRepositoryGitHubAvatar
 } from './repository-icon-github'
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: vi.fn()
+}))
 
 const apiMocks = {
   repoSlug: vi.fn(),

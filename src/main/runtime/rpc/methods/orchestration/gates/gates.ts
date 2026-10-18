@@ -23,7 +23,6 @@ export const ORCHESTRATION_GATE_METHODS = [
   // CLI (or any caller) for the entire duration of the pipeline.
   defineMethod({
     name: 'orchestration.run',
-    permission: 'workspace',
     params: RunParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
@@ -65,7 +64,6 @@ export const ORCHESTRATION_GATE_METHODS = [
 
   defineMethod({
     name: 'orchestration.runStop',
-    permission: 'workspace',
     params: RunStopParams,
     handler: (_params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
@@ -85,7 +83,6 @@ export const ORCHESTRATION_GATE_METHODS = [
 
   defineMethod({
     name: 'orchestration.gateCreate',
-    permission: 'workspace',
     params: GateCreateParams,
     handler: (
       params,
@@ -133,7 +130,6 @@ export const ORCHESTRATION_GATE_METHODS = [
 
   defineMethod({
     name: 'orchestration.gateResolve',
-    permission: 'workspace',
     params: GateResolveParams,
     handler: (
       params,
@@ -166,7 +162,6 @@ export const ORCHESTRATION_GATE_METHODS = [
 
   defineMethod({
     name: 'orchestration.gateList',
-    permission: 'workspace',
     params: GateListParams,
     handler: (
       params,

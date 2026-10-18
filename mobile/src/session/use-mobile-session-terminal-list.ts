@@ -25,6 +25,7 @@ export function useMobileSessionTerminalList(scope: MobileSessionTerminalStreamD
     setTerminalKeyboardMetrics,
     terminalRefs,
     terminalUnsubsRef,
+    initializedHandlesRef,
     viewportResubscribeBudgetRef,
     activeHandleRef,
     showNativeChatRef,
@@ -94,6 +95,7 @@ export function useMobileSessionTerminalList(scope: MobileSessionTerminalStreamD
               }
               unsubscribeTerminal(handle)
               terminalRefs.current.delete(handle)
+              initializedHandlesRef.current.delete(handle)
               viewportResubscribeBudgetRef.current.forget(handle)
               clearTerminalLiveInputDefault(handle)
             }

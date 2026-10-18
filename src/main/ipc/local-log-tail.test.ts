@@ -18,9 +18,7 @@ vi.mock('electron', () => ({
 
 vi.mock('node:fs', () => ({ watch: watchMock }))
 
-vi.mock('./local-file-access-resolution', () => ({
-  resolveUserNamedRegularFile: resolveAuthorizedPathMock
-}))
+vi.mock('./filesystem-auth', () => ({ resolveAuthorizedPath: resolveAuthorizedPathMock }))
 
 vi.mock('../ai-vault/local-log-tail-reader', () => ({
   readLocalLogTailRange: readRangeMock
@@ -31,10 +29,6 @@ import {
   getActiveLocalLogTailWatcherCount,
   registerLocalLogTailHandlers
 } from './local-log-tail'
-import type { Store } from '../persistence'
-
-// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: path resolution is mocked, so the store is never read.
-const NO_STORE = {} as Store
 
 type FakeWatcher = {
   close: ReturnType<typeof vi.fn>
@@ -70,7 +64,7 @@ beforeEach(() => {
   watchMock.mockReset()
   resolveAuthorizedPathMock.mockReset().mockImplementation(async (path: string) => path)
   readRangeMock.mockReset()
-  registerLocalLogTailHandlers(NO_STORE)
+  registerLocalLogTailHandlers({} as never)
 })
 
 afterEach(() => {
@@ -93,7 +87,7 @@ describe('local log tail IPC', () => {
     )
     emitChange?.('change')
 
-    expect(resolveAuthorizedPathMock).toHaveBeenCalledWith('/logs/session.jsonl', NO_STORE)
+    expect(resolveAuthorizedPathMock).toHaveBeenCalledWith('/logs/session.jsonl', expect.anything())
     expect(watchMock).toHaveBeenCalledWith('/logs/session.jsonl', expect.any(Function))
     expect(sender.send).toHaveBeenCalledWith('fs:localLogTailChanged', {
       subscriptionId: 'tail-1',

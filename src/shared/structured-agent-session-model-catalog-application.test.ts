@@ -5,7 +5,6 @@ import {
   applyStructuredAgentSessionModelCatalog,
   applyStructuredAgentSessionOptions,
   createStructuredAgentSessionOptionState,
-  settleStructuredAgentSessionBuiltinCatalog,
   structuredAgentSessionOptionSnapshot
 } from './structured-agent-session-options'
 
@@ -28,30 +27,16 @@ const HOST_CATALOG: AgentSessionModelCatalogResult = {
   fetchedAt: 1_000
 }
 
-// HOST_CATALOG omits `listingNamesConfiguredModel`, as an older host's does.
-const LAUNCH = { newLaunch: true }
+const LAUNCH = { namesDefault: true }
 
 describe('structured option state from the host model catalog', () => {
-  it('renders the quiet placeholder before the host answers, never a built-in label', () => {
+  it('renders a pickable snapshot from the seed before any host or live answer', () => {
     const state = createStructuredAgentSessionOptionState('codex', SEED)
-    expect(structuredAgentSessionOptionSnapshot(state)).toEqual([
-      expect.objectContaining({
-        id: 'model',
-        valueSource: 'unknown',
-        settable: false,
-        kind: { type: 'select', choices: [] }
-      })
-    ])
-  })
-
-  it('makes the built-in list pickable, naming nothing, once the host says it has none', () => {
-    const state = settleStructuredAgentSessionBuiltinCatalog(
-      createStructuredAgentSessionOptionState('codex', SEED)
-    )
-    expect(state.catalogSource).toBe('builtin')
-    const model = structuredAgentSessionOptionSnapshot(state).find((d) => d.id === 'model')!
+    const snapshot = structuredAgentSessionOptionSnapshot(state)
+    const model = snapshot.find((descriptor) => descriptor.id === 'model')!
     expect(model.kind.type === 'select' && model.kind.choices.length).toBeGreaterThan(0)
     expect(model.settable).toBe(true)
+    // The seed cannot name the CLI's own default, so nothing reads as chosen.
     expect(model.kind.type === 'select' ? model.kind.currentValue : null).toBeUndefined()
   })
 
@@ -76,7 +61,7 @@ describe('structured option state from the host model catalog', () => {
       createStructuredAgentSessionOptionState('codex', SEED),
       SEED,
       HOST_CATALOG,
-      { newLaunch: false }
+      { namesDefault: false }
     )
     const snapshot = structuredAgentSessionOptionSnapshot(state)
     const model = snapshot.find((descriptor) => descriptor.id === 'model')!
@@ -86,22 +71,6 @@ describe('structured option state from the host model catalog', () => {
     expect(model.kind.type === 'select' ? model.kind.currentValue : null).toBeUndefined()
     const effort = snapshot.find((descriptor) => descriptor.id === 'effort')
     expect(effort?.kind.type === 'select' ? effort.kind.currentValue : undefined).toBeUndefined()
-  })
-
-  it('follows the host on whether its listed default is what a new chat runs', () => {
-    const currentModel = (listingNamesConfiguredModel: boolean): unknown => {
-      const state = applyStructuredAgentSessionModelCatalog(
-        createStructuredAgentSessionOptionState('codex', SEED),
-        SEED,
-        { ...HOST_CATALOG, listingNamesConfiguredModel },
-        LAUNCH
-      )
-      const model = structuredAgentSessionOptionSnapshot(state).find((d) => d.id === 'model')!
-      return model.kind.type === 'select' ? model.kind.currentValue : null
-    }
-    expect(currentModel(true)).toBe('gpt-hosted')
-    // A workspace whose own config may pick another model: the host says so, over the seed.
-    expect(currentModel(false)).toBeUndefined()
   })
 
   it('names the default effort the listing states, and none it does not', () => {
@@ -123,23 +92,19 @@ describe('structured option state from the host model catalog', () => {
     expect(silent.valueSource).toBe('unknown')
   })
 
-  it('settles on the built-in list on an unknown or empty host answer, and keeps a host list', () => {
+  it('keeps the seed on an unknown or empty host answer', () => {
     const seeded = createStructuredAgentSessionOptionState('codex', SEED)
-    for (const answer of [
-      { origin: 'unknown' as const },
-      { origin: 'probe' as const, models: [], fetchedAt: 1 }
-    ]) {
-      const settled = applyStructuredAgentSessionModelCatalog(seeded, SEED, answer, LAUNCH)
-      expect(settled.catalogSource).toBe('builtin')
-      expect(settled.catalog).toBe(seeded.catalog)
-      const hosted = applyStructuredAgentSessionModelCatalog(seeded, SEED, HOST_CATALOG, LAUNCH)
-      // The host list stays; the answer only says it is no longer a finished listing.
-      expect(applyStructuredAgentSessionModelCatalog(hosted, SEED, answer, LAUNCH)).toEqual({
-        ...hosted,
-        verifiedModelIds: undefined,
-        hostListedModelIds: undefined
-      })
-    }
+    expect(
+      applyStructuredAgentSessionModelCatalog(seeded, SEED, { origin: 'unknown' }, LAUNCH)
+    ).toBe(seeded)
+    expect(
+      applyStructuredAgentSessionModelCatalog(
+        seeded,
+        SEED,
+        { origin: 'probe', models: [], fetchedAt: 1 },
+        LAUNCH
+      )
+    ).toBe(seeded)
   })
 
   it('never downgrades a live catalog to a host one', () => {
@@ -152,11 +117,7 @@ describe('structured option state from the host model catalog', () => {
       }
     )
     expect(live.catalogSource).toBe('live')
-    // The host's ids are kept apart: they never verify the live answer's rows.
-    expect(applyStructuredAgentSessionModelCatalog(live, SEED, HOST_CATALOG, LAUNCH)).toEqual({
-      ...live,
-      hostListedModelIds: ['gpt-hosted']
-    })
+    expect(applyStructuredAgentSessionModelCatalog(live, SEED, HOST_CATALOG, LAUNCH)).toBe(live)
     const snapshot = structuredAgentSessionOptionSnapshot(live)
     const model = snapshot.find((descriptor) => descriptor.id === 'model')!
     expect(model.kind.type === 'select' ? model.kind.currentValue : null).toBe('gpt-live')

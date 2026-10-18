@@ -2,19 +2,16 @@ import { isDismissedAlert, reconcileQueuedDismissal } from './push-queued-dismis
 import { parsePushDeliveryPayload } from './push-delivery-payload.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { PUSH_LIMITS, type PushNotification } from '@orca-cloud/push-contract'
-import { WORKER_DRAINS } from './push-worker-concurrency.js'
 import type { PushDatabase, SqlRow } from './push-database.js'
 
 const RETENTION_MS = 24 * 60 * 60_000
 // accept() caps expires_at at due_at + TTL, so older due_at is expired: scans skip an unpruned backlog.
 const TTL_MS = PUSH_LIMITS.notificationTtlSeconds * 1000
-// One winner plus every other drain holding a device head, so a full set of peers cannot exhaust it.
-const CLAIM_CANDIDATE_ATTEMPTS = WORKER_DRAINS
+// Covers one claimer per worker drain skipping a device another drain holds.
+const CLAIM_CANDIDATE_ATTEMPTS = 4
 export const PRUNE_BATCH_ROWS = 2_000
 export const PRUNE_MAX_BATCHES = 50
 export const DELIVERY_LEASE_MS = 30_000
-// `saturated` means the batch budget ran out with rows still matching, so a backlog remains.
-export type PushPruneSweep = { deleted: number; saturated: boolean }
 export type QueuedPushDelivery = {
   id: string
   registrationId: string
@@ -153,15 +150,15 @@ export class DurablePushStore {
       'UPDATE push_delivery_batches SET lease_token = ?, lease_until = ?, attempts = attempts + 1 WHERE batch_id = ?',
       [lease, now + DELIVERY_LEASE_MS, row.batch_id]
     )
-    return this.delivery(row, lease, notification)
+    return this.delivery(row, lease)
   }
 
-  private delivery(row: SqlRow, lease: string, notification: PushNotification): QueuedPushDelivery {
+  private delivery(row: SqlRow, lease: string): QueuedPushDelivery {
     return {
       id: String(row.batch_id),
       registrationId: String(row.registration_id),
       hostFingerprint: String(row.host_fingerprint),
-      notification,
+      notification: parsePushDeliveryPayload(String(row.payload_json)),
       expiresAt: Number(row.expires_at),
       lease,
       attempts: Number(row.attempts) + 1
@@ -203,10 +200,10 @@ export class DurablePushStore {
   }
 
   // Bounded per call and per statement, so it drains any backlog on its own without holding locks.
-  async prune(): Promise<PushPruneSweep> {
+  async prune(): Promise<number> {
     const now = this.now()
     // Also clears terminal rows older revisions kept, since each carries a past expires_at.
-    let { deleted, saturated } = await this.deleteInBatches(
+    let deleted = await this.deleteInBatches(
       'push_delivery_batches',
       'batch_id',
       'expires_at <= ? AND lease_until <= ?',
@@ -218,11 +215,9 @@ export class DurablePushStore {
       ['push_event_recipients', 'event_id, registration_id'],
       ['push_events', 'event_id']
     ] as const) {
-      const sweep = await this.deleteInBatches(table, key, 'created_at < ?', [now - RETENTION_MS])
-      deleted += sweep.deleted
-      saturated ||= sweep.saturated
+      deleted += await this.deleteInBatches(table, key, 'created_at < ?', [now - RETENTION_MS])
     }
-    return { deleted, saturated }
+    return deleted
   }
 
   private async deleteInBatches(
@@ -230,7 +225,7 @@ export class DurablePushStore {
     key: string,
     where: string,
     params: unknown[]
-  ): Promise<PushPruneSweep> {
+  ): Promise<number> {
     const lockRows = this.background.dialect === 'postgres' ? ' FOR UPDATE SKIP LOCKED' : ''
     let total = 0
     for (let batch = 0; batch < PRUNE_MAX_BATCHES; batch++) {
@@ -240,9 +235,8 @@ export class DurablePushStore {
       )
       const changes = Number(result?.changes ?? 0)
       total += changes
-      // A short batch drained the predicate; only a full last batch leaves rows behind.
-      if (changes < PRUNE_BATCH_ROWS) return { deleted: total, saturated: false }
+      if (changes < PRUNE_BATCH_ROWS) break
     }
-    return { deleted: total, saturated: true }
+    return total
   }
 }

@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { getWorkspaceStatus } from './workspace-status'
-import { switchSortToManualAfterDrop } from './manual-sort-switch-toast'
 import { resolveFullLaneDropIndex } from './workspace-kanban-filtered-drop-index'
 import {
   buildManualOrderUpdatesForGroupDrop,
@@ -20,6 +19,7 @@ export function useWorkspaceKanbanWorktreeActions(args: {
   laneFullWorktreeIds: ReadonlyMap<string, readonly string[]>
   laneViews: ReadonlyMap<string, LaneView>
   maybeSyncTaskStatuses: (worktreeIds: readonly string[], status: WorkspaceStatus) => void
+  setSortBy: ReturnType<typeof useAppStore.getState>['setSortBy']
   sortBy: ReturnType<typeof useAppStore.getState>['sortBy']
   updateWorktreeMeta: ReturnType<typeof useAppStore.getState>['updateWorktreeMeta']
   updateWorktreesMeta: ReturnType<typeof useAppStore.getState>['updateWorktreesMeta']
@@ -145,7 +145,7 @@ export function useWorkspaceKanbanWorktreeActions(args: {
         return
       }
       if (writeManualOrder && order.changed) {
-        switchSortToManualAfterDrop()
+        args.setSortBy('manual')
       }
       recordInteraction()
       void args.updateWorktreesMeta(changed)

@@ -1,94 +1,66 @@
-import { createRuntimeFilePositionQueue } from './runtime-file-position'
-import { applyClosedTerminalLeafNotice } from '@/components/terminal-pane/closed-terminal-leaf-notice'
+import { CLOSE_TERMINAL_PANE_EVENT } from '@/constants/terminal'
+import type { CloseTerminalPaneDetail } from '@/constants/terminal'
 import { closeTerminalTab } from '@/components/terminal/terminal-tab-actions'
 import { detectLanguage } from '@/lib/language-detect'
-import {
-  runSleepWorktree,
-  sleepWorktreesReportingFailures
-} from '@/components/sidebar/sleep-worktree-flow'
+import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { buildWorkspaceSessionPayload } from '@/lib/workspace-session'
 import { persistWorkspaceSessionByHost } from '@/lib/workspace-session-host-persistence'
-import { revealWorkspaceSurface } from '@/lib/workspace-surface-reveal'
-import { selectFloatingWorkspacePanelVisible } from '@/store/floating-workspace-panel-selector'
-import { isFloatingWorkspaceId } from '../../../../shared/floating-workspace-worktree'
 import { useAppStore } from '../../store'
-import type { AppState } from '../../store/types'
-import type { EditorTabSelection } from '../../store/slices/editor/types/open-file'
-import {
-  navigationTargetsHost,
-  type RuntimeNavigationTarget
-} from '../../../../shared/runtime-navigation'
-
-// Why: a caller that names a non-host target (CLI without --focus) must not change anything on screen;
-// the tab is selected only inside a worktree the user is not viewing, without counting as a visit.
-// No target (phones, older CLIs) keeps the original switch, which the phone's "Open in session" relies on.
-function openRuntimeEditorTab(
-  worktreeId: string,
-  navigation: RuntimeNavigationTarget | undefined,
-  open: (store: AppState, selection: EditorTabSelection) => void
-): void {
-  const store = useAppStore.getState()
-  if (navigation !== undefined && !navigationTargetsHost(navigation)) {
-    const isViewed =
-      worktreeId === store.activeWorktreeId ||
-      (isFloatingWorkspaceId(worktreeId) && selectFloatingWorkspacePanelVisible(store))
-    open(store, isViewed ? 'none' : 'background')
-    return
-  }
-  revealWorkspaceSurface(store, worktreeId)
-  open(store, 'focus')
-  store.setActiveTabType('editor', worktreeId)
-}
 
 export function registerMobileAndTerminalCloseIpcBridge(
   unsubs: (() => void)[],
   requestSleepingAgentWake: (worktreeId: string) => void
 ): void {
-  const positionFile = createRuntimeFilePositionQueue(unsubs)
   unsubs.push(
     window.api.ui.onOpenFileFromMobile(
-      ({ worktreeId, filePath, relativePath, runtimeEnvironmentId, navigation, position }) => {
+      ({ worktreeId, filePath, relativePath, runtimeEnvironmentId }) => {
+        const store = useAppStore.getState()
         const basename = relativePath.split(/[\\/]/).pop() || relativePath
-        openRuntimeEditorTab(worktreeId, navigation, (store, selection) => {
-          // Why: renderer owns tab creation so grouped order and markdown bridges share the desktop File Explorer's store path.
-          const fileId = store.openFile(
-            {
-              filePath,
-              relativePath,
-              worktreeId,
-              language: detectLanguage(basename),
-              runtimeEnvironmentId,
-              mode: 'edit'
-            },
-            { selection }
-          )
-          positionFile(fileId, position, selection === 'focus')
+        store.setActiveWorktree(worktreeId)
+        store.markWorktreeVisited(worktreeId)
+        store.setActiveView('terminal')
+        // Why: renderer owns tab creation so grouped order and markdown bridges share the desktop File Explorer's store path.
+        store.openFile({
+          filePath,
+          relativePath,
+          worktreeId,
+          language: detectLanguage(basename),
+          runtimeEnvironmentId,
+          mode: 'edit'
         })
+        store.setActiveTabType('editor', worktreeId)
+        store.revealWorktreeInSidebar(worktreeId)
       }
     )
   )
 
   unsubs.push(
     window.api.ui.onOpenDiffFromMobile(
-      ({ worktreeId, filePath, relativePath, staged, runtimeEnvironmentId, navigation }) => {
-        openRuntimeEditorTab(worktreeId, navigation, (store, selection) =>
-          // Why: mobile renders diffs from metadata; the editor-local Changes shortcut would send plain markdown back to mobile.
-          store.openDiff(worktreeId, filePath, relativePath, detectLanguage(relativePath), staged, {
-            runtimeEnvironmentId,
-            selection
-          })
-        )
+      ({ worktreeId, filePath, relativePath, staged, runtimeEnvironmentId }) => {
+        const store = useAppStore.getState()
+        const language = detectLanguage(relativePath)
+        store.setActiveWorktree(worktreeId)
+        store.markWorktreeVisited(worktreeId)
+        store.setActiveView('terminal')
+        // Why: mobile renders diffs from metadata; the editor-local Changes shortcut would send plain markdown back to mobile.
+        store.openDiff(worktreeId, filePath, relativePath, language, staged, {
+          runtimeEnvironmentId
+        })
+        store.setActiveTabType('editor', worktreeId)
+        store.revealWorktreeInSidebar(worktreeId)
       }
     )
   )
 
   unsubs.push(
-    window.api.ui.onCloseTerminal((target) => {
-      if (target.kind === 'pane') {
-        applyClosedTerminalLeafNotice(target.tabId, target.leafId)
+    window.api.ui.onCloseTerminal(({ tabId, paneRuntimeId }) => {
+      if (paneRuntimeId != null) {
+        // Why: route pane closes via the lifecycle hook for sibling promotion (falls through to closeTab on the last pane).
+        const detail: CloseTerminalPaneDetail = { tabId, paneRuntimeId }
+        window.dispatchEvent(new CustomEvent(CLOSE_TERMINAL_PANE_EVENT, { detail }))
       } else {
         // Why: the CLI/RPC caller is answered immediately, so it cannot wait on a modal.
-        closeTerminalTab(target.tabId, { skipRunningProcessConfirm: true })
+        closeTerminalTab(tabId, { skipRunningProcessConfirm: true })
       }
     })
   )
@@ -135,30 +107,6 @@ export function registerMobileAndTerminalCloseIpcBridge(
       void runSleepWorktree(worktreeId)
     })
   )
-
-  // Why optional: an older preload lingering through an in-place reload lacks the channel.
-  if (window.api.ui.onWorktreeSleepRequest) {
-    unsubs.push(
-      window.api.ui.onWorktreeSleepRequest(({ requestId, worktreeIds }) => {
-        void (async () => {
-          const { failedWorktreeIds } = await sleepWorktreesReportingFailures(worktreeIds)
-          // Main waits on the ack, so the slept state must be durable before it.
-          const state = useAppStore.getState()
-          await persistWorkspaceSessionByHost(
-            window.api.session,
-            buildWorkspaceSessionPayload(state),
-            state
-          )
-          window.api.ui.respondWorktreeSleep({ requestId, failedWorktreeIds })
-        })().catch((error: unknown) => {
-          window.api.ui.respondWorktreeSleep({
-            requestId,
-            error: error instanceof Error ? error.message : 'worktree_sleep_failed'
-          })
-        })
-      })
-    )
-  }
 
   unsubs.push(
     window.api.ui.onResumeSleepingAgents(({ worktreeId }) => {

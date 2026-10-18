@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { buildSync } from 'esbuild'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { spawnProcess } from '@orca/process-host'
-import { stagePackagedProcessHost } from '../../../../config/scripts/packaged-process-host-fixture.mjs'
+import { spawnProcess } from '../../../shared/child-process/run-process'
 import {
   acquireProfileStateMaintenance,
   acquireProfileStateRuntimeAdmission
@@ -16,7 +15,7 @@ const fixture = mkdtempSync(join(tmpdir(), 'orca-state-access-process-'))
 const bundle = join(fixture, 'access.cjs')
 const children = new Set<ReturnType<typeof spawnProcess>>()
 
-beforeAll(async () => {
+beforeAll(() => {
   buildSync({
     entryPoints: [resolve(__dirname, 'profile-state-access.ts')],
     outfile: bundle,
@@ -25,7 +24,6 @@ beforeAll(async () => {
     format: 'cjs',
     packages: 'external'
   })
-  await stagePackagedProcessHost(fixture)
 })
 
 afterEach(async () => {
@@ -73,7 +71,7 @@ async function startChild(root: string, mode: string): Promise<ReturnType<typeof
   const child = spawnProcess({
     program: process.execPath,
     args: ['-e', CHILD_SOURCE, root, bundle, mode],
-    env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1', NODE_PATH: '', NODE_OPTIONS: '' }
+    env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1' }
   })
   children.add(child)
   let stderr = ''

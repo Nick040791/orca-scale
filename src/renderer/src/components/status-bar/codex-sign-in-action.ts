@@ -71,8 +71,6 @@ export async function signInCodexAccount(
         nextAccountLabel: resolveCodexRestartPromptAccountLabel(next.accounts, nextActiveAccountId),
         previousAccountId: previousActiveAccountId ?? null,
         nextAccountId: nextActiveAccountId ?? null,
-        // Why: reauthenticate is local IPC, so only this computer's panes changed.
-        owner: { kind: 'local' },
         target
       })
       if (mountedRef.current) {

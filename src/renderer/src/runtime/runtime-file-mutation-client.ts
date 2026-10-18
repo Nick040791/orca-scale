@@ -1,6 +1,6 @@
 import type { DirEntry } from '../../../shared/filesystem-entry-types'
 import { normalizeRelativePath } from '@/lib/path'
-import { callRuntimeRpc } from './runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
 import {
   assertLocalFilesystemFallbackAllowed,
@@ -11,38 +11,20 @@ import {
 } from './runtime-file-routing'
 import { callRuntimeFileMutation } from './runtime-file-mutation-rpc'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
-import type { LocalFileAccess } from '../../../shared/local-file-access'
-import { localAccess } from './runtime-file-read-client'
-import { REMOTE_RUNTIME_MAX_FILE_WRITE_CONTENT_BYTES } from '../../../shared/remote-runtime-memory-limits'
-
-/** Refuses a save the host's frame cap would reject by dropping the whole connection. */
-function assertRemoteWriteFitsOneRequest(content: string): void {
-  // Why: one UTF-16 unit escapes to at most 6 bytes, so most saves skip encoding.
-  if (content.length * 6 + 2 <= REMOTE_RUNTIME_MAX_FILE_WRITE_CONTENT_BYTES) {
-    return
-  }
-  const bytes = new TextEncoder().encode(JSON.stringify(content)).length
-  if (bytes > REMOTE_RUNTIME_MAX_FILE_WRITE_CONTENT_BYTES) {
-    throw new Error(
-      `File is too large to save to a remote Orca server (${Math.ceil(bytes / 1024)} KB; the limit is ${REMOTE_RUNTIME_MAX_FILE_WRITE_CONTENT_BYTES / 1024} KB).`
-    )
-  }
-}
 
 export async function readRuntimeDirectory(
   context: RuntimeFileOperationArgs,
-  dirPath: string,
-  options: { followSymlinks?: boolean } = {}
+  dirPath: string
 ): Promise<DirEntry[]> {
   const remoteArgs = getRemoteFileArgs(context, dirPath)
   if (!remoteArgs) {
     assertLocalFilesystemFallbackAllowed(context)
-    return window.api.fs.readDir({ dirPath, connectionId: context.connectionId, ...options })
+    return window.api.fs.readDir({ dirPath, connectionId: context.connectionId })
   }
   return callRuntimeRpc<DirEntry[]>(
     remoteArgs.target,
     'files.readDir',
-    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath, ...options },
+    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
     { timeoutMs: 15_000 }
   )
 }
@@ -50,23 +32,16 @@ export async function readRuntimeDirectory(
 export async function writeRuntimeFile(
   context: RuntimeFileOperationArgs,
   filePath: string,
-  content: string,
-  access?: LocalFileAccess
+  content: string
 ): Promise<void> {
   const remoteArgs = getRemoteFileArgs(context, filePath)
   if (!remoteArgs) {
     assertLocalFilesystemFallbackAllowed(context)
     await window.api.fs.writeFile(
-      withSshMutationExpectation(context, {
-        filePath,
-        content,
-        connectionId: context.connectionId,
-        ...localAccess(context.connectionId, access)
-      })
+      withSshMutationExpectation(context, { filePath, content, connectionId: context.connectionId })
     )
     return
   }
-  assertRemoteWriteFitsOneRequest(content)
   await callRuntimeFileMutation(
     remoteArgs.target,
     'files.write',
@@ -113,20 +88,14 @@ export async function createRuntimePath(
 export async function renameRuntimePath(
   context: RuntimeFileOperationArgs,
   oldPath: string,
-  newPath: string,
-  access?: LocalFileAccess
+  newPath: string
 ): Promise<void> {
   const oldRemoteArgs = getRemoteFileArgs(context, oldPath)
   const newRelativePath = getRelativePathInsideWorktree(context.worktreePath, newPath)
   if (!oldRemoteArgs || newRelativePath === null) {
     assertLocalFilesystemFallbackAllowed(context)
     await window.api.fs.rename(
-      withSshMutationExpectation(context, {
-        oldPath,
-        newPath,
-        connectionId: context.connectionId,
-        ...localAccess(context.connectionId, access)
-      })
+      withSshMutationExpectation(context, { oldPath, newPath, connectionId: context.connectionId })
     )
     return
   }
@@ -206,7 +175,7 @@ export async function deleteRuntimeRelativePath(
   relativePath: string,
   recursive?: boolean
 ): Promise<boolean> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (
     target.kind !== 'environment' ||
     !context.worktreeId ||

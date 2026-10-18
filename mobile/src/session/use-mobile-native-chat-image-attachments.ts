@@ -57,13 +57,12 @@ type Args = {
    *  Must preserve 'unknown': after a successful paste, an ambiguously-delivered
    *  text+Enter may have left the image on the input line, which needs healing.
    *  Accepts this action's budget so the text body draws from what the paste left
-   *  rather than opening a second one, and its press time, which the echo shows. */
+   *  rather than opening a second one. */
   readonly baseSend: (
     text: string,
     imagePreviewUris?: string[],
     deadline?: number,
-    attachments?: readonly PendingNativeChatImage[],
-    sentAt?: number
+    attachments?: readonly PendingNativeChatImage[]
   ) => Promise<MobileNativeChatSendOutcome>
   /** Structured sessions send attachments without the terminal paste path. */
   readonly structuredNativeChat: boolean
@@ -169,8 +168,6 @@ export function useMobileNativeChatImageAttachments({
       // text body that follows are a single send from the composer's point of view;
       // opening a budget per leg let `sending` run to twice the stated ceiling.
       const deadline = openMobileNativeChatSendBudget()
-      // Desktop times a sent message at the press; the paste or heal below can take seconds.
-      const sentAt = Date.now()
       try {
         const scope = scopeKey
         const pendingImages =
@@ -229,7 +226,7 @@ export function useMobileNativeChatImageAttachments({
             }
           }
           // Text-only sends paste nothing first, so 'unknown' leaves no stale input.
-          return (await baseSend(text, undefined, deadline, undefined, sentAt)) !== 'rejected'
+          return (await baseSend(text, undefined, deadline)) !== 'rejected'
         }
         const handle = activeHandleRef.current
         if (!client || !handle || !enabled || connState !== 'connected') {
@@ -280,9 +277,7 @@ export function useMobileNativeChatImageAttachments({
           const outcome = await baseSend(
             text,
             pendingImages.map((attachment) => attachment.previewUri),
-            textDeadline,
-            undefined,
-            sentAt
+            textDeadline
           )
           if (outcome !== 'accepted') {
             // 'rejected' leaves the pasted image path on this input line; 'unknown'

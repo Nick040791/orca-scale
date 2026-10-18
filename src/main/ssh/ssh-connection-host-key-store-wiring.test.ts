@@ -15,8 +15,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Type-only, so it is erased before vi.mock's hoisted factory runs.
-import type * as SshGConfigResolution from './config/ssh-g-config-resolution'
-import type * as Ssh2 from 'ssh2'
+import type * as SshConfigParser from './ssh-config-parser'
 
 const VALID_ED25519_HOST_KEY = Buffer.from(
   'AAAAC3NzaC1lZDI1NTE5AAAAIKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
@@ -32,8 +31,8 @@ let eventHandlers: Map<string, Set<(...args: unknown[]) => void>>
 let presentedHostKey: Buffer
 let hostKeyAccepted: boolean | undefined
 
-vi.mock('ssh2', async (importOriginal) => {
-  const { utils } = await importOriginal<typeof Ssh2>()
+vi.mock('ssh2', () => {
+  const utils = { parseKey: vi.fn(() => new Error('parse failed')) }
   class MockSshClient {
     setNoDelay = vi.fn()
     _sock: Socket | undefined = new Socket()
@@ -76,8 +75,8 @@ vi.mock('ssh2', async (importOriginal) => {
   }
 })
 
-vi.mock('./config/ssh-g-config-resolution', async (importOriginal) => ({
-  ...(await importOriginal<typeof SshGConfigResolution>()),
+vi.mock('./ssh-config-parser', async (importOriginal) => ({
+  ...(await importOriginal<typeof SshConfigParser>()),
   resolveWithSshG: vi.fn(async () => null)
 }))
 

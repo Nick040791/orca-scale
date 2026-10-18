@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   binaryStampsMatch,
   getCodexTrustGrantLedgerPath,
@@ -74,7 +74,6 @@ describe('codex trust grant ledger', () => {
 
   it('tolerates a corrupt ledger file', () => {
     const home = join(userDataDir, 'codex-runtime-home', 'home')
-    mkdirSync(dirname(getCodexTrustGrantLedgerPath()), { recursive: true })
     writeFileSync(getCodexTrustGrantLedgerPath(), 'not-json{{{')
     expect(readCodexTrustGrantLedgerHome(home)).toBeNull()
     // Why: a corrupt file must not block recording the next verified grant.

@@ -35,7 +35,6 @@ import {
   syncSystemConfigIntoLegacySharedCodexHome,
   syncSystemConfigIntoManagedCodexHome
 } from './codex-config-mirror'
-import { escapeTomlString } from './config-toml-trust'
 
 let fakeHomeDir: string
 let userDataDir: string
@@ -51,10 +50,6 @@ function getSystemConfigPath(): string {
 
 function getRuntimeConfigPath(): string {
   return join(userDataDir, 'codex-runtime-home', 'home', 'config.toml')
-}
-
-function systemUserHookTrustHeader(): string {
-  return `[hooks.state."${escapeTomlString(join(getSystemCodexHomePath(), 'hooks.json'))}:stop:0:0"]`
 }
 
 function getRuntimeBaselinePath(): string {
@@ -88,13 +83,13 @@ afterEach(() => {
 })
 
 describe('syncSystemConfigIntoManagedCodexHome', () => {
-  it('seeds a missing runtime config without copying system user-hook trust', () => {
+  it('seeds a missing runtime config without copying system hook trust', () => {
     writeFileSync(
       getSystemConfigPath(),
       [
         'model = "system-model"',
         '',
-        systemUserHookTrustHeader(),
+        '[hooks.state."system-hooks:stop:0:0"]',
         'enabled = true',
         'trusted_hash = "sha256:system"',
         '',
@@ -110,7 +105,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
     expect(runtimeConfig).toContain('model = "system-model"')
     expect(runtimeConfig).toContain('[projects."/repo"]')
-    expect(runtimeConfig).not.toContain(systemUserHookTrustHeader())
+    expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
   })
 
   it('normalizes deprecated codex_hooks feature flag only in runtime config', () => {
@@ -349,7 +344,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
         '[projects."/system-only"]',
         'trust_level = "trusted"',
         '',
-        systemUserHookTrustHeader(),
+        '[hooks.state."system-hooks:stop:0:0"]',
         'enabled = true',
         'trusted_hash = "sha256:system"',
         ''
@@ -366,7 +361,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     expect(runtimeConfig).toContain('[projects."/runtime-only"]')
     expect(runtimeConfig).toContain('[projects."/system-only"]')
     expect(runtimeConfig).toContain('[hooks.state."runtime-hooks:stop:0:0"]')
-    expect(runtimeConfig).not.toContain(systemUserHookTrustHeader())
+    expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
     expect(runtimeConfig).toContain('# runtime-owned parent')
     expect(runtimeConfig).not.toContain('# system-owned parent')
     expect(runtimeConfig).toContain('trust_level = "untrusted"')
@@ -830,7 +825,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
         "# system example: ''' in a comment",
         'model = "system-model"',
         '',
-        systemUserHookTrustHeader(),
+        '[hooks.state."system-hooks:stop:0:0"]',
         'enabled = true',
         'trusted_hash = "sha256:system"',
         ''
@@ -844,7 +839,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     expect(runtimeConfig).toContain('model = "system-model"')
     expect(runtimeConfig).toContain('[hooks.state."runtime-hooks:stop:0:0"]')
     expect(runtimeConfig).toContain('trusted_hash = "sha256:runtime"')
-    expect(runtimeConfig).not.toContain(systemUserHookTrustHeader())
+    expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
     expect(runtimeConfig).not.toContain('trusted_hash = "sha256:system"')
   })
 
@@ -896,7 +891,7 @@ describe('prepareSystemConfigForFreshRuntimeMirror', () => {
     ).toContain("model_instructions_file = '/home/alice/.codex/instructions.md'")
   })
 
-  it('rewrites relative paths against a Linux-side home and strips user-hook trust', () => {
+  it('rewrites relative paths against a Linux-side home and strips hook trust', () => {
     const prepared = prepareSystemConfigForFreshRuntimeMirror(
       [
         'model_instructions_file = "instructions.md"',
@@ -904,7 +899,7 @@ describe('prepareSystemConfigForFreshRuntimeMirror', () => {
         '[features]',
         'codex_hooks = true',
         '',
-        '[hooks.state."/home/alice/.codex/hooks.json:stop:0:0"]',
+        '[hooks.state."system-hooks:stop:0:0"]',
         'enabled = true',
         '',
         '[projects."/home/alice/repo"]',
@@ -920,6 +915,6 @@ describe('prepareSystemConfigForFreshRuntimeMirror', () => {
     expect(prepared).toContain('hooks = true')
     expect(prepared).not.toContain('codex_hooks')
     expect(prepared).toContain('[projects."/home/alice/repo"]')
-    expect(prepared).not.toContain('[hooks.state."/home/alice/.codex/hooks.json:stop:0:0"]')
+    expect(prepared).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
   })
 })

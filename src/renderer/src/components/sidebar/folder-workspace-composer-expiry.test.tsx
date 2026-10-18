@@ -176,9 +176,7 @@ describe('folder composer cache expiry requests', () => {
   )
 
   it('forces the initial check even when a matching fresh result is already cached', async () => {
-    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request, {
-      runtimeEnvironmentId: null
-    })
+    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request)
     expect(snapshot).not.toBeNull()
     useAppStore.setState({
       folderWorkspacePathStatuses: {
@@ -228,9 +226,7 @@ describe('folder composer cache expiry requests', () => {
   })
 
   it('keeps a real pending check pending when fresh cache is removed after unrelated expiry', async () => {
-    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request, {
-      runtimeEnvironmentId: null
-    })
+    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request)
     expect(snapshot).not.toBeNull()
     useAppStore.setState((state) => ({
       folderWorkspacePathStatuses: {
@@ -255,12 +251,7 @@ describe('folder composer cache expiry requests', () => {
 
   it('uses the selected runtime cache entry instead of a same-group local entry', async () => {
     const fetchStatus = vi.fn().mockResolvedValue(null)
-    useAppStore.setState({
-      projectGroups: [group, { ...group, executionHostId: 'runtime:env-1' }]
-    })
-    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request, {
-      runtimeEnvironmentId: 'env-1'
-    })
+    const snapshot = getFolderWorkspaceStatusRequestSnapshot(useAppStore.getState(), request)
     expect(snapshot).not.toBeNull()
     const makeEntry = (checkedAt: number): FolderWorkspacePathStatusCacheEntry => ({
       checkedAt,

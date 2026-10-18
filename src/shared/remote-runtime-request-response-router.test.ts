@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { encrypt } from './e2ee-crypto'
 import { RemoteRuntimeRequestResponseRouter } from './remote-runtime-request-response-router'
-import { createFixedKeyLegacyHandshakeForTest } from './paired-e2ee-fixed-key-test-fixture'
 
 const SHARED_KEY = new Uint8Array(32).fill(7)
 
 function createAwaitingAuthRouter() {
   const finishError = vi.fn<(error: Error) => void>()
   const router = new RemoteRuntimeRequestResponseRouter<unknown>({
-    handshake: createFixedKeyLegacyHandshakeForTest(SHARED_KEY),
-    sealAuth: async () => '{}',
-    isSettled: () => false,
+    sharedKey: SHARED_KEY,
+    serializedAuth: '{}',
     serializedStatusRequest: null,
     requestId: 'request-1',
     statusRequestId: null,

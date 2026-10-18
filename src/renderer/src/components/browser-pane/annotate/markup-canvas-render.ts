@@ -29,8 +29,8 @@ function sceneDevicePixels(
 }
 
 // Rasterizes the committed shapes into an offscreen layer. Called only when the
-// visible shape list, the size, or the dpr changes — on the pointermove path only
-// when an erase drag hits a new mark.
+// committed shape list, the size, or the dpr changes — never on the pointermove
+// path.
 export function renderCommittedLayer(
   layer: HTMLCanvasElement,
   shapes: readonly MarkupShape[],

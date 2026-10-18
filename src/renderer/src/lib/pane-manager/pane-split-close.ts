@@ -34,8 +34,6 @@ type SplitManagedPaneArgs = {
   direction: 'vertical' | 'horizontal'
   opts?: PaneSplitOptions
   sourceContainer?: HTMLElement
-  /** Before publishing, so the pane-created tree already has the final order. */
-  newPaneFirst?: boolean
   panes: Map<number, ManagedPaneInternal>
   root: HTMLElement
   styleOptions: PaneStyleOptions
@@ -67,12 +65,9 @@ export function splitManagedPane(args: SplitManagedPaneArgs): ManagedPane | null
 
   const movedPaneStates = prepareMovedPanesForSplit(existingContainer, existing, args.panes)
 
-  wrapInSplit(existingContainer, newPane.container, isVertical, divider, {
-    ratio: args.opts?.ratio,
-    newPaneFirst: args.newPaneFirst
-  })
+  wrapInSplit(existingContainer, newPane.container, isVertical, divider, args.opts)
   args.setActivePaneId(newPane.id)
-  openSplitPane(args, newPane, existing.leafId, args.opts?.cwd)
+  openSplitPane(args, newPane, args.opts?.cwd)
 
   for (const movedPaneState of movedPaneStates) {
     scheduleSplitScrollRestore(
@@ -144,7 +139,6 @@ function findManagedPanesInContainer(
 function openSplitPane(
   args: SplitManagedPaneArgs,
   newPane: ManagedPaneInternal,
-  parentLeafId: string,
   cwd?: string
 ): void {
   openTerminal(newPane, {
@@ -157,17 +151,12 @@ function openSplitPane(
   updateMultiPaneState(args.getDragCallbacks())
   // Why: forward one-shot spawn/adoption hints so the new pane inherits the
   // source cwd for local splits or attaches a runtime-spawned PTY for web splits.
-  args.publishPaneCreated(newPane, {
+  const spawnHints = {
     ...(cwd ? { cwd } : {}),
     ...(args.opts?.cwdPromise ? { cwdPromise: args.opts.cwdPromise } : {}),
-    ...(args.opts?.ptyId ? { ptyId: args.opts.ptyId } : {}),
-    placement: {
-      kind: 'split',
-      parentLeafId,
-      direction: args.direction,
-      ...(args.opts?.ratio !== undefined ? { ratio: args.opts.ratio } : {})
-    }
-  })
+    ...(args.opts?.ptyId ? { ptyId: args.opts.ptyId } : {})
+  }
+  args.publishPaneCreated(newPane, Object.keys(spawnHints).length > 0 ? spawnHints : undefined)
   args.managerOptions.onLayoutChanged?.()
 }
 

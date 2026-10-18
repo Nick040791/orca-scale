@@ -17,7 +17,7 @@ export function renderGitSettingsSection(context: SettingsRenderContext): React.
         'Branch naming, base refs, and Git AI Author.'
       )}
       searchEntries={navigation.getSectionSearchEntries('git')}
-      forceVisible={model.hasUnsavedCommitPromptChanges || model.hasUnsavedBranchPromptChanges}
+      forceVisible={interactions.hasUnsavedSourceControlAiPromptChanges}
     >
       {view.isSectionMounted('git') ? (
         <>
@@ -39,10 +39,7 @@ export function renderGitSettingsSection(context: SettingsRenderContext): React.
             customPromptDiscardSignal={model.sourceControlAiPromptDiscardSignal}
             settingsSearchQuery={model.settingsSearchQuery}
           />
-          <GitProviderApiBudgetPane
-            settingsSearchQuery={model.settingsSearchQuery}
-            target={model.settingsHostScope.target}
-          />
+          <GitProviderApiBudgetPane settingsSearchQuery={model.settingsSearchQuery} />
         </>
       ) : null}
     </SettingsSection>

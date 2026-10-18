@@ -9,6 +9,7 @@ import {
   agentMeta,
   agentSummary,
   agentTitle,
+  threadAgentState,
   threadAgentStateLabel,
   type ActivityThreadStatusId
 } from './activity-thread-presentation'
@@ -20,15 +21,13 @@ const ACTIVITY_STATUS_GROUP_RANK: Record<ActivityThreadStatusId, number> = {
   waiting: 0,
   blocked: 1,
   permission: 2,
-  failed: 3,
-  unconfirmed: 4,
-  working: 5,
-  monitoring: 6,
-  // A user's Stop is not news, so it follows live work, but it is not a finish either.
-  interrupted: 7,
-  unverifiable: 8,
-  done: 9,
-  idle: 10
+  interrupted: 3,
+  working: 4,
+  monitoring: 5,
+  unverifiable: 6,
+  failed: 7,
+  done: 8,
+  idle: 9
 }
 
 function activityStatusRank(thread: AgentPaneThread): number {
@@ -43,9 +42,12 @@ export function getActivityThreadGroup(
     return { key: 'all', label: '' }
   }
   if (groupBy === 'status') {
-    // The key is the glyph every row in the group draws, so it heads the group too.
-    const status = activityThreadStatusId(thread)
-    return { key: status, label: threadAgentStateLabel(thread), state: status }
+    // Header dot mirrors the row dot, so the two can never disagree.
+    return {
+      key: activityThreadStatusId(thread),
+      label: threadAgentStateLabel(thread),
+      state: threadAgentState(thread)
+    }
   }
   if (groupBy === 'project') {
     return thread.repo
@@ -132,20 +134,6 @@ export function isActivitySearchQueryTooLarge(
   maxBytes = ACTIVITY_SEARCH_QUERY_MAX_BYTES
 ): boolean {
   return isClipboardTextByteLengthOverLimit(query, maxBytes)
-}
-
-export function createActivityThreadSearchMatcher(
-  searchQuery: string
-): (thread: AgentPaneThread) => boolean {
-  if (isActivitySearchQueryTooLarge(searchQuery)) {
-    return () => false
-  }
-  const trimmedQuery = searchQuery.trim()
-  if (!trimmedQuery) {
-    return () => true
-  }
-  const normalizedQuery = trimmedQuery.toLowerCase()
-  return (thread) => threadSearchText(thread).includes(normalizedQuery)
 }
 
 export function activityThreadMatchesSearchQuery({

@@ -14,6 +14,8 @@ export type AgentAttentionRequest = {
   settlesTurn: boolean
   /** Out-of-band proof the subject just produced work, used when no live session is visible. */
   hasFreshActivityEvidence: boolean
+  /** Presentation policy: also raise the container/surface attention markers. */
+  groupAttentionEnabled: boolean
 }
 
 export type AgentAttentionUnreadWrite = {
@@ -21,6 +23,7 @@ export type AgentAttentionUnreadWrite = {
   subjectKey: string | null
   groupId: string | null
   reason: AgentAttentionUnreadReason
+  groupAttentionEnabled: boolean
 }
 
 export type AgentAttentionDeliveryRequest = {
@@ -31,19 +34,23 @@ export type AgentAttentionDeliveryRequest = {
 }
 
 export type AgentAttentionDecision =
-  | {
-      admitted: false
-      cause: 'muted-workspace' | 'no-live-session' | 'unknown-surface' | 'superseded-surface'
-    }
+  | { admitted: false; cause: 'no-live-session' | 'unknown-surface' | 'superseded-surface' }
   | {
       admitted: true
       unread: AgentAttentionUnreadWrite | null
       delivery: AgentAttentionDeliveryRequest
     }
 
+export type AgentAttentionUnreadSink = {
+  /** Workspace unread is a persisted boolean shared with remote clients; it carries no reason. */
+  markWorkspaceUnread: (workspaceId: string) => void
+  markSubjectUnread: (subjectKey: string, reason: AgentAttentionUnreadReason) => void
+  markGroupUnread: (groupId: string, reason: AgentAttentionUnreadReason) => void
+  markSurfaceUnread: (subjectKey: string, reason: AgentAttentionUnreadReason) => void
+}
+
 export type AgentAttentionSink = {
-  /** The workspace-attention module's `markAgentAttentionUnread`. */
-  unread: (write: AgentAttentionUnreadWrite) => void
+  unread: AgentAttentionUnreadSink
   requestDelivery: (request: AgentAttentionDeliveryRequest) => void
 }
 
@@ -59,10 +66,6 @@ export function resolveAgentAttention(
   surface: AgentAttentionSurface
 ): AgentAttentionDecision {
   const { workspaceId } = request.subject
-  // Why first: a muted workspace earns nothing, so unread, banner, sound and push stay in agreement.
-  if (surface.isWorkspaceMuted(workspaceId)) {
-    return { admitted: false, cause: 'muted-workspace' }
-  }
   const subjectKey = request.subject.surfaceKey ?? null
   const hasLiveSession = surface.hasLiveSession(request.subject)
   if (!hasLiveSession && !request.hasFreshActivityEvidence) {
@@ -96,8 +99,32 @@ export function resolveAgentAttention(
       : surface.isSurfaceViewed({ workspaceId, surfaceKey: subjectKey })
   return {
     admitted: true,
-    unread: viewed ? null : { workspaceId, subjectKey, groupId, reason: request.reason },
+    unread: viewed
+      ? null
+      : {
+          workspaceId,
+          subjectKey,
+          groupId,
+          reason: request.reason,
+          groupAttentionEnabled: request.groupAttentionEnabled
+        },
     delivery
+  }
+}
+
+export function applyAgentAttentionUnread(
+  write: AgentAttentionUnreadWrite,
+  sink: AgentAttentionUnreadSink
+): void {
+  sink.markWorkspaceUnread(write.workspaceId)
+  if (write.subjectKey !== null) {
+    // Why: focus-return auto-ack needs an agent-specific marker; the generic surface marker
+    // below also covers bells and is gated behind the experimental attention setting.
+    sink.markSubjectUnread(write.subjectKey, write.reason)
+  }
+  if (write.groupAttentionEnabled && write.groupId !== null && write.subjectKey !== null) {
+    sink.markGroupUnread(write.groupId, write.reason)
+    sink.markSurfaceUnread(write.subjectKey, write.reason)
   }
 }
 
@@ -110,7 +137,7 @@ export function applyAgentAttention(
     return
   }
   if (decision.unread !== null) {
-    sink.unread(decision.unread)
+    applyAgentAttentionUnread(decision.unread, sink.unread)
   }
   sink.requestDelivery(decision.delivery)
 }

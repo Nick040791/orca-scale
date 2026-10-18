@@ -1,5 +1,4 @@
 import { posix, win32 } from 'node:path'
-import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import { foldWslUncPathCaseInsensitiveParts } from '../../shared/wsl-paths'
 import type { GitWorktreeExecOptions } from './worktree-operation-options'
 import { translateWslOutputPaths } from './runner'
@@ -18,11 +17,12 @@ import { translateWslOutputPaths } from './runner'
  * as `\\wsl.localhost\Ubuntu\home\alice\Feature` and a plain `toLowerCase` folded the ext4 tail.
  * `foldWslUncPathCaseInsensitiveParts` already draws that line — Windows folds the share, the distro
  * and a drvfs `/mnt/<letter>` tail, and nothing else — and `git-fetch-head-lock` already relies on
- * it.
+ * it. `isSameCommonDirPath` and `ipc/worktree-path-comparison` carry local copies of the POSIX half;
+ * this is both halves at the source.
  */
 export function canonicalWorktreePath(pathValue: string, platform = process.platform): string {
   if (looksLikePosixAbsolutePath(pathValue)) {
-    return canonicalPosixPath(pathValue, platform)
+    return posix.normalize(posix.resolve(pathValue))
   }
   const wslKey = wslUncComparisonKey(pathValue)
   if (wslKey) {
@@ -30,19 +30,7 @@ export function canonicalWorktreePath(pathValue: string, platform = process.plat
   }
   return platform === 'win32' || looksLikeWindowsPath(pathValue)
     ? win32.normalize(win32.resolve(pathValue)).toLowerCase()
-    : canonicalPosixPath(pathValue, platform)
-}
-
-// Why: macOS git reports a `/tmp` checkout as `/private/tmp`, the same directory.
-function canonicalPosixPath(pathValue: string, platform: NodeJS.Platform): string {
-  const normalized = posix.normalize(posix.resolve(pathValue))
-  if (platform !== 'darwin') {
-    return normalized
-  }
-  if (normalized === '/private/tmp') {
-    return '/tmp'
-  }
-  return normalized.startsWith('/private/tmp/') ? normalized.slice('/private'.length) : normalized
+    : posix.normalize(posix.resolve(pathValue))
 }
 
 /**
@@ -57,11 +45,7 @@ function wslUncComparisonKey(pathValue: string): string | null {
   if (!folded) {
     return null
   }
-  // A trailing separator names the same directory, as `resolve` already treats it elsewhere.
-  return (foldWslUncPathCaseInsensitiveParts(win32.normalize(pathValue)) ?? folded).replace(
-    /\/+$/,
-    ''
-  )
+  return foldWslUncPathCaseInsensitiveParts(win32.normalize(pathValue)) ?? folded
 }
 
 export function areWorktreePathsEqual(
@@ -79,55 +63,10 @@ export function areWorktreePathsEqual(
       canonicalWorktreePath(leftPath, platform) === canonicalWorktreePath(rightPath, platform)
     )
   }
-  if (
-    platform === 'win32' ||
-    isWindowsAbsolutePathLike(leftPath) ||
-    isWindowsAbsolutePathLike(rightPath)
-  ) {
+  if (platform === 'win32' || looksLikeWindowsPath(leftPath) || looksLikeWindowsPath(rightPath)) {
     return canonicalWorktreePath(leftPath, 'win32') === canonicalWorktreePath(rightPath, 'win32')
   }
   return canonicalWorktreePath(leftPath, platform) === canonicalWorktreePath(rightPath, platform)
-}
-
-export function dedupeWorktreesByPath<T extends { path: string }>(
-  worktrees: readonly T[],
-  platform = process.platform
-): T[] {
-  // Why: large Git/relay listings key each absolute path once, keeping the first row under
-  // `areWorktreePathsEqual`; only relative rows, whose flavor depends on the peer, compare pairwise.
-  const unique: T[] = []
-  const posixKeys = new Set<string>()
-  const windowsKeys = new Set<string>()
-  const windowsPaths: string[] = []
-  const relativePaths: string[] = []
-  const matchesAny = (paths: string[], pathValue: string): boolean =>
-    paths.some((existing) => areWorktreePathsEqual(existing, pathValue, platform))
-
-  for (const worktree of worktrees) {
-    const pathValue = worktree.path
-    if (looksLikePosixAbsolutePath(pathValue)) {
-      const key = canonicalWorktreePath(pathValue, platform)
-      if (!posixKeys.has(key)) {
-        posixKeys.add(key)
-        unique.push(worktree)
-      }
-      continue
-    }
-    if (platform === 'win32' || isWindowsAbsolutePathLike(pathValue)) {
-      const key = canonicalWorktreePath(pathValue, 'win32')
-      if (!windowsKeys.has(key) && !matchesAny(relativePaths, pathValue)) {
-        windowsKeys.add(key)
-        windowsPaths.push(pathValue)
-        unique.push(worktree)
-      }
-      continue
-    }
-    if (!matchesAny(relativePaths, pathValue) && !matchesAny(windowsPaths, pathValue)) {
-      relativePaths.push(pathValue)
-      unique.push(worktree)
-    }
-  }
-  return unique
 }
 
 function looksLikeWindowsPath(pathValue: string): boolean {
@@ -135,7 +74,7 @@ function looksLikeWindowsPath(pathValue: string): boolean {
 }
 
 // One leading slash only: `//server/share` and WSL UNC aliases are Windows roots, not POSIX paths.
-export function looksLikePosixAbsolutePath(pathValue: string): boolean {
+function looksLikePosixAbsolutePath(pathValue: string): boolean {
   return pathValue.startsWith('/') && !pathValue.startsWith('//')
 }
 

@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../shared/child-process/run-process'
 import {
   PROFILE_STATE_RECOVERY_FLAG,
   PROFILE_STATE_RECOVERY_RESULT_PREFIX,
@@ -14,10 +14,9 @@ import {
   stripElectronRunAsNode
 } from './launch'
 import { RuntimeClientError } from './types'
-import { canStartOrcaServer } from './serve-app-launcher'
 
 export function canLaunchProfileStateRecovery(): boolean {
-  return canStartOrcaServer(process.env)
+  return process.env.ELECTRON_RUN_AS_NODE === '1' || !!process.env.ORCA_APP_EXECUTABLE?.trim()
 }
 
 export async function launchProfileStateRecovery(

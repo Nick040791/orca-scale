@@ -32,11 +32,7 @@ export const sessionTerminalListRead = bindDeferredRpcOperation(
   })
 )
 
-export type MobileRuntimeRepoSummary = {
-  id: string
-  connectionId?: string | null
-  executionHostId?: string | null
-}
+export type MobileRuntimeRepoSummary = { id: string; connectionId?: string | null }
 
 const repoListReader = rpcResultVariant('runtime-repo-list', runtimeRepoListSchema)
 

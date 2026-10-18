@@ -1,5 +1,6 @@
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, TicketCheck, X } from 'lucide-react'
+import type { CliInstallStatus } from '../../../../shared/cli-install-types'
 import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,9 +12,17 @@ import {
   ORCA_LINEAR_SKILL_INSTALL_COMMAND
 } from '@/lib/agent-feature-install-commands'
 import { getLinearAgentSkillUpdateCommand } from '@/lib/linear-agent-skill-update-command'
+import {
+  ensureOrcaCliAvailableForAgentSkillTerminal,
+  isOrcaCliAvailableOnPath
+} from '@/lib/agent-skill-cli-prerequisite'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
 import { cn } from '@/lib/utils'
-import { buildSkillCommandForRuntime } from '../settings/CliSkillRuntimeSetup'
+import {
+  buildSkillCommandForRuntime,
+  ensureWslCliAvailableForAgentSkillTerminal,
+  getWslCliDistroRequest
+} from '../settings/CliSkillRuntimeSetup'
 import {
   getLinearAgentSkillSetupInlineRuntimeCopy,
   getLinearAgentSkillSetupMissingLabel,
@@ -70,6 +79,8 @@ export function LinearAgentSkillSetupPrompt({
   currentPlatform = getCurrentPlatform(),
   className
 }: LinearAgentSkillSetupPromptProps): React.JSX.Element | null {
+  const [cliStatus, setCliStatus] = useState<CliInstallStatus | null>(null)
+  const [cliLoading, setCliLoading] = useState(linked)
   const [setupDialogOpen, setSetupDialogOpen] = useState(false)
   const [setupCheckResult, setSetupCheckResult] = useState<SetupCheckResult>('idle')
   const [activeSetupCheckIdentity, setActiveSetupCheckIdentity] = useState<string | null>(null)
@@ -87,6 +98,9 @@ export function LinearAgentSkillSetupPrompt({
       }),
     [agentRuntime, projectRuntime, remote, settings?.activeRuntimeEnvironmentId]
   )
+  const currentSetupCheckIdentityRef = useRef(setupCheckIdentity)
+  const cliRefreshGenerationRef = useRef(0)
+  currentSetupCheckIdentityRef.current = setupCheckIdentity
   const skillDiscoveryTarget = useMemo(
     () => getLinearPromptSkillDiscoveryTarget(agentRuntime, projectRuntime),
     [agentRuntime, projectRuntime]
@@ -124,8 +138,57 @@ export function LinearAgentSkillSetupPrompt({
     settings,
     agentRuntime
   )
-  const setupReady = linked && !skill.loading && skill.installed
-  const missingSetup = linked && !localDismissed && !skill.loading && !setupReady
+  const writeCliStatusIfCurrent = useCallback(
+    (requestIdentity: string, requestGeneration: number, write: () => void): void => {
+      if (
+        requestGeneration === cliRefreshGenerationRef.current &&
+        currentSetupCheckIdentityRef.current === requestIdentity
+      ) {
+        write()
+      }
+    },
+    []
+  )
+
+  const writeCliStatusForIdentity = useCallback((requestIdentity: string, write: () => void) => {
+    if (currentSetupCheckIdentityRef.current === requestIdentity) {
+      write()
+    }
+  }, [])
+
+  const refreshCliStatus = useCallback(async (): Promise<void> => {
+    const requestIdentity = setupCheckIdentity
+    const requestGeneration = ++cliRefreshGenerationRef.current
+    const writeIfCurrent = (write: () => void): void => {
+      writeCliStatusIfCurrent(requestIdentity, requestGeneration, write)
+    }
+    if (!linked) {
+      writeIfCurrent(() => {
+        setCliStatus(null)
+        setCliLoading(false)
+      })
+      return
+    }
+    setCliLoading(true)
+    try {
+      const nextStatus = await (agentRuntime.runtime === 'wsl'
+        ? window.api.cli.getWslInstallStatus(getWslCliDistroRequest(agentRuntime))
+        : window.api.cli.getInstallStatus())
+      writeIfCurrent(() => setCliStatus(nextStatus))
+    } catch {
+      writeIfCurrent(() => setCliStatus(null))
+    } finally {
+      writeIfCurrent(() => setCliLoading(false))
+    }
+  }, [agentRuntime, linked, setupCheckIdentity, writeCliStatusIfCurrent])
+
+  useEffect(() => {
+    void refreshCliStatus()
+  }, [refreshCliStatus])
+
+  const cliAvailable = isOrcaCliAvailableOnPath(cliStatus)
+  const setupReady = linked && !cliLoading && !skill.loading && cliAvailable && skill.installed
+  const missingSetup = linked && !localDismissed && !cliLoading && !skill.loading && !setupReady
   const explicitCheckMatchesContext = activeSetupCheckIdentity === setupCheckIdentity
   const showCheckingModal =
     surface === 'modal' &&
@@ -148,7 +211,8 @@ export function LinearAgentSkillSetupPrompt({
       setActiveSetupCheckIdentity(null)
       return
     }
-    // Wait until the refreshed skill state is ready for this target.
+    // Why: refreshes update CLI and skill state independently, so success is
+    // promoted only after the current render observes both ready for this target.
     if (setupCheckResult === 'checking' && setupReady) {
       setSetupCheckResult('ready')
       return
@@ -188,11 +252,16 @@ export function LinearAgentSkillSetupPrompt({
     setSetupDialogOpen(false)
   }
 
-  const missingLabel = getLinearAgentSkillSetupMissingLabel()
+  const missingLabel = getLinearAgentSkillSetupMissingLabel(cliAvailable, skill.installed)
 
-  const toastTitle = getLinearAgentSkillSetupToastTitle()
+  const toastTitle = getLinearAgentSkillSetupToastTitle(cliAvailable, skill.installed)
 
-  const toastDescription = getLinearAgentSkillSetupToastDescription(remote, agentRuntime)
+  const toastDescription = getLinearAgentSkillSetupToastDescription(
+    cliAvailable,
+    skill.installed,
+    remote,
+    agentRuntime
+  )
   const openSetupDialog = useCallback(() => setSetupDialogOpen(true), [])
 
   useLinearAgentSkillSetupReminderToast({
@@ -225,15 +294,38 @@ export function LinearAgentSkillSetupPrompt({
         terminalShellOverride={terminalShellOverride}
         terminalRuntime={agentRuntime}
         installed={skill.installed}
-        loading={showCheckingModal || skill.loading}
+        loading={showCheckingModal || cliLoading || skill.loading}
         error={skill.error}
+        getPrerequisiteStatus={
+          agentRuntime.runtime === 'wsl'
+            ? () => window.api.cli.getWslInstallStatus(getWslCliDistroRequest(agentRuntime))
+            : undefined
+        }
+        onBeforeOpenTerminal={async () => {
+          const requestIdentity = setupCheckIdentity
+          const writeIfCurrent = (write: () => void): void => {
+            writeCliStatusForIdentity(requestIdentity, write)
+          }
+          const nextStatus =
+            agentRuntime.runtime === 'wsl'
+              ? await ensureWslCliAvailableForAgentSkillTerminal(agentRuntime)
+              : await ensureOrcaCliAvailableForAgentSkillTerminal({
+                  onStatusChange: (nextCliStatus) => {
+                    writeIfCurrent(() => setCliStatus(nextCliStatus))
+                  }
+                })
+          if (agentRuntime.runtime === 'wsl') {
+            writeIfCurrent(() => setCliStatus(nextStatus))
+          }
+        }}
         onRecheck={async () => {
           if (surface === 'modal') {
             setActiveSetupCheckIdentity(setupCheckIdentity)
             setSetupCheckResult('checking')
-            await skill.refresh()
+            await Promise.all([refreshCliStatus(), skill.refresh()])
             return
           }
+          await refreshCliStatus()
           await skill.refresh()
         }}
         onOpenChange={(open) => {
@@ -307,6 +399,7 @@ export function LinearAgentSkillSetupPrompt({
           size="xs"
           className="gap-1"
           onClick={() => {
+            void refreshCliStatus()
             void skill.refresh()
           }}
         >

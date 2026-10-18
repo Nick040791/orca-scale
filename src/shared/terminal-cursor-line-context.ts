@@ -8,14 +8,14 @@ type TerminalCursorCell = {
   isFgDefault(): boolean | number
 }
 
-type TerminalCursorLine<Cell extends TerminalCursorCell> = {
+type TerminalCursorLine = {
   readonly isWrapped: boolean
   readonly length: number
-  getCell(column: number, reusableCell?: Cell): Cell | undefined
+  getCell(column: number): TerminalCursorCell | undefined
   translateToString(trimRight?: boolean, startColumn?: number, endColumn?: number): string
 }
 
-export type TerminalCursorContextSource<Cell extends TerminalCursorCell = TerminalCursorCell> = {
+export type TerminalCursorContextSource = {
   readonly rows: number
   readonly modes: { readonly showCursor: boolean }
   readonly buffer: {
@@ -24,21 +24,15 @@ export type TerminalCursorContextSource<Cell extends TerminalCursorCell = Termin
       readonly cursorX: number
       readonly cursorY: number
       readonly viewportY: number
-      getLine(row: number): TerminalCursorLine<Cell> | undefined
-      getNullCell?(): Cell
+      getLine(row: number): TerminalCursorLine | undefined
     }
   }
 }
 
-function undimmedText<Cell extends TerminalCursorCell>(
-  line: TerminalCursorLine<Cell>,
-  fromX = 0,
-  trimRight = true,
-  reusableCell?: Cell
-): string {
+function undimmedText(line: TerminalCursorLine, fromX = 0, trimRight = true): string {
   let text = ''
   for (let x = fromX; x < line.length; x += 1) {
-    const cell = line.getCell(x, reusableCell)
+    const cell = line.getCell(x)
     if (!cell || cell.isDim() || cell.getWidth() === 0) {
       continue
     }
@@ -47,34 +41,30 @@ function undimmedText<Cell extends TerminalCursorCell>(
   return trimRight ? text.trimEnd() : text
 }
 
-function readUndimmedTextAndFirstVisibleStyle<Cell extends TerminalCursorCell>(
-  line: TerminalCursorLine<Cell>,
-  trimRight: boolean,
-  style: 'bold' | 'customForeground',
-  reusableCell?: Cell
-): { text: string; firstVisibleStyle: boolean } {
-  let text = ''
-  let firstVisibleStyle = false
-  let foundVisibleCell = false
+function firstVisibleCellIsBold(line: TerminalCursorLine): boolean {
   for (let x = 0; x < line.length; x += 1) {
-    const cell = line.getCell(x, reusableCell)
-    if (!cell || cell.getWidth() === 0) {
+    const cell = line.getCell(x)
+    if (!cell || cell.getWidth() === 0 || !cell.getChars().trim()) {
       continue
     }
-    const chars = cell.getChars()
-    if (!foundVisibleCell && chars.trim()) {
-      firstVisibleStyle = style === 'bold' ? Boolean(cell.isBold()) : !cell.isFgDefault()
-      foundVisibleCell = true
-    }
-    if (!cell.isDim()) {
-      text += chars || ' '
-    }
+    return Boolean(cell.isBold())
   }
-  return { text: trimRight ? text.trimEnd() : text, firstVisibleStyle }
+  return false
 }
 
-export function readTerminalCursorLineContext<Cell extends TerminalCursorCell>(
-  terminal: TerminalCursorContextSource<Cell>,
+function firstVisibleCellHasCustomForeground(line: TerminalCursorLine): boolean {
+  for (let x = 0; x < line.length; x += 1) {
+    const cell = line.getCell(x)
+    if (!cell || cell.getWidth() === 0 || !cell.getChars().trim()) {
+      continue
+    }
+    return !cell.isFgDefault()
+  }
+  return false
+}
+
+export function readTerminalCursorLineContext(
+  terminal: TerminalCursorContextSource,
   rowsAroundCursor: number
 ): TerminalCursorContext | null {
   const buffer = terminal.buffer.active
@@ -83,7 +73,6 @@ export function readTerminalCursorLineContext<Cell extends TerminalCursorCell>(
   if (!cursorLine) {
     return null
   }
-  const reusableCell = buffer.getNullCell?.()
   const rows: string[] = []
   const typedRows: string[] = []
   const promptGlyphBoldRows: boolean[] = []
@@ -94,11 +83,8 @@ export function readTerminalCursorLineContext<Cell extends TerminalCursorCell>(
     const line = buffer.getLine(row)
     const nextLineIsWrapped = buffer.getLine(row + 1)?.isWrapped ?? false
     rows.push(line?.translateToString(!nextLineIsWrapped) ?? '')
-    const scan = line
-      ? readUndimmedTextAndFirstVisibleStyle(line, !nextLineIsWrapped, 'bold', reusableCell)
-      : undefined
-    typedRows.push(scan?.text ?? '')
-    promptGlyphBoldRows.push(scan?.firstVisibleStyle ?? false)
+    typedRows.push(line ? undimmedText(line, 0, !nextLineIsWrapped) : '')
+    promptGlyphBoldRows.push(line ? firstVisibleCellIsBold(line) : false)
     rowsWrapped.push(line?.isWrapped ?? false)
   }
   const rowsBelow: string[] = []
@@ -110,17 +96,9 @@ export function readTerminalCursorLineContext<Cell extends TerminalCursorCell>(
     const line = buffer.getLine(row)
     const nextLineIsWrapped = buffer.getLine(row + 1)?.isWrapped ?? false
     rowsBelow.push(line?.translateToString(!nextLineIsWrapped) ?? '')
-    const scan = line
-      ? readUndimmedTextAndFirstVisibleStyle(
-          line,
-          !nextLineIsWrapped,
-          'customForeground',
-          reusableCell
-        )
-      : undefined
-    typedRowsBelow.push(scan?.text ?? '')
+    typedRowsBelow.push(line ? undimmedText(line, 0, !nextLineIsWrapped) : '')
     rowsBelowWrapped.push(line?.isWrapped ?? false)
-    rowsBelowCustomForeground.push(scan?.firstVisibleStyle ?? false)
+    rowsBelowCustomForeground.push(line ? firstVisibleCellHasCustomForeground(line) : false)
   }
   return {
     rows,
@@ -135,8 +113,7 @@ export function readTerminalCursorLineContext<Cell extends TerminalCursorCell>(
     afterCursor: undimmedText(
       cursorLine,
       buffer.cursorX,
-      !(buffer.getLine(cursorRow + 1)?.isWrapped ?? false),
-      reusableCell
+      !(buffer.getLine(cursorRow + 1)?.isWrapped ?? false)
     ),
     rawAfterCursor: cursorLine.translateToString(
       !(buffer.getLine(cursorRow + 1)?.isWrapped ?? false),

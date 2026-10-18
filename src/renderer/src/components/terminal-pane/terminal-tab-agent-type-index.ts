@@ -34,14 +34,14 @@ export function createTerminalTabAgentTypeSelector(
   tabId: string,
   foreground?: Record<string, PaneForegroundAgentEntry>
 ) => TerminalTabAgentTypesByLeaf {
-  let cachedState: WeakRef<TerminalTabAgentTypeState> | null = null
-  let cachedForeground: WeakRef<Record<string, PaneForegroundAgentEntry>> | null = null
+  let cachedState: TerminalTabAgentTypeState | null = null
+  let cachedForeground: Record<string, PaneForegroundAgentEntry> | null = null
   let cachedByTabId = new Map<string, TerminalTabAgentTypesByLeaf>()
 
   return (state, tabId, foreground = EMPTY_FOREGROUND_AGENT_BY_PANE_KEY) => {
     // Why: production writes replace this map. Its identity lets unrelated
     // Zustand notifications skip the global scan entirely.
-    if (state !== cachedState?.deref() || foreground !== cachedForeground?.deref()) {
+    if (state !== cachedState || foreground !== cachedForeground) {
       const previousByTabId = cachedByTabId
       const nextByTabId = new Map<string, Record<string, AgentType>>()
       for (const [paneKey, entry] of Object.entries(state)) {
@@ -88,9 +88,8 @@ export function createTerminalTabAgentTypeSelector(
         )
       }
       cachedByTabId = stabilizedByTabId
-      // Identity checks must not keep dropped payloads alive after the last pane parks.
-      cachedState = new WeakRef(state)
-      cachedForeground = new WeakRef(foreground)
+      cachedState = state
+      cachedForeground = foreground
     }
     return cachedByTabId.get(tabId) ?? EMPTY_AGENT_TYPES_BY_LEAF
   }

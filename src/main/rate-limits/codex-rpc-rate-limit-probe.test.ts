@@ -5,11 +5,7 @@ import {
   type CodexRpcRateLimitChild
 } from './codex-rpc-rate-limit-probe'
 
-function makeRpcChild(
-  rateLimitsReply: Record<string, unknown> = {
-    result: { rateLimits: { primary: { usedPercent: 17 } } }
-  }
-): CodexRpcRateLimitChild {
+function makeRpcChild(): CodexRpcRateLimitChild {
   const child = new EventEmitter() as EventEmitter & CodexRpcRateLimitChild
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
@@ -28,7 +24,12 @@ function makeRpcChild(
         queueMicrotask(() => {
           ;(child.stdout as EventEmitter).emit(
             'data',
-            Buffer.from(`${JSON.stringify({ id: message.id, ...rateLimitsReply })}\n`)
+            Buffer.from(
+              `${JSON.stringify({
+                id: message.id,
+                result: { rateLimits: { primary: { usedPercent: 17 } } }
+              })}\n`
+            )
           )
         })
       }
@@ -71,33 +72,5 @@ describe('Codex RPC rate-limit probe cleanup boundary', () => {
       session: { usedPercent: 17 },
       status: 'ok'
     })
-  })
-})
-
-describe('Codex RPC rate-limit probe error classification', () => {
-  async function readError(message: string) {
-    return readCodexRateLimitsViaRpc({
-      child: makeRpcChild({ error: { code: -32603, message } }),
-      codexCommand: 'codex',
-      initTimeoutMs: 30_000,
-      rpcTimeoutMs: 10_000,
-      terminate: vi.fn(async () => {})
-    })
-  }
-
-  it('tags the captured app-server transport error as a network failure', async () => {
-    const result = await readError(
-      'failed to fetch codex rate limits: error sending request for url (https://chatgpt.com/backend-api/wham/usage)'
-    )
-    expect(result.status).toBe('error')
-    expect(result.usageMetadata?.failureKind).toBe('network')
-  })
-
-  it('leaves an HTTP status failure unclassified', async () => {
-    const result = await readError(
-      'failed to fetch codex rate limits: unexpected status 429 Too Many Requests'
-    )
-    expect(result.status).toBe('error')
-    expect(result.usageMetadata).toBeUndefined()
   })
 })

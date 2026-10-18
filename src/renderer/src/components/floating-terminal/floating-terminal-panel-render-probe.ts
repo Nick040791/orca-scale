@@ -20,21 +20,7 @@ function visit(node: unknown, cb: (node: ReactElementLike) => void): void {
     return
   }
   cb(element)
-  // Why: WorkspaceTabDragLayer takes a render prop; walk its children with an inert drag state
-  // so the titlebar strip and body tree stay reachable without invoking dnd-kit.
-  const children = element.props.children
-  if (typeof children === 'function') {
-    visit(
-      children({
-        isTabDragActive: false,
-        hoveredTabInsertion: null,
-        setDragRootNode: () => {}
-      }),
-      cb
-    )
-    return
-  }
-  visit(children, cb)
+  visit(element.props.children, cb)
 }
 
 export function findByTypeName(node: unknown, typeName: string): ReactElementLike {

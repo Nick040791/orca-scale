@@ -11,7 +11,13 @@ import {
 } from './terminal-link-handlers-test-harness'
 
 const doubles = createTerminalLinkTestDoubles()
-const { storeState, statMock, openFileMock, setPendingEditorRevealMock } = doubles
+const {
+  storeState,
+  authorizeExternalPathMock,
+  statMock,
+  openFileMock,
+  setPendingEditorRevealMock
+} = doubles
 
 vi.mock('@/store', () => ({
   useAppStore: {
@@ -64,11 +70,7 @@ describe('createFilePathLinkProvider range bounds', () => {
     await flushAsyncWork()
     await flushDoubleRaf()
 
-    expect(statMock).toHaveBeenCalledWith({
-      filePath: mappedPath,
-      connectionId: undefined,
-      access: { kind: 'user-file' }
-    })
+    expect(statMock).toHaveBeenCalledWith({ filePath: mappedPath })
     expect(openFileMock).toHaveBeenCalledWith(expect.objectContaining({ filePath: mappedPath }), {
       forceContentReload: true
     })
@@ -181,16 +183,14 @@ describe('createFilePathLinkProvider range bounds', () => {
 
     openDetectedFilePath('/home/alice/notes.md', null, null, {
       worktreeId: 'wt-1',
-      worktreePath: '/home/alice',
+      worktreePath: 'C:\\repo',
       wslDistro: 'Ubuntu',
       runtimeEnvironmentId: 'env-1'
     })
     await flushAsyncWork()
 
-    // An unmapped POSIX path stays inside the runtime worktree and is asked of its host.
-    expect(JSON.stringify(doubles.runtimeEnvironmentTransportCallMock.mock.calls)).toContain(
-      '"relativePath":"notes.md"'
-    )
-    expect(statMock).not.toHaveBeenCalled()
+    expect(authorizeExternalPathMock).toHaveBeenCalledWith({
+      targetPath: '/home/alice/notes.md'
+    })
   })
 })

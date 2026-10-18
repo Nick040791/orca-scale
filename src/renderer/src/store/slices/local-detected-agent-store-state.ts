@@ -14,7 +14,6 @@ export type LocalDetectedAgentState = {
   isRefreshingLocalAgentsByContext: Record<string, boolean>
   pathSource: PathSource | null
   pathFailureReason: ShellHydrationFailureReason | null
-  ensureNativeDetectedAgents: () => Promise<TuiAgent[]>
   ensureDetectedAgents: (worktreeId?: string | null) => Promise<TuiAgent[]>
   refreshDetectedAgents: (worktreeId?: string | null) => Promise<TuiAgent[]>
   clearLocalDetectedAgentContextsForProjects: (projectIds: readonly string[]) => void
@@ -42,10 +41,4 @@ export function createEmptyLocalDetectedAgentState(): Pick<
     pathSource: null,
     pathFailureReason: null
   }
-}
-
-export function readNativeDetectedAgents(state: {
-  localDetectedAgentIdsByContext?: LocalDetectedAgentState['localDetectedAgentIdsByContext']
-}): TuiAgent[] | null {
-  return state.localDetectedAgentIdsByContext?.host ?? null
 }

@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState, type MutableRefObject } from 'react'
-import { useWorkspaceRouteHandoff } from '../navigation/workspace-route-handoff'
+import { useRouteHandoff } from '../navigation/route-handoff'
 import type { RpcClient } from '../transport/rpc-client'
-import { isRendererUnavailableReply } from '../transport/renderer-unavailable-reply'
 import { refusedRpcMessageOrFallback } from '../transport/rpc-refusal-message'
 import type { ConnectionState } from '../transport/types'
 import { triggerError, triggerSelection } from '../platform/haptics'
@@ -21,7 +20,7 @@ import {
   type MobileGitStatusEntry
 } from './mobile-git-status'
 import { sourceFileDiffOpenRun, sourceFileOpenRun } from './mobile-source-file-open-operations'
-import { buildMobileReviewFileRoute, type MobileReviewRouteArea } from './mobile-review-route'
+import { buildMobileReviewFileRoute } from './mobile-review-route'
 import { revealMobileSourceControlSessionDiff } from './reveal-mobile-source-control-session-diff'
 import type {
   MobileBranchCompareState,
@@ -70,7 +69,7 @@ export function useMobileSourceControlOpeners(params: Params) {
   } = params
   // The seam, not expo-router's own: inside the shell's page a push to a route the page does not
   // render has to be handed back to the app, and only this knows which targets those are.
-  const router = useWorkspaceRouteHandoff()
+  const router = useRouteHandoff()
   const [branchDiffPreview, setBranchDiffPreview] = useState<MobileBranchDiffPreviewState | null>(
     null
   )
@@ -78,23 +77,6 @@ export function useMobileSourceControlOpeners(params: Params) {
   const [openingBranchPath, setOpeningBranchPath] = useState<string | null>(null)
   const openingPathRef = useRef<string | null>(null)
   const openingBranchPathRef = useRef<string | null>(null)
-
-  const openReviewScreen = useCallback(
-    (filePath: string, area: MobileReviewRouteArea) => {
-      triggerSelection()
-      router.push(
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the builder only emits the declared /h/[hostId]/review/[worktreeId] route.
-        buildMobileReviewFileRoute({
-          hostId,
-          worktreeId,
-          worktreeName: name,
-          filePath,
-          area
-        }) as Parameters<typeof router.push>[0]
-      )
-    },
-    [hostId, name, router, worktreeId]
-  )
 
   const openFile = useCallback(
     async (entry: MobileGitStatusEntry) => {
@@ -119,7 +101,16 @@ export function useMobileSourceControlOpeners(params: Params) {
       try {
         setActionError(null)
         if (origin !== 'session') {
-          openReviewScreen(entry.path, entry.area)
+          triggerSelection()
+          router.push(
+            buildMobileReviewFileRoute({
+              hostId,
+              worktreeId,
+              worktreeName: name,
+              filePath: entry.path,
+              area: entry.area
+            }) as Parameters<typeof router.push>[0]
+          )
           return
         }
         // Snapshot the active tab now, at tap time, before the openDiff RPC —
@@ -131,13 +122,6 @@ export function useMobileSourceControlOpeners(params: Params) {
           relativePath: entry.path,
           staged: entry.area === 'staged'
         })
-        // Why: a host with no desktop window opens no editor tabs; its diff still reads through git.diff on the review screen.
-        if (isRendererUnavailableReply(diffReply)) {
-          if (mountedRef.current) {
-            openReviewScreen(entry.path, entry.area)
-          }
-          return
-        }
         // Why the raw refusal: a host too old to open a diff tab is a capability gap this flow
         // falls back from, and no acceptance policy carries the code and message through.
         const fallbackToEdit = isMobileGitUnavailableReply(diffReply)
@@ -207,11 +191,12 @@ export function useMobileSourceControlOpeners(params: Params) {
       client,
       connState,
       embedded,
+      hostId,
       mountedRef,
+      name,
       onFileOpenStart,
       onOpenedFileDiff,
       onRequestClose,
-      openReviewScreen,
       origin,
       router,
       setActionError,
@@ -242,7 +227,16 @@ export function useMobileSourceControlOpeners(params: Params) {
       openingBranchPathRef.current = entry.path
       setOpeningBranchPath(entry.path)
       if (origin !== 'session') {
-        openReviewScreen(entry.path, 'branch')
+        triggerSelection()
+        router.push(
+          buildMobileReviewFileRoute({
+            hostId,
+            worktreeId,
+            worktreeName: name,
+            filePath: entry.path,
+            area: 'branch'
+          }) as Parameters<typeof router.push>[0]
+        )
         openingBranchPathRef.current = null
         if (mountedRef.current) {
           setOpeningBranchPath(null)
@@ -308,9 +302,11 @@ export function useMobileSourceControlOpeners(params: Params) {
       busyActionRef,
       client,
       connState,
+      hostId,
       mountedRef,
-      openReviewScreen,
+      name,
       origin,
+      router,
       setActionError,
       worktreeId
     ]

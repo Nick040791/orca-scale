@@ -3,7 +3,6 @@ import { toast } from 'sonner'
 import { formatDiffComments } from '@/lib/diff-comments-format'
 import { translate } from '@/i18n/i18n'
 import type { DiffComment } from '../../../../../../shared/diff-comment-types'
-import type { DiffCommentsClearOptions } from '@/store/slices/diffComments'
 
 export type CombinedDiffNotesActions = {
   clearNotesDialogVisible: boolean
@@ -20,12 +19,10 @@ export type CombinedDiffNotesActions = {
 export function useCombinedDiffNotesActions({
   clearDiffComments,
   diffCommentsForWorktree,
-  markdownReviewNotesEnabled,
   worktreeId
 }: {
-  clearDiffComments: (worktreeId: string, options?: DiffCommentsClearOptions) => Promise<boolean>
+  clearDiffComments: (worktreeId: string) => Promise<boolean>
   diffCommentsForWorktree: DiffComment[]
-  markdownReviewNotesEnabled: boolean
   worktreeId: string
 }): CombinedDiffNotesActions {
   const diffCommentCount = diffCommentsForWorktree.length
@@ -106,9 +103,7 @@ export function useCombinedDiffNotesActions({
     }
     setIsClearingNotes(true)
     try {
-      const ok = await clearDiffComments(worktreeId, {
-        keepMarkdownNotes: !markdownReviewNotesEnabled
-      })
+      const ok = await clearDiffComments(worktreeId)
       if (!mountedRef.current) {
         return
       }
@@ -127,7 +122,7 @@ export function useCombinedDiffNotesActions({
         setIsClearingNotes(false)
       }
     }
-  }, [clearDiffComments, diffCommentCount, isClearingNotes, markdownReviewNotesEnabled, worktreeId])
+  }, [clearDiffComments, diffCommentCount, isClearingNotes, worktreeId])
 
   return {
     clearNotesDialogVisible,

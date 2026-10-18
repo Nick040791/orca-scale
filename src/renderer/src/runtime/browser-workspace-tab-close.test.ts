@@ -23,8 +23,7 @@ const {
   }
 }))
 
-vi.mock('./web-runtime-session-tab-lifecycle', () => ({ closeWebRuntimeSessionTab }))
-vi.mock('./web-runtime-session-environment', () => ({ isWebRuntimeSessionActive }))
+vi.mock('./web-runtime-session', () => ({ closeWebRuntimeSessionTab, isWebRuntimeSessionActive }))
 vi.mock('@/store/slices/browser-webview-cleanup', () => ({ destroyWorkspaceWebviews }))
 vi.mock('@/store', () => ({ useAppStore: { getState: () => storeState.current } }))
 

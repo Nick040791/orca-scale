@@ -9,8 +9,7 @@
  * that would attribute other hosts' automations to the selected one.
  */
 
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import type {
   Automation,
   AutomationCreateInput,
@@ -39,7 +38,6 @@ import {
 } from './automation-host-client'
 import {
   assertAuthorityCapability,
-  assertExtraAgentArgsSupported,
   assertOwnerFencingSupported,
   assertAutomationCreateIdempotencySupported,
   AUTOMATION_LIST_HOST_SCOPE_RUNTIME_CAPABILITY,
@@ -220,7 +218,6 @@ async function updateFenced(
   destination?: AutomationDestination
 ): Promise<Automation> {
   await assertOwnerFencingSupported(authority)
-  await assertExtraAgentArgsSupported(authority, updates.extraAgentArgs)
   const result = await callAuthority<{ automation: Automation }>(authority, 'automation.update', {
     id,
     updates: toRuntimeAutomationUpdateInput(updates),
@@ -323,8 +320,6 @@ export async function createAutomationForDestination(
     await assertAutomationCreateIdempotencySupported(authority)
   }
   await assertOwnerFencingSupported(authority)
-  // Why before create: a move is create-then-delete and must refuse before mutating anything.
-  await assertExtraAgentArgsSupported(authority, input.extraAgentArgs)
   const result = await callAuthority<{ automation: Automation }>(authority, 'automation.create', {
     ...toRuntimeAutomationCreateInput(input),
     destination

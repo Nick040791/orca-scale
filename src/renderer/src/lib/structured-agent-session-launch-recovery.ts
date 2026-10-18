@@ -1,24 +1,13 @@
 import type { AgentSessionHistoryResult } from '../../../shared/agent-session-wire'
-import type {
-  AgentJournalCursor,
-  AgentJournalSubmission
-} from '../../../shared/agent-session-journal-types'
 import {
   launchStructuredAgentSession,
   StructuredAgentSessionCreateRefusalError,
-  type StructuredAgentSessionLaunchIntent,
-  type StructuredLaunchHostSeedListener
+  type StructuredAgentSessionLaunchIntent
 } from '@/lib/launch-structured-agent-session'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
-import { readStructuredSessionTabInventory } from '@/runtime/structured-session-tab-inventory'
-import { publishStructuredAgentSessionCreateHydration } from './structured-agent-session-create-hydration'
+import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync'
 
-export type StructuredAgentLaunchReceipt = {
-  sessionId: string
-  fence: number
-  firstMessage?: AgentJournalSubmission
-  cursor?: AgentJournalCursor
-}
+export type StructuredAgentLaunchReceipt = { sessionId: string; fence: number }
 
 export type StructuredLaunchRecoveryState = {
   intent: StructuredAgentSessionLaunchIntent
@@ -26,7 +15,6 @@ export type StructuredLaunchRecoveryState = {
   visibilityUnknown: boolean
   cancelled: boolean
   onVisibilityChanged?: () => void
-  onHostSeed?: StructuredLaunchHostSeedListener
 }
 
 export class StructuredAgentSessionLaunchCancelledError extends Error {
@@ -43,7 +31,7 @@ function throwIfLaunchCancelled(state: StructuredLaunchRecoveryState): void {
 }
 
 async function verifyPublishedSession(state: StructuredLaunchRecoveryState): Promise<void> {
-  const snapshots = await readStructuredSessionTabInventory(state.intent.target)
+  const snapshots = await refreshLocalStructuredSessionTabs(undefined, { authoritative: true })
   throwIfLaunchCancelled(state)
   const published = snapshots.some(
     (snapshot) =>
@@ -57,12 +45,12 @@ async function verifyPublishedSession(state: StructuredLaunchRecoveryState): Pro
   }
 }
 
-export async function recoverPublishedSessionReceipt(
+async function recoverPublishedSessionReceipt(
   state: StructuredLaunchRecoveryState
 ): Promise<StructuredAgentLaunchReceipt> {
   await verifyPublishedSession(state)
   const history = await callStructuredAgentSession<AgentSessionHistoryResult>(
-    state.intent.target,
+    { kind: 'local' },
     'agentSession.history',
     { sessionId: state.intent.sessionId, direction: 'tail', limit: 1 }
   )
@@ -71,25 +59,7 @@ export async function recoverPublishedSessionReceipt(
   if (typeof fence !== 'number') {
     throw new Error('structured session fence publication unavailable')
   }
-  const firstMessage = state.intent.params.firstMessage
-    ? history.page.submissions.find(
-        (submission) =>
-          submission.clientMessageId === state.intent.params.firstMessage?.clientMessageId
-      )
-    : undefined
-  if (state.intent.params.firstMessage && !firstMessage) {
-    return launchStructuredAgentSession(state.intent, state.onHostSeed, true)
-  }
-  if (state.intent.createMessageSupport === true) {
-    publishStructuredAgentSessionCreateHydration(state.intent, history.page, fence)
-  }
-  return {
-    sessionId: state.intent.sessionId,
-    fence,
-    ...(firstMessage
-      ? { firstMessage, cursor: history.page.liveCursor ?? history.page.window.nextCursor }
-      : {})
-  }
+  return { sessionId: state.intent.sessionId, fence }
 }
 
 async function retrySameIntent(
@@ -98,11 +68,9 @@ async function retrySameIntent(
 ): Promise<StructuredAgentLaunchReceipt> {
   throwIfLaunchCancelled(state)
   try {
-    const receipt = await launchStructuredAgentSession(state.intent, state.onHostSeed, true)
+    const receipt = await launchStructuredAgentSession(state.intent)
     throwIfLaunchCancelled(state)
-    if (state.intent.createMessageSupport !== true) {
-      await verifyPublishedSession(state)
-    }
+    await verifyPublishedSession(state)
     return receipt
   } catch (error) {
     if (state.cancelled) {
@@ -130,7 +98,7 @@ export async function launchAndReconcile(
   throwIfLaunchCancelled(state)
   let receipt: StructuredAgentLaunchReceipt
   try {
-    receipt = await launchStructuredAgentSession(state.intent, state.onHostSeed)
+    receipt = await launchStructuredAgentSession(state.intent)
   } catch (error) {
     if (state.cancelled) {
       throw new StructuredAgentSessionLaunchCancelledError()
@@ -146,9 +114,7 @@ export async function launchAndReconcile(
   }
   try {
     throwIfLaunchCancelled(state)
-    if (state.intent.createMessageSupport !== true) {
-      await verifyPublishedSession(state)
-    }
+    await verifyPublishedSession(state)
     return receipt
   } catch (error) {
     if (state.cancelled) {

@@ -1,5 +1,4 @@
 import { describe, expect, it, beforeAll, vi } from 'vitest'
-import { Terminal } from '@xterm/headless'
 import type { TerminalPaneLayoutNode } from '../../../../shared/terminal-tab-types'
 
 // ---------------------------------------------------------------------------
@@ -39,6 +38,7 @@ import {
   POST_REPLAY_MODE_RESET,
   replayPayloadEndsWithCursorHidden,
   RESET_GRAPHIC_RENDITION,
+  RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from '../../../../shared/terminal-mode-reset-profiles'
 import {
@@ -408,61 +408,6 @@ describe('restoreScrollbackBuffers', () => {
   })
 })
 
-describe('restoreScrollbackBuffers over a parked live TUI', () => {
-  // A fresh agent tab: the launch line on row 0, then the TUI on the alt screen.
-  const LAUNCH = "~/workspaces/wt$ pi '--session' '/home/u/.pi/agent/sessions/a.jsonl'"
-  const CAPTURED = `${LAUNCH}\r\n\x1b[?1049h\x1b[H\x1b[2mTUI header\x1b[0m\x1b[3;1HTUI body`
-
-  async function restoreInto(liveAltScreenLeafIds?: ReadonlySet<string>): Promise<Terminal> {
-    const terminal = new Terminal({ cols: 80, rows: 6, allowProposedApi: true })
-    const pane = { id: 1, terminal }
-    const manager = { getPanes: () => [pane], hasWebglRenderer: () => true }
-    restoreScrollbackBuffers(
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: restore reads only getPanes/hasWebglRenderer and the pane's id and terminal.
-      manager as unknown as Parameters<typeof restoreScrollbackBuffers>[0],
-      { [LEAF_1]: CAPTURED },
-      new Map([[LEAF_1, 1]]),
-      { current: new Map<number, number>() },
-      { current: new Set<number>() },
-      liveAltScreenLeafIds
-    )
-    await new Promise<void>((resolve) => terminal.write('', resolve))
-    return terminal
-  }
-
-  function visibleRows(terminal: Terminal): string[] {
-    const buffer = terminal.buffer.active
-    return Array.from(
-      { length: terminal.rows },
-      (_, row) => buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? ''
-    )
-  }
-
-  // Why: the reveal used to strip the frame and show the shell's launch line until
-  // the host snapshot repainted the TUI one round trip later (#22087).
-  it('keeps the TUI frame of a remote pane the host still runs', async () => {
-    const terminal = await restoreInto(new Set([LEAF_1]))
-    try {
-      expect(terminal.buffer.active.type).toBe('alternate')
-      expect(visibleRows(terminal).join('\n')).not.toContain('--session')
-      expect(visibleRows(terminal)[0]).toBe('TUI header')
-      expect(terminal.buffer.normal.getLine(0)?.translateToString(true)).toBe(LAUNCH)
-    } finally {
-      terminal.dispose()
-    }
-  })
-
-  it('still leaves alt for a pane whose TUI did not survive', async () => {
-    const terminal = await restoreInto()
-    try {
-      expect(terminal.buffer.active.type).toBe('normal')
-      expect(visibleRows(terminal)[0]).toBe(LAUNCH)
-    } finally {
-      terminal.dispose()
-    }
-  })
-})
-
 // ---------------------------------------------------------------------------
 // collectLeafIdsInReplayCreationOrder
 // ---------------------------------------------------------------------------
@@ -517,7 +462,7 @@ describe('replayPayloadEndsWithCursorHidden', () => {
 describe('buildPostReplayLiveAgentReattachReset', () => {
   it('preserves an intentionally hidden cursor', () => {
     expect(buildPostReplayLiveAgentReattachReset('agent frame\x1b[?25l')).toBe(
-      RESET_TERMINAL_CURSOR_STYLE
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}`
     )
   })
 

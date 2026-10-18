@@ -14,7 +14,9 @@ export function useMobileTasksClientSettingsActions(model: ProjectRepositoryReso
   const {
     client,
     clientRef,
+    defaultRepoSelectionRef,
     githubProjectFieldVisibilityScope,
+    repoSelectionHydratedRef,
     setDefaultGitHubPreset,
     setGithubCurrentPage,
     setGithubPages,
@@ -88,6 +90,9 @@ export function useMobileTasksClientSettingsActions(model: ProjectRepositoryReso
 
   useLayoutEffect(() => {
     clientRef.current = client
+    // Why: ref writes belong in the commit phase. Doing this during render would
+    // leak out of a concurrent render React later abandons.
+    repoSelectionHydratedRef.current = false
   }, [client])
 
   const persistTaskResumeState = useCallback(
@@ -148,6 +153,7 @@ export function useMobileTasksClientSettingsActions(model: ProjectRepositoryReso
       }
       const nextSelection =
         selection.size === 0 || selection.size === allRepos.length ? null : [...selection]
+      defaultRepoSelectionRef.current = nextSelection
       void taskSettingsWrite.request(client, { defaultRepoSelection: nextSelection }).catch(() => {
         // Best-effort: the in-memory repo picker already reflects the change.
       })

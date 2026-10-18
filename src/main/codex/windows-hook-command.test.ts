@@ -3,40 +3,40 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { createServer } from 'node:http'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../shared/child-process/run-process'
 import { removeTree } from '../../shared/windows-transient-lock-removal'
 import { getManagedCommand, CODEX_EVENTS } from './codex-hook-definition'
 import { getManagedScript } from './codex-hook-script'
-import { createManagedCommandMatcher } from '../agent-hooks/installer-utils'
-import { wrapWindowsBatchHookCommand } from '../agent-hooks/windows-direct-cmd-hook-command'
+import {
+  createManagedCommandMatcher,
+  wrapWindowsCmdHookCommand
+} from '../agent-hooks/installer-utils'
 
 vi.mock('electron', () => ({ app: { getPath: () => process.cwd() } }))
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllEnvs()
-})
+afterEach(() => vi.restoreAllMocks())
 
 describe('Codex Windows hook command', () => {
   it.each(['测试用户', '홍길동', '日本語', 'rené', '测试 用户', "测试 O'Brien"])(
-    'runs the script through cmd.exe for %s without an encoded launcher',
+    'uses the existing PowerShell host for %s without a second interpreter',
     (profile) => {
       vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
-      vi.stubEnv('SystemRoot', 'D:\\Windows')
       const path = `C:\\Users\\${profile}\\.orca\\agent-hooks\\codex-hook.cmd`
       const command = getManagedCommand(path)
       expect(command).not.toMatch(/powershell\.exe|EncodedCommand|Set-ExecutionPolicy/)
-      expect(command).toBe(
-        `D:\\Windows\\System32\\cmd.exe --% /d /v:off /c @"${path.replaceAll('\\', '/')}"`
-      )
+      expect(command).toContain(`-LiteralPath '${path.replaceAll("'", "''")}' -PathType Leaf`)
+      expect(command).toContain(`[Console]::In.ReadToEnd()`)
       expect(createManagedCommandMatcher('codex-hook.cmd')(command)).toBe(true)
-      expect(wrapWindowsBatchHookCommand(path)).toContain('-EncodedCommand')
+      expect(wrapWindowsCmdHookCommand(path)).toContain('-EncodedCommand')
     }
   )
 
-  it('writes a bare forward-slash path when the profile is one token', () => {
+  it('preserves the existing ASCII command and POSIX launcher', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
-    expect(getManagedCommand('C:\\Users\\alice\\.orca\\agent-hooks\\codex-hook.cmd')).toBe(
-      'C:/Users/alice/.orca/agent-hooks/codex-hook.cmd'
+    const path = 'C:\\Users\\alice\\.orca\\agent-hooks\\codex-hook.cmd'
+    expect(getManagedCommand(path)).toBe(path)
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    expect(getManagedCommand('/home/测试/.orca/agent-hooks/codex-hook.sh')).toContain(
+      "[ -x '/home/测试/.orca/agent-hooks/codex-hook.sh' ]"
     )
   })
 })
@@ -129,10 +129,12 @@ describe.skipIf(process.platform !== 'win32')('Codex hook delivery through Power
           timedOut: false
         })
         rmSync(scriptPath)
-        // Why: like the bare path, the cmd spelling exits non-zero for a missing script.
-        const missing = await invoke(getManagedCommand(scriptPath), payloads[0])
-        expect(missing.timedOut).toBe(false)
-        expect(missing.code).not.toBe(0)
+        expect(await invoke(getManagedCommand(scriptPath), payloads[0])).toMatchObject({
+          code: 0,
+          stdout: '',
+          stderr: '',
+          timedOut: false
+        })
         expect(posts).toHaveLength(CODEX_EVENTS.length)
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()))

@@ -1,7 +1,15 @@
 import { useMemo } from 'react'
+import type { Tab } from '../../../../shared/tab-types'
 import { dispatchWorkspaceTabCommand } from '@/lib/workspace-tab-commands'
+import { createWorkspaceTabCloseCommands } from './workspace-tab-close-commands'
 
-export function useTabGroupTabCloseCommands({ worktreeId }: { worktreeId: string }) {
+export function useTabGroupTabCloseCommands({
+  worktreeId,
+  groupTabs
+}: {
+  worktreeId: string
+  groupTabs: Tab[]
+}) {
   return useMemo(
     () => ({
       closeItem: (tabId: string, opts?: { skipEmptyCheck?: boolean }) => {
@@ -19,8 +27,10 @@ export function useTabGroupTabCloseCommands({ worktreeId }: { worktreeId: string
             bulk: true
           })
         }
-      }
+      },
+      leaveWorktreeIfEmpty: createWorkspaceTabCloseCommands({ worktreeId, groupTabs })
+        .leaveWorktreeIfEmpty
     }),
-    [worktreeId]
+    [worktreeId, groupTabs]
   )
 }

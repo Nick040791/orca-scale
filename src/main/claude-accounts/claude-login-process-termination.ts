@@ -1,5 +1,4 @@
-import { spawnProcess } from '@orca/process-host'
-import type { ChildProcessHandle } from '@orca/process-host/process-spec'
+import { spawnProcess, type ChildProcessHandle } from '../../shared/child-process/run-process'
 import type { WindowsHostInteractiveLoginSpawn } from '../../shared/windows-interactive-login-spawn'
 import { recordSelfInitiatedTreeKill } from '../crash-reporting/self-initiated-tree-kill-log'
 import { admitSelfInitiatedTreeKill } from '../own-chromium-tree-kill-guard'

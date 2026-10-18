@@ -95,6 +95,7 @@ export function openIosTerminal(
         compositionActive: tracker.isActive(),
         candidateKeyGuardActive: tracker.isCandidateKeyGuardActive(),
         pendingCandidateKeyReleaseActive: false,
+        hangulPreedit: tracker.isHangulPreedit(),
         isMac: true,
         isLinux: false
       })

@@ -96,6 +96,33 @@ design-docs/
 # Machine-local agent hook endpoint files may contain auth tokens.
 /agent-hooks/
 
+# Secrets and sensitive information (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+*.secret
+secrets/
+credentials/
+**/credentials.json
+**/service-account*.json
+**/*token*.txt
+**/*.keystore
+.netrc
+.npmrc.local
+*.asc
+
 # Local-only design/planning docs (not checked in).
 # Durable docs that should be tracked must live in one of the allow-listed
 # locations below (assets, readme, STYLEGUIDE, and mobile terminal shortcut bar).

@@ -4,7 +4,7 @@ import {
   getMatchingLinkedTaskSourceContext,
   resolveInitialWorkspaceRunSeed,
   resolveSmartGitHubCreateNames
-} from './composer-state/composer-decisions'
+} from './useComposerState'
 
 describe('useComposerState public decisions', () => {
   it('preserves a user name for PR start points only when the fallback is non-empty', () => {

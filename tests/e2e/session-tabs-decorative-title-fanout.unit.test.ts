@@ -11,9 +11,11 @@ import {
   SESSION_TABS_AGENT_STATUS_HEARTBEAT_INTERVAL_MS,
   SESSION_TABS_AGENT_STATUS_HEARTBEAT_SPACING_MS
 } from '../../src/main/runtime/mobile-session-tabs-agent-status-heartbeat'
-import { applyFreshWebSessionTabsSnapshot } from '../../src/renderer/src/runtime/web-session-tabs-sync/snapshot-api'
-import { resetWebSessionTabsSnapshotFreshnessForTests } from '../../src/renderer/src/runtime/web-session-tabs-sync/tracking-lifecycle'
-import type { WebSessionTabsSyncState } from '../../src/renderer/src/runtime/web-session-tabs-sync/state'
+import {
+  applyFreshWebSessionTabsSnapshot,
+  resetWebSessionTabsSnapshotFreshnessForTests,
+  type WebSessionTabsSyncState
+} from '../../src/renderer/src/runtime/web-session-tabs-sync'
 import { makeAgentStatusStoreWiring } from '../../src/main/runtime/agent-status-store-wiring.test-fixture'
 
 vi.mock('../../src/renderer/src/store', () => ({

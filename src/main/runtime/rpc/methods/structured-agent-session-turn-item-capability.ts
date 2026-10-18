@@ -24,10 +24,7 @@ function readsTurnItems(ctx: TurnItemReader): boolean {
   )
 }
 
-function projectItems(
-  items: AgentJournalRenderItem[],
-  sessionAgent: string | null
-): AgentJournalRenderItem[] {
+function projectItems(items: AgentJournalRenderItem[]): AgentJournalRenderItem[] {
   if (!items.some((item) => item.body.kind === 'turn')) {
     return items
   }
@@ -36,45 +33,39 @@ function projectItems(
       return item
     }
     const { kind: _kind, ...turn } = item.body
-    return { ...item, body: legacyAgentJournalTurnStatusBody(turn, item.itemId, sessionAgent) }
+    return { ...item, body: legacyAgentJournalTurnStatusBody(turn, item.itemId) }
   })
 }
 
-function projectPage(
-  page: AgentSessionHistoryPage,
-  sessionAgent: string | null
-): AgentSessionHistoryPage {
-  const items = projectItems(page.items, sessionAgent)
+function projectPage(page: AgentSessionHistoryPage): AgentSessionHistoryPage {
+  const items = projectItems(page.items)
   return items === page.items ? page : { ...page, items }
 }
 
-/** `sessionAgent` names the agent on a turn whose key does not, such as a command's. */
 export function projectTurnItemHistory(
   result: AgentSessionHistoryResult,
-  ctx: TurnItemReader,
-  sessionAgent: string | null = null
+  ctx: TurnItemReader
 ): AgentSessionHistoryResult {
   if (readsTurnItems(ctx)) {
     return result
   }
-  const page = projectPage(result.page, sessionAgent)
+  const page = projectPage(result.page)
   return page === result.page ? result : { ...result, page }
 }
 
 export function projectTurnItemEvent(
   event: AgentSessionSubscribeEvent,
-  ctx: TurnItemReader,
-  sessionAgent: string | null = null
+  ctx: TurnItemReader
 ): AgentSessionSubscribeEvent {
   if (readsTurnItems(ctx)) {
     return event
   }
   if (event.type === 'batch') {
-    const items = projectItems(event.batch.items, sessionAgent)
+    const items = projectItems(event.batch.items)
     return items === event.batch.items ? event : { ...event, batch: { ...event.batch, items } }
   }
   if (event.type === 'snapshot' || event.type === 'reset') {
-    const page = projectPage(event.page, sessionAgent)
+    const page = projectPage(event.page)
     return page === event.page ? event : { ...event, page }
   }
   return event

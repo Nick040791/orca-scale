@@ -6,7 +6,6 @@ import type {
   JiraConnectionStatus,
   JiraIssue,
   JiraIssueFilter,
-  JiraIssueListFilters,
   JiraSiteSelection,
   JiraViewer
 } from '../../../../shared/jira-types'
@@ -17,16 +16,9 @@ export type JiraReadOptions = {
   siteId?: JiraSiteSelection | null
 }
 
-export type JiraCollectionReadOptions = JiraReadOptions & {
-  force?: boolean
-  filters?: JiraIssueListFilters
-}
+export type JiraCollectionReadOptions = JiraReadOptions & { force?: boolean }
 export type JiraSearchOptions = JiraCollectionReadOptions & { signal?: AbortSignal }
-export type JiraPatchOptions = {
-  sourceContext?: TaskSourceContext | null
-  siteId?: string | null
-  contextKey?: string
-}
+export type JiraPatchOptions = { sourceContext?: TaskSourceContext | null }
 export type JiraIssueSummaryLookupOptions = { force?: boolean; signal?: AbortSignal }
 
 export type JiraSlice = {

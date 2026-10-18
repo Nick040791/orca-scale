@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Terminal } from '@xterm/headless'
 import {
   TerminalStreamOpcode,
@@ -10,19 +10,6 @@ import {
   createRemoteRuntimeTransportMocks,
   type MultiplexSubscriptionCallbacks
 } from './remote-runtime-pty-transport-test-harness'
-
-// These transport fixtures never read abandoned-launch ownership from the app store.
-const appStore = vi.hoisted(() => ({
-  getState: vi.fn(() => {
-    throw new Error('These transport fixtures must not read app-store ownership')
-  })
-}))
-
-vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
-
-afterEach(() => {
-  expect(appStore.getState).not.toHaveBeenCalled()
-})
 
 let subscriptionCallbacks: MultiplexSubscriptionCallbacks = null
 let resolvedPaneHandle = 'terminal-1'
@@ -72,9 +59,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       'before\x1b]9999;{"state":"working","prompt":"old","agentType":"codex"}\x07after\x1b]0;Remote title\x07\x07'
     )
 
-    expect(onReplayData).toHaveBeenCalledWith('beforeafter\x1b]0;Remote title\x07\x07', {
-      carriesNormalBuffer: true
-    })
+    expect(onReplayData).toHaveBeenCalledWith('beforeafter\x1b]0;Remote title\x07\x07')
     await vi.waitFor(() =>
       expect(onTitleChange).toHaveBeenCalledWith('Remote title', 'Remote title')
     )
@@ -104,34 +89,10 @@ describe('createRemoteRuntimePtyTransport', () => {
       'before\x1b]9999;{"state":"working","prompt":"old","agentType":"codex"}\x07after'
     )
 
-    expect(onReplayData).toHaveBeenCalledWith('beforeafter', { carriesNormalBuffer: true })
+    expect(onReplayData).toHaveBeenCalledWith('beforeafter')
     expect(onAgentStatus).not.toHaveBeenCalled()
     expect(onBell).not.toHaveBeenCalled()
     expect(onConnect).toHaveBeenCalled()
-  })
-
-  // Why: a push buffered during a cancelled shutdown is the same folded image and must
-  // keep its flag when the rollback replays it.
-  it('flags a pushed snapshot replayed after a cancelled shutdown', async () => {
-    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-    const { unregisterPtyDataHandlers, restorePtyDataHandlersAfterFailedShutdown } =
-      await import('./pty-shutdown-data-suspension')
-    const onReplayData = vi.fn()
-    const transport = createRemoteRuntimePtyTransport('env-1', { worktreeId: 'wt-1' })
-
-    await transport.connect({ url: '', callbacks: { onReplayData } })
-    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-    const { streamId } = latestSubscribePayload()
-    const ptyId = transport.getPtyId()
-    expect(ptyId).toBeTruthy()
-    const shutdown = unregisterPtyDataHandlers([ptyId ?? ''])
-    emitSnapshot(streamId, 'buffered image')
-    expect(onReplayData).not.toHaveBeenCalled()
-    restorePtyDataHandlersAfterFailedShutdown(shutdown)
-
-    await vi.waitFor(() =>
-      expect(onReplayData).toHaveBeenCalledWith('buffered image', { carriesNormalBuffer: true })
-    )
   })
 
   it('paints a nonempty lossy initial snapshot once before resuming live output', async () => {
@@ -196,7 +157,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
     const { streamId } = latestSubscribePayload()
     emitSnapshot(streamId, 'initial')
-    expect(onReplayData).toHaveBeenCalledWith('initial', { carriesNormalBuffer: true })
+    expect(onReplayData).toHaveBeenCalledWith('initial')
     expect(onConnect).toHaveBeenCalled()
 
     const snapshotPromise = transport.serializeBuffer?.({ scrollbackRows: 5000 })
@@ -236,8 +197,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       cols: 132,
       rows: 43,
       seq: 17,
-      source: 'headless',
-      carriesNormalBuffer: true
+      source: 'headless'
     })
     expect(onReplayData).toHaveBeenCalledTimes(1)
     expect(onData).not.toHaveBeenCalledWith('requested snapshot', expect.anything())
@@ -294,7 +254,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(latestFrameForOpcode(TerminalStreamOpcode.SnapshotRequest)).toBeUndefined()
 
     emitSnapshot(streamId, 'initial replay')
-    expect(onReplayData).toHaveBeenCalledWith('initial replay', { carriesNormalBuffer: true })
+    expect(onReplayData).toHaveBeenCalledWith('initial replay')
     expect(onConnect).toHaveBeenCalled()
 
     await vi.waitFor(() =>
@@ -328,8 +288,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       cols: 100,
       rows: 20,
       seq: undefined,
-      source: undefined,
-      carriesNormalBuffer: true
+      source: undefined
     })
     expect(onReplayData).toHaveBeenCalledTimes(1)
   })

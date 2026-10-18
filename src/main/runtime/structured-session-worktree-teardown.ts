@@ -10,7 +10,7 @@
  *
  * Membership is `location.workspaceId` PLUS the host fence below, and every structured session
  * carries both — so this covers a plain chat session in the worktree as well as a dispatched
- * worker. Liveness is `observeStructuredSession`, the same `live` / `unverifiable` / `exited`
+ * worker. Liveness is `observeStructuredWorker`, the same `live` / `unverifiable` / `exited`
  * vocabulary the rest of the structured surface uses.
  *
  * `live` here is lease state — a provider child is attached — not work in flight, so it says
@@ -27,19 +27,15 @@ import {
 } from '../../shared/execution-host'
 import { STILL_LIVE_DETAIL_PREFIX } from '../../shared/worktree/removal'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
-import {
-  observeStructuredSession,
-  structuredSessionCloseSettled
-} from './structured-worker-authority'
+import { observeStructuredWorker } from './structured-worker-authority'
 import { closeStructuredAgentSessionChild } from './structured-agent-session-close'
 import { retireSettledStructuredWorkerTab } from './structured-agent-session-tab-retirement'
 import type { WorktreePtyHostFence } from './worktree-pty-host-fence'
 import type { OrcaRuntimeService } from './orca-runtime'
-import type { StructuredAgentId } from '../../shared/agent-session-provider-handle'
 
 export type StructuredSessionInWorkspace = {
   sessionId: string
-  agent: StructuredAgentId
+  agent: 'claude' | 'codex'
 }
 
 export type UnclosedStructuredSession = StructuredSessionInWorkspace & {
@@ -90,9 +86,12 @@ export function structuredSessionTeardownHostId(
  * The workspace's structured sessions, split into what belongs to it and what is attached.
  *
  * MEMBERSHIP and LIVENESS answer different questions, and folding them into one list is what let
- * a chat tab outlive its workspace. A provider child runs from a send until the idle sweep rests
- * it, so `live` only means "this chat's agent worked recently", and every chat at rest in the
- * target is non-live. Those are exactly the sessions a liveness-only list never saw.
+ * a chat tab outlive its workspace. A provider child is scoped to a VISIBLE pane — the hold that
+ * keeps one is `enabled: isVisible && isWorktreeActive`, and dropping the last hold evicts the
+ * child after the release grace — so `live` really means "this chat is the visible pane in the
+ * active workspace, or was moments ago". Deleting a workspace from the sidebar while a different
+ * one is active makes every chat in the target non-live. Those are exactly the sessions a
+ * liveness-only list never saw.
  */
 export type StructuredSessionsForWorktree = {
   /** Every session bound to this workspace on the fenced host, attached or not. */
@@ -135,7 +134,9 @@ export function listStructuredSessionsForWorktree(
     .map((record) => ({ sessionId: record.sessionId, agent: record.provider }))
   return {
     members,
-    live: members.filter((session) => observeStructuredSession(session.sessionId).status === 'live')
+    live: members.filter(
+      (session) => observeStructuredWorker({ sessionId: session.sessionId }).status === 'live'
+    )
   }
 }
 
@@ -255,10 +256,11 @@ export async function closeStructuredSessionsForWorktree(
   } = {}
 ): Promise<void> {
   const { runtime, mayRefuse } = options
-  // No `afterClose` for a dispatched worker: `host.close` stops the child, but the dispatch's
-  // redrive subscription and registry entry survive until it settles by another verb. That is a
-  // bounded leak, not a hazard — and passing one here would mean resolving a dispatch id per
-  // session on a teardown path that must stay inside the sweep deadline.
+  // No `afterClose` for a dispatched worker: `host.close` drops the holds, so nothing keeps a
+  // provider child un-evictable, but the dispatch's redrive subscription and registry entry do
+  // survive until it settles by another verb. That is a bounded leak, not a hazard — and passing
+  // one here would mean resolving a dispatch id per session on a teardown path that must stay
+  // inside the sweep deadline.
   for (const session of progress.sessions) {
     // Stops ISSUING new closes once the budget is spent; an in-flight one is left to finish, since
     // nothing here can cancel a provider round trip. Without this, one slow round trip starved
@@ -276,8 +278,8 @@ export async function closeStructuredSessionsForWorktree(
     } else {
       // Re-observed rather than reusing the close's own reason string: what the user is asked to
       // waive is the state AFTER the attempt, and a close that threw never reached an observation.
-      const status = observeStructuredSession(session.sessionId).status
-      if (status === 'exited' || structuredSessionCloseSettled(session.sessionId)) {
+      const status = observeStructuredWorker({ sessionId: session.sessionId }).status
+      if (status === 'exited') {
         // The re-read can PROVE the exit a failed close could not — it threw past its own
         // observation, or the record's death evidence landed after it read. Refusing on a child
         // that is demonstrably gone is the defect this sweep exists to remove, so take the proof
@@ -335,14 +337,12 @@ export async function retireStructuredSessionTabsForWorktree(
  * proved after that close had already rolled the hide back.
  */
 async function dropDurableChatTabReference(sessionId: string): Promise<void> {
-  const host = getStructuredAgentSessionHost()
   try {
-    await host?.setSessionTabVisibility?.(sessionId, false)
+    await getStructuredAgentSessionHost()?.setSessionTabVisibility?.(sessionId, false)
   } catch (error) {
-    host?.deps.logger.warn('dropping a removed workspace chat tab reference failed', {
-      scope: 'teardown-tab-drop',
-      sessionId,
+    console.warn(
+      `[worktree-teardown] could not drop the chat tab reference for ${sessionId}`,
       error
-    })
+    )
   }
 }

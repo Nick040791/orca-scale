@@ -81,6 +81,7 @@ const CREATION_POLICY = Object.freeze({
   'mobile-emulator': { state: 'enabled' }
 })
 const DETECTED_AGENTS = Object.freeze({ detectedIds: Object.freeze([]) })
+const RUNTIME_TARGET = Object.freeze({ kind: 'local' })
 const CREATE_MENU = Object.freeze({})
 const ITEM_PROJECTION = Object.freeze({
   orderedItems: Object.freeze([]),
@@ -108,6 +109,7 @@ export function tabBarRuntimeModelStubs(): Record<string, () => Record<string, u
     detectionTarget: () => ({ useAgentDetectionTargetForWorktree: () => null }),
     connectionContext: () => ({ getConnectionIdFromState: () => null }),
     runtimeOwner: () => ({ getRuntimeEnvironmentIdForWorktree: () => null }),
+    runtimeRpcClient: () => ({ getActiveRuntimeTarget: () => RUNTIME_TARGET }),
     nativeChatReadability: () => ({ isNativeChatTranscriptLocalReadable: () => false }),
     creationPolicy: () => ({ getClientCreationActionPolicy: () => CREATION_POLICY }),
     agentProjections: () => ({ selectTabBarAgentProjections: () => AGENT_PROJECTIONS }),

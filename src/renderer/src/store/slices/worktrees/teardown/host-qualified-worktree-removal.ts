@@ -7,8 +7,7 @@
 import type { WorktreeSliceGet, WorktreeSliceSet } from '../listing/worktree-slice-types'
 import type { RemoveWorktreeResult } from '../../../../../../shared/worktree/create-types'
 import type { WorktreeSlice } from '../../worktree-helpers'
-import type { Worktree } from '../../../../../../shared/worktree/types'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
+import type { getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import {
   getWorktreeOperationOwnerHostIds,
@@ -26,7 +25,7 @@ import {
 import { translate } from '@/i18n/i18n'
 import { cleanupEphemeralVmRuntimesForDeleted } from '@/lib/ephemeral-vm-runtime-cleanup'
 import { purgeOrphanedRuntimeSshProjects } from './orphaned-runtime-ssh-project-purge'
-import { completePreservedBranchCleanup } from './complete-preserved-branch-cleanup'
+import { showPreservedBranchToast } from '@/components/sidebar/preserved-branch-toast'
 
 import { preservedBranchCleanupKey } from '../../../../../../shared/preserved-branch-cleanup'
 import { preservedBranchRuntimeTargetByCleanupKey } from './preserved-branch-cleanup-target'
@@ -40,7 +39,7 @@ import {
 
 export { prepareHostScopedRemovalCompletion, preservesSameIdRendererState }
 
-type PreservedBranchWorktree = Pick<Worktree, 'displayName' | 'isMainWorktree'> | undefined
+type PreservedBranchWorktree = Parameters<typeof showPreservedBranchToast>[1]
 type RemoveWorktreeSliceResult = Awaited<ReturnType<WorktreeSlice['removeWorktree']>>
 
 /** Route at the confirmed host when there is one, else the ordinary active-host route. */
@@ -199,7 +198,7 @@ export async function completeSameIdHostScopedRemoval(args: {
   requiredExecutionHostId: ExecutionHostId
   removalResult: RemoveWorktreeResult | undefined
   removalRoute: WorktreeOperationRoute | null
-  target: RuntimeClientTarget
+  target: ReturnType<typeof getActiveRuntimeTarget>
   worktreeBeforeRemoval: PreservedBranchWorktree
   suppressPreservedBranchToast: boolean
   rowAlreadyDropped?: boolean
@@ -252,25 +251,16 @@ export async function completeSameIdHostScopedRemoval(args: {
     cleanup,
     target
   })
-  const branchCleanupOptions = { hostId: requiredExecutionHostId, ...runtimeEnvironment }
-  const autoDeletedBranch = await completePreservedBranchCleanup({
-    get,
-    worktreeId,
-    removalResult,
-    worktreeBeforeRemoval,
-    branchCleanupOptions,
-    suppressToast: suppressPreservedBranchToast
-  })
+  if (!suppressPreservedBranchToast) {
+    showPreservedBranchToast(removalResult, worktreeBeforeRemoval, (branch, expectedHead) => {
+      void get().forceDeletePreservedBranch(worktreeId, branch, expectedHead, {
+        hostId: requiredExecutionHostId,
+        ...runtimeEnvironment
+      })
+    })
+  }
   return {
     ok: true as const,
-    ...(!autoDeletedBranch
-      ? {
-          preservedBranch: {
-            ...preservedBranch,
-            hostId: requiredExecutionHostId,
-            ...runtimeEnvironment
-          }
-        }
-      : {})
+    preservedBranch: { ...preservedBranch, hostId: requiredExecutionHostId, ...runtimeEnvironment }
   }
 }

@@ -4,6 +4,7 @@ import {
   PLUGIN_KILL_LIST_FUTURE_SKEW_MS,
   findKilledPlugin,
   isPluginKillListTooFarInFuture,
+  killedPluginKeys,
   pluginKillListSchema,
   type PluginKillList
 } from './plugin-kill-list'
@@ -25,6 +26,7 @@ describe('pluginKillListSchema', () => {
     })
 
     expect(findKilledPlugin(parsed, 'community.unsafe')).toEqual(entry())
+    expect(killedPluginKeys(parsed)).toEqual(new Set(['community.unsafe']))
   })
 
   it.each([

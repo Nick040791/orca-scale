@@ -2,9 +2,9 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { RefreshCw, Server } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { useActiveWorktree } from '@/store/selectors'
+import { useActiveWorktree, useRepoById } from '@/store/selectors'
 import { cn } from '@/lib/utils'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { useWorktreeRuntimeTarget } from '@/runtime/use-worktree-runtime-target'
 import {
   killWorkspacePortForTarget,
   openWorkspacePortInBrowser,
@@ -25,23 +25,11 @@ import {
 } from './local-workspace-port-sections'
 import { LocalPortSection } from './local-port-section'
 import { LocalPortDetailsDialog } from './local-port-details-dialog'
-import { SshForwardedPortsSection } from './ssh-forwarded-ports-section'
 
-/** Right-sidebar Ports panel for a workspace that runs on an endpoint's own machine. */
-export function LocalWorkspacePortsPanel({
-  isVisible,
-  runtimeTarget,
-  sshForwardTargetId = null
-}: {
-  isVisible: boolean
-  /** The endpoint that owns the active workspace, even if the sidebar is focused elsewhere. */
-  runtimeTarget: RuntimeClientTarget | null
-  /** A managed server's SSH host, whose connection carries this client's forwards. */
-  sshForwardTargetId?: string | null
-}): React.JSX.Element {
+/** Right-sidebar Ports panel scoped to the active workspace's owner host. */
+export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }): React.JSX.Element {
   const activeWorktree = useActiveWorktree()
-  // Why the workspace's repoId, not a repo row: a folder workspace has no repo, only a synthetic id.
-  const activeRepoId = activeWorktree?.repoId ?? null
+  const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
   const settings = useAppStore((s) => s.settings)
   const createBrowserTab = useAppStore((s) => s.createBrowserTab)
   const setRemoteBrowserPageHandle = useAppStore((s) => s.setRemoteBrowserPageHandle)
@@ -55,10 +43,13 @@ export function LocalWorkspacePortsPanel({
     external: true
   })
 
+  // Why: the Ports panel acts on the active workspace; use that workspace's
+  // host owner even if the sidebar is focused elsewhere.
+  const runtimeTarget = useWorktreeRuntimeTarget(activeWorktree?.id)
   const scanKey = runtimeTarget ? `${workspacePortRuntimeTargetKey(runtimeTarget)}:all` : null
 
   const refresh = useCallback(() => {
-    if (!activeRepoId || !runtimeTarget || !scanKey) {
+    if (!activeRepo || !runtimeTarget || !scanKey) {
       return Promise.resolve()
     }
     setWorkspacePortScanRefreshing(true)
@@ -93,7 +84,7 @@ export function LocalWorkspacePortsPanel({
       })
     return promise
   }, [
-    activeRepoId,
+    activeRepo,
     runtimeTarget,
     scanKey,
     replaceWorkspacePortScans,
@@ -110,11 +101,11 @@ export function LocalWorkspacePortsPanel({
 
   const handleStopPort = useCallback(
     async (port: WorkspacePort) => {
-      if (!activeRepoId || !port.pid) {
+      if (!activeRepo || !port.pid) {
         return
       }
       const result = await killWorkspacePortForTarget(runtimeTarget, {
-        repoId: activeRepoId,
+        repoId: activeRepo.id,
         pid: port.pid,
         port: port.port
       })
@@ -147,7 +138,7 @@ export function LocalWorkspacePortsPanel({
         )
       }
     },
-    [activeRepoId, runtimeTarget, replaceWorkspacePortScans, setWorkspacePortScanRefreshing]
+    [activeRepo, runtimeTarget, replaceWorkspacePortScans, setWorkspacePortScanRefreshing]
   )
 
   const handleOpenPortInBrowser = useCallback(
@@ -179,8 +170,8 @@ export function LocalWorkspacePortsPanel({
   )
 
   const { activePorts, otherWorkspacePorts, externalPorts } = useMemo(
-    () => getLocalWorkspacePortSections(displayScan, activeRepoId, activeWorktree?.id),
-    [activeRepoId, activeWorktree?.id, displayScan]
+    () => getLocalWorkspacePortSections(displayScan, activeRepo?.id, activeWorktree?.id),
+    [activeRepo?.id, activeWorktree?.id, displayScan]
   )
 
   const showPortSections = shouldShowLocalWorkspacePortSections(displayScan, {
@@ -189,7 +180,7 @@ export function LocalWorkspacePortsPanel({
     externalPorts
   })
 
-  if (!activeRepoId) {
+  if (!activeRepo) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-4 text-center text-muted-foreground">
         <Server size={32} className="mb-3 opacity-50" />
@@ -231,8 +222,6 @@ export function LocalWorkspacePortsPanel({
           </TooltipContent>
         </Tooltip>
       </div>
-
-      {sshForwardTargetId && <SshForwardedPortsSection connectionId={sshForwardTargetId} />}
 
       {displayScan?.unavailableReason && (
         <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">

@@ -4,7 +4,6 @@ import type { GitRemoteIdentity } from '../../../shared/git-remote-identity'
 import { normalizeRepoBadgeColor } from '../../../shared/repo-badge-color'
 import { sanitizeRepoIcon } from '../../../shared/repo-icon'
 import { normalizeGhAccountBinding } from '../../../shared/github/account-binding'
-import { normalizeJiraProjectReference } from '../../../shared/jira-project-reference'
 import type { GhAccountBinding } from '../../../shared/github/account-binding'
 import {
   normalizeCustomWorktreeVisibilitySources,
@@ -79,7 +78,6 @@ export function sanitizeRepoUpdatesForPersistence<
       | 'worktreeBasePath'
       | 'projectHostSetupMethod'
       | 'forkSyncMode'
-      | 'defaultJiraProject'
       | 'customWorktreeVisibilitySources'
       | 'worktreeVisibilitySourcePreferences'
     >
@@ -88,14 +86,6 @@ export function sanitizeRepoUpdatesForPersistence<
   }
 >(updates: T): T {
   const sanitized = { ...updates }
-  if ('defaultJiraProject' in sanitized) {
-    const reference = normalizeJiraProjectReference(sanitized.defaultJiraProject)
-    if (reference === undefined) {
-      delete sanitized.defaultJiraProject
-    } else {
-      sanitized.defaultJiraProject = reference
-    }
-  }
   if ('badgeColor' in sanitized) {
     const badgeColor = normalizeRepoBadgeColor(sanitized.badgeColor)
     if (!badgeColor) {

@@ -1,4 +1,4 @@
-import { terminalWaitBlockedSentinelRe } from './agent-state-rules/blocked-text-layer'
+import { TERMINAL_WAIT_BLOCKED_SENTINEL_RE } from './terminal-wait-detection'
 
 /**
  * Which retained tail lines match the wait-blocked sentinel, memoized per
@@ -9,22 +9,17 @@ import { terminalWaitBlockedSentinelRe } from './agent-state-rules/blocked-text-
  * per streaming PTY) even though only ~20 lines were new. Keyed weakly by the
  * array so an entry dies with the tail it describes; the tail array is replaced
  * on every append and never mutated in place, so at most one entry per PTY
- * stays live. Each entry keeps the sentinel it was scanned with: a rules hot reload swaps it, and
- * matches found by the old one would hide a blocker only the new one knows.
+ * stays live.
  */
-const sentinelMatchesByTailLines = new WeakMap<
-  readonly string[],
-  { sentinel: RegExp; matches: number[] }
->()
+const sentinelMatchesByTailLines = new WeakMap<readonly string[], number[]>()
 
 function collectSentinelMatches(
-  sentinel: RegExp,
   lines: readonly string[],
   startIndex: number,
   into: number[]
 ): void {
   for (let index = startIndex; index < lines.length; index += 1) {
-    if (sentinel.test(lines[index]!)) {
+    if (TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(lines[index]!)) {
       into.push(index)
     }
   }
@@ -45,15 +40,14 @@ export function getTerminalTailSentinelFullScanCount(): number {
 
 /** Ascending indices of sentinel-matching lines; full-scans an unseen array. */
 export function getTerminalTailSentinelMatches(lines: readonly string[]): readonly number[] {
-  const sentinel = terminalWaitBlockedSentinelRe()
   const cached = sentinelMatchesByTailLines.get(lines)
-  if (cached?.sentinel === sentinel) {
-    return cached.matches
+  if (cached) {
+    return cached
   }
   sentinelFullScanCount += 1
   const matches: number[] = []
-  collectSentinelMatches(sentinel, lines, 0, matches)
-  sentinelMatchesByTailLines.set(lines, { sentinel, matches })
+  collectSentinelMatches(lines, 0, matches)
+  sentinelMatchesByTailLines.set(lines, matches)
   return matches
 }
 
@@ -95,7 +89,6 @@ export function carryTerminalTailSentinelMatches(
       }
     }
   }
-  const sentinel = terminalWaitBlockedSentinelRe()
-  collectSentinelMatches(sentinel, nextLines, carriedCount, matches)
-  sentinelMatchesByTailLines.set(nextLines, { sentinel, matches })
+  collectSentinelMatches(nextLines, carriedCount, matches)
+  sentinelMatchesByTailLines.set(nextLines, matches)
 }

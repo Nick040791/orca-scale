@@ -52,7 +52,7 @@ export const AgentSessionContextUsageSchema = z.object({
 export function isAdmissibleAgentSessionContextUsage(
   value: unknown
 ): value is AgentSessionContextUsage {
-  return AgentSessionContextUsageSchema.validate(value)
+  return AgentSessionContextUsageSchema.safeParse(value).success
 }
 
 type Admits<T extends true> = T

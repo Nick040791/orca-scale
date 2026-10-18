@@ -3,12 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getDefaultSettings } from '../../../shared/constants'
 import type { Worktree } from '../../../shared/worktree/types'
 import { resetWebRuntimeWakeTerminalRespawnForTests } from '@/runtime/web-runtime-wake-terminal-respawn'
-import { resetWebSessionTabsSnapshotFreshnessForTests } from '@/runtime/web-session-tabs-sync/tracking-lifecycle'
-import { rememberEmptyHostAnswerForTests } from '@/runtime/web-session-tabs-sync/host-terminal-count-fixture'
+import { resetWebSessionTabsSnapshotFreshnessForTests } from '@/runtime/web-session-tabs-sync'
 import { useAppStore } from '@/store'
 import { ensureWebRuntimeWorktreeTerminalAfterWake } from './web-runtime-worktree-terminal-after-wake'
 import { toast } from 'sonner'
-import { stubRuntimeEnvironmentBridge } from '../runtime/runtime-environment-bridge-fixture'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
@@ -72,9 +70,13 @@ describe('empty remote worktree activation', () => {
       }
     })
     ;(globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
-    stubRuntimeEnvironmentBridge({
-      call: callRuntimeEnvironment,
-      subscribe: vi.fn()
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          call: callRuntimeEnvironment,
+          subscribe: vi.fn()
+        }
+      }
     })
 
     useAppStore.setState({
@@ -100,7 +102,6 @@ describe('empty remote worktree activation', () => {
       }))
     })
 
-    rememberEmptyHostAnswerForTests('web-runtime-1', worktree.id)
     ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id)
     await vi.waitFor(() => {
       expect(callRuntimeEnvironment).toHaveBeenCalled()
@@ -119,12 +120,6 @@ describe('empty remote worktree activation', () => {
       })
     )
     expect(toast.error).not.toHaveBeenCalled()
-    // Why: drain the post-create snapshot refresh so it cannot land on the next test's bridge.
-    await vi.waitFor(() =>
-      expect(callRuntimeEnvironment).toHaveBeenCalledWith(
-        expect.objectContaining({ method: 'session.tabs.list' })
-      )
-    )
   })
 
   it('surfaces a failed host terminal request without retrying ambiguously', async () => {
@@ -134,9 +129,13 @@ describe('empty remote worktree activation', () => {
       error: { code: 'terminal_create_failed', message: 'Host refused the terminal' }
     })
     ;(globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
-    stubRuntimeEnvironmentBridge({
-      call: callRuntimeEnvironment,
-      subscribe: vi.fn()
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          call: callRuntimeEnvironment,
+          subscribe: vi.fn()
+        }
+      }
     })
 
     useAppStore.setState({
@@ -162,7 +161,6 @@ describe('empty remote worktree activation', () => {
       }))
     })
 
-    rememberEmptyHostAnswerForTests('web-runtime-1', worktree.id)
     ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id)
 
     await vi.waitFor(() =>
@@ -182,7 +180,9 @@ describe('empty remote worktree activation', () => {
     const worktree = makeWorktree()
     const callRuntimeEnvironment = vi.fn()
     ;(globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
-    stubRuntimeEnvironmentBridge({ call: callRuntimeEnvironment, subscribe: vi.fn() })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: callRuntimeEnvironment, subscribe: vi.fn() } }
+    })
 
     useAppStore.setState({
       repos: [
@@ -207,7 +207,6 @@ describe('empty remote worktree activation', () => {
       }))
     })
 
-    rememberEmptyHostAnswerForTests('web-runtime-1', worktree.id)
     ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -221,7 +220,9 @@ describe('empty remote worktree activation', () => {
     const worktree = makeWorktree()
     const callRuntimeEnvironment = vi.fn()
     ;(globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
-    stubRuntimeEnvironmentBridge({ call: callRuntimeEnvironment, subscribe: vi.fn() })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: callRuntimeEnvironment, subscribe: vi.fn() } }
+    })
 
     useAppStore.setState({
       repos: [
@@ -259,7 +260,6 @@ describe('empty remote worktree activation', () => {
       }))
     })
 
-    rememberEmptyHostAnswerForTests('web-runtime-1', worktree.id)
     ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -272,7 +272,9 @@ describe('empty remote worktree activation', () => {
     const worktree = makeWorktree()
     const callRuntimeEnvironment = vi.fn().mockResolvedValueOnce({ ok: true, result: {} })
     ;(globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
-    stubRuntimeEnvironmentBridge({ call: callRuntimeEnvironment, subscribe: vi.fn() })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: callRuntimeEnvironment, subscribe: vi.fn() } }
+    })
 
     useAppStore.setState({
       repos: [
@@ -310,7 +312,6 @@ describe('empty remote worktree activation', () => {
       }))
     })
 
-    rememberEmptyHostAnswerForTests('web-runtime-1', worktree.id)
     ensureWebRuntimeWorktreeTerminalAfterWake(worktree.id)
     await vi.waitFor(() => {
       expect(callRuntimeEnvironment).toHaveBeenCalled()

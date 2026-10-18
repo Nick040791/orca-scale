@@ -12,7 +12,6 @@ import {
 } from './linear-slice-request-state'
 import { linearStatusScopeSignature } from './linear-cache'
 import { isCurrentLinearRuntimeContext } from './linear-slice-scope'
-import { defaultScopeSource } from '@/lib/default-creation-host'
 
 export function createLinearStatusActions(
   set: LinearSliceSet,
@@ -31,7 +30,7 @@ export function createLinearStatusActions(
 
       const mutationGeneration = getLinearMutationGeneration()
       const statusReadGeneration = nextLinearStatusReadGeneration()
-      const request = linearStatus(defaultScopeSource(get().settings))
+      const request = linearStatus(get().settings)
         .then((status) => {
           if (
             mutationGeneration !== getLinearMutationGeneration() ||

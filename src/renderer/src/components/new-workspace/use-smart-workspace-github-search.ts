@@ -8,9 +8,9 @@ import { lookupSmartGitHubSubmitItem } from '@/lib/smart-github-submit'
 import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import { RESULT_LIMIT } from './smart-workspace-name-field-model'
 import { resolveSmartWorkspaceGithubDirectLink } from './smart-workspace-github-direct-link'
-import type { useWorkItemSourceFoundation } from './use-work-item-source-foundation'
+import type { useSmartWorkspaceNameFieldFoundation } from './use-smart-workspace-name-field-foundation'
 
-type Foundation = ReturnType<typeof useWorkItemSourceFoundation>
+type Foundation = ReturnType<typeof useSmartWorkspaceNameFieldFoundation>
 
 export function useSmartWorkspaceGithubSearch({
   foundation,
@@ -36,6 +36,7 @@ export function useSmartWorkspaceGithubSearch({
     fetchWorkItemsAcrossRepos,
     setGithubItems,
     setGithubLoading,
+    setOpen,
     setCrossRepoPrompt
   } = foundation
   const normalizedGhQuery = useMemo(
@@ -49,7 +50,6 @@ export function useSmartWorkspaceGithubSearch({
 
   useEffect(() => {
     if (disabled || !shouldQueryGithub) {
-      setCrossRepoPrompt(null)
       setGithubItems([])
       setGithubLoading(false)
       return
@@ -80,6 +80,7 @@ export function useSmartWorkspaceGithubSearch({
           }
           setGithubItems(result.items)
           if (result.prompt) {
+            setOpen(false)
             setCrossRepoPrompt(result.prompt)
           }
         })
@@ -233,6 +234,7 @@ export function useSmartWorkspaceGithubSearch({
     repoSlugCacheRef,
     setCrossRepoPrompt,
     setGithubItems,
-    setGithubLoading
+    setGithubLoading,
+    setOpen
   ])
 }

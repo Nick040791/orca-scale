@@ -46,8 +46,6 @@ const smartArgs = {
   githubAvailable: true,
   gitlabAvailable: true,
   linearAvailable: true,
-  jiraAvailable: false,
-  jiraSiteId: null,
   mrStateFilter: 'opened' as const,
   linearWorkspaceId: null
 }

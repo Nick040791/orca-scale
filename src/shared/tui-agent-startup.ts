@@ -17,7 +17,6 @@ import { inlineAgentDraftFitsPlatform } from './agent-draft-platform-limit'
 import type { TuiAgent } from './tui-agent'
 import type { SessionOptionValue } from './native-chat-session-options'
 import { resolveAgentLaunchCommand } from './tui-agent-launch-command'
-import { appliedSessionOptionProps, buildFlagPromptStartupPlan } from './flag-prompt-startup'
 
 export { buildAgentResumeStartupPlan } from './tui-agent-resume-startup'
 
@@ -34,6 +33,10 @@ export type AgentStartupPlan = {
   /** Values actually emitted into this launch command, kept as base model ids
    * so the native-chat surface can render only launch-backed state. */
   sessionOptions?: Record<string, SessionOptionValue>
+}
+
+function appliedSessionOptionProps(values: Record<string, SessionOptionValue>) {
+  return Object.keys(values).length > 0 ? { sessionOptions: { ...values } } : {}
 }
 
 export function buildAgentStartupPlan(args: {
@@ -113,16 +116,15 @@ export function buildAgentStartupPlan(args: {
   }
 
   if (config.promptInjectionMode === 'flag-prompt') {
-    return buildFlagPromptStartupPlan({
+    return {
       agent,
-      launchCommand,
-      quotedPrompt,
-      prompt: trimmedPrompt,
-      shell,
+      launchCommand: `${launchCommand} --prompt ${quotedPrompt}`,
+      expectedProcess: config.expectedProcess,
+      followupPrompt: null,
       launchConfig,
-      sessionOptions: baseCommand.appliedSessionOptions,
-      agentEnv: args.agentEnv
-    })
+      ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
+      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+    }
   }
 
   if (config.promptInjectionMode === 'hermes-query') {
@@ -253,10 +255,6 @@ export function buildAgentDraftLaunchPlan(args: {
     agentCommand: baseCommand.commandWithoutSessionOptions
   })
   let plan: AgentDraftLaunchPlan | null = null
-  if (config.draftPromptFlag && shell === 'cmd' && /[\r\n]/.test(trimmed)) {
-    // Why: cmd.exe cannot quote a newline, so each one would submit the line early; paste instead.
-    return null
-  }
   if (config.draftPromptFlag) {
     const quoted = quoteStartupArg(trimmed, shell)
     plan = {

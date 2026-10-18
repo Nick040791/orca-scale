@@ -3,16 +3,14 @@ import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../shared/constants'
 import {
-  getRepoExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
   type ExecutionHostId
 } from '../../shared/execution-host'
 import type { Repo } from '../../shared/repo-types'
 import { gitExecFileAsync, awaitWindowsHostGitEnvironmentReady } from '../git/runner'
-import { getRepoName, inspectGitRepoForRegistrationAsync } from '../git/repo'
+import { getRepoName, isGitRepo } from '../git/repo'
 import { invalidateAuthorizedRootsCache, isENOENT } from '../ipc/filesystem-auth'
-import { findProjectAtSameRealPath } from '../project-realpath-identity'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { prepareLocalWorktreeRootForRepo } from '../worktree-root-preparation'
 import type { RuntimeStore } from './runtime-store-contract'
@@ -42,23 +40,14 @@ export class RuntimeRepositoryRegistrationController {
     if (kind === 'git') {
       await awaitWindowsHostGitEnvironmentReady({ cwd: path })
     }
-    const gitInfo = kind === 'git' ? await inspectGitRepoForRegistrationAsync(path) : null
-    if (gitInfo && !gitInfo.isRepo) {
+    if (kind === 'git' && !isGitRepo(path)) {
       throw new Error(`Not a valid git repository: ${path}`)
     }
-    const sameHostRepos = store
-      .getRepos()
-      .filter((repo) => runtimeRepoMatchesExecutionHost(repo, executionHostId))
-    // Why: git's toplevel is already resolved through symlinks, so an alias of a tracked checkout finds it.
-    const existing =
-      sameHostRepos.find((repo) => runtimePathsEqual(repo.path, path)) ??
-      (await findProjectAtSameRealPath(
-        // Why: SSH rows name paths on another machine; resolving them here could match an unrelated local dir.
-        sameHostRepos.filter(
-          (repo) => parseExecutionHostId(getRepoExecutionHostId(repo))?.kind !== 'ssh'
-        ),
-        gitInfo?.rootPath ?? path
-      ))
+    const existing = store.getRepos().find((repo) => {
+      return (
+        runtimePathsEqual(repo.path, path) && runtimeRepoMatchesExecutionHost(repo, executionHostId)
+      )
+    })
     if (existing) {
       if (
         existing.executionHostId == null &&

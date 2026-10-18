@@ -121,9 +121,9 @@ export function makeExternalManager(
   overrides: Partial<ExternalAutomationManager> = {}
 ): ExternalAutomationManager {
   return {
-    id: 'openclaw:local',
-    provider: 'openclaw',
-    label: 'OpenClaw',
+    id: 'hermes:local',
+    provider: 'hermes',
+    label: 'Hermes',
     targetLabel: 'This computer',
     target: { type: 'local' },
     status: 'available',
@@ -132,9 +132,9 @@ export function makeExternalManager(
     jobs: [
       {
         id: 'job-1',
-        managerId: 'openclaw:local',
-        provider: 'openclaw',
-        name: 'OpenClaw job',
+        managerId: 'hermes:local',
+        provider: 'hermes',
+        name: 'Hermes job',
         schedule: 'Daily at 09:00',
         rawSchedule: '0 9 * * *',
         enabled: true,
@@ -163,7 +163,7 @@ export function makeExternalAutomationScope(
       authority: { kind: 'desktop' },
       selector: { kind: 'self' }
     },
-    provider: 'openclaw',
+    provider: 'hermes',
     ...overrides
   }
 }

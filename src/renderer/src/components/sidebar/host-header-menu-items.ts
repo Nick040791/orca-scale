@@ -1,7 +1,6 @@
 import type { ExecutionHostKind } from '../../../../shared/execution-host'
 import type { ExecutionHostHealth } from '../../../../shared/execution-host-registry'
 import type { RuntimeCompatVerdict } from '../../../../shared/protocol-compat'
-import type { RuntimeHostBlockedReason } from '../../../../shared/runtime-host-status'
 
 // Why: the host-header dropdown shows different lifecycle actions per host kind.
 // Keeping the availability rules in a pure function makes them unit-testable
@@ -10,7 +9,6 @@ import type { RuntimeHostBlockedReason } from '../../../../shared/runtime-host-s
 // control (the design doc forbids a separate focused-host toggle), and
 // decluttering is served by collapsing the section.
 export type HostHeaderMenuAction =
-  | 'runtime-repair'
   | 'rename'
   | 'manage'
   | 'ssh-reconnect'
@@ -33,7 +31,6 @@ export type HostHeaderMenuInput = {
   /** SSH connection status drives Reconnect vs Disconnect. */
   sshConnected?: boolean
   compatibility?: RuntimeCompatVerdict
-  blockedReason?: RuntimeHostBlockedReason
 }
 
 function sshActions(connected: boolean): HostHeaderMenuAction[] {
@@ -43,18 +40,9 @@ function sshActions(connected: boolean): HostHeaderMenuAction[] {
 }
 
 export function buildHostHeaderMenuModel(input: HostHeaderMenuInput): HostHeaderMenuModel {
-  const actions: HostHeaderMenuAction[] = []
-  // Why first: a revoked pairing is the one fix the user came to the menu for.
-  if (
-    input.kind === 'runtime' &&
-    input.health === 'blocked' &&
-    input.blockedReason === 'access-revoked'
-  ) {
-    actions.push('runtime-repair')
-  }
   // Why: Rename edits only the client-side display label, so it's offered for
   // every host kind including local.
-  actions.push('rename')
+  const actions: HostHeaderMenuAction[] = ['rename']
 
   switch (input.kind) {
     case 'ssh':
@@ -77,9 +65,7 @@ export function buildHostHeaderMenuModel(input: HostHeaderMenuInput): HostHeader
   }
 
   const blocked =
-    input.health === 'blocked' &&
-    input.blockedReason !== 'access-revoked' &&
-    input.compatibility?.kind === 'blocked'
+    input.health === 'blocked' && input.compatibility?.kind === 'blocked'
       ? { reason: input.compatibility.reason }
       : null
 

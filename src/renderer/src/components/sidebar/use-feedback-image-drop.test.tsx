@@ -1,40 +1,39 @@
 // @vitest-environment happy-dom
 
-import { act } from '@testing-library/react'
+/**
+ * Native file drops never reach React in this app: preload claims them on
+ * document capture and routes the paths to the editor. These tests pin the
+ * window-capture interception that keeps a screenshot dropped on the feedback
+ * dialog from being swallowed by that lane.
+ */
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ORCA_INTERNAL_FILE_DRAG_TYPE } from '../../../../shared/native-file-drop'
-import { installOsFileDropCancellationGuard } from '../../lib/os-file-drop-cancellation-guard'
 import { useFeedbackImageDrop } from './use-feedback-image-drop'
 
 let container: HTMLDivElement
 let root: Root
-let disposeGuard: () => void
-let unclaimedDropSpy: ReturnType<typeof vi.fn<(event: Event) => void>>
-const showNotice = vi.hoisted(() => vi.fn())
-vi.mock('sonner', () => ({
-  toast: Object.assign(showNotice, {
-    error: showNotice,
-    warning: showNotice,
-    info: showNotice,
-    success: showNotice,
-    message: showNotice
-  })
-}))
+let preloadDropSpy: ReturnType<typeof vi.fn<(event: Event) => void>>
+
+function preloadDropListener(event: Event): void {
+  preloadDropSpy(event)
+  // Why: preload consumes the gesture, which is why React's onDrop never runs.
+  event.preventDefault()
+  event.stopPropagation()
+}
 
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
-  showNotice.mockClear()
-  disposeGuard = installOsFileDropCancellationGuard()
-  unclaimedDropSpy = vi.fn()
-  document.addEventListener('drop', unclaimedDropSpy)
+  preloadDropSpy = vi.fn()
+  // Registered before the hook mounts, exactly like preload's document listener.
+  document.addEventListener('drop', preloadDropListener, true)
 })
 
 afterEach(() => {
-  disposeGuard()
-  document.removeEventListener('drop', unclaimedDropSpy)
+  document.removeEventListener('drop', preloadDropListener, true)
   act(() => {
     root.unmount()
   })
@@ -68,7 +67,6 @@ async function renderHarness(
 
 function dragEvent(type: string, files: File[], types: string[] = ['Files']): Event {
   const event = new Event(type, { bubbles: true, cancelable: true })
-  Object.defineProperty(event, 'isTrusted', { value: true })
   Object.defineProperty(event, 'dataTransfer', { value: { files, types } })
   return event
 }
@@ -78,19 +76,18 @@ function pngFile(name = 'shot.png'): File {
 }
 
 function dialogChild(): HTMLElement {
-  const child = container.querySelector<HTMLElement>('[data-testid="child"]')
+  const child = container.querySelector('[data-testid="child"]')
   if (!child) {
     throw new Error('harness child missing')
   }
-  return child
+  return child as HTMLElement
 }
 
 describe('useFeedbackImageDrop', () => {
-  it('claims an image dropped on the dialog and attaches it once', async () => {
+  it('claims an image dropped on the dialog before preload can route it away', async () => {
     const onAddFiles = vi.fn()
     await renderHarness(true, onAddFiles)
 
-    expect(container.querySelector('[data-os-file-drop-owner]')).not.toBeNull()
     const event = dragEvent('drop', [pngFile()])
     act(() => {
       dialogChild().dispatchEvent(event)
@@ -99,32 +96,24 @@ describe('useFeedbackImageDrop', () => {
     expect(onAddFiles).toHaveBeenCalledTimes(1)
     expect(onAddFiles.mock.calls[0][0].map((file: File) => file.name)).toEqual(['shot.png'])
     expect(event.defaultPrevented).toBe(true)
-    expect(unclaimedDropSpy).not.toHaveBeenCalled()
+    expect(preloadDropSpy).not.toHaveBeenCalled()
   })
 
-  it('silently cancels drops outside the dialog and clears the hover state', async () => {
+  it('leaves drops outside the dialog to the existing native lane', async () => {
     const onAddFiles = vi.fn()
     await renderHarness(true, onAddFiles)
 
     const outside = document.createElement('div')
     document.body.appendChild(outside)
     act(() => {
-      dialogChild().dispatchEvent(dragEvent('dragenter', []))
-    })
-    expect(container.querySelector('[data-drag-active="true"]')).not.toBeNull()
-    const event = dragEvent('drop', [pngFile()])
-    act(() => {
-      outside.dispatchEvent(event)
+      outside.dispatchEvent(dragEvent('drop', [pngFile()]))
     })
 
-    expect(event.defaultPrevented).toBe(true)
-    expect(event).toHaveProperty('dataTransfer.dropEffect', 'none')
     expect(onAddFiles).not.toHaveBeenCalled()
-    expect(showNotice).not.toHaveBeenCalled()
-    expect(container.querySelector('[data-drag-active="true"]')).toBeNull()
+    expect(preloadDropSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('claims non-image drops so they cannot open in the editor behind the dialog', async () => {
+  it('ignores non-image drops so they keep their existing behavior', async () => {
     const onAddFiles = vi.fn()
     await renderHarness(true, onAddFiles)
 
@@ -134,29 +123,28 @@ describe('useFeedbackImageDrop', () => {
     })
 
     expect(onAddFiles).not.toHaveBeenCalled()
-    // A refused file still cancels browser navigation.
+    expect(preloadDropSpy).toHaveBeenCalledTimes(1)
+    // Why: dragover accepted the drag, so an uncancelled drop navigates the web
+    // client to the file; preload still gets it because propagation continues.
     expect(event.defaultPrevented).toBe(true)
-    expect(unclaimedDropSpy).not.toHaveBeenCalled()
   })
 
   it('stops listening once the dialog is closed', async () => {
     const onAddFiles = vi.fn()
     await renderHarness(true, onAddFiles)
     await renderHarness(false, onAddFiles)
-    expect(container.querySelector('[data-os-file-drop-owner]')).toBeNull()
 
-    const event = dragEvent('drop', [pngFile()])
     act(() => {
-      dialogChild().dispatchEvent(event)
+      dialogChild().dispatchEvent(dragEvent('drop', [pngFile()]))
     })
 
-    expect(event.defaultPrevented).toBe(true)
-    expect(event).toHaveProperty('dataTransfer.dropEffect', 'none')
     expect(onAddFiles).not.toHaveBeenCalled()
-    expect(showNotice).not.toHaveBeenCalled()
+    expect(preloadDropSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('claims dragover so the document guard preserves the accepted copy cursor', async () => {
+  // Why: only preload preventDefaults dragover, and the web client has no
+  // preload — without this the browser rejects the drop and opens the file.
+  it('accepts the drag on dragover so the drop can fire without preload', async () => {
     await renderHarness(true, vi.fn())
 
     const event = dragEvent('dragover', [])
@@ -165,7 +153,7 @@ describe('useFeedbackImageDrop', () => {
     })
 
     expect(event.defaultPrevented).toBe(true)
-    expect(event).toHaveProperty('dataTransfer.dropEffect', 'copy')
+    expect((event as DragEvent).dataTransfer?.dropEffect).toBe('copy')
   })
 
   it('leaves in-app drags alone on dragover', async () => {
@@ -179,45 +167,9 @@ describe('useFeedbackImageDrop', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  it('keeps a web feedback screenshot accepted with the document guard and attaches it once', async () => {
-    const onAddFiles = vi.fn()
-    await renderHarness(true, onAddFiles)
-    expect(container.querySelector('[data-os-file-drop-owner]')).not.toBeNull()
-    const image = pngFile()
-    const hover = dragEvent('dragover', [])
-    act(() => {
-      dialogChild().dispatchEvent(hover)
-    })
-    expect(hover.defaultPrevented).toBe(true)
-    expect(hover).toHaveProperty('dataTransfer.dropEffect', 'copy')
-    const drop = dragEvent('drop', [image])
-    act(() => {
-      dialogChild().dispatchEvent(drop)
-    })
-    expect(drop.defaultPrevented).toBe(true)
-    expect(onAddFiles).toHaveBeenCalledExactlyOnceWith([image])
-
-    const outside = document.createElement('div')
-    document.body.appendChild(outside)
-    const refusedHover = dragEvent('dragover', [])
-    act(() => {
-      outside.dispatchEvent(refusedHover)
-    })
-    expect(refusedHover.defaultPrevented).toBe(true)
-    expect(refusedHover).toHaveProperty('dataTransfer.dropEffect', 'none')
-    const refusedDrop = dragEvent('drop', [image])
-    act(() => {
-      outside.dispatchEvent(refusedDrop)
-    })
-    expect(refusedDrop.defaultPrevented).toBe(true)
-    expect(refusedDrop).toHaveProperty('dataTransfer.dropEffect', 'none')
-    expect(onAddFiles).toHaveBeenCalledOnce()
-    expect(showNotice).not.toHaveBeenCalled()
-  })
-
   it('highlights from the advertised drag types, which is all a dragenter exposes', async () => {
     await renderHarness(true, vi.fn())
-    const dialog = container.querySelector<HTMLElement>('[data-testid="dialog"]')!
+    const dialog = container.querySelector('[data-testid="dialog"]') as HTMLElement
 
     // Why: DataTransfer.files is empty until drop; only `types` is populated.
     act(() => {

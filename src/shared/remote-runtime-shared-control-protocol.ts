@@ -1,4 +1,4 @@
-import type { PairedE2EEClientHandshake } from './paired-e2ee-client-handshake'
+import { decrypt, encrypt } from './e2ee-crypto'
 import type WebSocket from 'ws'
 import { RemoteRuntimeClientError } from './remote-runtime-client'
 import { serializeRemoteRuntimePayload } from './remote-runtime-memory-limits'
@@ -13,7 +13,7 @@ import type {
 
 export function parseSharedControlFrame(
   frame: string,
-  handshake: PairedE2EEClientHandshake | null,
+  sharedKey: Uint8Array | null,
   state: SharedControlConnectionState
 ):
   | { type: 'auth'; plaintext: string }
@@ -22,13 +22,13 @@ export function parseSharedControlFrame(
       frame: Exclude<ReturnType<typeof parseRemoteRuntimeRpcFrame>, { type: 'error' }>
     }
   | { type: 'error'; error: RemoteRuntimeClientError } {
-  if (!handshake) {
+  if (!sharedKey) {
     return {
       type: 'error',
       error: invalidRemoteRuntimeResponseError('Remote Orca runtime returned a frame before E2EE.')
     }
   }
-  const plaintext = handshake.channel.openText(frame)
+  const plaintext = decrypt(frame, sharedKey)
   if (plaintext === null) {
     return {
       type: 'error',
@@ -112,13 +112,13 @@ export function formatSharedControlCloseMessage(code: number, reason: Buffer): s
 export function sendSharedControlEncrypted(args: {
   state: SharedControlConnectionState
   ws: WebSocket | null
-  handshake: PairedE2EEClientHandshake | null
+  sharedKey: Uint8Array | null
   payload: unknown
 }): boolean {
   if (args.state !== 'ready' && args.state !== 'awaiting_authenticated') {
     return false
   }
-  if (!args.ws || args.ws.readyState !== 1 || !args.handshake) {
+  if (!args.ws || args.ws.readyState !== 1 || !args.sharedKey) {
     return false
   }
   let serialized: string
@@ -133,19 +133,19 @@ export function sendSharedControlEncrypted(args: {
 export function sendSharedControlEncryptedSerialized(args: {
   state: SharedControlConnectionState
   ws: WebSocket | null
-  handshake: PairedE2EEClientHandshake | null
+  sharedKey: Uint8Array | null
   serialized: string
 }): boolean {
   if (
     (args.state !== 'ready' && args.state !== 'awaiting_authenticated') ||
     !args.ws ||
     args.ws.readyState !== 1 ||
-    !args.handshake
+    !args.sharedKey
   ) {
     return false
   }
   try {
-    args.ws.send(args.handshake.channel.sealText(args.serialized))
+    args.ws.send(encrypt(args.serialized, args.sharedKey))
     return true
   } catch {
     return false

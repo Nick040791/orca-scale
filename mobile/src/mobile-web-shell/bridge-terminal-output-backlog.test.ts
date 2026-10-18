@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { BRIDGE_MAX_MESSAGE_BYTES } from './bridge/bridge-caps'
-import { readBridgeHostMessage, type BridgeHostMessage } from './bridge/bridge-envelope'
 import {
   BRIDGE_ACK_INTERVAL_BYTES,
   BRIDGE_ACK_INTERVAL_FRAMES
@@ -115,40 +114,11 @@ function replay(chunks: readonly string[], options: { method?: string } = {}): R
   let unreadBytes = 0
   let drainCreditBytes = 0
 
-  const events: { frame: BridgeHostMessage; bytes: number }[] = []
-  let postedCursor = 0
-  let largestFrameBytes = 0
-  let ended = false
-
-  // A page decodes each posted frame once, rather than replaying its whole history on every read.
-  const readPosted = (): void => {
-    for (const json of bridge.posted.slice(postedCursor)) {
-      const read = readBridgeHostMessage(json)
-      if (!read.ok) {
-        throw new Error(`the page would refuse this frame: ${read.refusal}`)
-      }
-      postedCursor += 1
-      const frame = read.message
-      const bytes = JSON.stringify(frame).length
-      largestFrameBytes = Math.max(largestFrameBytes, bytes)
-      if (frame.type === 'event' && frame.id === ID) {
-        events.push({ frame, bytes })
-      }
-      if (frame.type === 'end' && frame.id === ID) {
-        ended = true
-      }
-    }
-  }
-
   /** One frame off the page's queue, or false when it has caught up. This is the drain. */
   const readOne = (): boolean => {
-    readPosted()
-    const event = events[readFrames]
-    if (event === undefined) {
-      return false
-    }
-    const { frame, bytes } = event
-    if (frame.type !== 'event') {
+    const events = bridge.frames().filter((frame) => frame.type === 'event' && frame.id === ID)
+    const frame = events[readFrames]
+    if (frame === undefined || frame.type !== 'event') {
       return false
     }
     readFrames += 1
@@ -165,7 +135,7 @@ function replay(chunks: readonly string[], options: { method?: string } = {}): R
     }
     drainCreditBytes -= applied
     unreadFrames += 1
-    unreadBytes += bytes
+    unreadBytes += JSON.stringify(frame).length
     if (unreadFrames >= BRIDGE_ACK_INTERVAL_FRAMES || unreadBytes >= BRIDGE_ACK_INTERVAL_BYTES) {
       unreadFrames = 0
       unreadBytes = 0
@@ -189,12 +159,12 @@ function replay(chunks: readonly string[], options: { method?: string } = {}): R
   while (readOne()) {
     // The page reads; the interval acks inside `readOne` are the only ones it sends.
   }
-  readPosted()
+  const events = bridge.frames().filter((frame) => frame.type === 'event' && frame.id === ID)
   return {
     delivered,
-    largestFrameBytes,
+    largestFrameBytes: Math.max(0, ...bridge.frames().map((frame) => JSON.stringify(frame).length)),
     frames: events.length,
-    ended
+    ended: bridge.frames().some((frame) => frame.type === 'end' && frame.id === ID)
   }
 }
 
@@ -214,7 +184,15 @@ describe.each([
     const run = replay(chunks)
     expect(run.ended).toBe(false)
     expect(run.delivered.join('')).toBe(chunks.join(''))
+  })
+
+  it('delivers it in fewer frames than it was produced in', () => {
+    const run = replay(chunks)
     expect(run.frames).toBeLessThan(chunks.length)
+  })
+
+  it('never posts a frame over the cap, however much it merged', () => {
+    const run = replay(chunks)
     expect(run.largestFrameBytes).toBeLessThanOrEqual(BRIDGE_MAX_MESSAGE_BYTES)
   })
 })

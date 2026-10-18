@@ -31,6 +31,7 @@ const {
   mockStore: {
     getRepos: vi.fn().mockReturnValue([]),
     addRepo: vi.fn(),
+    removeProject: vi.fn(),
     getRepo: vi.fn(),
     updateRepo: vi.fn(),
     getSettings: vi.fn()
@@ -85,6 +86,14 @@ vi.mock('./registered-worktree-roots-cache', () => ({
 
 vi.mock('../worktree-root-preparation', () => ({
   prepareLocalWorktreeRootForRepo: prepareLocalWorktreeRootForRepoMock
+}))
+
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: vi.fn()
+}))
+
+vi.mock('./ssh', () => ({
+  getActiveMultiplexer: vi.fn()
 }))
 
 import { registerRepoHandlers } from './repos'

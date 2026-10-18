@@ -1,8 +1,4 @@
 import { parsePaneKey } from '../../../src/shared/stable-pane-id'
-import {
-  structuredAgentSessionPaneKey,
-  structuredAgentSessionTabId
-} from '../../../src/shared/structured-agent-session-projection'
 import type { MobileSessionTab } from './mobile-session-route-types'
 
 /**
@@ -20,11 +16,6 @@ export function notificationPaneTab(tabs: readonly MobileSessionTab[], paneKey: 
   return tabs.find((tab) =>
     tab.type === 'terminal'
       ? (tab.parentTabId ?? tab.id) === pane.tabId && tab.leafId === pane.leafId
-      : tab.type === 'agent-session' &&
-        (tab.id === pane.tabId ||
-          structuredAgentSessionPaneKey(
-            structuredAgentSessionTabId(tab.sessionId),
-            tab.sessionId
-          ) === paneKey)
+      : tab.type === 'agent-session' && tab.id === pane.tabId
   )
 }

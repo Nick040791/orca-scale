@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Handler = (...args: unknown[]) => void
 
@@ -9,7 +9,6 @@ type FakeWebContents = {
   executeJavaScript: ReturnType<typeof vi.fn>
   loadURL: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
-  setWindowOpenHandler: ReturnType<typeof vi.fn>
   isDestroyed: ReturnType<typeof vi.fn>
   emit: (event: string, ...args: unknown[]) => void
 }
@@ -33,7 +32,6 @@ const { fakeElectron } = vi.hoisted(() => {
       executeJavaScript: vi.fn(() => Promise.resolve()),
       loadURL: vi.fn(() => Promise.resolve()),
       close: vi.fn(),
-      setWindowOpenHandler: vi.fn(),
       // Mirrors real Electron: isDestroyed() is already true inside a
       // 'destroyed' handler, which is what the double-close guard relies on.
       isDestroyed: vi.fn(() => destroyed),
@@ -66,31 +64,16 @@ const { fakeElectron } = vi.hoisted(() => {
     }
   }
 
-  class FakeContentView {
-    private handlers = new Map<string, Handler[]>()
-    addChildView = vi.fn()
-    on(event: string, handler: Handler): void {
-      this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler])
-    }
-    emit(event: string): void {
-      for (const handler of this.handlers.get(event) ?? []) {
-        handler()
-      }
-    }
-  }
-
   class FakeBaseWindow {
     static instances: FakeBaseWindow[] = []
     options: Record<string, unknown>
     private handlers = new Map<string, Handler[]>()
-    contentView = new FakeContentView()
-    contentSize: { width: number; height: number }
+    contentView = { addChildView: vi.fn() }
     setTitle = vi.fn()
     isDestroyed = vi.fn(() => false)
     close = vi.fn(() => this.emit('closed'))
     constructor(options: Record<string, unknown>) {
       this.options = options
-      this.contentSize = { width: Number(options.width), height: Number(options.height) }
       FakeBaseWindow.instances.push(this)
     }
     on(event: string, handler: Handler): void {
@@ -100,7 +83,12 @@ const { fakeElectron } = vi.hoisted(() => {
       this.on(event, handler)
     }
     getContentBounds(): { x: number; y: number; width: number; height: number } {
-      return { x: 0, y: 0, ...this.contentSize }
+      return {
+        x: 0,
+        y: 0,
+        width: this.options.width as number,
+        height: this.options.height as number
+      }
     }
     emit(event: string, ...args: unknown[]): void {
       for (const handler of this.handlers.get(event) ?? []) {
@@ -127,11 +115,6 @@ import {
 
 const { createFakeWebContents, FakeWebContentsView, FakeBaseWindow } = fakeElectron
 
-function fakePopupContents(): Electron.WebContents {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The fake implements every WebContents member exercised by the popup factory.
-  return createFakeWebContents() as unknown as Electron.WebContents
-}
-
 function lastWindow(): InstanceType<typeof FakeBaseWindow> {
   const instance = FakeBaseWindow.instances.at(-1)
   if (!instance) {
@@ -157,7 +140,6 @@ beforeEach(() => {
   FakeBaseWindow.instances = []
   FakeWebContentsView.instances = []
 })
-afterEach(() => vi.unstubAllEnvs())
 
 describe('describePopupOrigin', () => {
   it('reduces URLs to origin only', () => {
@@ -207,44 +189,10 @@ describe('openPopupWithOriginBar', () => {
     expect(adopted.loadURL).not.toHaveBeenCalled()
   })
 
-  it('fails closed without replaying a request when no adopted contents were supplied', () => {
+  it('loads the target itself only when no pre-created contents were provided', () => {
     const popup = openPopupWithOriginBar({}, 'https://example.com/login')
-    const onClosed = vi.fn()
-    popup.onClosed(onClosed)
-    expect(popup.contentWebContents.loadURL).not.toHaveBeenCalled()
-    expect(lastWindow().close).toHaveBeenCalledTimes(1)
-    expect(onClosed).toHaveBeenCalledTimes(1)
-  })
-
-  it('loads a page-less GET itself only when asked and only after preparation passes', () => {
-    vi.stubEnv('ORCA_BACKGROUND_LAUNCH', undefined)
-    const popup = openPopupWithOriginBar(
-      { loadInitialUrl: true },
-      'https://example.com/docs',
-      (contents) => {
-        expect(contents.loadURL).not.toHaveBeenCalled()
-        return true
-      }
-    )
-    expect(lastWindow().options.show).toBe(true)
-    expect(popup.contentWebContents.loadURL).toHaveBeenCalledWith('https://example.com/docs')
-
-    const refused = openPopupWithOriginBar(
-      { loadInitialUrl: true },
-      'https://example.com/denied',
-      () => false
-    )
-    expect(refused.contentWebContents.loadURL).not.toHaveBeenCalled()
-    expect(lastWindow().close).toHaveBeenCalledTimes(1)
-  })
-
-  it('honors explicit hidden windows and background launches', () => {
-    vi.stubEnv('ORCA_BACKGROUND_LAUNCH', undefined)
-    openPopupWithOriginBar({ show: false, webContents: fakePopupContents() }, 'about:blank')
-    expect(lastWindow().options.show).toBe(false)
-    vi.stubEnv('ORCA_BACKGROUND_LAUNCH', '1')
-    openPopupWithOriginBar({ show: true, webContents: fakePopupContents() }, 'about:blank')
-    expect(lastWindow().options.show).toBe(false)
+    expect(lastViews().content.options).not.toHaveProperty('webContents')
+    expect(popup.contentWebContents.loadURL).toHaveBeenCalledWith('https://example.com/login')
   })
 
   it('reserves an origin-bar strip above the requested content size', () => {
@@ -255,8 +203,7 @@ describe('openPopupWithOriginBar', () => {
 
     expect(lastWindow().options).toMatchObject({
       width: 500,
-      height: 400 + POPUP_ORIGIN_BAR_HEIGHT,
-      autoHideMenuBar: true
+      height: 400 + POPUP_ORIGIN_BAR_HEIGHT
     })
     const { bar, content } = lastViews()
     expect(bar.setBounds).toHaveBeenCalledWith({
@@ -270,24 +217,6 @@ describe('openPopupWithOriginBar', () => {
       y: POPUP_ORIGIN_BAR_HEIGHT,
       width: 500,
       height: 400
-    })
-  })
-
-  it('re-lays out when the revealed menu bar shrinks the content area', () => {
-    openPopupWithOriginBar(
-      { webContents: createFakeWebContents() as never, width: 500, height: 400 },
-      'https://example.com/'
-    )
-    const window = lastWindow()
-    const menuBarHeight = 25
-    window.contentSize = { width: 500, height: 400 + POPUP_ORIGIN_BAR_HEIGHT - menuBarHeight }
-    window.contentView.emit('bounds-changed')
-
-    expect(lastViews().content.setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: POPUP_ORIGIN_BAR_HEIGHT,
-      width: 500,
-      height: 400 - menuBarHeight
     })
   })
 
@@ -414,10 +343,7 @@ describe('openPopupWithOriginBar', () => {
     const originBars: FakeWebContents[] = []
 
     for (let cycle = 0; cycle < cycleCount; cycle += 1) {
-      const popup = openPopupWithOriginBar(
-        { webContents: fakePopupContents() },
-        `https://example.com/${cycle}`
-      )
+      const popup = openPopupWithOriginBar({}, `https://example.com/${cycle}`)
       originBars.push(lastViews().bar.webContents)
       popup.close()
     }
@@ -448,11 +374,6 @@ describe('openPopupWithOriginBar', () => {
 
     openPopupWithOriginBar({ webContents: adopted as never }, 'https://example.com/', () => false)
 
-    // A plain target=_blank link's first request is already pending; only a navigation veto stops it.
-    const navigation = { preventDefault: vi.fn() }
-    adopted.emit('will-navigate', navigation, 'https://example.com/')
-    expect(navigation.preventDefault).toHaveBeenCalledOnce()
-    expect(adopted.setWindowOpenHandler.mock.calls[0]?.[0]()).toEqual({ action: 'deny' })
     expect(adopted.close).toHaveBeenCalledTimes(1)
     expect(lastViews().bar.webContents.close).toHaveBeenCalledTimes(1)
     expect(lastWindow().close).toHaveBeenCalledTimes(1)

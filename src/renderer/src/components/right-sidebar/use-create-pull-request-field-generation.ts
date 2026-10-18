@@ -1,21 +1,18 @@
 import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import { getConnectionId } from '@/lib/connection-context'
 import { useAppStore, type AppState } from '@/store'
 import {
   cancelRuntimeGeneratePullRequestFields,
-  generateRuntimePullRequestFields
-} from '@/runtime/runtime-git-generation-client'
-import type { RuntimeGeneratePullRequestFieldsOverrides } from '@/runtime/runtime-git-client-context'
+  generateRuntimePullRequestFields,
+  type RuntimeGeneratePullRequestFieldsOverrides
+} from '@/runtime/runtime-git-client'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
 import type { ResolveSourceControlAiResult } from '../../../../shared/source-control-ai'
 import type { SourceControlAiPrCreationDefaults } from '../../../../shared/source-control-ai-types'
 import type { PullRequestFieldRevisions } from '@/store/slices/pull-request-generation'
-import type { PullRequestGenerationOptions } from '@/store/slices/pull-request-generation-auto-submit'
 import { stripBaseRef } from './create-pull-request-base-ref-normalization'
 import type {
   GenerationSeed,
-  PullRequestGenerationOutcome,
   PullRequestDraftFields,
   UseCreatePullRequestDialogFieldsOptions
 } from './create-pull-request-dialog-field-model'
@@ -31,7 +28,6 @@ type CreatePullRequestFieldGenerationOptions = {
   worktreeId: string | null
   worktreePath: string
   settings: AppState['settings']
-  target: RuntimeClientTarget | null
   eligibility: HostedReviewCreationEligibility | null
   resolvedPrDefaults: Required<SourceControlAiPrCreationDefaults>
   generation: UseCreatePullRequestDialogFieldsOptions['generation']
@@ -57,10 +53,7 @@ type CreatePullRequestFieldGenerationResult = {
   effectiveGenerateError: string | null
   generateDisabled: boolean
   generateDisabledReason: string | undefined
-  handleGenerate: (
-    overrides?: RuntimeGeneratePullRequestFieldsOverrides,
-    options?: PullRequestGenerationOptions
-  ) => Promise<PullRequestGenerationOutcome | void>
+  handleGenerate: (overrides?: RuntimeGeneratePullRequestFieldsOverrides) => Promise<void>
   handleCancelGenerate: () => void
 }
 
@@ -75,7 +68,6 @@ export function useCreatePullRequestFieldGeneration({
   worktreeId,
   worktreePath,
   settings,
-  target,
   eligibility,
   resolvedPrDefaults,
   generation,
@@ -107,23 +99,16 @@ export function useCreatePullRequestFieldGeneration({
   const generateDisabled = !effectiveGenerating && Boolean(generateDisabledReason)
 
   const handleGenerate = useCallback(
-    async (
-      overrides?: RuntimeGeneratePullRequestFieldsOverrides,
-      options?: PullRequestGenerationOptions
-    ): Promise<PullRequestGenerationOutcome | void> => {
+    async (overrides?: RuntimeGeneratePullRequestFieldsOverrides): Promise<void> => {
       if (!worktreePath || !base.trim() || effectiveGenerating || generateDisabled) {
         return
       }
       if (generation) {
-        return await generation.onGenerate(
+        generation.onGenerate(
           { base, title, body, draft },
           { ...fieldRevisionsRef.current },
-          overrides,
-          options
+          overrides
         )
-      }
-      if (!target) {
-        setGenerateError('The workspace host is unresolved. Refresh the workspace and retry.')
         return
       }
       const requestId = generationRequestIdRef.current + 1
@@ -132,8 +117,7 @@ export function useCreatePullRequestFieldGeneration({
       const requestContext = {
         // Why: PR generation belongs to the visible worktree owner. Global
         // focused-host changes must not retarget an in-flight generation.
-        target,
-        prefs: settings,
+        settings,
         worktreeId,
         worktreePath,
         connectionId
@@ -165,33 +149,31 @@ export function useCreatePullRequestFieldGeneration({
         }
         const isCurrentRequest = generationRequestIdRef.current === requestId
         if (!isCurrentRequest) {
-          return { result: null }
+          return
         }
         if (!result.success) {
           if (result.canceled) {
             setGenerateError(null)
-            return { result: null }
+            return
           }
           setGenerateError(result.error)
-          return { result: null }
+          return
         }
 
         const currentSeed = generationSeedRef.current
         if (!currentSeed || currentSeed.requestId !== requestId) {
-          return { result: null }
+          return
         }
-        const shownFields = applyGeneratedFields(result.fields, currentSeed.fieldRevisions)
+        applyGeneratedFields(result.fields, currentSeed.fieldRevisions)
         useAppStore.getState().recordFeatureInteraction('ai-pr-generation')
         setGenerateError(null)
-        return { result: shownFields }
       } catch (error) {
         if (generationRequestIdRef.current !== requestId) {
-          return { result: null }
+          return
         }
         setGenerateError(
           error instanceof Error ? error.message : 'Failed to generate pull request details'
         )
-        return { result: null }
       } finally {
         if (generationRequestIdRef.current === requestId) {
           generateInFlightRef.current = false
@@ -218,7 +200,6 @@ export function useCreatePullRequestFieldGeneration({
       setGenerateError,
       setGenerating,
       settings,
-      target,
       title,
       worktreeId,
       worktreePath

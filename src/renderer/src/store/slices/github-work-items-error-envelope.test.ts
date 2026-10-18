@@ -5,7 +5,7 @@ import {
   resetRemoteRuntimeMocks,
   runtimeEnvironmentCall
 } from './github-slice-test-harness'
-import { runtimeOwnedRepoState } from './store-test-helpers'
+import type { AppState } from '../types'
 import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import { GITHUB_WORK_ITEMS_SSH_REMOTE_REQUIRED_MESSAGE } from '../../../../shared/work-items'
 
@@ -304,7 +304,10 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
       error: { code: 'runtime_error', message: 'HTTP 503: Service Unavailable' },
       _meta: { runtimeId: 'remote-runtime' }
     })
-    store.setState(runtimeOwnedRepoState('env-1', 'runtime-repo-id', '/server/repo'))
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
+      repos: [{ id: 'runtime-repo-id', path: '/server/repo', name: 'repo', kind: 'git' }]
+    } as unknown as Partial<AppState>)
 
     try {
       const result = await store
@@ -335,7 +338,10 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
       },
       _meta: { runtimeId: null }
     })
-    store.setState(runtimeOwnedRepoState('env-1', 'runtime-repo-id', '/server/repo'))
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
+      repos: [{ id: 'runtime-repo-id', path: '/server/repo', name: 'repo', kind: 'git' }]
+    } as unknown as Partial<AppState>)
 
     try {
       const result = await store

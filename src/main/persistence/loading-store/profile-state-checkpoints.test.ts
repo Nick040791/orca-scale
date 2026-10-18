@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -15,7 +15,7 @@ vi.mock('../../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../../telemetry/cohort-classifier', () => ({
   getCohortAtEmit: () => ({ nth_repo_added: 2 })
 }))
-vi.mock('../../ssh/config/ssh-config-parser', () => ({
+vi.mock('../../ssh/ssh-config-parser', () => ({
   loadUserSshConfig: () => ({ hosts: [] }),
   sshConfigHostsToTargets: () => []
 }))
@@ -128,32 +128,25 @@ describe('complete profile state checkpoints', () => {
     })
   })
 
-  it('captures getter mutations alongside pending settings on quit without JSON snapshots', async () => {
-    const { store, dataFile, readState } = fixture()
-    mutateThroughGetters(store)
-    store.updateSettings({ theme: 'dark' })
+  it.each([false, true])(
+    'captures getter mutations alongside pending settings on quit (compatibility export: %s)',
+    async (exportJsonCompatibility) => {
+      const { store, dataFile, readState } = fixture()
+      mutateThroughGetters(store)
+      store.updateSettings({ theme: 'dark' })
 
-    await store.flushAsync()
+      await store.flushAsync({ exportJsonCompatibility })
 
-    expect(readState()).toMatchObject(EXPECTED_CHECKPOINT)
-    expect(existsSync(dataFile)).toBe(false)
-  })
+      expect(readState()).toMatchObject(EXPECTED_CHECKPOINT)
+      if (exportJsonCompatibility) {
+        expect(parseProfileStateRoot(readFileSync(dataFile, 'utf8'))).toMatchObject(
+          EXPECTED_CHECKPOINT
+        )
+      }
+    }
+  )
 
-  it('captures getter mutations before update installation without finalizing or exporting JSON', async () => {
-    const { store, dataFile, readState } = fixture()
-    mutateThroughGetters(store)
-    store.updateSettings({ theme: 'dark' })
-
-    await store.flushPendingOrThrowAsync({ fullCheckpoint: true })
-
-    expect(readState()).toMatchObject(EXPECTED_CHECKPOINT)
-    expect(existsSync(dataFile)).toBe(false)
-    store.updateSettings({ theme: 'light' })
-    await store.flushPendingOrThrowAsync()
-    expect(readState()).toMatchObject({ settings: { theme: 'light' } })
-  })
-
-  it.each(['explicit', 'revisioned'] as const)(
+  it.each(['explicit', 'revisioned', 'compatibility'] as const)(
     'includes getter mutations in the %s JSON export',
     (mode) => {
       const { store, directory, dataFile, readState } = fixture()
@@ -163,12 +156,15 @@ describe('complete profile state checkpoints', () => {
 
       if (mode === 'explicit') {
         store.writeProfileStateJsonExport(exportPath)
-      } else {
+      } else if (mode === 'revisioned') {
         const revision = store.writeLatestProfileStateJsonExport()
         if (revision === undefined) {
           throw new Error('Expected a revisioned export')
         }
         exportPath = profileStateJsonExportPath(dataFile, revision)
+      } else {
+        store.writeLatestProfileStateJsonCompatibilityExport()
+        exportPath = dataFile
       }
 
       expect(readState()).toMatchObject(EXPECTED_CHECKPOINT)

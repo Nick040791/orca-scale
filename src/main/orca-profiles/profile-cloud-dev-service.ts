@@ -4,7 +4,7 @@ import type {
 } from '../../shared/orca-profiles'
 import type { ActiveOrcaProfileState } from './profile-index-store'
 import { createCloudLinkedOrcaProfileRecord, linkOrcaProfileToCloud } from './profile-cloud-index'
-import { readCloudSession, signInCloudSession } from './profile-cloud-session-owner'
+import { readOrcaCloudSession, saveOrcaCloudSessionExchange } from './profile-cloud-session-store'
 import { createDevOrcaCloudSession } from './profile-cloud-dev-auth'
 
 type DevProfileListResult = OrcaProfileListState
@@ -28,7 +28,7 @@ export function connectDevOrcaCloudProfile(
   userDataPath: string
 ): DevProfileListResult {
   const session = createDevOrcaCloudSession({ localProfileId: active.profile.id })
-  signInCloudSession(active.profile.id, userDataPath, session)
+  saveOrcaCloudSessionExchange(active.profile.id, userDataPath, session)
   return linkOrcaProfileToCloud(active.profile.id, session.cloud, userDataPath)
 }
 
@@ -37,12 +37,12 @@ export function createDevCloudLinkedOrcaProfile(
   userDataPath: string,
   args: CreateCloudLinkedOrcaProfileArgs
 ): DevCreateProfileResult {
-  if (readCloudSession(active.profile.id, userDataPath).status !== 'found') {
+  if (readOrcaCloudSession(active.profile.id, userDataPath).status !== 'found') {
     return { status: 'reconnect-required' }
   }
   const session = createDevOrcaCloudSession({ orgId: args.orgId })
   const list = createCloudLinkedOrcaProfileRecord(session.cloud, { name: args.name }, userDataPath)
-  signInCloudSession(list.profile.id, userDataPath, session)
+  saveOrcaCloudSessionExchange(list.profile.id, userDataPath, session)
   return { status: 'created', list }
 }
 
@@ -52,7 +52,7 @@ export function refreshDevOrcaCloudProfile(
 ): DevMutationResult {
   if (
     !active.profile.cloud ||
-    readCloudSession(active.profile.id, userDataPath).status !== 'found'
+    readOrcaCloudSession(active.profile.id, userDataPath).status !== 'found'
   ) {
     return { status: 'reconnect-required' }
   }
@@ -61,7 +61,7 @@ export function refreshDevOrcaCloudProfile(
     cloudProfileId: active.profile.cloud.cloudProfileId,
     orgId: active.profile.cloud.activeOrgId
   })
-  signInCloudSession(active.profile.id, userDataPath, session)
+  saveOrcaCloudSessionExchange(active.profile.id, userDataPath, session)
   return {
     status: 'updated',
     list: linkOrcaProfileToCloud(active.profile.id, session.cloud, userDataPath)
@@ -75,7 +75,7 @@ export function selectDevOrcaCloudOrg(
 ): DevMutationResult {
   if (
     !active.profile.cloud ||
-    readCloudSession(active.profile.id, userDataPath).status !== 'found'
+    readOrcaCloudSession(active.profile.id, userDataPath).status !== 'found'
   ) {
     return { status: 'reconnect-required' }
   }
@@ -84,7 +84,7 @@ export function selectDevOrcaCloudOrg(
     cloudProfileId: active.profile.cloud.cloudProfileId,
     orgId
   })
-  signInCloudSession(active.profile.id, userDataPath, session)
+  saveOrcaCloudSessionExchange(active.profile.id, userDataPath, session)
   return {
     status: 'updated',
     list: linkOrcaProfileToCloud(active.profile.id, session.cloud, userDataPath)

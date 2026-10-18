@@ -20,14 +20,12 @@ export function Pill({
   label,
   accessibleName,
   disabled,
-  onPress,
-  labelColor
+  onPress
 }: {
   label: string
   accessibleName: string
   disabled: boolean
   onPress: () => void
-  labelColor?: string
 }): React.JSX.Element {
   return (
     <Pressable
@@ -40,11 +38,7 @@ export function Pill({
       hitSlop={6}
     >
       <Text
-        style={[
-          styles.pillText,
-          labelColor ? { color: labelColor } : null,
-          disabled && styles.pillTextDisabled
-        ]}
+        style={[styles.pillText, disabled && styles.pillTextDisabled]}
         numberOfLines={1}
         ellipsizeMode="tail"
       >
@@ -62,8 +56,7 @@ function ChoiceRow({
   disabled,
   grouped,
   divided,
-  onPress,
-  labelColor
+  onPress
 }: {
   label: string
   description?: string
@@ -72,7 +65,6 @@ function ChoiceRow({
   grouped: boolean
   divided: boolean
   onPress: () => void
-  labelColor?: string
 }): React.JSX.Element {
   return (
     <Pressable
@@ -92,7 +84,7 @@ function ChoiceRow({
         {selected ? <Check size={12} color={colors.bgBase} strokeWidth={3} /> : null}
       </View>
       <View style={styles.rowBody}>
-        <Text style={[styles.rowLabel, labelColor ? { color: labelColor } : null]}>{label}</Text>
+        <Text style={styles.rowLabel}>{label}</Text>
         {description ? (
           <Text style={styles.rowDescription} numberOfLines={2}>
             {description}
@@ -206,16 +198,13 @@ export function DescriptorRows({
   disabled,
   grouped = false,
   onSetOption,
-  onInvokeAction,
-  choiceLabelColor
+  onInvokeAction
 }: {
   descriptor: SessionOptionDescriptor
   disabled: boolean
   grouped?: boolean
   onSetOption: (value: SessionOptionValue) => void
   onInvokeAction: () => void
-  /** A choice whose name reads in a colour of its own, as Full access does. */
-  choiceLabelColor?: (value: string) => string | undefined
 }): React.JSX.Element {
   const locked = disabled || !descriptor.settable
   // Why: flip-only without a baseline is an action — never claim On/Off.
@@ -268,7 +257,6 @@ export function DescriptorRows({
           grouped={grouped}
           divided={grouped && index < choices.length - 1}
           onPress={() => onSetOption(choice.value)}
-          labelColor={choiceLabelColor?.(choice.value)}
         />
       ))}
     </>

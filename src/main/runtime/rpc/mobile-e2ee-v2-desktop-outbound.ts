@@ -17,16 +17,6 @@ export type DesktopMobileE2EEV2OutboundItem =
   | { kind: 'text'; plaintext: string }
   | { kind: 'binary'; plaintext: Uint8Array<ArrayBufferLike> }
 
-export function desktopMobileE2EEV2OutboundItemBytes(
-  item: DesktopMobileE2EEV2OutboundItem
-): number {
-  const bytes =
-    item.kind === 'text'
-      ? mobileE2EETextPayloadAdmissionBytes(item.plaintext)
-      : mobileE2EEBinaryPayloadAdmissionBytes(item.plaintext)
-  return Number.isFinite(bytes) ? bytes + 82 : bytes
-}
-
 export function createDesktopMobileE2EEV2OutboundQueue(args: {
   ws: WebSocket
   session: DesktopMobileE2EEV2Session
@@ -44,7 +34,13 @@ export function createDesktopMobileE2EEV2OutboundQueue(args: {
         args.ws.send(Buffer.from(args.session.sealBinary(item.plaintext)), { binary: true })
       }
     },
-    byteLengthOf: desktopMobileE2EEV2OutboundItemBytes,
+    byteLengthOf: (item) => {
+      const bytes =
+        item.kind === 'text'
+          ? mobileE2EETextPayloadAdmissionBytes(item.plaintext)
+          : mobileE2EEBinaryPayloadAdmissionBytes(item.plaintext)
+      return Number.isFinite(bytes) ? bytes + 82 : bytes
+    },
     getBufferedAmount: () => args.ws.bufferedAmount,
     isWritable: () => args.ws.readyState === args.ws.OPEN,
     canSend: (bytes) => args.socketMemory.canSend(bytes),

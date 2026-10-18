@@ -185,7 +185,7 @@ describe('acknowledgeAgents clears the unread agent-completion marker', () => {
   it('drops the pane from unreadAgentCompletionPanes', () => {
     const store = createTestStore()
     store.getState().setAgentStatus('tab-1:0', { state: 'done', prompt: 'p', agentType: 'claude' })
-    store.setState({ unreadAgentCompletionPanes: { 'tab-1:0': 'agent-completion' } })
+    store.getState().markAgentCompletionPaneUnread('tab-1:0', 'agent-completion')
     expect(store.getState().unreadAgentCompletionPanes['tab-1:0']).toBe('agent-completion')
 
     store.getState().acknowledgeAgents(['tab-1:0'])
@@ -195,10 +195,9 @@ describe('acknowledgeAgents clears the unread agent-completion marker', () => {
 
   it('leaves other panes and the terminal-bell unread map untouched', () => {
     const store = createTestStore()
-    store.setState({
-      unreadAgentCompletionPanes: { 'tab-1:0': 'agent-completion', 'tab-2:0': 'agent-completion' },
-      unreadTerminalPanes: { 'tab-1:0': 'terminal-bell' }
-    })
+    store.getState().markAgentCompletionPaneUnread('tab-1:0', 'agent-completion')
+    store.getState().markAgentCompletionPaneUnread('tab-2:0', 'agent-completion')
+    store.getState().markTerminalPaneUnread('tab-1:0', 'terminal-bell')
 
     store.getState().acknowledgeAgents(['tab-1:0'])
 

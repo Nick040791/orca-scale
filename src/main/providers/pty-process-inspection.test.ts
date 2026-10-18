@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { IPtyProvider } from './pty-provider-contract'
+import type { IPtyProvider } from './types'
 import {
   inspectPtyProviderProcess,
   inspectPtyProviderProcessForRenderer

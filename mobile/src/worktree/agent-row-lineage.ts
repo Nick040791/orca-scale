@@ -59,22 +59,21 @@ export function flattenAgentRowLineage(rows: readonly RuntimeWorktreeAgentRow[])
   const { rootRows, childrenByParentPaneKey } = buildAgentRowLineageTree(rows)
   const out: AgentRowNode[] = []
   const seen = new Set<string>()
-  const ancestors = new Set<string>()
-  const visit = (row: RuntimeWorktreeAgentRow, depth: number) => {
+  const visit = (row: RuntimeWorktreeAgentRow, depth: number, ancestors: ReadonlySet<string>) => {
     if (ancestors.has(row.paneKey)) {
       return
     }
     seen.add(row.paneKey)
     const node: AgentRowNode = { row, depth, children: [] }
     out.push(node)
-    ancestors.add(row.paneKey)
+    const nextAncestors = new Set(ancestors)
+    nextAncestors.add(row.paneKey)
     for (const child of childrenByParentPaneKey.get(row.paneKey) ?? []) {
-      visit(child, depth + 1)
+      visit(child, depth + 1, nextAncestors)
     }
-    ancestors.delete(row.paneKey)
   }
   for (const root of rootRows) {
-    visit(root, 0)
+    visit(root, 0, new Set())
   }
   // Why: a cyclic component that coexists with a normal rooted tree has no entry
   // in rootRows and is unreachable from any root, so it would silently vanish.

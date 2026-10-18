@@ -5,24 +5,20 @@ import type { DeveloperPermissionStatus } from '../shared/developer-permissions-
 
 type ReadProbe = (filePath: string) => Promise<void>
 
-async function readProbeByte(filePath: string): Promise<void> {
+async function openForRead(filePath: string): Promise<void> {
   const handle = await open(filePath, 'r')
-  try {
-    await handle.read(Buffer.alloc(1), 0, 1, 0)
-  } finally {
-    await handle.close()
-  }
+  await handle.close()
 }
 
 function errorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
+  return error instanceof Error && 'code' in error
+    ? (error as NodeJS.ErrnoException).code
     : undefined
 }
 
 export async function probeMacosFullDiskAccess({
   homeDirectory = homedir(),
-  readProbe = readProbeByte
+  readProbe = openForRead
 }: {
   homeDirectory?: string
   readProbe?: ReadProbe

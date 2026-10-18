@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
-import { getMainHttpClient } from '../network/http-client'
+import { net } from 'electron'
 import type { ProviderRateLimits, UsageRateLimitSource } from '../../shared/rate-limit-types'
-import { abortSignalWithTimeout } from '../lib/abort-signal-with-timeout'
 import {
   readCursorAuthSession,
   type CursorAuthReadResult,
@@ -13,7 +12,6 @@ import {
   mapCursorUsageSummary,
   parseCursorUsageSummary
 } from './cursor-usage-mapping'
-import { parseUsageRetryAfterMs } from './usage-retry-after'
 
 const DASHBOARD_ORIGIN = 'https://cursor.com'
 const USAGE_SUMMARY_URL = `${DASHBOARD_ORIGIN}/api/usage-summary`
@@ -80,15 +78,18 @@ async function fetchDashboardJson(
   // previous account's figures when the fresh result names an account, and a
   // switch whose first refresh 401s or 5xxs is exactly when it must.
   const provenance = accountFingerprint(session)
-  const res = await getMainHttpClient().fetch(url, {
-    // Keep dashboard redirects visible without forwarding session credentials.
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)])
+    : AbortSignal.timeout(API_TIMEOUT_MS)
+  const res = await net.fetch(url, {
+    // Why manual: the dashboard bounces an unusable session to /login, and
+    // 'error' would surface that as a generic network failure instead of the
+    // actionable sign-in message below.
     redirect: 'manual',
-    // The selected account's Cookie must not be replaced by Electron's session jar.
-    credentials: 'omit',
     headers: requestHeaders(session),
-    signal: abortSignalWithTimeout(signal, API_TIMEOUT_MS)
+    signal: requestSignal
   })
-  if (res.status === 401) {
+  if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) {
     return {
       kind: 'result',
       result: result('error', EXPIRED_MESSAGE, {
@@ -102,8 +103,7 @@ async function fetchDashboardJson(
     }
   }
   if (res.status === 429) {
-    const nowMs = Date.now()
-    const retryAfterMs = parseUsageRetryAfterMs(res.headers.get('retry-after'), nowMs)
+    const retryAfterSeconds = Number(res.headers.get('retry-after'))
     return {
       kind: 'result',
       result: result('error', 'Cursor usage is rate limited right now', {
@@ -112,7 +112,9 @@ async function fetchDashboardJson(
           credentialSource: session.source,
           authProvenance: provenance,
           failureKind: 'rate-limited',
-          ...(retryAfterMs !== null ? { retryAtMs: nowMs + retryAfterMs } : {})
+          ...(Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? { retryAtMs: Date.now() + retryAfterSeconds * 1000 }
+            : {})
         }
       })
     }

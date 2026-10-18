@@ -1,4 +1,3 @@
-import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcRequest } from '../core'
@@ -50,7 +49,7 @@ describe('hosted review RPC methods', () => {
     })
   })
 
-  it('carries a selected-worktree claim and explicit refresh through to the runtime', async () => {
+  it('carries a selected-worktree claim through to the runtime', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
       getHostedReviewForBranch: vi.fn().mockResolvedValue(null)
@@ -61,15 +60,14 @@ describe('hosted review RPC methods', () => {
       makeRequest('hostedReview.forBranch', {
         repo: '/repo',
         branch: 'feature/selected',
-        active: true,
-        force: true
+        active: true
       })
     )
 
     // Why: without this the mobile PR sidebar would sit on the card-list pacing
     // and take a no-review interval to notice a PR opened elsewhere (#11532).
     expect(runtime.getHostedReviewForBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ active: true, force: true })
+      expect.objectContaining({ active: true })
     )
   })
 

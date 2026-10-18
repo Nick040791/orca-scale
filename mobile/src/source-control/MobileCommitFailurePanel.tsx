@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react-native'
 import { colors } from '../theme/mobile-theme'
-import { AgentLaunchNotice } from '../components/AgentLaunchNotice'
 import type { MobileCommitFailureRecovery } from './mobile-commit-failure-recovery'
 import type { MobileCommitFailureRecoveryAction } from './use-mobile-commit-failure-recovery'
 import { styles } from './mobile-source-control-styles'
@@ -29,12 +28,11 @@ export function MobileCommitFailurePanel({ failure, action }: Props) {
         <Pressable
           style={({ pressed }) => [
             styles.commitFailureFixButton,
-            (action.launching || action.availability !== 'available') &&
-              styles.commitFailureFixButtonDisabled,
+            action.launching && styles.commitFailureFixButtonDisabled,
             pressed && styles.commitFailureFixButtonPressed
           ]}
           onPress={() => void action.launch()}
-          disabled={action.launching || action.availability !== 'available'}
+          disabled={action.launching}
           accessibilityRole="button"
           accessibilityLabel="Fix commit failure with AI"
         >
@@ -67,14 +65,9 @@ export function MobileCommitFailurePanel({ failure, action }: Props) {
           {expanded ? <Text style={styles.commitFailureDetailsText}>{detailsText}</Text> : null}
         </>
       ) : null}
-      <AgentLaunchNotice
-        availability={action.availability}
-        success={action.launchSuccess}
-        error={action.launchError}
-        warning={action.launchWarning}
-        undeliveredPrompt={action.undeliveredPrompt}
-        errorStyle={styles.commitFailureLaunchError}
-      />
+      {action.launchError ? (
+        <Text style={styles.commitFailureLaunchError}>{action.launchError}</Text>
+      ) : null}
     </View>
   )
 }

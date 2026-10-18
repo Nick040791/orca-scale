@@ -1,4 +1,5 @@
-import { RuntimeRpcCallError } from './runtime-rpc-result'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
+import { RuntimeRpcCallError, getActiveRuntimeTarget } from './runtime-rpc-client'
 import { getRemoteRuntimeTerminalMultiplexer } from './remote-runtime-terminal-multiplexer'
 import { parseRemoteRuntimePtyId } from '../../../shared/remote-runtime-pty-id'
 
@@ -26,22 +27,6 @@ export function getRemoteRuntimePtyEnvironmentId(ptyId: string): string | null {
   return parseRemoteRuntimePtyId(ptyId)?.environmentId ?? null
 }
 
-/**
- * The server a remote PTY belongs to, named by the id itself. An id without an owner segment names
- * no server, so it is never dialed on whichever server happens to be focused.
- */
-export function getRemoteRuntimePtyOwner(
-  ptyId: string
-): { target: { kind: 'environment'; environmentId: string }; terminal: string } | null {
-  const parsed = parseRemoteRuntimePtyId(ptyId)
-  return parsed?.environmentId && parsed.handle
-    ? {
-        target: { kind: 'environment', environmentId: parsed.environmentId },
-        terminal: parsed.handle
-      }
-    : null
-}
-
 export function runtimeTerminalErrorMessage(error: unknown): string {
   if (error instanceof RuntimeRpcCallError) {
     return error.message
@@ -50,16 +35,20 @@ export function runtimeTerminalErrorMessage(error: unknown): string {
 }
 
 export async function subscribeToRuntimeTerminalData(
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   ptyId: string,
   clientId: string,
   watcher: (data: string) => void,
   options?: RuntimeTerminalDataSubscriptionOptions
 ): Promise<() => void> {
-  const owner = getRemoteRuntimePtyOwner(ptyId)
-  if (!owner) {
+  const terminal = getRemoteRuntimeTerminalHandle(ptyId)
+  const ownerEnvironmentId = getRemoteRuntimePtyEnvironmentId(ptyId)
+  const target = ownerEnvironmentId
+    ? ({ kind: 'environment', environmentId: ownerEnvironmentId } as const)
+    : getActiveRuntimeTarget(settings)
+  if (target.kind !== 'environment' || !terminal) {
     return () => {}
   }
-  const { target, terminal } = owner
 
   let resolveLiveTail: (() => void) | null = null
   let rejectLiveTail: ((error: Error) => void) | null = null

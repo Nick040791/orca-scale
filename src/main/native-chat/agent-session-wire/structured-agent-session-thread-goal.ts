@@ -1,45 +1,20 @@
 // `agentSession.threadGoal`: change the provider thread's goal through the same
 // admission, ledger and journal path every other session mutation takes.
 
-import {
-  refuse,
-  type AgentSessionRefusalReason,
-  type AgentSessionWireRefusal
-} from '../../../shared/agent-session-wire-refusals'
 import type {
   AgentJournalItemIdentity,
   AgentJournalThreadGoal
 } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionMutationEnvelope } from '../../../shared/agent-session-wire'
 import type {
+  AgentSessionMutationEnvelope,
   AgentSessionThreadGoalChange,
   AgentSessionThreadGoalResult
-} from '../../../shared/agent-session-thread-goal-wire'
-import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
-import type { StructuredAgentRegistry } from './structured-agent-registry'
+} from '../../../shared/agent-session-wire'
 import type { MutationPlan } from './structured-agent-session-mutation-plans'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
-import { contextStructuredAgentSessionCurrentWork } from './structured-agent-session-current-work'
 
-function refused(
-  reason: AgentSessionRefusalReason<'agent_session_operation_invalid'>,
-  message: string
-): { ok: false; refusal: AgentSessionWireRefusal } {
-  return { ok: false, refusal: refuse('agent_session_operation_invalid', { reason }, message) }
-}
-
-const goalsUnsupported = () =>
-  refused('goalsUnsupported', 'Goals are unavailable for this chat session.')
-
-/** The refusal for an agent with no goals; null when it has them. Needs no running agent. */
-export function refuseThreadGoalUnsupported(
-  adapter: Pick<StructuredAgentSessionAdapter, 'changeThreadGoal'>,
-  agents: Pick<StructuredAgentRegistry, 'capabilities'>,
-  agent: string | undefined
-): { ok: false; refusal: AgentSessionWireRefusal } | null {
-  return adapter.changeThreadGoal && agent && agents.capabilities(agent)?.threadGoal
-    ? null
-    : goalsUnsupported()
+function refused(message: string): TurnOutcome<AgentSessionThreadGoalResult> {
+  return { ok: false, refusal: { code: 'agent_session_operation_invalid', message } }
 }
 
 /** Keyed by the operation, so a replayed set upserts its one objective row. */
@@ -68,18 +43,16 @@ export async function performThreadGoalChange(
   ctx: AgentSessionTurnContext,
   input: { clientOperationId: string; change: AgentSessionThreadGoalChange }
 ): Promise<TurnOutcome<AgentSessionThreadGoalResult>> {
-  if (
-    !ctx.adapter.changeThreadGoal ||
-    refuseThreadGoalUnsupported(ctx.adapter, ctx.agents, ctx.agent)
-  ) {
-    return goalsUnsupported()
+  if (!ctx.adapter.changeThreadGoal || !ctx.adapter.supportsThreadGoal?.(ctx.sessionId)) {
+    return refused('Goals are unavailable for this chat session.')
   }
   const { change } = input
   const identity = objectiveIdentity(input.clientOperationId)
   let replacesGoal = false
   if (change.kind === 'set') {
-    // Read before the objective row lands: that row is a message, not a goal transition. A goal
-    // transition the host accepted is already in the fold: it landed at its call.
+    // A goal transition the host accepted but has not journaled yet decides this too.
+    await ctx.flushStreamedEvents()
+    // Read before the objective row lands: that row is a message, not a goal transition.
     replacesGoal = ctx.journal.threadGoal() !== null
   }
   // Journal first: an active goal starts provider work at once, and the objective
@@ -93,8 +66,7 @@ export async function performThreadGoalChange(
         blocks: [{ type: 'text', text: change.objective }],
         sentAs: 'goal'
       },
-      // Accepting a goal is delivering it, so it joins whatever turn runs now.
-      { fence: ctx.fence, turnScope: contextStructuredAgentSessionCurrentWork(ctx).turnScope() }
+      { fence: ctx.fence }
     )
   }
   const withdrawObjective = async (): Promise<void> => {
@@ -117,7 +89,7 @@ export async function performThreadGoalChange(
   }
   if (!result.ok) {
     await withdrawObjective()
-    return refused('providerRejected', result.rejected)
+    return refused(result.rejected)
   }
   return { ok: true, value: { change: change.kind } }
 }

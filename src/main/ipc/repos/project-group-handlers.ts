@@ -13,12 +13,10 @@ import {
   ProjectGroupUpdateArgs,
   parseProjectGroupIpcArgs
 } from './repo-ipc-arg-schemas'
-import { assertWslMoveProjectWritable } from '../../persistence/moving-wsl-projects/wsl-move-scope-guard'
 import { activeNestedRepoScans, runNestedRepoScanForIpc } from './nested-repo-scan-ipc'
-import { visibleProjectGroups } from '../../ssh/orcad-retained-source'
 
 export function registerProjectGroupHandlers(mainWindow: BrowserWindow, store: Store): void {
-  ipcMain.handle('projectGroups:list', () => visibleProjectGroups(store))
+  ipcMain.handle('projectGroups:list', () => store.getProjectGroups())
 
   ipcMain.handle('projectGroups:create', (_event, rawArgs: unknown): ProjectGroup => {
     const args = parseProjectGroupIpcArgs(
@@ -69,7 +67,6 @@ export function registerProjectGroupHandlers(mainWindow: BrowserWindow, store: S
       rawArgs,
       'invalid_project_group_move_repo_args'
     )
-    assertWslMoveProjectWritable(store, { repoId: args.projectId })
     const moved = store.moveProjectToGroup(args.projectId, args.groupId, args.order)
     if (moved) {
       notifyReposChanged(mainWindow)

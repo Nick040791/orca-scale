@@ -1,16 +1,7 @@
-import {
-  resolveTerminalNotificationOwner,
-  type TerminalNotificationBinding
-} from '@/attention/notification-subject-owner'
-import {
-  notificationExecutionHostForOwner,
-  notificationSourceForOwner
-} from '../../../../shared/notification-source'
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
-import { agentMainAgentVerdict } from '../../../../shared/agent-main-agent-verdict'
 import { shareCompatibleTitleIdentityGroup } from '../../../../shared/agent-title-owner'
 import {
   isFreshNonDoneAgentStatus,
@@ -56,9 +47,10 @@ function hasFreshActiveHookStatus(
   return Boolean(isFreshNonDoneAgentStatus(snapshot) && !titleNamesDifferentKnownAgent)
 }
 
-export type TerminalNotificationEvent = TerminalNotificationBinding & {
+export type TerminalNotificationEvent = {
   source: 'terminal-bell' | 'agent-task-complete'
   terminalTitle?: string
+  paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
   agentCompletionSource?: AgentCompletionDispatchMeta['source']
 }
@@ -132,7 +124,8 @@ export function dispatchTerminalNotification(
       // Why: main-process hook IPC can update inactive worktrees before the renderer's live-PTY
       // map catches up. An accepted fresh hook snapshot is authority that the turn ended;
       // title/BEL-only paths still need surface liveness.
-      hasFreshActivityEvidence: Boolean(agentStatus)
+      hasFreshActivityEvidence: Boolean(agentStatus),
+      groupAttentionEnabled: state.settings?.experimentalTerminalAttention === true
     },
     createTerminalAttentionSurface(state)
   )
@@ -153,7 +146,7 @@ export function dispatchTerminalNotification(
         agentToolName: agentStatus.toolName,
         agentToolInput: agentStatus.toolInput,
         agentLastAssistantMessage: agentStatus.lastAssistantMessage,
-        agentTurnOutcome: agentMainAgentVerdict(agentStatus) ?? undefined
+        agentInterrupted: agentStatus.interrupted
       }
     : {}
   const notificationId =
@@ -169,17 +162,13 @@ export function dispatchTerminalNotification(
       : null
 
   const requestDelivery = (request: AgentAttentionDeliveryRequest): void => {
-    const owner = resolveTerminalNotificationOwner(state, worktreeId, event)
-    const executionHost = notificationExecutionHostForOwner(owner)
     deliverAgentAttentionNotification(
       {
         source: event.source,
         ...(notificationId ? { notificationId } : {}),
         worktreeId: request.workspaceId,
-        ...(executionHost ? { executionHost } : {}),
         paneKey: request.subjectKey ?? undefined,
         ...getNotificationWorkspaceLabels(state, request.workspaceId, event.terminalTitle),
-        notificationSourceId: notificationSourceForOwner(owner, state),
         terminalTitle: event.terminalTitle,
         isActiveWorktree: request.workspaceIsActive,
         ...agentSnapshot
@@ -189,7 +178,12 @@ export function dispatchTerminalNotification(
   }
 
   applyAgentAttention(attentionDecision, {
-    unread: state.markAgentAttentionUnread,
+    unread: {
+      markWorkspaceUnread: state.markWorktreeUnread,
+      markSubjectUnread: state.markAgentCompletionPaneUnread,
+      markGroupUnread: state.markTerminalTabUnread,
+      markSurfaceUnread: state.markTerminalPaneUnread
+    },
     requestDelivery
   })
 }

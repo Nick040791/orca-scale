@@ -8,7 +8,6 @@ import { Plus, LoaderCircle, RefreshCw, Search, X } from 'lucide-react'
 import LinearIssueAttributeFilterDropdowns from '@/components/linear-issue-attribute-filter-dropdowns'
 import { Input } from '@/components/ui/input'
 import { shouldSuppressEnterSubmit } from '@/lib/new-workspace-enter-guard'
-import { defaultScopeSource } from '@/lib/default-creation-host'
 export function TaskPageLinearFilters({
   model
 }: {
@@ -216,7 +215,7 @@ export function TaskPageLinearFilters({
               selectedTeamIds={[...linearTeamSelection]}
               availableTeams={linearTeamOptions}
               teamsSettled={availableTeams.length > 0}
-              settings={linearTaskSourceContext ?? defaultScopeSource(settings)}
+              settings={linearTaskSourceContext ?? settings}
             />
           ) : null}
           <div className="relative min-w-0 flex-1 basis-64">

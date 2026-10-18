@@ -1,7 +1,4 @@
 import type { JiraIssue, JiraProjectStatusOrder } from '../../../shared/jira-types'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
-import { getEnvironmentRuntimeContextKey } from '@/lib/provider-runtime-context'
 import { jiraGetProjectStatusOrder, type RuntimeJiraSettings } from '@/runtime/runtime-jira-client'
 import { createMetadataRequestStore, loadMetadata } from '@/hooks/metadata-request-cache'
 
@@ -12,16 +9,6 @@ export type TaskPageJiraProjectScope = {
 }
 
 const jiraProjectStatusOrderStore = createMetadataRequestStore<JiraProjectStatusOrder>()
-
-export function getTaskPageJiraStatusOrderRuntimeScopeKey(
-  sourceScopeKey: string,
-  owner: RuntimeClientTarget | null
-): string {
-  return JSON.stringify([
-    sourceScopeKey,
-    owner ? getEnvironmentRuntimeContextKey(runtimeTargetEnvironmentId(owner)) : null
-  ])
-}
 
 export function getTaskPageJiraStatusOrderScopeKey(
   runtimeScopeKey: string,

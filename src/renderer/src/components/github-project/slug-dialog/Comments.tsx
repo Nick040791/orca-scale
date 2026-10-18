@@ -1,23 +1,41 @@
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import CommentMarkdown from '@/components/sidebar/CommentMarkdown'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
+import { useAppStore } from '@/store'
 import {
   getCommentBodySubmitState,
   hasBoundedCommentBodyText
 } from '@/lib/comment-body-submit-state'
+import { useRepoSlugIndex } from '@/lib/repo-slug-index'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import type { PRComment } from '../../../../../shared/github/comment-types'
+import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 import type {
   GitHubProjectCommentMutationResult,
   GitHubProjectMutationResult
 } from '../../../../../shared/github/project-result-types'
 import { translate } from '@/i18n/i18n'
 
-function getRuntimeTarget(target: RuntimeClientTarget) {
+function getRuntimeTarget(settings: Parameters<typeof getActiveRuntimeTarget>[0]) {
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'environment' ? target : null
+}
+
+function useRuntimeSettingsForSlug(owner: string, repo: string, host?: string) {
+  const { lookupSlug } = useRepoSlugIndex()
+  const matchedRepo = useMemo(
+    () => lookupSlug(`${owner}/${repo}`, host)[0] ?? null,
+    [lookupSlug, owner, repo, host]
+  )
+  return useAppStore(
+    useShallow((s) =>
+      matchedRepo ? getSettingsForRepoRuntimeOwner(s, matchedRepo.id) : s.settings
+    )
+  )
 }
 
 export function CommentsList({
@@ -25,16 +43,18 @@ export function CommentsList({
   repo,
   host,
   comments,
-  sourceTarget,
+  sourceSettings,
   onChange
 }: {
   owner: string
   repo: string
   host?: string
   comments: PRComment[]
-  sourceTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   onChange: (next: PRComment[]) => void
 }): React.JSX.Element {
+  const fallbackRuntimeSettings = useRuntimeSettingsForSlug(owner, repo, host)
+  const runtimeSettings = sourceSettings ?? fallbackRuntimeSettings
   return (
     <div className="flex flex-col gap-3">
       {comments.length === 0 ? (
@@ -52,7 +72,7 @@ export function CommentsList({
             repo={repo}
             comment={c}
             onDelete={async () => {
-              const target = getRuntimeTarget(sourceTarget)
+              const target = getRuntimeTarget(runtimeSettings)
               const args = {
                 owner,
                 repo,
@@ -74,7 +94,7 @@ export function CommentsList({
               onChange(comments.filter((x) => x.id !== c.id))
             }}
             onEdit={async (next) => {
-              const target = getRuntimeTarget(sourceTarget)
+              const target = getRuntimeTarget(runtimeSettings)
               const args = {
                 owner,
                 repo,
@@ -174,18 +194,20 @@ export function NewCommentForm({
   repo,
   host,
   number,
-  sourceTarget,
+  sourceSettings,
   onAdded
 }: {
   owner: string
   repo: string
   host?: string
   number: number
-  sourceTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   onAdded: (c: PRComment) => void
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const fallbackRuntimeSettings = useRuntimeSettingsForSlug(owner, repo, host)
+  const runtimeSettings = sourceSettings ?? fallbackRuntimeSettings
   const canSubmitComment = hasBoundedCommentBodyText(draft)
   return (
     <div className="flex flex-col gap-2">
@@ -218,7 +240,7 @@ export function NewCommentForm({
             }
             setSubmitting(true)
             try {
-              const target = getRuntimeTarget(sourceTarget)
+              const target = getRuntimeTarget(runtimeSettings)
               const args = {
                 owner,
                 repo,

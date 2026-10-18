@@ -1,5 +1,5 @@
-import { getMainHttpClient } from '../network/http-client'
-import type { ProviderRateLimits, UsageRateLimitFailureKind } from '../../shared/rate-limit-types'
+import { net } from 'electron'
+import type { ProviderRateLimits } from '../../shared/rate-limit-types'
 import {
   loadProjectId,
   readAuthJson,
@@ -14,7 +14,6 @@ import {
   deduplicateBuckets,
   deriveSessionSummary
 } from './gemini-bucket-formatting'
-import { classifyThrownUsageRequestError } from './usage-request-failure-kind'
 
 const API_TIMEOUT_MS = 10_000
 const RETRIEVE_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'
@@ -42,25 +41,13 @@ function parseQuotaResponse(data: unknown): QuotaBucket[] {
   return rawBuckets.filter((b) => isQuotaBucket(b))
 }
 
-function geminiError(err: unknown, failureKind?: UsageRateLimitFailureKind): ProviderRateLimits {
-  return {
-    provider: 'gemini',
-    session: null,
-    weekly: null,
-    updatedAt: Date.now(),
-    error: err instanceof Error ? err.message : 'Unknown error',
-    status: 'error',
-    ...(failureKind ? { usageMetadata: { failureKind } } : {})
-  }
-}
-
 async function fetchQuota(accessToken: string, projectId: string): Promise<ProviderRateLimits> {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     controller.abort()
   }, API_TIMEOUT_MS)
   try {
-    const res = await getMainHttpClient().fetch(RETRIEVE_QUOTA_URL, {
+    const res = await net.fetch(RETRIEVE_QUOTA_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ project: projectId }),
@@ -89,8 +76,6 @@ async function fetchQuota(accessToken: string, projectId: string): Promise<Provi
       error: null,
       status: 'ok'
     }
-  } catch (err) {
-    return geminiError(err, classifyThrownUsageRequestError(err))
   } finally {
     clearTimeout(timeout)
   }
@@ -251,6 +236,13 @@ export async function fetchGeminiRateLimits(
           })()
     return result
   } catch (err) {
-    return geminiError(err)
+    return {
+      provider: 'gemini',
+      session: null,
+      weekly: null,
+      updatedAt: Date.now(),
+      error: err instanceof Error ? err.message : 'Unknown error',
+      status: 'error'
+    }
   }
 }

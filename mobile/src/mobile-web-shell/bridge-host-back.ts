@@ -2,7 +2,8 @@ import { BRIDGE_PROTOCOL_VERSION, type BridgeHostMessage } from './bridge/bridge
 import { BRIDGE_BACK_FRAME } from './bridge/bridge-page-back'
 
 /**
- * What one session has established about the device Back key: whether its page is holding it.
+ * What one session has established about the device Back key: what its page declared it takes, and
+ * whether it is holding the key right now.
  *
  * Carried across a host rebuild rather than relearned, the way `sessionEstablished` already is. A
  * client swapped under a live page is not a new document — the WebView stays mounted and the page
@@ -10,6 +11,8 @@ import { BRIDGE_BACK_FRAME } from './bridge/bridge-page-back'
  * under an open sheet.
  */
 export type BridgeSessionBack = {
+  /** What the page's last `ready` said it takes. Empty for a page too old to name the frame. */
+  readonly accepts: readonly string[]
   readonly claimed: boolean
 }
 
@@ -26,12 +29,14 @@ export type BridgeSessionBack = {
  * whoever builds the replacement, and reports nothing, because the claim belongs to the session.
  */
 export type BridgeHostBack = {
-  /** A document has spoken: it claims nothing until it says otherwise. */
-  readonly readReady: () => void
+  /** A document has spoken: it takes what it named, and claims nothing until it says otherwise. */
+  readonly readReady: (accepts: readonly string[]) => void
   /** The page holding Back, or letting it go. */
   readonly readClaim: (claimed: boolean) => void
-  /** Posts one press. False when no document can take it, and the caller leaves Back to the
-   *  navigator. */
+  /**
+   * Posts one press. False when this page never said it takes one — every page older than the
+   * frame — and the caller then leaves Back to the navigator, which is what it did before this.
+   */
   readonly send: () => boolean
   /** The document is gone; whatever it claimed goes with it. */
   readonly drop: () => void
@@ -48,6 +53,7 @@ export function createBridgeHostBack(args: {
    *  a host opening a session of its own, which has established nothing yet. */
   established?: BridgeSessionBack
 }): BridgeHostBack {
+  let accepts: readonly string[] = args.established?.accepts ?? []
   // Seeded without a report: the screen never heard this claim go, because it did not.
   let claimed = args.established?.claimed ?? false
 
@@ -60,7 +66,10 @@ export function createBridgeHostBack(args: {
   }
 
   return {
-    readReady: drop,
+    readReady: (next) => {
+      accepts = next
+      drop()
+    },
     readClaim: (next) => {
       if (next === claimed) {
         return
@@ -69,13 +78,13 @@ export function createBridgeHostBack(args: {
       args.onClaim(next)
     },
     send: () => {
-      if (!args.deliverable()) {
+      if (!accepts.includes(BRIDGE_BACK_FRAME) || !args.deliverable()) {
         return false
       }
       args.send({ v: BRIDGE_PROTOCOL_VERSION, type: BRIDGE_BACK_FRAME })
       return true
     },
     drop,
-    read: () => ({ claimed })
+    read: () => ({ accepts, claimed })
   }
 }

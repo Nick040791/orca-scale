@@ -2,7 +2,6 @@
 
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ORCA_WORKTREE_FILE_CHANGE_EVENT } from '@/hooks/worktree-file-change-event'
 import type { FsChangedPayload } from '../../../../shared/filesystem-entry-types'
 import type {
   FileExplorerOperationOwner,
@@ -11,6 +10,7 @@ import type {
 
 const ownerRef = vi.hoisted(() => ({ current: { kind: 'local' } as FileExplorerOperationOwner }))
 const runtimeWatch = vi.hoisted(() => ({
+  handler: null as ((payload: FsChangedPayload) => void) | null,
   subscribe: vi.fn()
 }))
 
@@ -23,7 +23,7 @@ vi.mock('./file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwner: () => ownerRef.current,
   getFileExplorerOperationOwnerFromState: () => ownerRef.current
 }))
-vi.mock('@/runtime/runtime-file-watch-client', () => ({
+vi.mock('@/runtime/runtime-file-client', () => ({
   subscribeRuntimeFileChanges: runtimeWatch.subscribe
 }))
 
@@ -40,7 +40,14 @@ describe('useFileExplorerWatch pending refreshes', () => {
     vi.useFakeTimers()
     ownerRef.current = { kind: 'local' }
     mainWatchHandler = null
+    runtimeWatch.handler = null
     runtimeWatch.subscribe.mockReset()
+    runtimeWatch.subscribe.mockImplementation(
+      async (_context: unknown, handler: WatchHandler): Promise<() => void> => {
+        runtimeWatch.handler = handler
+        return () => undefined
+      }
+    )
     refreshDir = vi.fn(async () => {})
     refreshTree = vi.fn(async () => 'refreshed' as const)
     Object.defineProperty(window, 'api', {
@@ -61,38 +68,24 @@ describe('useFileExplorerWatch pending refreshes', () => {
     vi.useRealTimers()
   })
 
-  function renderWatch(
-    worktreePath: string | null = '/repo',
-    interaction: 'rename' | 'drag' | 'native' | null = null
-  ) {
-    const setDirCache = vi.fn()
-    const setSelectedPath = vi.fn()
+  function renderWatch(worktreePath: string | null = '/repo') {
     return renderHook(
-      ({
-        visiblePath,
-        activeInteraction
-      }: {
-        visiblePath: string | null
-        activeInteraction: typeof interaction
-      }) =>
+      ({ visiblePath }: { visiblePath: string | null }) =>
         useFileExplorerWatch({
           worktreePath: visiblePath,
           activeWorktreeId: 'wt-1',
           dirCache: { '/repo': { children: [] } },
-          setDirCache,
+          setDirCache: vi.fn(),
           expanded: new Set(),
-          setSelectedPath,
+          setSelectedPath: vi.fn(),
           refreshDir,
           refreshTree,
-          inlineInput:
-            activeInteraction === 'rename'
-              ? { parentPath: '/repo', type: 'rename', depth: 0 }
-              : null,
-          dragSourcePath: activeInteraction === 'drag' ? '/repo/example.ts' : null,
-          isNativeDragOver: activeInteraction === 'native',
+          inlineInput: null,
+          dragSourcePath: null,
+          isNativeDragOver: false,
           operationOwner: ownerRef.current
         }),
-      { initialProps: { visiblePath: worktreePath, activeInteraction: interaction } }
+      { initialProps: { visiblePath: worktreePath } }
     )
   }
 
@@ -103,24 +96,14 @@ describe('useFileExplorerWatch pending refreshes', () => {
     })
   }
 
-  function emitRuntimeBatch(): void {
-    emit((payload) =>
-      window.dispatchEvent(
-        new CustomEvent(ORCA_WORKTREE_FILE_CHANGE_EVENT, {
-          detail: { payload, runtimeEnvironmentId: 'runtime-1' }
-        })
-      )
-    )
-  }
-
   it('resyncs on reopen when hiding Files cancelled a received remote event', async () => {
     ownerRef.current = { kind: 'ssh', connectionId: 'ssh-1' }
     const hook = renderWatch()
     expect(mainWatchHandler).not.toBeNull()
 
     act(() => emit(mainWatchHandler!))
-    hook.rerender({ visiblePath: null, activeInteraction: null })
-    hook.rerender({ visiblePath: '/repo', activeInteraction: null })
+    hook.rerender({ visiblePath: null })
+    hook.rerender({ visiblePath: '/repo' })
     await act(async () => vi.advanceTimersByTimeAsync(0))
 
     expect(refreshTree).toHaveBeenCalledOnce()
@@ -138,77 +121,53 @@ describe('useFileExplorerWatch pending refreshes', () => {
     expect(refreshDir).toHaveBeenCalledOnce()
   })
 
-  it('flushes remote broker batches on the next turn without another debounce window', async () => {
+  it('flushes runtime RPC batches on the next turn without another debounce window', async () => {
     ownerRef.current = {
       kind: 'runtime',
       environmentId: 'runtime-1',
       executionHostId: 'runtime:runtime-1'
     }
     renderWatch()
-    expect(runtimeWatch.subscribe).not.toHaveBeenCalled()
+    expect(runtimeWatch.handler).not.toBeNull()
 
-    act(emitRuntimeBatch)
+    act(() => emit(runtimeWatch.handler!))
     expect(refreshDir).not.toHaveBeenCalled()
     await act(async () => vi.advanceTimersByTimeAsync(0))
 
     expect(refreshDir).toHaveBeenCalledOnce()
   })
 
-  it('resyncs on reopen after hiding Files canceled a received broker event', async () => {
+  it('resyncs after an event races cleanup of a pending runtime subscription', async () => {
     ownerRef.current = {
       kind: 'runtime',
       environmentId: 'runtime-1',
       executionHostId: 'runtime:runtime-1'
     }
+    let releaseSubscription!: () => void
+    const subscriptionReady = new Promise<void>((resolve) => {
+      releaseSubscription = resolve
+    })
+    runtimeWatch.subscribe.mockImplementation(
+      async (_context: unknown, handler: WatchHandler): Promise<() => void> => {
+        runtimeWatch.handler = handler
+        await subscriptionReady
+        return () => undefined
+      }
+    )
     const hook = renderWatch()
-    act(emitRuntimeBatch)
-    hook.rerender({ visiblePath: null, activeInteraction: null })
-    hook.rerender({ visiblePath: '/repo', activeInteraction: null })
+    const disposedHandler = runtimeWatch.handler!
+
+    hook.rerender({ visiblePath: null })
+    hook.rerender({ visiblePath: '/repo' })
+    act(() => emit(disposedHandler))
     await act(async () => vi.advanceTimersByTimeAsync(0))
+
     expect(refreshTree).toHaveBeenCalledOnce()
     expect(refreshDir).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releaseSubscription()
+      await subscriptionReady
+    })
   })
-  it.each(['rename', 'drag', 'native'] as const)(
-    'does not refresh the current root on reopen after foreign events during %s',
-    async (interaction) => {
-      const hook = renderWatch('/repo', interaction)
-      const handler = mainWatchHandler
-      if (!handler) {
-        throw new Error('Filesystem listener was not registered')
-      }
-      act(() => {
-        for (const worktreePath of ['/other-repo', '/repo-sibling']) {
-          handler({
-            worktreePath,
-            events: [{ kind: 'overflow', absolutePath: worktreePath }]
-          })
-        }
-      })
-      hook.rerender({ visiblePath: null, activeInteraction: null })
-      hook.rerender({ visiblePath: '/repo', activeInteraction: null })
-      await act(async () => vi.advanceTimersByTimeAsync(0))
-
-      expect(refreshTree).not.toHaveBeenCalled()
-      expect(refreshDir).not.toHaveBeenCalled()
-    }
-  )
-
-  it.each(['rename', 'drag', 'native'] as const)(
-    'preserves current-root refreshes deferred during %s',
-    async (interaction) => {
-      const hook = renderWatch('/repo', interaction)
-      const handler = mainWatchHandler
-      if (!handler) {
-        throw new Error('Filesystem listener was not registered')
-      }
-      act(() => emit(handler))
-      await act(async () => vi.advanceTimersByTimeAsync(0))
-      expect(refreshDir).not.toHaveBeenCalled()
-
-      hook.rerender({ visiblePath: '/repo', activeInteraction: null })
-      await act(async () => vi.advanceTimersByTimeAsync(0))
-      expect(refreshDir).toHaveBeenCalledExactlyOnceWith('/repo')
-      expect(refreshTree).not.toHaveBeenCalled()
-    }
-  )
 })

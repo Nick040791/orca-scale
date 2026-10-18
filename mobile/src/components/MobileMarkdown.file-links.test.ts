@@ -7,7 +7,6 @@ const openURL = vi.fn(() => Promise.resolve())
 
 vi.mock('react-native', () => ({
   Linking: { openURL: (url: string) => openURL(url) },
-  Platform: { OS: 'ios' },
   Pressable: 'Pressable',
   ScrollView: 'ScrollView',
   StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
@@ -62,10 +61,9 @@ describe('MobileMarkdown file links', () => {
     expect(pressables(tree)).toEqual([])
   })
 
-  it('links the inner label of a nested bracket, and names an empty image label', () => {
+  it('preserves nested labels and empty image labels', () => {
     const tree = render('[[nested](https://example.com) ![](https://example.com/image)')
-    expect(flattenText(tree.root)).toBe('[nested image')
-    pressByText(tree, 'nested')
+    pressByText(tree, '[nested')
     expect(openURL).toHaveBeenLastCalledWith('https://example.com')
     pressByText(tree, 'image')
     expect(openURL).toHaveBeenLastCalledWith('https://example.com/image')

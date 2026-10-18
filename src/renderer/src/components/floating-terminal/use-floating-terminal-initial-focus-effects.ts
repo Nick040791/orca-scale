@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { reportFloatingFocus } from './floating-terminal-focus-reporting'
-import type { FloatingWorkspaceChromeModel } from './use-floating-workspace-chrome-model'
+import type { FloatingTerminalPanelItems } from './use-floating-terminal-panel-items'
 import type { FloatingTerminalPanelLocalState } from './use-floating-terminal-panel-local-state'
 
 type FloatingTerminalInitialFocusInput = Pick<
-  FloatingWorkspaceChromeModel,
+  FloatingTerminalPanelItems,
   'activeTerminalId' | 'hasVisibleFloatingTabs'
 > &
   Pick<FloatingTerminalPanelLocalState, 'panelRef'> & { open: boolean }

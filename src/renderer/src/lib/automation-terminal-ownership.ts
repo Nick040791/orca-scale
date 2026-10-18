@@ -1,9 +1,7 @@
-import { isRemoteRuntimePtyId } from '../../../shared/remote-runtime-pty-id'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
-import { collectSleepingAgentSessionRecordsForWorktree } from '@/store/slices/agent-status'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { readLastTerminalInputAt } from './terminal-input-activity-coalescing'
 
@@ -12,12 +10,8 @@ export type AutomationTerminalOwnershipStore = {
   subscribe: (listener: (state: AppState, previousState: AppState) => void) => () => void
 }
 
-/** How finalize retired the run's terminal; null when it left the terminal as it was. */
-export type AutomationTerminalRetirement = 'closed' | 'hibernated' | null
-
 export type AutomationTerminalOwnership = {
-  /** `preservePane` sleeps a resumable pane in place instead of closing its tab. */
-  finalize: (options: { preservePane: boolean }) => Promise<AutomationTerminalRetirement>
+  finalize: () => boolean
   release: () => void
 }
 
@@ -75,22 +69,6 @@ function isOwnedTabIdentityCurrent(
   return layoutPtyId === undefined || layoutPtyId === args.ptyId
 }
 
-function canHibernateOwnedPane(
-  state: AppState,
-  args: Pick<CreateAutomationTerminalOwnershipArgs, 'worktreeId' | 'tabId' | 'paneKey' | 'ptyId'>
-): boolean {
-  // Why: a run that ended by exiting has no process left to stop in place.
-  if (!(state.ptyIdsByTabId[args.tabId] ?? []).includes(args.ptyId)) {
-    return false
-  }
-  return Boolean(
-    collectSleepingAgentSessionRecordsForWorktree(state, args.worktreeId, {
-      paneKeys: [args.paneKey],
-      captureMode: 'completed-agent-hibernation'
-    })[args.paneKey]
-  )
-}
-
 export function createAutomationTerminalOwnership(
   args: CreateAutomationTerminalOwnershipArgs
 ): AutomationTerminalOwnership {
@@ -126,39 +104,21 @@ export function createAutomationTerminalOwnership(
 
   return {
     release,
-    finalize: async ({ preservePane }) => {
+    finalize: () => {
       if (consumed) {
-        return null
+        return false
       }
       // Why: completion and exit can race; consume before any identity check so
       // only the first successful-result path can retire this exact session.
       consumed = true
       unsubscribe()
       observeTakeover()
-      if (args.runtimeKind !== 'desktop' || isRemoteRuntimePtyId(args.ptyId) || userTookOver) {
-        return null
+      if (args.runtimeKind !== 'desktop' || args.ptyId.startsWith('remote:') || userTookOver) {
+        return false
       }
       const state = args.store.getState()
-      const leafId = parsePaneKey(args.paneKey)?.leafId
-      if (!leafId || !isOwnedTabIdentityCurrent(state, args)) {
-        return null
-      }
-      if (preservePane && canHibernateOwnedPane(state, args)) {
-        try {
-          // Why: sleeping keeps the tab and its resume record, so opening the run resumes it.
-          await state.shutdownCompletedAgentPaneForHibernation(args.worktreeId, {
-            paneKey: args.paneKey,
-            tabId: args.tabId,
-            leafId,
-            ptyId: args.ptyId
-          })
-        } catch (error) {
-          // Why: a failed stop rolls itself back with the agent still running; closing
-          // now would throw away the session the stop just kept.
-          console.error('[automations] Failed to hibernate owned automation terminal:', error)
-          return null
-        }
-        return 'hibernated'
+      if (!isOwnedTabIdentityCurrent(state, args)) {
+        return false
       }
       try {
         // Why: closeTab centrally owns provider shutdown and pane removal; a
@@ -168,9 +128,9 @@ export function createAutomationTerminalOwnership(
         // Why: a throwing close leaves the terminal alive; report not-closed so
         // the run keeps its (still-valid) terminal identity and no stale clear runs.
         console.error('[automations] Failed to close owned automation terminal:', error)
-        return null
+        return false
       }
-      return 'closed'
+      return true
     }
   }
 }

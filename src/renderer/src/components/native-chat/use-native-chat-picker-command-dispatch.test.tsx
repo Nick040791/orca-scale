@@ -2,6 +2,7 @@
 
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { EMPTY_HISTORY } from './native-chat-composer-state'
 
 const sendNativeChatMessage = vi.fn()
 const sendNativeChatTypedCommand = vi.fn()
@@ -27,16 +28,16 @@ const COMMAND = {
   skillCollision: false
 }
 
-function renderDispatch(agent: 'codex' | 'claude' | 'openclaude', onSubmitted = vi.fn()) {
+function renderDispatch(agent: 'codex' | 'claude' | 'openclaude') {
   return renderHook(() =>
     useNativeChatPickerCommandDispatch({
       agent,
-      onSubmitted,
       disabled: false,
       isDispatchingSessionOption: false,
       resolveTarget: () => ({ settings: {}, ptyId: 'pty-1' }),
       sessionOptionsSurface: null,
       trackPendingSend: vi.fn(),
+      setHistory: vi.fn((update) => update(EMPTY_HISTORY)),
       setDraft: vi.fn(),
       setCaret: vi.fn(),
       setActiveSuggestion: vi.fn(),
@@ -56,20 +57,18 @@ describe('useNativeChatPickerCommandDispatch', () => {
   })
 
   it('types Codex autocomplete commands', () => {
-    const onSubmitted = vi.fn()
-    const hook = renderDispatch('codex', onSubmitted)
+    const hook = renderDispatch('codex')
     act(() => hook.result.current(COMMAND))
 
-    expect(sendNativeChatTypedCommand).toHaveBeenCalledWith('pty-1', '/status')
+    expect(sendNativeChatTypedCommand).toHaveBeenCalledWith({}, 'pty-1', '/status')
     expect(sendNativeChatMessage).not.toHaveBeenCalled()
-    expect(onSubmitted).toHaveBeenCalledOnce()
   })
 
   it.each(['claude', 'openclaude'] as const)('keeps %s autocomplete commands pasted', (agent) => {
     const hook = renderDispatch(agent)
     act(() => hook.result.current(COMMAND))
 
-    expect(sendNativeChatMessage).toHaveBeenCalledWith('pty-1', '/status')
+    expect(sendNativeChatMessage).toHaveBeenCalledWith({}, 'pty-1', '/status')
     expect(sendNativeChatTypedCommand).not.toHaveBeenCalled()
   })
 })

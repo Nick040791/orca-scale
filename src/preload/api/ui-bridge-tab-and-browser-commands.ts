@@ -198,7 +198,6 @@ export const uiTabAndBrowserCommandsApi = {
       setup?: WorktreeSetupLaunch
       startup?: { command: string; env?: Record<string, string> }
       defaultTabs?: WorktreeDefaultTabsLaunch
-      providesInitialSurface?: boolean
     }) => void
   ): (() => void) => {
     const listener = (
@@ -209,7 +208,6 @@ export const uiTabAndBrowserCommandsApi = {
         setup?: WorktreeSetupLaunch
         startup?: { command: string; env?: Record<string, string> }
         defaultTabs?: WorktreeDefaultTabsLaunch
-        providesInitialSurface?: boolean
       }
     ) => callback(data)
     ipcRenderer.on('ui:activateWorktree', listener)

@@ -3,15 +3,9 @@ import { basename, dirname, getRelativePathInsideRoot } from '@/lib/path'
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
-import { chatScratchFileAddress } from '@/runtime/runtime-chat-scratch-file-address'
 import type { AppState } from '@/store/types'
 
-/** `location` is what the grant was minted for, so its readers and its share key stay on that host. */
-export type DocPreviewGrantHandle = {
-  grantId: string
-  url: string
-  location: DocPreviewGrantLocation
-}
+export type DocPreviewGrantHandle = { grantId: string; url: string }
 
 /**
  * Grants are keyed by preview tab id, never by effect mount: React StrictMode
@@ -44,28 +38,19 @@ export function buildDocPreviewGrantRequest(
     return { owner: { kind: 'ssh', connectionId }, requestBase, root, entryRelativePath }
   }
   const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  // Outside the workspace, a chat's scratch folder stands in for it: its host serves it as a root.
-  const base =
-    worktreeRoot && worktreeRelativePath
-      ? {
-          root: worktreeRoot,
-          worktreeSelector: toRuntimeWorktreeSelector(worktreeId),
-          relativePath: worktreeRelativePath
-        }
-      : chatScratchFileAddress(filePath)
-  if (!environmentId || !base) {
+  if (!environmentId || !worktreeRoot || !worktreeRelativePath) {
     return null
   }
   return {
     owner: {
       kind: 'runtime',
       environmentId,
-      worktreeSelector: base.worktreeSelector,
-      worktreeRoot: base.root
+      worktreeSelector: toRuntimeWorktreeSelector(worktreeId),
+      worktreeRoot
     },
-    requestBase: base.root,
+    requestBase,
     root,
-    entryRelativePath: base.relativePath
+    entryRelativePath
   }
 }
 
@@ -79,7 +64,6 @@ export function ensureDocPreviewGrant(
   }
   const pending: Promise<DocPreviewGrantHandle> = window.api.docPreview
     .mintGrant({ ...location, browserPageId: previewId })
-    .then((minted) => ({ ...minted, location }))
     .catch((error: unknown) => {
       // Why the identity check: a release and a fresh ensure can both land before this rejects, and
       // an unconditional delete would evict the newer entry, leaving its grant unrevokable.

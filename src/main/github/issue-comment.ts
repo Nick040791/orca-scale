@@ -1,34 +1,32 @@
 import type { GitHubCommentResult, PRComment } from '../../shared/github/comment-types'
-import type { IssueSourcePreference } from '../../shared/repo-types'
 import type { LocalGitExecOptions, OwnerRepo } from './gh-utils'
-import {
-  resolveGitHubRepoExecution,
-  resolveIssueGitHubApiRepositorySource
-} from './github-api-repository'
+import { getIssueGitHubApiRepository, resolveGitHubRepoExecution } from './github-api-repository'
 import { acquire, classifyGhError, ghExecFileAsync, release } from './gh-utils'
 
-// An explicit target keeps replies bound to the conversation; otherwise use the selected source.
+/**
+ * Add a comment to an existing GitHub issue.
+ *
+ * Why this path doesn't take a preference (mirrors `getIssue` / `updateIssue`):
+ * a comment is posted against an issue number already bound to a worktree or
+ * surfaced from a prior read. Routing through the live per-repo preference
+ * would let a user read upstream#N, toggle the selector to origin, and have
+ * their reply silently post on origin#N — a different issue entirely. That
+ * is the same silent-source-switch class of wrongness #1186 / the parent
+ * design doc guard against. List and create paths honor preference;
+ * mutations stay on the heuristic `getIssueOwnerRepo`.
+ */
 export async function addIssueComment(
   repoPath: string,
   issueNumber: number,
   body: string,
   connectionId?: string | null,
   ownerRepoOverride?: OwnerRepo | null,
-  localGitOptions: LocalGitExecOptions = {},
-  preference?: IssueSourcePreference
+  localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubCommentResult> {
   const { ownerRepo, ghOptions } = await resolveGitHubRepoExecution(
     repoPath,
     ownerRepoOverride ??
-      (async () =>
-        (
-          await resolveIssueGitHubApiRepositorySource(
-            repoPath,
-            preference,
-            connectionId,
-            localGitOptions
-          )
-        ).source),
+      (() => getIssueGitHubApiRepository(repoPath, connectionId, localGitOptions)),
     connectionId,
     localGitOptions
   )

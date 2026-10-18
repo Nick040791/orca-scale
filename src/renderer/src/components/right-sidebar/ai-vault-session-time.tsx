@@ -29,7 +29,7 @@ export function SessionTime({
   )
 }
 
-export function formatTimeAgo(timestamp: number): string {
+function formatTimeAgo(timestamp: number): string {
   const diffMs = Date.now() - timestamp
   if (diffMs < 60_000) {
     return translate('auto.components.right.sidebar.AiVaultSessionDetails.justNow', 'Just now')

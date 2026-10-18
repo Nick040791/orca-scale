@@ -2,16 +2,18 @@ import type { BrowserWindow, WebContents } from 'electron'
 import type { OrcaRuntimeService } from '../../runtime/orca-runtime'
 import type { Store } from '../../persistence'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
-import type { IPtyProvider } from '../../providers/pty-provider-contract'
+import type { IPtyProvider } from '../../providers/types'
+import type { LegacySshProjectionSemantics } from '../ssh-pty-legacy-projection'
 import type { PtyModelRestoreReason } from '../../../shared/pty-model-restore-marker'
 import type {
   PtyDeliveryWriteOff,
   PtyRendererDeliveryStateReport
 } from '../../../shared/pty-renderer-delivery-health'
 import type { PtyRendererDeliveryDebugSnapshot } from './delivery/debug'
+import type { ReplacedPtyStop } from './delivery/exit'
 import { PtyProducerFlowController } from '../pty-producer-flow-control'
-import { PtyPendingDataDrainQueue } from '../pty-pending-data-drain-queue'
-import type { PendingPtyData } from '../pty-pending-data-drain-contract'
+import { PtyPendingDataDrainQueue, type PendingPtyData } from '../pty-pending-data-drain-queue'
+import type { SshPtyOutputIntake } from '../ssh-pty-output-intake'
 import { activeRendererPtys } from './delivery/visibility-state'
 import {
   isHiddenPtyDeliveryGateEnabled,
@@ -54,8 +56,6 @@ export type PtyIpcSessionOptions = {
   isRecoveryReloadInFlight?: (webContentsId: number) => boolean
   onCodexHomePtySpawned?: (args: CodexHomePtySpawnedLifecycleArgs) => void
   onPtyExit?: (id: string, exitSequence: number) => void
-  /** The OS appearance, for a 'system' theme; absent on a host with no display. */
-  systemPrefersDark?: () => boolean
 }
 
 export type PtyRendererDelivery = Pick<
@@ -72,6 +72,7 @@ export type PtyIpcSession = {
   getSettings?: () => GlobalSettings
   options?: PtyIpcSessionOptions
   pendingData: PtyPendingDataDrainQueue
+  sshOutputIntake: SshPtyOutputIntake | null
   rendererExitingPtyIds: Set<string>
   rendererCreditBeforeExitByPty: Map<string, boolean>
   rendererDeliveryRestoreNeededPtys: Set<string>
@@ -101,11 +102,14 @@ export type PtyIpcSession = {
   lastHiddenDropContradictionWarnAtMs: number
   pendingDataDropWarnedPtys: Set<string>
   producerFlowControl: PtyProducerFlowController
+  sourceCreditPendingPtys: Set<string>
   backgroundedDeliverySyncByPty: Map<string, boolean>
   syntheticKillExitPtyIds: Map<
     string,
     { cleanupTimer: NodeJS.Timeout; incarnationId: string | undefined }
   >
+  reversibleStopOwnersByPtyId: Map<string, number>
+  replacedPtyStopsById: Map<string, ReplacedPtyStop>
   retiredRejectedPtyIds: Map<string, NodeJS.Timeout>
   pendingSerializeRequests: Map<
     string,
@@ -114,7 +118,11 @@ export type PtyIpcSession = {
   canSendPtyDataToRenderer: (id: string, options?: { interactive?: boolean }) => boolean
   schedulePendingDataFlush: (delayMs: number) => void
   flushPendingData: () => void
-  sendPtyDataToRenderer: (id: string, payload: PtyDataPayload) => boolean
+  sendPtyDataToRenderer: (
+    id: string,
+    payload: PtyDataPayload,
+    projectionAdmissionIds?: readonly string[]
+  ) => { sent: boolean; projectionsTransferred: boolean }
   sendModelRestoreNeededMarker: (
     id: string,
     reason: PtyModelRestoreReason,
@@ -136,8 +144,19 @@ export type PtyIpcSession = {
       sequenceChars?: number
       transformed?: boolean
     },
-    outputSeq: number | undefined
+    outputSeq: number | undefined,
+    projection?: LegacySshProjectionSemantics
   ) => void
+  preparePtyExitForRenderer: (payload: {
+    id: string
+    code: number
+    incarnationId?: string
+  }) => (() => void) | null
+  finalizePtyExitForRenderer: (payload: {
+    id: string
+    code: number
+    incarnationId?: string
+  }) => void
   sendPtyExitToRenderer: (payload: { id: string; code: number; incarnationId?: string }) => void
   sendPtySpawnedToRenderer: (id: string) => void
   requestSerializedBuffer: (
@@ -157,12 +176,7 @@ export type PtyIpcSession = {
   transitionHiddenRendererPtyDeliveryState: (
     id: string,
     hidden: boolean
-  ) => {
-    droppable: boolean
-    droppedWhileHidden: boolean
-    hiddenDropEpisode?: number
-    policyChanged: boolean
-  }
+  ) => { droppable: boolean; droppedWhileHidden: boolean; policyChanged: boolean }
   transitionSpawnHiddenRendererPtyDeliveryState: (id: string, hidden: boolean) => void
   rendererPtyIsKnownHidden: (id: string) => boolean
   schedulePendingDataAfterCreditReport: (creditedAny: boolean) => void
@@ -188,6 +202,7 @@ export function createPtyIpcSession(args: {
     getSettings: args.getSettings,
     options: args.options,
     pendingData: undefined as unknown as PtyPendingDataDrainQueue,
+    sshOutputIntake: null,
     rendererExitingPtyIds: new Set(),
     rendererCreditBeforeExitByPty: new Map(),
     rendererDeliveryRestoreNeededPtys: new Set(),
@@ -220,8 +235,11 @@ export function createPtyIpcSession(args: {
       pauseProducer: (id) => tryGetProviderForPty(id)?.pauseProducer?.(id),
       resumeProducer: (id) => tryGetProviderForPty(id)?.resumeProducer?.(id)
     }),
+    sourceCreditPendingPtys: new Set(),
     backgroundedDeliverySyncByPty: new Map(),
     syntheticKillExitPtyIds: new Map(),
+    reversibleStopOwnersByPtyId: new Map(),
+    replacedPtyStopsById: new Map(),
     retiredRejectedPtyIds: new Map(),
     pendingSerializeRequests: new Map(),
     canSendPtyDataToRenderer: unsetSessionFn,
@@ -239,6 +257,8 @@ export function createPtyIpcSession(args: {
     clearDispatcherReadyWatchdog: unsetSessionFn,
     armDispatcherReadyWatchdog: unsetSessionFn,
     acceptPtyDataForRenderer: unsetSessionFn,
+    preparePtyExitForRenderer: unsetSessionFn,
+    finalizePtyExitForRenderer: unsetSessionFn,
     sendPtyExitToRenderer: unsetSessionFn,
     sendPtySpawnedToRenderer: unsetSessionFn,
     requestSerializedBuffer: unsetSessionFn,

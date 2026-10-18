@@ -55,7 +55,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-1',
       worktreePath: '/repo',
       connectionId: 'ssh-1',
@@ -92,7 +91,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-1',
       worktreePath: '/repo',
       deps
@@ -100,7 +98,7 @@ describe('refreshGitStatusForWorktree', () => {
 
     expect(deps.setUpstreamStatus).not.toHaveBeenCalled()
     expect(deps.fetchUpstreamStatus).toHaveBeenCalledWith('wt-1', '/repo', undefined, undefined, {
-      runtimeTarget: { kind: 'local' },
+      runtimeTargetSettings: undefined,
       applyUpstreamStatus: false
     })
   })
@@ -117,7 +115,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-2',
       worktreePath: '/repo',
       connectionId: 'ssh-2',
@@ -131,9 +128,33 @@ describe('refreshGitStatusForWorktree', () => {
     })
     expect(deps.setUpstreamStatus).not.toHaveBeenCalled()
     expect(deps.fetchUpstreamStatus).toHaveBeenCalledWith('wt-2', '/repo', 'ssh-2', undefined, {
-      runtimeTarget: { kind: 'local' },
+      runtimeTargetSettings: undefined,
       applyUpstreamStatus: false
     })
+  })
+
+  it('leaves ignored-file discovery to the File Explorer instead of status polling', async () => {
+    const status: GitStatusResult = {
+      entries: [],
+      conflictOperation: 'unknown'
+    }
+    const gitStatus = vi.fn().mockResolvedValue(status)
+    vi.stubGlobal('window', { api: { git: { status: gitStatus } } })
+    const deps = makeDeps()
+
+    await refreshGitStatusForWorktree({
+      settings: { activeRuntimeEnvironmentId: null },
+      worktreeId: 'wt-3',
+      worktreePath: '/repo',
+      deps
+    })
+
+    expect(gitStatus).toHaveBeenCalledWith({
+      worktreePath: '/repo',
+      connectionId: undefined,
+      admissionTier: 'status'
+    })
+    expect(deps.setGitStatus).toHaveBeenCalledWith('wt-3', status)
   })
 
   it('bypasses automatic no-upstream backoff only for strict refreshes', async () => {
@@ -147,13 +168,11 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-normal',
       worktreePath: '/repo',
       deps
     })
     await refreshGitStatusForWorktreeStrict({
-      target: { kind: 'local' },
       worktreeId: 'wt-strict',
       worktreePath: '/repo',
       deps
@@ -197,7 +216,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     const automatic = refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-race',
       worktreePath: '/repo',
       deps
@@ -205,7 +223,6 @@ describe('refreshGitStatusForWorktree', () => {
     await vi.waitFor(() => expect(gitStatus).toHaveBeenCalledTimes(1))
 
     await refreshGitStatusForWorktreeStrict({
-      target: { kind: 'local' },
       worktreeId: 'wt-race',
       worktreePath: '/repo',
       deps
@@ -235,14 +252,12 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     const olderRefresh = refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-automatic-race',
       worktreePath: '/repo',
       deps
     })
     await vi.waitFor(() => expect(gitStatus).toHaveBeenCalledTimes(1))
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-automatic-race',
       worktreePath: '/repo',
       deps
@@ -268,7 +283,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     const olderRefresh = refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-failed-veto',
       worktreePath: '/repo',
       deps
@@ -276,7 +290,6 @@ describe('refreshGitStatusForWorktree', () => {
     await vi.waitFor(() => expect(gitStatus).toHaveBeenCalledTimes(1))
     await expect(
       refreshGitStatusForWorktree({
-        target: { kind: 'local' },
         worktreeId: 'wt-failed-veto',
         worktreePath: '/repo',
         deps
@@ -305,7 +318,6 @@ describe('refreshGitStatusForWorktree', () => {
     const onStatusAccepted = vi.fn()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-stale',
       worktreePath: '/repo',
       deps,
@@ -329,7 +341,6 @@ describe('refreshGitStatusForWorktree', () => {
     const onStatusAccepted = vi.fn()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-current',
       worktreePath: '/repo',
       deps,
@@ -365,7 +376,6 @@ describe('refreshGitStatusForWorktree', () => {
     vi.mocked(deps.fetchUpstreamStatus).mockReturnValueOnce(automaticFetch.promise)
 
     const automatic = refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-fetch-race',
       worktreePath: '/repo',
       deps
@@ -373,7 +383,6 @@ describe('refreshGitStatusForWorktree', () => {
     await vi.waitFor(() => expect(deps.fetchUpstreamStatus).toHaveBeenCalledTimes(1))
 
     await refreshGitStatusForWorktreeStrict({
-      target: { kind: 'local' },
       worktreeId: 'wt-fetch-race',
       worktreePath: '/repo',
       deps
@@ -399,7 +408,6 @@ describe('refreshGitStatusForWorktree', () => {
     const deps = makeDeps()
 
     await refreshGitStatusForWorktree({
-      target: { kind: 'local' },
       worktreeId: 'wt-detached',
       worktreePath: '/repo',
       deps

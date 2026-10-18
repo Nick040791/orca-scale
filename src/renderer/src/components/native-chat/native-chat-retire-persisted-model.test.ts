@@ -20,7 +20,9 @@ vi.mock('../../store', () => ({
     selector({ agentStatusByPaneKey: {} })
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: mocks.callRuntimeRpc }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: mocks.callRuntimeRpc
+}))
 
 vi.mock('./native-chat-pty-session-options', () => ({
   createNativeChatPtySessionOptions: mocks.createNativeChatPtySessionOptions

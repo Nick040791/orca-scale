@@ -9,6 +9,7 @@ import type { CodexUsagePersistedState } from './types'
 
 export function createEmptyScanResult() {
   return {
+    processedFiles: [],
     sessions: [],
     dailyAggregates: []
   }

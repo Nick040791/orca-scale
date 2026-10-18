@@ -1,18 +1,16 @@
 import { posix as posixPath } from 'node:path'
 import { shellEscape } from './ssh-connection-utils'
-import { quotePowerShellLiteral as powerShellLiteral } from '../../shared/powershell-native-argument'
+import { powerShellLiteral } from './ssh-remote-powershell'
 
-/** The host-Node floor for the npm path. */
-export const MIN_HOST_NODE_MAJOR = 18
+const MIN_NODE_MAJOR = 18
 const NODE_VERSION_MARKER = '__ORCA_NODE_VERSION__'
 const NPM_VERSION_MARKER = '__ORCA_NPM_VERSION__'
 
 export function buildPosixNodeToolchainProbe(nodePath: string): string {
   const nodeBinDir = posixPath.dirname(nodePath)
-  const node = shellEscape(nodePath)
   return [
     `printf '%s\\n' '${NODE_VERSION_MARKER}'`,
-    `${node} --version`,
+    `${shellEscape(nodePath)} --version`,
     `printf '%s\\n' '${NPM_VERSION_MARKER}'`,
     // Why: deploy prepends nodeBinDir before running bare npm; requiring a
     // colocated executable rejects valid split layouts (#9165).
@@ -37,36 +35,31 @@ export function buildWindowsNodeToolchainProbe(nodePath: string): string {
 }
 
 export function nodeToolchainVersionsMeetRequirements(versionOutput: string): boolean {
-  const nodeMajor = markedVersion(versionOutput, NODE_VERSION_MARKER)?.major ?? null
-  const npmMajor = markedVersion(versionOutput, NPM_VERSION_MARKER)?.major ?? null
+  const nodeMajor = markedVersionMajor(versionOutput, NODE_VERSION_MARKER)
+  const npmMajor = markedVersionMajor(versionOutput, NPM_VERSION_MARKER)
   if (versionOutput.includes(NODE_VERSION_MARKER)) {
-    return nodeMajor !== null && nodeMajor >= MIN_HOST_NODE_MAJOR && npmMajor !== null
+    return nodeMajor !== null && nodeMajor >= MIN_NODE_MAJOR && npmMajor !== null
   }
 
   // Why: existing proxy integrations and tests may return only the Node
   // version even though production probes now emit both version markers.
   const legacyMatch = versionOutput.trim().match(/^v?(\d+)/)
-  return legacyMatch ? Number.parseInt(legacyMatch[1]!, 10) >= MIN_HOST_NODE_MAJOR : false
+  return legacyMatch ? Number.parseInt(legacyMatch[1]!, 10) >= MIN_NODE_MAJOR : false
 }
 
-type HostNodeVersion = { major: number; minor: number }
-
-function linesAfterMarker(output: string, marker: string): string[] | null {
+function markedVersionMajor(output: string, marker: string): number | null {
   const lines = output.split(/\r?\n/)
   const markerIndex = lines.indexOf(marker)
   if (markerIndex === -1) {
     return null
   }
-  const rest = lines.slice(markerIndex + 1)
-  const next = rest.findIndex((line) => line.startsWith('__ORCA_'))
-  return next === -1 ? rest : rest.slice(0, next)
-}
-
-function markedVersion(output: string, marker: string): HostNodeVersion | null {
-  for (const line of linesAfterMarker(output, marker) ?? []) {
-    const match = line.trim().match(/^v?(\d+)(?:\.(\d+))(?:\.\d+)?(?:[-+].*)?$/)
+  for (const line of lines.slice(markerIndex + 1)) {
+    if (line.startsWith('__ORCA_')) {
+      return null
+    }
+    const match = line.trim().match(/^v?(\d+)(?:\.\d+){1,2}(?:[-+].*)?$/)
     if (match) {
-      return { major: Number.parseInt(match[1]!, 10), minor: Number.parseInt(match[2]!, 10) }
+      return Number.parseInt(match[1]!, 10)
     }
   }
   return null

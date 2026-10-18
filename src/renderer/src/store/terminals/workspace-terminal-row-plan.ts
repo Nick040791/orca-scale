@@ -7,6 +7,7 @@ import {
   hydrateWorkspaceTerminalRows
 } from '../slices/terminal-session-row-hydration'
 import { removeSleepingAgentSessionsForTab } from '../slices/terminal-tab-retirement'
+import type { HydrateWorkspaceSessionOptions } from './terminal-contracts'
 
 export type WorkspaceTerminalRowPlan = {
   canonicalTabIdBySubsumedTabId: Map<string, string>
@@ -20,16 +21,21 @@ export type WorkspaceTerminalRowPlan = {
 export function buildWorkspaceTerminalRowPlan(
   session: WorkspaceSessionState,
   validWorktreeIds: ReadonlySet<string>,
-  /** Rows whose saved title is live, so restore's agent-title reset skips them. */
-  liveTitleTabIds?: Pick<ReadonlySet<string>, 'has'>
+  options?: HydrateWorkspaceSessionOptions
 ): WorkspaceTerminalRowPlan {
+  // Remote wire rows are authoritative independently of locally persisted unified tabs.
+  const remoteSnapshotWorkspaceKeys = new Set(
+    options?.directSshAuthority ? (options.replaceWorkspaceKeys ?? []) : []
+  )
   const rowHydrationByWorktree = Object.entries(session.tabsByWorktree)
     .filter(([worktreeId]) => validWorktreeIds.has(worktreeId))
     .map(
       ([worktreeId, tabs]) =>
         [
           worktreeId,
-          hydrateWorkspaceTerminalRows(session, worktreeId, tabs, liveTitleTabIds)
+          hydrateWorkspaceTerminalRows(session, worktreeId, tabs, {
+            rowsFromRemoteSnapshot: remoteSnapshotWorkspaceKeys.has(worktreeId)
+          })
         ] as const
     )
   const tabsByWorktree: Record<string, TerminalTab[]> = Object.fromEntries(

@@ -107,6 +107,7 @@ export function AutomationsPageListPanel({
       toggleAutomation={(row) => void managementActions.toggleAutomation(row)}
       requestDeleteAutomation={managementActions.requestDeleteAutomation}
       requestExternalAction={externalActions.requestExternalAction}
+      openEditExternalDialog={editorActions.openEditExternalDialog}
       openCreateDialog={editorActions.openCreateDialog}
       canCreateAutomation={destination.canCreateAutomation}
       onOpenDetail={onOpenDetail}

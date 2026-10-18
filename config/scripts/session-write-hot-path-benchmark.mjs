@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import nodeModule from 'node:module'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 if (!process.execArgv.includes('--experimental-transform-types')) {
   const result = spawnSync(
@@ -55,20 +55,19 @@ for (const [name, value] of [
 }
 
 const { capTerminalScrollbackSessionBuffer } = await import(
-  pathToFileURL(path.join(ROOT, 'src/shared/workspace-session-terminal-buffers.ts')).href
+  path.join(ROOT, 'src/shared/workspace-session-terminal-buffers.ts')
 )
 const { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } = await import(
-  pathToFileURL(path.join(ROOT, 'src/shared/terminal-scrollback-limits.ts')).href
+  path.join(ROOT, 'src/shared/terminal-scrollback-limits.ts')
 )
 const { remapAcknowledgedAgentPaneKeys } = await import(
-  pathToFileURL(path.join(ROOT, 'src/main/persistence/restoring-sessions/pane-key-remapping.ts'))
-    .href
+  path.join(ROOT, 'src/main/persistence/restoring-sessions/pane-key-remapping.ts')
 )
 const { clampUtf8TextTail, measureUtf8ByteLength } = await import(
-  pathToFileURL(path.join(ROOT, 'src/shared/utf8-byte-limits.ts')).href
+  path.join(ROOT, 'src/shared/utf8-byte-limits.ts')
 )
 const { isTerminalLeafId, makePaneKey, parsePaneKey } = await import(
-  pathToFileURL(path.join(ROOT, 'src/shared/stable-pane-id.ts')).href
+  path.join(ROOT, 'src/shared/stable-pane-id.ts')
 )
 
 function median(samples) {

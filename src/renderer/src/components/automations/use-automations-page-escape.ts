@@ -17,12 +17,14 @@ export function useAutomationsPageEscape({
     externalDeleteTarget,
     isDetailOpen,
     selectedAutomationRunPageId,
+    selectedExternalRunPage,
     pageView,
     runPageOrigin,
     setPageView,
     setActivePaneTab,
     setIsDetailOpen,
-    setSelectedAutomationRunPageId
+    setSelectedAutomationRunPageId,
+    setSelectedExternalRunPage
   } = local
   useEffect(() => {
     if (createOpen || deleteTarget || externalDeleteTarget || activeModal !== 'none') {
@@ -73,6 +75,10 @@ export function useAutomationsPageEscape({
 
       if (isDetailOpen) {
         event.preventDefault()
+        if (selectedExternalRunPage) {
+          setSelectedExternalRunPage(null)
+          return
+        }
         if (selectedAutomationRunPageId) {
           setSelectedAutomationRunPageId(null)
           return
@@ -104,9 +110,11 @@ export function useAutomationsPageEscape({
     pageView,
     runPageOrigin,
     selectedAutomationRunPageId,
+    selectedExternalRunPage,
     setActivePaneTab,
     setIsDetailOpen,
     setSelectedAutomationRunPageId,
+    setSelectedExternalRunPage,
     setPageView
   ])
 }

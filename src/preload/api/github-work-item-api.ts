@@ -65,7 +65,6 @@ export type GithubWorkItemApi = {
   workItemByOwnerRepo: (args: {
     repoPath: string
     repoId?: string
-    sourceContext?: TaskSourceContext | null
     owner: string
     repo: string
     host?: string
@@ -76,7 +75,6 @@ export type GithubWorkItemApi = {
     args: GitHubRepoSelectorArgs & {
       number: number
       type?: 'issue' | 'pr'
-      ownerRepo?: GitHubOwnerRepo
     }
   ) => Promise<GitHubWorkItemDetails | null>
   notifyWorkItemMutated: (args: {
@@ -108,7 +106,6 @@ export type GithubWorkItemApi = {
     args: GitHubRepoSelectorArgs & {
       number: number
       updates: GitHubIssueUpdate
-      ownerRepo?: GitHubOwnerRepo
     }
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   addIssueComment: (
@@ -124,13 +121,11 @@ export type GithubWorkItemApi = {
     repoPath: string
     repoId?: string
     sourceContext?: TaskSourceContext | null
-    ownerRepo?: GitHubOwnerRepo
   }) => Promise<string[]>
   listAssignableUsers: (args: {
     repoPath: string
     repoId?: string
     sourceContext?: TaskSourceContext | null
-    ownerRepo?: GitHubOwnerRepo
   }) => Promise<GitHubAssignableUser[]>
   /** Subscribe to local-mutation broadcasts so the work-item-drawer cache can invalidate across windows. Returns an unsubscribe. */
   onWorkItemMutated: (

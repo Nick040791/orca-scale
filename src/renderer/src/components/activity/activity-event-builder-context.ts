@@ -2,7 +2,7 @@ import { findIndexedRepoOwnerForHost } from '@/lib/worktree-runtime-owner-index'
 import { getRemoteRuntimePtyEnvironmentId } from '@/runtime/runtime-terminal-stream'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import {
-  getConnectionExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
   toRuntimeExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
@@ -109,7 +109,7 @@ export function buildActivityTabHostIndex(
   return index
 }
 
-export function resolveActivityExecutionHostId(
+function resolveActivityExecutionHostId(
   context: ActivityTabContext,
   entry: AgentStatusEntry,
   terminalPtyId: string | null | undefined,
@@ -126,7 +126,7 @@ export function resolveActivityExecutionHostId(
     return toRuntimeExecutionHostId(runtimeEnvironmentId)
   }
   if (entry.connectionId !== undefined) {
-    return getConnectionExecutionHostId(entry.connectionId)
+    return entry.connectionId ? toSshExecutionHostId(entry.connectionId) : LOCAL_EXECUTION_HOST_ID
   }
   const connectionId = parseAppSshPtyId(terminalPtyId ?? '')?.connectionId
   return connectionId ? toSshExecutionHostId(connectionId) : undefined

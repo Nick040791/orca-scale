@@ -7,8 +7,8 @@ import { Button } from '../ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { SearchableSetting } from './SearchableSetting'
 import { useAppStore } from '../../store'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import { getRepoExecutionHostId, parseExecutionHostId } from '../../../../shared/execution-host'
+import { getRepoOwnerRoutedSettings } from '@/lib/repo-runtime-owner'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { translate } from '@/i18n/i18n'
 import { searchKeywords } from './settings-search-keywords'
 import {
@@ -35,6 +35,7 @@ export function RepositoryGitHubAccountSection({
   updateRepo,
   forceVisible
 }: RepositoryGitHubAccountSectionProps): React.JSX.Element | null {
+  const settings = useAppStore((state) => state.settings)
   const [inventory, setInventory] = useState<GhAccountBindingInventory | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -43,12 +44,13 @@ export function RepositoryGitHubAccountSection({
   const loadGenerationRef = useRef(0)
   const selectLabelId = useId()
 
-  // Why: the binding lives on the repo's own host; key the memo on its id so it stays stable.
-  const ownerHost = parseExecutionHostId(getRepoExecutionHostId(repo))
-  const ownerEnvironmentId = ownerHost?.kind === 'runtime' ? ownerHost.environmentId : null
+  // Why: getRepoOwnerRoutedSettings returns a fresh object each render, and the target
+  // depends on nothing else — key the memo on the id so it stays stable.
+  const activeRuntimeEnvironmentId =
+    getRepoOwnerRoutedSettings(settings, repo)?.activeRuntimeEnvironmentId ?? null
   const runtimeTarget = useMemo(
-    () => runtimeTargetForOwnerEnvironment(ownerEnvironmentId),
-    [ownerEnvironmentId]
+    () => getActiveRuntimeTarget({ activeRuntimeEnvironmentId }),
+    [activeRuntimeEnvironmentId]
   )
 
   const loadInventory = useCallback(
@@ -57,11 +59,9 @@ export function RepositoryGitHubAccountSection({
       setLoading(true)
       setError(null)
       try {
-        const next = await listRepositoryGhBindableAccounts(
-          runtimeTarget,
-          { id: repo.id, path: repo.path },
-          { refreshCapability }
-        )
+        const next = await listRepositoryGhBindableAccounts(runtimeTarget, repo, {
+          refreshCapability
+        })
         if (generation !== loadGenerationRef.current) {
           return
         }
@@ -78,19 +78,12 @@ export function RepositoryGitHubAccountSection({
         }
       }
     },
-    [repo.id, repo.path, runtimeTarget]
+    [repo, runtimeTarget]
   )
 
   useEffect(() => {
     void loadInventory()
-  }, [
-    loadInventory,
-    repo.executionHostId,
-    repo.connectionId,
-    repo.gitRemoteIdentity?.canonicalKey,
-    repo.ghAccount?.host,
-    repo.ghAccount?.user
-  ])
+  }, [loadInventory])
 
   const capabilityUnsupported = inventory?.capability === 'unsupported'
   const capabilityUnknown = inventory?.capability === 'unknown'

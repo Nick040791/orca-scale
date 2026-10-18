@@ -1,19 +1,10 @@
 import type { AgentSessionSubscribeEvent } from './agent-session-wire'
-import {
-  actionablePromptIdsAfterStructuredAgentSessionBatch,
-  hostWorkingAfterStructuredAgentSessionBatch,
-  latestTurnAfterStructuredAgentSessionBatch
-} from './structured-agent-session-live-turn'
 
 export const STRUCTURED_AGENT_SESSION_CLIENT_COALESCE_MS = 48
 
 function bypassCoalescing(event: AgentSessionSubscribeEvent): boolean {
   return (
     event.type !== 'batch' ||
-    // A queue list lands at once: held, the card would be missing for a moment after the send's
-    // own "Sending…" card went with its queued answer.
-    event.queuedMessages !== undefined ||
-    event.currentRequests !== undefined ||
     event.batch.items.some((item) => item.body.kind !== 'message' || item.body.role !== 'assistant')
   )
 }
@@ -32,13 +23,6 @@ function mergeBatch(
   for (const submission of right.batch.submissions) {
     submissions.set(submission.clientMessageId, submission)
   }
-  // As applying both in turn would leave it, so an older host's rows still drop a stale claim.
-  const latestTurn = latestTurnAfterStructuredAgentSessionBatch(left.latestTurn, right)
-  const actionablePromptIds = actionablePromptIdsAfterStructuredAgentSessionBatch(
-    left.actionablePromptIds,
-    right
-  )
-  const working = hostWorkingAfterStructuredAgentSessionBatch(left.working, right)
   return {
     type: 'batch',
     ...(right.commands !== undefined || left.commands !== undefined
@@ -64,23 +48,14 @@ function mergeBatch(
       : {}),
     ...(right.activity !== undefined || left.activity !== undefined
       ? { activity: right.activity !== undefined ? right.activity : (left.activity ?? null) }
-      : {}),
-    ...(latestTurn !== undefined ? { latestTurn } : {}),
-    ...(actionablePromptIds !== undefined ? { actionablePromptIds } : {}),
-    ...(working !== undefined ? { working } : {}),
-    // The later page's: a merged frame ends the catch-up only if its last page did.
-    ...(right.hasNewer ? { hasNewer: true as const } : {})
+      : {})
   }
 }
 
 export function createStructuredAgentSessionEventCoalescer(
   emit: (event: AgentSessionSubscribeEvent) => void,
   delayMs = STRUCTURED_AGENT_SESSION_CLIENT_COALESCE_MS
-): {
-  push: (event: AgentSessionSubscribeEvent) => void
-  flush: () => void
-  dispose: () => void
-} {
+): { push: (event: AgentSessionSubscribeEvent) => void; flush: () => void; dispose: () => void } {
   let pending: Extract<AgentSessionSubscribeEvent, { type: 'batch' }> | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   const flush = (): void => {

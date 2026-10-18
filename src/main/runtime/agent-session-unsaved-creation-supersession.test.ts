@@ -4,10 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
 import { codexProviderHandleLink } from '../codex/codex-structured-owner-identity'
-import type { AgentSessionRecordStore } from './agent-session-record-store'
-import { openTestAgentSessionRecordStore } from './agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from './agent-session-record-store'
 import type { AgentSessionReserveRequest } from './agent-session-reservation-admission'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'session-codex'
@@ -74,7 +72,7 @@ async function restart(store: AgentSessionRecordStore) {
     probe: { outcome: 'exit-observed' },
     now: NOW
   })
-  const reopened = await openTestAgentSessionRecordStore(directory)
+  const reopened = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
   await reopened.reconcileOnRestart({
     probe: async () => ({ outcome: 'reservation-unused' }),
     now: NOW
@@ -92,7 +90,7 @@ afterEach(async () => {
 
 describe('a Codex thread started in place of one Codex never saved', () => {
   it('becomes the session identity and survives the next restart', async () => {
-    const first = await openTestAgentSessionRecordStore(directory)
+    const first = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     await prove(first, reserveRequest(), (fence) =>
       codexProviderHandleLink({
         threadId: 'thread-unsaved',
@@ -117,7 +115,7 @@ describe('a Codex thread started in place of one Codex never saved', () => {
     expect(proved.lease.claimStatus).toBe('live')
     expect(proved.providerHandleChain).toEqual([
       expect.objectContaining({
-        handle: codexProviderHandle('thread-new'),
+        handle: { provider: 'codex', threadId: 'thread-new' },
         origin: 'created',
         supersedesKey: 'codex:"thread-unsaved"'
       })
@@ -129,7 +127,7 @@ describe('a Codex thread started in place of one Codex never saved', () => {
   })
 
   it('is refused once a resume has proved the conversation Codex saved', async () => {
-    const first = await openTestAgentSessionRecordStore(directory)
+    const first = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     await prove(first, reserveRequest(), (fence) =>
       codexProviderHandleLink({ threadId: 'thread-saved', resumed: false, fence, observedAt: NOW })
     )

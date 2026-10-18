@@ -13,8 +13,7 @@ const confirmationMocks = vi.hoisted(() => ({
 
 const runtimeRpcMocks = vi.hoisted(() => ({
   callRuntimeRpc: vi.fn(),
-  assertRuntimeEnvironmentCapability: vi.fn(),
-  runtimeEnvironmentSupportsCapability: vi.fn()
+  assertRuntimeEnvironmentCapability: vi.fn()
 }))
 
 vi.mock('@/components/confirmation-dialog-context', () => ({
@@ -23,8 +22,7 @@ vi.mock('@/components/confirmation-dialog-context', () => ({
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
   callRuntimeRpc: runtimeRpcMocks.callRuntimeRpc,
-  assertRuntimeEnvironmentCapability: runtimeRpcMocks.assertRuntimeEnvironmentCapability,
-  runtimeEnvironmentSupportsCapability: runtimeRpcMocks.runtimeEnvironmentSupportsCapability
+  assertRuntimeEnvironmentCapability: runtimeRpcMocks.assertRuntimeEnvironmentCapability
 }))
 
 const prRepo = { host: 'github.com', owner: 'stablyai', repo: 'orca-sta1015-sandbox' }
@@ -91,7 +89,6 @@ describe('useHostedReviewActions', () => {
     confirmationMocks.confirm.mockReset().mockResolvedValue(true)
     runtimeRpcMocks.callRuntimeRpc.mockReset().mockResolvedValue({ ok: true })
     runtimeRpcMocks.assertRuntimeEnvironmentCapability.mockReset().mockResolvedValue(undefined)
-    runtimeRpcMocks.runtimeEnvironmentSupportsCapability.mockReset().mockResolvedValue(true)
     latest = null
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only window.api shim
     ;(window as any).api = {
@@ -223,14 +220,15 @@ describe('useHostedReviewActions', () => {
       await latest?.handleMarkReadyForReview()
     })
 
-    expect(runtimeRpcMocks.runtimeEnvironmentSupportsCapability).toHaveBeenCalledWith(
+    expect(runtimeRpcMocks.assertRuntimeEnvironmentCapability).toHaveBeenCalledWith(
       'env-1',
-      'gitlab.updateMR.readyForReview.v1'
+      'gitlab.updateMR.readyForReview.v1',
+      expect.stringContaining('newer Orca server')
     )
     expect(runtimeRpcMocks.callRuntimeRpc).toHaveBeenCalledWith(
       { kind: 'environment', environmentId: 'env-1' },
       'gitlab.updateMR',
-      expect.objectContaining({ repo: 'id:repo-1', iid: 1015, updates: { readyForReview: true } }),
+      { repo: 'repo-1', iid: 1015, updates: { readyForReview: true } },
       { timeoutMs: 30_000 }
     )
     expect(window.api.gl.updateMR).not.toHaveBeenCalled()

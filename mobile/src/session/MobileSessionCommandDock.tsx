@@ -1,5 +1,4 @@
-import { View, Text, ScrollView, TextInput, Pressable } from 'react-native'
-import { hostOs } from '../platform/host-os'
+import { View, Text, ScrollView, TextInput, Pressable, Platform } from 'react-native'
 import {
   ArrowUp,
   ChevronDown,
@@ -17,11 +16,9 @@ import {
 } from '../terminal/terminal-keyboard-type'
 import { MobileTerminalLiveInputStatus } from './MobileTerminalLiveInputStatus'
 import { MobileTerminalInputActions } from './MobileTerminalInputActions'
-import { keepHeldPressThroughLongPress } from './held-press-long-press'
 import { isTerminalPhoneDisplayMode } from './mobile-session-route-helpers'
 import { colors } from '../theme/mobile-theme'
 import { styles } from './mobile-session-styles'
-import { useKeyboardPersistingTaps } from '../platform/keyboard-persisting-taps'
 import type { MobileSessionController } from './use-mobile-session-controller'
 
 export function MobileSessionCommandDock({ controller }: { controller: MobileSessionController }) {
@@ -68,7 +65,6 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
     activeBrowserTab,
     keyboardLift
   } = controller
-  const accessoryBarKeepsKeyboard = useKeyboardPersistingTaps('always')
   return (
     !activeMarkdownTab &&
     !activeFileTab &&
@@ -81,7 +77,7 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
         ]}
       >
         {/* Accessory keys */}
-        <View ref={accessoryBarKeepsKeyboard} style={styles.accessoryBar}>
+        <View style={styles.accessoryBar}>
           {/* Why: fixed keyboard escape hatch; outside ScrollView + shortcut path so it can't scroll away or be hidden (#5106). */}
           {keyboardLift > 0 && (
             <Pressable
@@ -211,7 +207,6 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
                   }
                   void handleAccessoryKey(createTerminalLiveAccessoryInput(key))
                 }}
-                onLongPress={key.repeatable ? keepHeldPressThroughLongPress : undefined}
                 accessibilityLabel={key.accessibilityLabel ?? `Send ${key.label}`}
               >
                 <Text
@@ -308,7 +303,7 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
               smartInsertDelete={false}
               // Why: iOS textContentType overrides autoComplete and can narrow the keyboard; keep IME switching available.
               autoComplete="off"
-              keyboardType={getTerminalLiveInputKeyboardType(hostOs())}
+              keyboardType={getTerminalLiveInputKeyboardType(Platform.OS)}
               returnKeyType="default"
               blurOnSubmit={false}
               editable={canSend}
@@ -321,7 +316,7 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
               ref={bindCommandField}
               // Why: Android caches IME inputType at mount, so toggling autocomplete must remount there; iOS updates in place.
               key={
-                hostOs() === 'android'
+                Platform.OS === 'android'
                   ? autocompleteEnabled
                     ? 'cmd-input-ac-on'
                     : 'cmd-input-ac-off'
@@ -339,7 +334,7 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
               smartInsertDelete={false}
               // Why: not autofill content, but keyboard must stay default so non-Latin IMEs remain selectable.
               autoComplete="off"
-              keyboardType={getTerminalCommandKeyboardType(hostOs(), autocompleteEnabled)}
+              keyboardType={getTerminalCommandKeyboardType(Platform.OS, autocompleteEnabled)}
               returnKeyType="send"
               blurOnSubmit={false}
               // Why: composing is local — an outage must not lock the field or discard typed text (#6713).

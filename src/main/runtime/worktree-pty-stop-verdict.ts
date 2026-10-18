@@ -18,10 +18,6 @@ export function summarizeWorktreePtyStopVerdict(
     if (verdict?.status === 'live') {
       return { ptyStopVerdict: 'live' }
     }
-    // Why: an SSH record outlives its host-confirmed exit, so presence alone is not doubt.
-    if (verdict?.status === 'exited') {
-      continue
-    }
     if (verdict?.status === 'unverifiable') {
       ptyStopVerdict = 'unverifiable'
       ptyStopReason ??= verdict.reason

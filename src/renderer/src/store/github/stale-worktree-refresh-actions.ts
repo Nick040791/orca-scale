@@ -5,7 +5,13 @@ import type { Worktree } from '../../../../shared/worktree/types'
 import { rightSidebarShowsPullRequestData } from '@/lib/right-sidebar-visibility'
 import { issueCacheKey } from './cache-identity'
 import { CACHE_TTL } from './cache-policy'
+import {
+  enqueueLocalGitHubPRRefresh,
+  getPRRefreshRuntimeRepoTarget,
+  shouldEnqueueLocalPRRefresh
+} from './repository-routing'
 import { settingsForGitHubRepoOwner } from './work-item-routing'
+import { buildPRRefreshCandidate } from './worktree-refresh'
 
 export const createStaleWorktreeRefreshActions = (
   get: Parameters<StateCreator<AppState>>[1]
@@ -32,15 +38,31 @@ export const createStaleWorktreeRefreshActions = (
     const now = Date.now()
     const branch = worktree.branch.replace(/^refs\/heads\//, '')
     const cardProps = state.worktreeCardProperties ?? []
+    const rawCardProps = cardProps as readonly string[]
     const shouldRefreshPR =
       state.groupBy === 'pr-status' ||
       (state.settings?.experimentalNewWorktreeCardStyle === true
         ? cardProps.includes('status')
-        : cardProps.includes('pr') || cardProps.some((property: string) => property === 'ci')) ||
+        : cardProps.includes('pr') || rawCardProps.includes('ci')) ||
       rightSidebarShowsPullRequestData(state)
 
     if (shouldRefreshPR && !worktree.isBare && branch) {
-      get().enqueueGitHubPRRefresh(worktreeId, 'active', 80)
+      const candidate = buildPRRefreshCandidate(state, worktree)
+      if (candidate) {
+        if (getPRRefreshRuntimeRepoTarget(state, candidate)) {
+          void get().fetchPRForBranch(candidate.repoPath, candidate.branch, {
+            force: true,
+            repoId: candidate.repoId,
+            worktreeId: candidate.worktreeId,
+            linkedPRNumber: candidate.linkedPRNumber ?? null,
+            fallbackPRNumber: candidate.fallbackPRNumber ?? null,
+            fallbackPRSource: candidate.fallbackPRSource ?? null,
+            reason: 'active'
+          })
+        } else if (shouldEnqueueLocalPRRefresh(candidate)) {
+          enqueueLocalGitHubPRRefresh({ candidate, reason: 'active', priority: 80 })
+        }
+      }
     }
 
     if ((state.worktreeCardProperties ?? []).includes('issue') && worktree.linkedIssue) {

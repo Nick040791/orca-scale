@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PushGatewayClient } from './push-gateway-client'
-import { mapPushAgentState, PushDispatcher } from './push-dispatcher'
+import { PushDispatcher } from './push-dispatcher'
 import {
   createHarness,
   flush,
@@ -184,18 +184,5 @@ describe('PushDispatcher', () => {
 
     expect(() => dispatcher.enqueue(notification())).not.toThrow()
     warn.mockRestore()
-  })
-})
-
-describe('mapPushAgentState', () => {
-  it.each([
-    ['waiting', 'needs-input'],
-    [undefined, 'finished']
-  ] as const)('maps agent-task-complete %s to %s', (agentState, expected) => {
-    expect(mapPushAgentState('agent-task-complete', agentState)).toBe(expected)
-  })
-
-  it('leaves non-agent sources without a state', () => {
-    expect(mapPushAgentState('terminal-bell', undefined)).toBeNull()
   })
 })

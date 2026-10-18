@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../shared/child-process/run-process'
 import { resolveWslExecutablePath } from '../wsl/wsl-executable-path'
 import { WslSkillInstallFilesystem } from './skill-wsl-install-filesystem'
 

@@ -1,4 +1,3 @@
-import { sameAgentStatusTerminalOwner } from '../../../../shared/agent-status-terminal-owner'
 import { isWslHookRelayConnectionId } from '../../../../shared/wsl-hook-relay-contract'
 import type { AgentStatusIpcPayload } from '../../../../shared/agent-status-types'
 import {
@@ -17,7 +16,6 @@ import {
   applyResolvedAgentTerminalTitleToTab,
   hasRuntimeBackedWorktreeAttribution,
   isAgentStatusForRecentlyClosedTab,
-  isSeenHostReplay,
   resolveHookPayloadAgentType,
   shouldApplyResolvedAgentTerminalTitleToTab
 } from './agent-status-routing'
@@ -198,30 +196,22 @@ export function createAgentStatusEventApplicator(args: {
       ? { ...statusPayloadWithProvenance, observation: data.observation }
       : statusPayloadWithProvenance
     const identity = resolveAgentStatusIdentity({
-      existing:
-        existingStatus &&
-        sameAgentStatusTerminalOwner(
-          {
-            connectionId: existingStatus.connectionId ?? null,
-            worktreeId: existingStatus.worktreeId
-          },
-          {
-            connectionId:
-              (ownershipConnectionId === undefined
-                ? existingStatus.connectionId
-                : ownershipConnectionId) ?? null,
-            worktreeId: data.worktreeId ?? owningWorktreeId ?? existingStatus.worktreeId
+      existing: existingStatus
+        ? {
+            agentType: existingStatus.agentType,
+            state: existingStatus.state,
+            updatedAt: existingStatus.updatedAt,
+            restoredUnconfirmed: existingStatus.restoredUnconfirmed
           }
-        )
-          ? existingStatus
-          : undefined,
+        : undefined,
       incoming: statusPayload.agentType,
       now: data.receivedAt
     })
     if (
       existingStatus &&
       shouldSuppressInheritedTerminalStatus({
-        inheritedFromActivePane: identity.inheritedFromActivePane
+        inheritedFromActivePane: identity.inheritedFromActivePane,
+        incomingState: statusPayload.state
       })
     ) {
       return 'dropped'
@@ -237,8 +227,7 @@ export function createAgentStatusEventApplicator(args: {
         ...(data.evidenceObservedAt !== undefined
           ? { evidenceObservedAt: data.evidenceObservedAt }
           : {}),
-        stateStartedAt: data.stateStartedAt,
-        ...(Number.isFinite(data.turnStartedAt) ? { turnStartedAt: data.turnStartedAt } : {})
+        stateStartedAt: data.stateStartedAt
       },
       routing: {
         tabId: ownerTabId,
@@ -248,11 +237,8 @@ export function createAgentStatusEventApplicator(args: {
       },
       metadata: normalizeAgentStatusMetadata(data, authorityRestartId)
     }
-    // Why: replays are cached state, so they seed completion tracking unless they carry an unseen done.
-    const replayed =
-      options?.replay === true || isSeenHostReplay(data, resolvedPayload.state, existingStatus)
     const applyPostCommitNotification = (): void => {
-      if (statusWorktreeId && (!replayed || resolvedPayload.state === 'working')) {
+      if (statusWorktreeId && (options?.replay !== true || resolvedPayload.state === 'working')) {
         const notificationPayload =
           typeof data.stateStartedAt === 'number'
             ? { ...resolvedPayload, stateStartedAt: data.stateStartedAt }
@@ -261,7 +247,7 @@ export function createAgentStatusEventApplicator(args: {
           paneKey,
           worktreeId: statusWorktreeId,
           payload: notificationPayload,
-          ...(replayed ? { seedOnly: true } : {})
+          ...(options?.replay === true ? { seedOnly: true } : {})
         })
       }
     }

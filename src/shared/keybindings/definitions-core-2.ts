@@ -55,7 +55,8 @@ export const KEYBINDING_DEFINITION_CORE_2: readonly KeybindingDefinition[] = [
     group: 'Global',
     scope: 'global',
     searchKeywords: ['shortcut', 'worktree', 'history', 'back'],
-    defaultBindings: platformBindings(['Mod+Alt+ArrowLeft'])
+    defaultBindings: platformBindings(['Mod+Alt+ArrowLeft']),
+    allowInTerminal: true
   },
   {
     id: 'worktree.history.forward',
@@ -63,7 +64,8 @@ export const KEYBINDING_DEFINITION_CORE_2: readonly KeybindingDefinition[] = [
     group: 'Global',
     scope: 'global',
     searchKeywords: ['shortcut', 'worktree', 'history', 'forward'],
-    defaultBindings: platformBindings(['Mod+Alt+ArrowRight'])
+    defaultBindings: platformBindings(['Mod+Alt+ArrowRight']),
+    allowInTerminal: true
   },
   {
     id: 'tab.newTerminal',

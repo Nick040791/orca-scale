@@ -1,47 +1,12 @@
 import type { TaskPageProviderMetadataModel } from './use-task-page-provider-metadata'
 import { useEffect } from 'react'
-import { gitLabApiFor } from '@/runtime/gitlab-owner-api'
-import { mapSettledWithConcurrency } from '../../../shared/map-with-concurrency'
-import type { Repo } from '../../../shared/repo-types'
-import { getRepoExecutionHostId } from '../../../shared/execution-host'
-import type { GitLabDialogRepoSelector } from './gitlab-item-dialog/gitlab-item-dialog-types'
 import type { GitLabWorkItem, GitLabTodo } from '../../../shared/gitlab-types'
 import {
   getTaskPageRepoSourceContext,
   isGitLabIssueFilter,
   isGitLabMRFilter
 } from './task-page-source-context'
-
-// Why: "All projects" fans out one list call per repo; staying below the runtime RPC queue's
-// foreground concurrency (8) leaves headroom for other callers on the same selector, such as the sidebar.
-export const GITLAB_TASK_FETCH_CONCURRENCY = 6
-
-function gitLabTaskRepoSelector(repo: Repo): GitLabDialogRepoSelector {
-  return {
-    repoPath: repo.path,
-    repoId: repo.id,
-    sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
-    repoOwnerExecutionHostId: getRepoExecutionHostId(repo)
-  }
-}
-
-type GitLabLoadingInput = Pick<
-  TaskPageProviderMetadataModel,
-  | 'selectedRepos'
-  | 'selectedReposKey'
-  | 'primaryRepo'
-  | 'taskSource'
-  | 'setGitlabItems'
-  | 'setGitlabLoading'
-  | 'setGitlabError'
-  | 'gitlabRefreshNonce'
-  | 'gitlabView'
-  | 'setGitlabTodos'
-  | 'setGitlabTodosLoading'
-  | 'activeGitlabFilter'
->
-
-export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model: Model): Model {
+export function useTaskPageGitLabLoading(model: TaskPageProviderMetadataModel) {
   const {
     selectedRepos,
     selectedReposKey,
@@ -74,7 +39,7 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
     ) {
       return
     }
-    // Why: folder-mode repos lack remotes to derive a GitLab project from; each repo is read on the machine holding its GitLab sign-in.
+    // Why: folder-mode repos lack remotes to derive a GitLab project from; SSH-backed repos use the same provider-aware IPC path.
     const eligibleRepos = selectedRepos
     if (eligibleRepos.length === 0) {
       setGitlabItems([])
@@ -89,10 +54,11 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
       gitlabView === 'issues'
         ? (repo: (typeof eligibleRepos)[0]) => {
             const isAssignedToMe = activeIssueFilter === 'assigned-to-me'
-            const selector = gitLabTaskRepoSelector(repo)
-            return gitLabApiFor(selector)
+            return window.api.gl
               .listIssues({
-                ...selector,
+                repoPath: repo.path,
+                repoId: repo.id,
+                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
                 state: 'opened',
                 assignee: isAssignedToMe ? '@me' : undefined,
                 limit: 50
@@ -114,11 +80,12 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
                 }
               })
           }
-        : (repo: (typeof eligibleRepos)[0]) => {
-            const selector = gitLabTaskRepoSelector(repo)
-            return gitLabApiFor(selector)
+        : (repo: (typeof eligibleRepos)[0]) =>
+            window.api.gl
               .listMRs({
-                ...selector,
+                repoPath: repo.path,
+                repoId: repo.id,
+                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
                 state: activeMRFilter ?? 'opened',
                 page: 1,
                 perPage: 50
@@ -138,11 +105,7 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
                   error
                 }
               })
-          }
-    void mapSettledWithConcurrency(eligibleRepos, GITLAB_TASK_FETCH_CONCURRENCY, (repo) =>
-      // Why: a stale selection's results are discarded below, so skip the repos not yet started.
-      stale ? Promise.resolve({ repoId: repo.id, items: [], error: undefined }) : fetchItems(repo)
-    )
+    void Promise.allSettled(eligibleRepos.map(fetchItems))
       .then((results) => {
         if (stale) {
           return
@@ -194,9 +157,12 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
     }
     let stale = false
     setGitlabTodosLoading(true)
-    const selector = gitLabTaskRepoSelector(primaryRepo)
-    void gitLabApiFor(selector)
-      .todos(selector)
+    void window.api.gl
+      .todos({
+        repoPath: primaryRepo.path,
+        repoId: primaryRepo.id,
+        sourceContext: getTaskPageRepoSourceContext(primaryRepo, 'gitlab')
+      })
       .then((todos) => {
         if (!stale) {
           setGitlabTodos(todos as GitLabTodo[])
@@ -225,4 +191,4 @@ export function useTaskPageGitLabLoading<Model extends GitLabLoadingInput>(model
   ])
   return model
 }
-export type TaskPageGitLabLoadingModel = TaskPageProviderMetadataModel
+export type TaskPageGitLabLoadingModel = ReturnType<typeof useTaskPageGitLabLoading>

@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 /** STA-1840 regression: missing mobile terminal models request an exact renderer tab mount. */
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from './dispatcher'

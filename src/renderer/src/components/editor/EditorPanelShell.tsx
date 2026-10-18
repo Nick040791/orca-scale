@@ -37,12 +37,13 @@ type EditorPanelShellProps = {
   onOpenDiffTargetFile: (preferredMarkdownViewMode?: 'rich') => void
   onOpenPreviewToSide: () => void
   onOpenMarkdownPreview: () => void
+  onOpenContainingFolder: () => void
   onToggleSideBySide: () => void
   onEditorToggleChange: (next: EditorToggleValue) => void
   onToggleMarkdownTableOfContents: () => void
   onToggleMarkdownFrontmatter: () => void
   onExportMarkdownToPdf: () => void
-  createArtifactRequest?: () => Promise<ArtifactWriteRequest>
+  createMarkdownArtifactRequest?: () => Promise<ArtifactWriteRequest>
   onContentChange: (content: string) => void
   onContentChangeForFile: (file: OpenFile, content: string) => void
   onDirtyStateHint: (dirty: boolean) => void
@@ -77,12 +78,13 @@ export function EditorPanelShell({
   onOpenDiffTargetFile,
   onOpenPreviewToSide,
   onOpenMarkdownPreview,
+  onOpenContainingFolder,
   onToggleSideBySide,
   onEditorToggleChange,
   onToggleMarkdownTableOfContents,
   onToggleMarkdownFrontmatter,
   onExportMarkdownToPdf,
-  createArtifactRequest,
+  createMarkdownArtifactRequest,
   onContentChange,
   onContentChangeForFile,
   onDirtyStateHint,
@@ -123,12 +125,13 @@ export function EditorPanelShell({
           onOpenDiffTargetFile={onOpenDiffTargetFile}
           onOpenPreviewToSide={onOpenPreviewToSide}
           onOpenMarkdownPreview={onOpenMarkdownPreview}
+          onOpenContainingFolder={onOpenContainingFolder}
           onToggleSideBySide={onToggleSideBySide}
           onEditorToggleChange={onEditorToggleChange}
           onToggleMarkdownTableOfContents={onToggleMarkdownTableOfContents}
           onToggleMarkdownFrontmatter={onToggleMarkdownFrontmatter}
           onExportMarkdownToPdf={onExportMarkdownToPdf}
-          createArtifactRequest={createArtifactRequest}
+          createMarkdownArtifactRequest={createMarkdownArtifactRequest}
         />
       )}
       <Suspense fallback={<EditorLoadingFallback />}>

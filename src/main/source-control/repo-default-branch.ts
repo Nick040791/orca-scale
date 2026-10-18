@@ -1,8 +1,6 @@
 import { resolveDefaultBaseRefViaExec } from '../git/repo'
-import { resolveRemoteHeadBranchViaExec, type GitExec } from '../../shared/git-default-base-ref'
 import { gitExecFileAsync } from '../git/runner'
-import { getRepoExecutionHostId } from '../../shared/execution-host'
-import { hostedReviewRepoScope, scopeGeneration } from './hosted-review-scope-generations'
+import { getSshGitProvider } from '../providers/ssh-git-dispatch'
 import type { HostedReviewLocalGitOptions } from './hosted-review-git-options'
 
 // Why: bounded like TRACKED_UPSTREAM_SNAPSHOT_CACHE in github/client.ts — PR
@@ -29,8 +27,7 @@ function getRepoDefaultBranchCacheKey(
   const runtimeKey = connectionId
     ? `ssh:${connectionId}`
     : `local:${localGitOptions.wslDistro ?? 'host'}`
-  const scope = hostedReviewRepoScope(repoPath, getRepoExecutionHostId({ connectionId }))
-  return [runtimeKey, repoPath, scopeGeneration(scope)].join('\0')
+  return [runtimeKey, repoPath].join('\0')
 }
 
 function pruneRepoDefaultBranchCache(now: number): void {
@@ -48,74 +45,17 @@ function pruneRepoDefaultBranchCache(now: number): void {
   }
 }
 
-/** Local git for the hosted-review call; null for an SSH repo, which this process cannot reach. */
-function createRepoGitExec(
-  repoPath: string,
-  connectionId: string | null | undefined,
-  localGitOptions: HostedReviewLocalGitOptions
-): GitExec | null {
-  if (connectionId) {
-    // Why: the repoPath is remote, so a local run could answer for the wrong repo.
-    return null
-  }
-  const resolutionDeadline = Date.now() + REPO_DEFAULT_BRANCH_RESOLUTION_BUDGET_MS
-  // Why: the resolver can try five refs; share one deadline so an unhealthy
-  // local/WSL host cannot multiply the refresh delay per fallback probe.
-  return (argv) => {
-    const timeoutMs = resolutionDeadline - Date.now()
-    if (timeoutMs <= 0) {
-      return Promise.reject(new Error('Default branch resolution timed out.'))
-    }
-    return gitExecFileAsync(argv, {
-      cwd: repoPath,
-      ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {}),
-      ...(localGitOptions.admissionTier ? { admissionTier: localGitOptions.admissionTier } : {}),
-      timeout: timeoutMs
-    })
-  }
-}
-
 /**
  * Resolve the repository's default branch NAME (`main`, `master`, …) over the
  * transport the surrounding hosted-review call already uses. Returns null when
  * unresolvable so callers fail open (#9171 guard skipped, current behavior).
  */
-export function getRepoDefaultBranchName(
+export async function getRepoDefaultBranchName(
   repoPath: string,
   connectionId?: string | null,
   localGitOptions: HostedReviewLocalGitOptions = {}
 ): Promise<string | null> {
-  return resolveCachedBranchName(
-    getRepoDefaultBranchCacheKey(repoPath, connectionId, localGitOptions),
-    async () => {
-      const exec = createRepoGitExec(repoPath, connectionId, localGitOptions)
-      const baseRef = exec ? await resolveDefaultBaseRefViaExec(exec) : null
-      // Same base-ref → branch-name normalization as git/repo.ts getRemoteFileUrl.
-      return baseRef ? baseRef.replace(/^origin\//, '') : null
-    }
-  )
-}
-
-/** Branch the remote's own HEAD names; null when Git has not recorded it. */
-export function getRemoteHeadBranchName(
-  repoPath: string,
-  remoteName: string,
-  connectionId?: string | null,
-  localGitOptions: HostedReviewLocalGitOptions = {}
-): Promise<string | null> {
-  return resolveCachedBranchName(
-    [getRepoDefaultBranchCacheKey(repoPath, connectionId, localGitOptions), remoteName].join('\0'),
-    async () => {
-      const exec = createRepoGitExec(repoPath, connectionId, localGitOptions)
-      return exec ? resolveRemoteHeadBranchViaExec(exec, remoteName) : null
-    }
-  )
-}
-
-async function resolveCachedBranchName(
-  cacheKey: string,
-  resolve: () => Promise<string | null>
-): Promise<string | null> {
+  const cacheKey = getRepoDefaultBranchCacheKey(repoPath, connectionId, localGitOptions)
   const now = Date.now()
   const cached = repoDefaultBranchCache.get(cacheKey)
   if (cached && cached.expiresAt > now) {
@@ -131,7 +71,33 @@ async function resolveCachedBranchName(
   const resolution = (async (): Promise<string | null> => {
     let branchName: string | null = null
     try {
-      branchName = await resolve()
+      const provider = connectionId ? getSshGitProvider(connectionId) : null
+      if (connectionId && !provider) {
+        // Why: a dropped SSH provider must not fall back to local git — the
+        // repoPath is remote, so a local run could answer for the wrong repo.
+        return null
+      }
+      const resolutionDeadline = Date.now() + REPO_DEFAULT_BRANCH_RESOLUTION_BUDGET_MS
+      // Why: the resolver can try five refs; share one deadline so an unhealthy
+      // local/WSL/SSH host cannot multiply the refresh delay per fallback probe.
+      const baseRef = await resolveDefaultBaseRefViaExec((argv) => {
+        const timeoutMs = resolutionDeadline - Date.now()
+        if (timeoutMs <= 0) {
+          return Promise.reject(new Error('Default branch resolution timed out.'))
+        }
+        return provider
+          ? provider.exec(argv, repoPath, { timeoutMs })
+          : gitExecFileAsync(argv, {
+              cwd: repoPath,
+              ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {}),
+              ...(localGitOptions.admissionTier
+                ? { admissionTier: localGitOptions.admissionTier }
+                : {}),
+              timeout: timeoutMs
+            })
+      })
+      // Same base-ref → branch-name normalization as git/repo.ts getRemoteFileUrl.
+      branchName = baseRef ? baseRef.replace(/^origin\//, '') : null
     } catch {
       branchName = null
     }

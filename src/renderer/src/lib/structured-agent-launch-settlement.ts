@@ -1,5 +1,4 @@
-import type { TuiAgent } from '../../../shared/tui-agent'
-import type { ExecutionHostId } from '../../../shared/execution-host'
+import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import {
   cancelStructuredAgentLaunch,
@@ -16,14 +15,10 @@ export type StructuredAgentLaunchSettlement =
     }
   | {
       kind: 'cancelled'
-      /** Null when the launch was abandoned before its host admitted a chat. */
-      sessionId: string | null
+      sessionId: string
     }
   | { kind: 'visibility-unknown'; sessionId: string }
-  /** `notified`: the launch already told the user, so a caller adds no message of its own. */
-  | { kind: 'failed'; error: unknown; notified?: true }
-  /** The owning host declined the chat before anything was created; its terminal opened instead. */
-  | { kind: 'terminal' }
+  | { kind: 'failed'; error: unknown }
 
 export type StructuredAgentLaunchHooks = {
   onStructuredReady?: (sessionId: string) => void
@@ -34,8 +29,6 @@ export type StructuredAgentLaunchHooks = {
 
 export type StructuredAgentLaunchHandle = {
   sessionId: string
-  /** The host the chat is created on. */
-  executionHostId: ExecutionHostId
   settlement: Promise<StructuredAgentLaunchSettlement>
   promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
   cancel: () => void
@@ -97,14 +90,13 @@ async function settleStartedStructuredAgentLaunch(
 /** Exposes the durable identity before host acquisition so its chat can render immediately. */
 export function beginStructuredAgentLaunchSettlement(
   worktreeId: string,
-  agent: TuiAgent,
+  agent: AgentSessionHandleProvider,
   options: StructuredAgentLaunchOptions,
   hooks: StructuredAgentLaunchHooks
 ): StructuredAgentLaunchHandle {
   const launch = startStructuredAgentLaunch(worktreeId, agent, options)
   return {
     sessionId: launch.sessionId,
-    executionHostId: launch.executionHostId,
     settlement: settleStartedStructuredAgentLaunch(worktreeId, launch, hooks),
     cancel: () => cancelStructuredAgentLaunch(worktreeId, launch.sessionId),
     ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})
@@ -114,7 +106,7 @@ export function beginStructuredAgentLaunchSettlement(
 /** Compatibility wrapper for callers that do not need the provisional identity. */
 export function settleStructuredAgentLaunch(
   worktreeId: string,
-  agent: TuiAgent,
+  agent: AgentSessionHandleProvider,
   options: StructuredAgentLaunchOptions,
   hooks: StructuredAgentLaunchHooks
 ): Promise<StructuredAgentLaunchSettlement> {

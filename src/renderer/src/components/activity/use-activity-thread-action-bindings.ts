@@ -6,8 +6,6 @@ import type { AgentPaneThread } from './activity-thread-types'
 type ActivityThreadActionBindings = {
   markThreadRead: (thread: AgentPaneThread) => void
   markThreadUnread: (thread: AgentPaneThread) => void
-  markThreadsRead: (threads: readonly AgentPaneThread[]) => void
-  markThreadsUnread: (threads: readonly AgentPaneThread[]) => void
   selectThread: (thread: AgentPaneThread) => void
   jumpToWorkspace: (thread: AgentPaneThread) => void
   markAllThreadsRead: () => void
@@ -33,7 +31,7 @@ export function useActivityThreadActionBindings({
 }: {
   visibleThreads: AgentPaneThread[]
   markAllReadThreads: AgentPaneThread[]
-  acknowledgeAgents: (paneKeys: string[], reads?: undefined, intent?: 'explicit') => void
+  acknowledgeAgents: (paneKeys: string[]) => void
   unacknowledgeAgents: (paneKeys: string[]) => void
   setSelectedPaneKey: (paneKey: string | null) => void
 }): ActivityThreadActionBindings {

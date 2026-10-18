@@ -10,7 +10,7 @@ export function useMobileNativeChatCancelAsk(args: {
   enabled: boolean
   handleRef: MutableRefObject<string | null>
   deviceTokenRef: MutableRefObject<string | null>
-  /** Cancels unsent answer groups before issuing Escape. */
+  /** Drops any in-flight paced answer writes before the Escape lands. */
   cancelPending: () => void
   onSendError: (message: string) => void
 }): () => Promise<boolean> {
@@ -29,7 +29,6 @@ export function useMobileNativeChatCancelAsk(args: {
       terminal: handle,
       text: String.fromCharCode(27),
       enter: false,
-      requireWriteSettlement: true,
       ...(deviceTokenRef.current
         ? { mobileClient: { id: deviceTokenRef.current, type: 'mobile' } }
         : {})

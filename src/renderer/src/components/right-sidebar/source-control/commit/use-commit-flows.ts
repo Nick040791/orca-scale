@@ -12,7 +12,7 @@ import { useSourceControlCommitMessageGeneration } from './use-commit-message-ge
 export function useSourceControlCommitFlows(foundation: SourceControlPanelFoundation) {
   const {
     activeRepo,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktree,
     activeWorktreeId,
     allocateCommitMessageGenerationRequestId,
@@ -60,7 +60,7 @@ export function useSourceControlCommitFlows(foundation: SourceControlPanelFounda
   } = foundation
 
   const commitAction = useSourceControlCommitAction({
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktree,
     activeWorktreeId,
     beginGitBranchCompareRequest,
@@ -79,7 +79,7 @@ export function useSourceControlCommitFlows(foundation: SourceControlPanelFounda
   })
   const commitMessageGeneration = useSourceControlCommitMessageGeneration({
     activeRepo,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     allocateCommitMessageGenerationRequestId,
     commitMessageGenerationRecords,
@@ -107,7 +107,7 @@ export function useSourceControlCommitFlows(foundation: SourceControlPanelFounda
     settings
   })
   const remoteActionRunner = useSourceControlRemoteActionRunner({
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktree,
     activeWorktreeId,
     branchName,
@@ -130,7 +130,7 @@ export function useSourceControlCommitFlows(foundation: SourceControlPanelFounda
     worktreePath
   })
   const conflictAbort = useSourceControlConflictAbort({
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     conflictOperation,
     isAbortingOperation,

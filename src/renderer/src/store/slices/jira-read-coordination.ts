@@ -1,5 +1,4 @@
 import type { AppState } from '../types'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { CacheEntry } from '../github/cache-model'
 import type { JiraSlice, JiraSliceSet } from './jira-slice-contract'
 import type {
@@ -13,9 +12,6 @@ import {
   type TaskSourceContext
 } from '../../../../shared/task-source-context'
 import { getProviderRuntimeContextKey } from '@/lib/provider-runtime-context'
-import { parseJiraStatusError } from '../../../../shared/jira-status-error'
-import { defaultScopeSource } from '@/lib/default-creation-host'
-import type { RowLessSource } from '@/lib/default-creation-host'
 
 const CACHE_TTL = 60_000
 const MAX_CACHE_ENTRIES = 500
@@ -31,14 +27,11 @@ export type SharedJiraSummaryRequest = InflightJiraReadRequest<JiraIssue | null>
   subscribers: number
 }
 
-export type JiraReadIdentity = {
+export type JiraReadScope = {
+  settings: AppState['settings'] | TaskSourceContext | null
   contextKey: string
   cachePrefix: string | null
   explicitSource: boolean
-}
-
-export type JiraReadScope = JiraReadIdentity & {
-  settings: RowLessSource
 }
 
 export const inflightIssueRequests = new Map<string, InflightJiraReadRequest<JiraIssue | null>>()
@@ -77,13 +70,7 @@ export function evictStaleJiraCacheEntries<T>(
 
 export function looksLikeJiraAuthError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  // Why: Jira echoes the query in a 400 (`key 'PROJ-1401' does not exist`), so wording is only
-  // a fallback for errors that carry no status.
-  const status = parseJiraStatusError(message)
-  if (status) {
-    // Jira 403 commonly means endpoint/project access is denied while the token remains valid.
-    return status.code === 401
-  }
+  // Jira 403 commonly means endpoint/project access is denied while the token remains valid.
   return /authenticat|unauthorized|401/i.test(message)
 }
 
@@ -195,49 +182,36 @@ export function canWriteJiraReadResult(
   )
 }
 
-export function getJiraReadIdentity(
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+export function getJiraReadScope(
+  settings: AppState['settings'],
   sourceContext?: TaskSourceContext | null
-): JiraReadIdentity {
+): JiraReadScope {
   if (!sourceContext) {
     return {
+      settings,
       contextKey: getProviderRuntimeContextKey(settings),
       cachePrefix: null,
       explicitSource: false
     }
   }
   const runtimeSettings = getTaskSourceRuntimeSettings(sourceContext)
-  const cachePrefix = getTaskSourceCacheScope(sourceContext)
   return {
-    contextKey: `${getProviderRuntimeContextKey(runtimeSettings)}::${cachePrefix}`,
-    cachePrefix,
+    settings: sourceContext,
+    contextKey: `${getProviderRuntimeContextKey(runtimeSettings)}::${getTaskSourceCacheScope(sourceContext)}`,
+    cachePrefix: getTaskSourceCacheScope(sourceContext),
     explicitSource: true
   }
 }
 
-export function getJiraReadScope(
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
-  sourceContext?: TaskSourceContext | null
-): JiraReadScope {
-  return {
-    ...getJiraReadIdentity(settings, sourceContext),
-    settings: sourceContext ?? defaultScopeSource(settings)
-  }
-}
-
-export function scopedJiraCacheKey(scope: JiraReadIdentity, key: string): string {
+export function scopedJiraCacheKey(scope: JiraReadScope, key: string): string {
   return scope.cachePrefix ? `${scope.cachePrefix}::${key}` : key
 }
 
-function jiraConnectionRevisionContextKey(source: RowLessSource): string {
+function jiraConnectionRevisionContextKey(
+  settings: AppState['settings'] | TaskSourceContext | null
+): string {
   return getProviderRuntimeContextKey(
-    source.kind === 'default-scope'
-      ? source.settings
-      : source.kind === 'task-source'
-        ? getTaskSourceRuntimeSettings(source)
-        : {
-            activeRuntimeEnvironmentId: source.kind === 'environment' ? source.environmentId : null
-          }
+    settings && 'kind' in settings ? getTaskSourceRuntimeSettings(settings) : settings
   )
 }
 

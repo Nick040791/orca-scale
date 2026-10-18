@@ -8,7 +8,6 @@ import {
   TERMINAL_QUICK_COMMANDS_RUNTIME_CAPABILITY
 } from '../../../../shared/protocol-version'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
@@ -49,7 +48,7 @@ function installRuntime(supported = true): ReturnType<typeof vi.fn> {
     }
     throw new Error(`Unexpected method: ${method}`)
   })
-  stubRuntimeEnvironmentBridge({ call })
+  vi.stubGlobal('window', { api: { runtimeEnvironments: { call } } })
   return call
 }
 
@@ -133,7 +132,7 @@ describe('terminal quick command host collections', () => {
       }
       throw new Error(`Unexpected method: ${method} ${String(params)}`)
     })
-    stubRuntimeEnvironmentBridge({ call })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call } } })
     const store = createTestStore()
 
     const load = store.getState().loadRuntimeTerminalQuickCommands('env-race', { force: true })

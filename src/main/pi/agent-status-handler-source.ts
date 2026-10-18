@@ -8,10 +8,6 @@ import {
   getPiSubagentRosterEventSourceLines,
   getPiSubagentRosterSetupSourceLines
 } from './agent-status-subagent-roster-source'
-import {
-  getAgentStatusRunCloseOutSourceLines,
-  getAgentStatusSessionBoundaryHandlerSourceLines
-} from './agent-status-session-boundary-source'
 
 // Why: keep the generated handler registrations separate from hook transport;
 // both are independently sizeable and the installed extension concatenates them.
@@ -26,13 +22,6 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
           '    // turn boundary and must not clear the visible status or unread state.',
           "    if (event.reason === 'reload') return",
           "    post('session_start')",
-          ...(kind === 'pi'
-            ? [
-                '    restoreParkedSubagents()',
-                // Why: the host reads session_start as an idle session; children still hold this one.
-                "    if (lifecycleState.waiting) post('agent_start')"
-              ]
-            : []),
           '  })',
           ''
         ]
@@ -144,9 +133,26 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
     '  if (ownerPid && ownerPid !== selfPid && isStatusOwnerAlive(ownerPid)) return',
     `  process.env.${ownerEnv} = selfPid`,
     '  resetPostQueue()',
-    ...getPiSubagentRosterSetupSourceLines(kind),
+    ...getPiSubagentRosterSetupSourceLines(),
+    ...(kind !== 'pi'
+      ? [
+          "  pi.on('session_shutdown', () => { lifecycleState.active.clear(); lifecycleState.exited?.clear(); lifecycleState.waiting = false; resetPostQueue(); clearPendingAgentEndCheck() })"
+        ]
+      : []),
+    ...(kind !== 'prime-agent'
+      ? [
+          "  pi.on('session_switch', (_event, ctx) => {",
+          '    if (!isOmpRuntime()) return',
+          '    lifecycleState.active.clear()',
+          '    lifecycleState.exited?.clear()',
+          '    lifecycleState.waiting = false',
+          '    resetPostQueue()',
+          '    clearPendingAgentEndCheck()',
+          '    updateRuntimeOmpSessionMetadata(ctx)',
+          '  })'
+        ]
+      : []),
     ...getOmpSessionOwnerHandlerSourceLines(),
-    ...getAgentStatusSessionBoundaryHandlerSourceLines(kind),
     ...getOmpModelCommandSourceLines(),
     ...sessionStartHandler,
     ...(kind === 'omp' ? getPiPrefillHandlerSourceLines('omp', true) : []),
@@ -159,7 +165,7 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
     ...captureSessionMetadata,
     '    clearPendingAgentEndCheck()',
     '    lifecycleState.waiting = false',
-    '    lifecycleState.runGeneration += 1',
+    '    runGeneration += 1',
     // Why: a turn cannot begin under a dialog holding input focus, so this is the one
     // boundary that can recover a modal whose close never arrived.
     ...(kind === 'pi' ? ['    piUiPromptDepth = 0', '    piTurnInFlight = true'] : []),
@@ -211,6 +217,15 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
     '  const AGENT_END_IDLE_RECHECK_MS = 25',
     '  const AGENT_END_IDLE_RECHECK_MAX_MS = 250',
     '  let agentSettledSupported = false',
+    // Why: completion is a per-RUN fact. A sibling extension (the memory reminder is one)
+    // can start the next run from inside its own agent_settled handler, and Pi dispatches
+    // handlers in registration order, so this extension sees that run's agent_start
+    // BEFORE its own agent_settled for the run that just ended. A boolean "already
+    // posted" latch reset on agent_start then eats the newer run's completion and leaves
+    // the host stuck on that run's last working event.
+    '  let runGeneration = 0',
+    '  let endedRunGeneration = 0',
+    '  let completionPostedGeneration = -1',
     '  let agentEndIdleRecheckMs = AGENT_END_IDLE_RECHECK_MS',
     '  let pendingAgentEndCheck: ReturnType<typeof setTimeout> | null = null',
     '  let pendingAgentEndContext: { isIdle: () => boolean } | null = null',
@@ -221,37 +236,26 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
     '    pendingAgentEndContext = null',
     '  }',
     ...getPiSubagentRosterEventSourceLines(),
-    // The one answer to "do children still hold this pane"; an exited runner holds through its grace.
-    '  function isHeldByChildren(): boolean {',
-    '    return lifecycleState.active.size > 0',
-    '  }',
-    '',
-    '  function isTurnInFlight(): boolean {',
-    '    return lifecycleState.runGeneration !== lifecycleState.endedRunGeneration',
-    '  }',
-    '',
-    '  function postAgentEndOnce(final = false): boolean {',
-    '    for (const id of lifecycleState.exited ?? []) forgetSubagent(id)',
-    '    if (isHeldByChildren()) {',
+    '  function postAgentEndOnce(): void {',
+    '    for (const id of lifecycleState.exited ?? []) lifecycleState.active.delete(id)',
+    '    lifecycleState.exited?.clear()',
+    '    if (lifecycleState.active.size > 0) {',
     '      lifecycleState.waiting = true',
-    '      return false',
+    '      return',
     '    }',
     '    lifecycleState.waiting = false',
-    '    if (lifecycleState.completionPostedGeneration === lifecycleState.endedRunGeneration) return false',
-    '    lifecycleState.completionPostedGeneration = lifecycleState.endedRunGeneration',
+    '    if (completionPostedGeneration === endedRunGeneration) return',
+    '    completionPostedGeneration = endedRunGeneration',
     // Why: distinct from the completion guard, which holds the generation of the posted run
     // and so starts clean on a pane that has not run a turn yet — that pane is idle, not busy.
     ...(kind === 'pi' ? ['    piTurnInFlight = false'] : []),
-    // Why: a run that ends because its session did has not completed; the host records it quietly.
-    "    post('agent_end', final ? { session_boundary: true } : {}, final)",
-    '    return true',
+    "    post('agent_end')",
     '  }',
     '',
-    ...getAgentStatusRunCloseOutSourceLines(),
     '  function checkPendingAgentEnd(): void {',
     '    pendingAgentEndCheck = null',
     '    const ctx = pendingAgentEndContext',
-    '    if (!ctx || agentSettledSupported || lifecycleState.completionPostedGeneration === lifecycleState.endedRunGeneration) {',
+    '    if (!ctx || agentSettledSupported || completionPostedGeneration === endedRunGeneration) {',
     '      pendingAgentEndContext = null',
     '      return',
     '    }',
@@ -283,7 +287,7 @@ export function getPiAgentStatusHandlerSourceLines(kind: PiAgentKind): string[] 
     '      clearPendingAgentEndCheck()',
     '      return',
     '    }',
-    '    lifecycleState.endedRunGeneration = lifecycleState.runGeneration',
+    '    endedRunGeneration = runGeneration',
     '    if (isOmpRuntime()) {',
     '      postAgentEndOnce()',
     '      return',

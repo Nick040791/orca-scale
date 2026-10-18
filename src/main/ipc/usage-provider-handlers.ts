@@ -14,7 +14,6 @@ type UsageProviderStores = {
 type UsageProviderChannelPrefix = keyof UsageProviderStores
 
 type UsageProviderHandlerStore<Scope, Range, BreakdownKind> = {
-  whenLoaded: () => Promise<void>
   getScanState: () => unknown
   setEnabled: (enabled: boolean) => unknown
   refresh: (force?: boolean) => unknown
@@ -34,11 +33,7 @@ function registerProviderHandlers<Scope, Range, BreakdownKind>(
   prefix: UsageProviderChannelPrefix,
   usage: UsageProviderHandlerStore<Scope, Range, BreakdownKind>
 ): void {
-  // Why: persisted state can still be loading on the worker; the sync getters must not see defaults.
-  ipcMain.handle(`${prefix}:getScanState`, async () => {
-    await usage.whenLoaded()
-    return usage.getScanState()
-  })
+  ipcMain.handle(`${prefix}:getScanState`, () => usage.getScanState())
   ipcMain.handle(`${prefix}:setEnabled`, (_event, args: { enabled: boolean }) =>
     usage.setEnabled(args.enabled)
   )
@@ -47,10 +42,8 @@ function registerProviderHandlers<Scope, Range, BreakdownKind>(
   )
   ipcMain.handle(
     `${prefix}:getSnapshot`,
-    async (_event, args: UsageRangeArgs<Scope, Range> & { limit?: number }) => {
-      await usage.whenLoaded()
-      return usage.getSnapshot(args.scope, args.range, args.limit)
-    }
+    (_event, args: UsageRangeArgs<Scope, Range> & { limit?: number }) =>
+      usage.getSnapshot(args.scope, args.range, args.limit)
   )
   ipcMain.handle(`${prefix}:getSummary`, (_event, args: UsageRangeArgs<Scope, Range>) =>
     usage.getSummary(args.scope, args.range)

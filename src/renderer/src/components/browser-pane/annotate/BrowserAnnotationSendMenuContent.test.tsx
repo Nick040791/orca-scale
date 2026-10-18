@@ -1,4 +1,6 @@
 import React from 'react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { BrowserAnnotationSendMenuContent } from './BrowserAnnotationSendMenuContent'
 
@@ -89,5 +91,20 @@ describe('BrowserAnnotationSendMenuContent', () => {
       launchSource: 'notes_send',
       onPromptDelivered
     })
+  })
+
+  it('is wired into both browser annotation send surfaces', () => {
+    const bannerSource = readFileSync(
+      fileURLToPath(new URL('../assemble-chrome/browser-page-chrome-banners.tsx', import.meta.url)),
+      'utf8'
+    )
+    const traySource = readFileSync(
+      fileURLToPath(new URL('./browser-page-annotation-tray.tsx', import.meta.url)),
+      'utf8'
+    )
+    const sendSurfaces = `${bannerSource}\n${traySource}`
+
+    expect(sendSurfaces.match(/<BrowserAnnotationSendMenuContent\b/g)).toHaveLength(2)
+    expect(sendSurfaces).not.toContain('<QuickLaunchAgentMenuItems')
   })
 })

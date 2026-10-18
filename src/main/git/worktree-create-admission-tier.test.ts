@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as WorktreePreparationLock from './worktree-preparation-lock'
 
 type GitExec = (
   args: string[],
@@ -9,12 +8,6 @@ type GitExec = (
 const gitExecFileAsyncMock = vi.hoisted(() => vi.fn<GitExec>())
 
 vi.mock('./runner', () => ({ gitExecFileAsync: gitExecFileAsyncMock }))
-vi.mock('./worktree-preparation-lock', async (importOriginal) => ({
-  ...(await importOriginal<typeof WorktreePreparationLock>()),
-  verifyWorktreePreparationLock: vi.fn(async () => '/owned-lock'),
-  verifyWorktreePreparationLockAtPath: vi.fn(),
-  unlockWorktreePreparationAtPath: vi.fn()
-}))
 
 import { addWorktree } from './worktree-add'
 import { listWorktreesSharedStrict } from './worktree-scan-cache'
@@ -58,18 +51,11 @@ describe('worktree create admission tier', () => {
   })
 
   it('runs the prepared-checkout finalize at the tier the caller asked for', async () => {
-    await finalizePreparedWorktree(
-      '/repo',
-      '/prepared',
-      '/repo-wt',
-      'feature',
-      'main',
-      false,
-      { admissionTier: 'interactive' },
-      'owner'
-    )
+    await finalizePreparedWorktree('/repo', '/prepared', '/repo-wt', 'feature', 'main', false, {
+      admissionTier: 'interactive'
+    })
 
-    for (const match of ['worktree move', 'checkout --no-track']) {
+    for (const match of ['worktree move', 'checkout --no-track', 'worktree unlock']) {
       const options = optionsForCommand(match)
       expect(options, match).toHaveLength(1)
       expect(options[0], match).toMatchObject({ admissionTier: 'interactive' })

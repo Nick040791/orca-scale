@@ -3,7 +3,6 @@ import { issueCacheKey as getIssueCacheKey } from '@/store/github/cache-identity
 import { buildPaletteDocument, type PaletteDocument } from './palette-match/palette-document'
 import type { PaletteComposedEvidence } from './palette-match/evidence-composer'
 import {
-  buildWorktreeAttachmentEvidence,
   buildWorktreeAutomationEvidence,
   buildWorktreeCommentEvidence,
   buildWorktreeIssueEvidence,
@@ -18,8 +17,6 @@ import {
 } from './worktree-default-display-name'
 import type { HostedReviewInfo } from '../../../shared/hosted-review'
 import type { Repo } from '../../../shared/repo-types'
-import { getWorkspaceAttachments } from '../../../shared/workspace-attachments'
-import { getWorkspaceAttachmentKey } from '../../../shared/workspace-attachment-normalization'
 import type { Worktree } from '../../../shared/worktree/types'
 import { isGitHubPRSuppressed } from '../../../shared/worktree/github-pr-suppression'
 import {
@@ -131,10 +128,6 @@ function buildEvidence(
     buildWorktreeIssueEvidence({
       number: worktree.linkedIssue,
       title: resolveIssueTitle(worktree, repo, sources)
-    }),
-    ...getWorkspaceAttachments({ linkedItems: worktree.linkedItems }).map((item) => {
-      const evidence = buildWorktreeAttachmentEvidence(item)
-      return evidence ? { ...evidence, id: `attachment:${getWorkspaceAttachmentKey(item)}` } : null
     }),
     ...ports.map((port) => buildWorktreePortEvidence(port))
   ]

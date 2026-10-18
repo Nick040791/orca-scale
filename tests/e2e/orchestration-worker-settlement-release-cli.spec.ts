@@ -13,7 +13,6 @@ import {
   FAKE_AGENT_WINDOWS_SHELL
 } from './helpers/fake-agent-command-override'
 import { FAKE_AGENT_PASTE_END_SCANNER_SOURCE } from './helpers/fake-agent-paste-end-scanner'
-import { FAKE_CODEX_LAUNCH_PROBES_SOURCE } from './helpers/fake-codex-launch-probes'
 
 const fakeCliDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-settlement-release-'))
 const cliLedgerPath = path.join(fakeCliDir, 'cli.jsonl')
@@ -24,7 +23,11 @@ const fakeCodexCommand = buildFakeAgentCommandOverride(
 const fakeCodexSource = `
 const { appendFileSync } = require('node:fs')
 const { spawnSync } = require('node:child_process')
-${FAKE_CODEX_LAUNCH_PROBES_SOURCE}
+if (process.argv.slice(2).includes('app-server')) {
+  process.stderr.write("error: unrecognized subcommand 'app-server'\\n")
+  process.exit(2)
+}
+let capability = null
 let acknowledged = false
 ${FAKE_AGENT_PASTE_END_SCANNER_SOURCE}
 process.stdout.write('\\u001b]0;Codex Ready\\u0007OpenAI Codex\\nmodel: e2e\\ndirectory: e2e\\n')
@@ -35,6 +38,7 @@ process.stdin.on('data', (chunk) => {
   if (pasteEndScan.pasteEndOffset !== null) {
     process.stdout.write('\\x1b[?25h')
   }
+  capability ||= input.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1] || null
   if (!acknowledged) {
     fakeAgentMaybeAck(pasteEndScan, input, (mode) => {
       acknowledged = true
@@ -44,11 +48,12 @@ process.stdin.on('data', (chunk) => {
     })
   }
   const encoded = input.match(/ORCA_E2E_WORKER_DONE:([A-Za-z0-9+/=]+)/)?.[1]
-  if (!encoded) return
+  if (!encoded || !capability) return
   const request = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'))
   const args = [
     'orchestration', 'send',
     '--from', request.mismatch ? 'term_foreign' : process.env.ORCA_TERMINAL_HANDLE,
+    '--dispatch-capability', capability,
     '--to', request.coordinator,
     '--type', 'worker_done',
     '--subject', request.mismatch ? 'wrong sender' : 'completed',
@@ -230,7 +235,7 @@ test('compiled CLI rejects false completion then reconciles the dead retained wo
   expect.soft(rejected.status).not.toBe(0)
   expect.soft(JSON.parse(rejected.stdout)).toMatchObject({
     ok: false,
-    error: { code: 'consumer_fenced' }
+    error: { code: 'dispatch_capability_invalid' }
   })
   const stillDispatched = await client.call<{ dispatch: { status: string } | null }>(
     'orchestration.dispatchShow',

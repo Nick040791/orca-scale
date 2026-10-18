@@ -7,7 +7,6 @@ import type { BrowserBackend, BrowserBackendCreateTab } from './browser-backend'
 import type { BrowserManager } from './browser-manager'
 import type { AgentBrowserBridge } from './agent-browser-bridge'
 import { browserSessionRegistry } from './browser-session-registry'
-import type { ServeBrowserPageState } from '../runtime/serve-browser-tab-layout'
 
 // Why: headless orca serve has no renderer window to host a <webview>, so each
 // browser page is backed by a main-process offscreen BrowserWindow. The window
@@ -32,8 +31,6 @@ export class OffscreenBrowserBackend implements BrowserBackend {
     private readonly browserManager: BrowserManager,
     private readonly options: {
       getAgentBrowserBridge?: () => Pick<AgentBrowserBridge, 'onPageClosed'> | null
-      /** A page's committed address or title changed, so its saved tab can follow. */
-      onPageNavigated?: (page: ServeBrowserPageState) => void
     } = {}
   ) {}
 
@@ -106,21 +103,6 @@ export class OffscreenBrowserBackend implements BrowserBackend {
       this.browserManager.unregisterGuest(browserPageId)
     })
 
-    const { worktreeId } = params
-    const { onPageNavigated } = this.options
-    if (worktreeId && onPageNavigated) {
-      const report = (): void =>
-        onPageNavigated({
-          worktreeId,
-          pageId: browserPageId,
-          url: win.webContents.getURL(),
-          title: win.webContents.getTitle()
-        })
-      // Committed navigations only: a title a page keeps changing (a counter) is not saved each time.
-      win.webContents.on('did-navigate-in-page', report)
-      win.webContents.on('did-stop-loading', report)
-    }
-
     const url = params.url || 'about:blank'
     void this.loadUrl(win, url).catch((error) => {
       console.warn(
@@ -142,7 +124,6 @@ export class OffscreenBrowserBackend implements BrowserBackend {
       }
     } finally {
       if (win && !win.isDestroyed()) {
-        endDebuggerSessions(win)
         win.destroy()
       }
     }
@@ -244,22 +225,5 @@ export class OffscreenBrowserBackend implements BrowserBackend {
         // loadURL rejects on aborted navigations; did-fail-load handles the rest.
       })
     })
-  }
-}
-
-/**
- * Why: destroy() rejects a live screencast's pending CDP command, and the snapshot it was awaiting
- * then calls capturePage on the half-torn-down page, which segfaults Electron (43.7.8). Detaching
- * first emits 'detach' synchronously, so every stream on the page is closed before that resumes.
- */
-function endDebuggerSessions(win: BrowserWindow): void {
-  const dbg = win.webContents.debugger
-  if (!dbg.isAttached()) {
-    return
-  }
-  try {
-    dbg.detach()
-  } catch {
-    // The page is being destroyed either way; a failed detach must not keep it alive.
   }
 }

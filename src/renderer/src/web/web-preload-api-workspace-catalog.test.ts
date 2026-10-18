@@ -297,10 +297,10 @@ describe('web worktree preload API', () => {
     let resolveServerA: ((response: RuntimeRpcResponse<unknown>) => void) | undefined
     vi.doMock('./web-runtime-client', () => ({
       WebRuntimeClient: class {
-        constructor(private readonly connection: { hostPublicKeyB64: string }) {}
+        constructor(private readonly offer: { publicKeyB64: string }) {}
 
         call(): Promise<RuntimeRpcResponse<unknown>> {
-          if (this.connection.hostPublicKeyB64 === 'public-key') {
+          if (this.offer.publicKeyB64 === 'public-key') {
             return new Promise((resolve) => {
               resolveServerA = resolve
             })

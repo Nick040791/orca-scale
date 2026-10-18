@@ -2,8 +2,7 @@ export { addWorktree } from './worktree-add'
 export {
   configurePushAutoSetupRemote,
   persistWorktreeCreationBase,
-  resolveWorktreeAddBaseContext,
-  trackSameNameRemoteBase
+  resolveWorktreeAddBaseContext
 } from './worktree-add'
 export { forceDeleteLocalBranch } from './worktree-branch-removal'
 export { parseWorktreeList } from '../../shared/git-worktree-porcelain-parser'

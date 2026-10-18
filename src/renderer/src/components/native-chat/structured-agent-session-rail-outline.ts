@@ -69,9 +69,7 @@ export function selectStructuredRailOutline(
             .map((entry) => ({
               id: entry.itemId,
               text: entry.preview,
-              hasImages: entry.imageCount > 0,
-              reply: entry.reply,
-              turnKey: entry.turnKey
+              hasImages: entry.imageCount > 0
             }))
         }
   views.set(outline, { edge: oldestLoadedSequence, count, view })

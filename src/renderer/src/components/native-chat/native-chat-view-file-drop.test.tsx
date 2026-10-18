@@ -15,8 +15,7 @@ vi.mock('./use-native-chat-status-entry', () => ({ useNativeChatStatusEntry: vi.
 vi.mock('./NativeChatStructuredSession', () => ({
   NativeChatStructuredSession: () => {
     useNativeChatPaneFileDropClaim({
-      destinationKey: 'structured:session',
-      captureExternalDrop: () => async () => {},
+      scopeKey: 'structured:session',
       disabled: false,
       onDragOverCapture: (event) => event.preventDefault(),
       onDropCapture: drop.onDrop
@@ -44,7 +43,11 @@ it('owns pane drops for standalone structured sessions without a terminal portal
 
   fireEvent.dragOver(transcript, { dataTransfer })
   expect(container.querySelector('[data-native-chat-drop-overlay]')).not.toBeNull()
-  expect(transcript.closest('[data-os-file-drop-owner]')).not.toBeNull()
+  expect(
+    transcript
+      .closest('[data-native-file-drop-target="composer"]')
+      ?.getAttribute('data-composer-scope-key')
+  ).toBe('structured:session')
 
   fireEvent.drop(transcript, { dataTransfer })
   expect(drop.onDrop).toHaveBeenCalledTimes(1)

@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyBrowserPageViewportLayout,
@@ -16,6 +18,15 @@ import {
   subscribeBrowserOverlaySlotViewport,
   syncBrowserPageChromeInset
 } from './browser-page-viewport'
+
+function readPresetViewportCssRule(): string {
+  const css = readFileSync(resolve(import.meta.dirname, '../../../assets/main.css'), 'utf8')
+  const body =
+    css.match(new RegExp(`\\.${BROWSER_PAGE_PRESET_VIEWPORT_CLASS_NAME}\\s*\\{(?<body>[^}]*)\\}`))
+      ?.groups?.body ?? ''
+
+  return body.replace(/\s+/g, ' ').trim()
+}
 
 function mountSlotViewport(workspaceTabId: string): HTMLDivElement {
   const root = document.createElement('div')
@@ -100,6 +111,13 @@ describe('ensureBrowserPageViewport', () => {
     // An inline width/height would outrank the rule and reinstate the unscaled DIP box.
     expect(viewport.content.style.width).toBe('')
     expect(viewport.content.style.height).toBe('')
+  })
+
+  it('divides the preset DIP size by the live UI zoom factor', () => {
+    expect(readPresetViewportCssRule()).toBe(
+      'width: calc(var(--browser-page-viewport-width) / var(--ui-zoom-factor, 1)); ' +
+        'height: calc(var(--browser-page-viewport-height) / var(--ui-zoom-factor, 1));'
+    )
   })
 
   it('clears preset dimensions when no preset is active', () => {

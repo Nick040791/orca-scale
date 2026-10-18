@@ -162,7 +162,6 @@ export function parseAgentChildWorkInput(value: unknown): AgentChildWorkInput | 
       ],
       [
         'outcome',
-        'outcomeBasis',
         'name',
         'description',
         'agentType',
@@ -183,8 +182,6 @@ export function parseAgentChildWorkInput(value: unknown): AgentChildWorkInput | 
     !isState(value.state) ||
     !isMembership(value.membership) ||
     (value.outcome !== undefined && !isOutcome(value.outcome)) ||
-    (value.outcomeBasis !== undefined &&
-      (value.outcomeBasis !== 'stop-acknowledged' || value.membership !== 'settled')) ||
     (value.settledAt !== undefined && !isTimestamp(value.settledAt)) ||
     !isTimestamp(value.firstObservedAt) ||
     !isTimestamp(value.observedAt) ||
@@ -269,7 +266,6 @@ export function parseAgentChildWorkInput(value: unknown): AgentChildWorkInput | 
     state: value.state,
     membership: value.membership,
     ...(outcome !== undefined ? { outcome } : {}),
-    ...(value.outcomeBasis === 'stop-acknowledged' ? { outcomeBasis: value.outcomeBasis } : {}),
     ...(labels.name ? { name: labels.name } : {}),
     ...(labels.description ? { description: labels.description } : {}),
     ...(labels.agentType ? { agentType: labels.agentType } : {}),

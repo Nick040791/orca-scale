@@ -92,7 +92,7 @@ describe('markdown document templates', () => {
     await expect(
       listMarkdownDocumentTemplates(
         {
-          target: { kind: 'local' as const },
+          settings: null,
           worktreeId: 'wt-1',
           worktreePath: '/repo',
           connectionId: 'conn-1'
@@ -137,7 +137,7 @@ describe('markdown document templates', () => {
 
     await expect(
       listMarkdownDocumentTemplates(
-        { target: { kind: 'local' as const }, worktreeId: 'wt-1', worktreePath: '/repo' },
+        { settings: null, worktreeId: 'wt-1', worktreePath: '/repo' },
         '/repo'
       )
     ).resolves.toEqual([])
@@ -150,7 +150,7 @@ describe('markdown document templates', () => {
 
     await expect(
       listMarkdownDocumentTemplates(
-        { target: { kind: 'local' as const }, worktreeId: 'wt-1', worktreePath: 'C:\\repo' },
+        { settings: null, worktreeId: 'wt-1', worktreePath: 'C:\\repo' },
         'C:\\repo'
       )
     ).resolves.toEqual([

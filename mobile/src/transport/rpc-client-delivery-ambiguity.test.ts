@@ -7,8 +7,6 @@ import {
   LogicalClientCutoverError
 } from './stable-logical-rpc-client'
 
-vi.mock('./direct-e2ee-framing-policy', () => import('./legacy-direct-framing-test-policy'))
-
 vi.mock('./e2ee', () => ({
   generateKeyPair: () => ({
     publicKey: new Uint8Array(32),

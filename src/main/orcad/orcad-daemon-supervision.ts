@@ -2,7 +2,7 @@
  * orcad's half of the supervision contract: it spawns and supervises the terminal daemon.
  *
  * The whole reason the peer model is recommended over an SSH target is that daemon-backed
- * PTYs stay `live` across a runtime restart.
+ * PTYs stay `live` across a runtime restart (docs/reference/ssh-execution-boundary.md).
  * Without a daemon here, every orcad restart, update and rollback is a SIGKILL for every
  * running terminal — on the host whose selling point is that work survives the client going
  * away.
@@ -14,13 +14,9 @@
 import {
   disconnectDaemon,
   daemonOwnsFreshPersistentPtys,
+  initDaemonPtyProvider,
   readDaemonPidRecord
-} from '../daemon/daemon-provider-state'
-import { initDaemonPtyProvider } from '../daemon/daemon-provider-init'
-import { resolveTerminalSpawnAdmissionMode } from '../daemon/terminal-spawn-gate'
-import { errorMessage } from '../../shared/error-message'
-
-const WINDOWS_DAEMON_STARTUP_TIMEOUT_MS = 30_000
+} from '../daemon/daemon-init'
 
 export type OrcadDaemonStartup =
   | { state: 'live'; pid: number | null }
@@ -35,26 +31,13 @@ export type OrcadDaemonStartup =
  * — `daemonOwnsFreshPersistentPtys()` is what the runtime reads for that, and it answers
  * false here without any extra bookkeeping.
  */
-export async function startOrcadDaemon(
-  platform: NodeJS.Platform = process.platform
-): Promise<OrcadDaemonStartup> {
-  // Why no login-session watch: that retires the daemon when the spawning macOS GUI login
-  // session dies. An orcad daemon must survive its SSH session ending — that is the point.
-  const policy = {
-    macosLoginSessionWatch: false,
-    spawnAdmission: resolveTerminalSpawnAdmissionMode(),
-    // A freshly uploaded node.exe plus conpty can take well over 10 s on its first, AV-scanned exec.
-    ...(platform === 'win32' ? { startupTimeoutMs: WINDOWS_DAEMON_STARTUP_TIMEOUT_MS } : {})
-  }
+export async function startOrcadDaemon(): Promise<OrcadDaemonStartup> {
   try {
-    await initDaemonPtyProvider(undefined, policy).catch((error: unknown) => {
-      // One warm retry: activation refuses a daemonless candidate, so a cold-start miss would
-      // otherwise leave a first deploy serving nothing.
-      console.warn(`[orcad] The terminal daemon did not start (${errorMessage(error)}); retrying`)
-      return initDaemonPtyProvider(undefined, policy)
-    })
+    // Why no login-session watch: that retires the daemon when the spawning macOS GUI login
+    // session dies. An orcad daemon must survive its SSH session ending — that is the point.
+    await initDaemonPtyProvider(undefined, { macosLoginSessionWatch: false })
   } catch (error) {
-    const reason = errorMessage(error)
+    const reason = error instanceof Error ? error.message : String(error)
     console.error(
       `[orcad] The terminal daemon did not start: ${reason}\n` +
         '[orcad] Terminals will run in-process and WILL NOT survive an orcad restart.'

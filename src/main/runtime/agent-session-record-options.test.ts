@@ -1,17 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { readNativeSessionOptions } from '../native-chat/agent-session-wire/structured-agent-session-option-restoration'
-import {
-  openTestAgentSessionRecordStore,
-  seedTestAgentSessionRecordStore
-} from './agent-session-record-store-test-harness'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
-import { agentSessionRecordFixture } from '../../shared/agent-session-record.test-fixture'
-import { AcpStructuredOptions } from '../acp/acp-structured-options'
-import { NewSessionResponseSchema } from '../acp/generated/acp-protocol.generated'
+import { AgentSessionRecordStore } from './agent-session-record-store'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'session-options'
@@ -53,77 +45,8 @@ it('drops provider-rejected persisted options before the next owner proof', asyn
   ).resolves.toEqual({ model: 'provider-model', other: 'keep' })
 })
 
-it('omits empty model values from other option producers', async () => {
-  await expect(
-    readNativeSessionOptions({
-      adapter: { readOptions: async () => ({ models: [], current: { model: '', effort: 'off' } }) },
-      sessionId: SESSION,
-      fence: 2,
-      priorOptions: { model: 'old-model', other: 'keep' }
-    })
-  ).resolves.toEqual({ effort: 'off', other: 'keep' })
-})
-
-it('durably replaces model-less ACP options when a later report reaches the option writer', async () => {
-  const response = NewSessionResponseSchema.parse(
-    JSON.parse(
-      readFileSync(
-        new URL('../acp/fixtures/omp-v17-windows-new-no-model.json', import.meta.url),
-        'utf8'
-      )
-    )
-  )
-  const reader = new AcpStructuredOptions()
-  reader.adoptSession(response)
-  const fixture = agentSessionRecordFixture()
-  const record = {
-    ...fixture,
-    provider: 'omp',
-    options: reader.reported(),
-    providerHandleChain: fixture.providerHandleChain.map((link) => ({
-      ...link,
-      handle: { transport: 'acp', agent: 'omp', nativeId: response.sessionId }
-    }))
-  }
-  await seedTestAgentSessionRecordStore(directory, { records: [record] })
-  const store = await openTestAgentSessionRecordStore(directory)
-  expect(store.getRecord(record.sessionId)?.options).toEqual({ effort: 'off' })
-
-  reader.adoptConfigOptions([
-    ...(response.configOptions ?? []),
-    {
-      id: 'model',
-      name: 'Model',
-      category: 'model',
-      type: 'select',
-      currentValue: 'reported-model',
-      options: [{ value: 'reported-model', name: 'Reported Model' }]
-    }
-  ])
-  const options = await readNativeSessionOptions({
-    adapter: { readOptions: async () => reader.read() },
-    sessionId: record.sessionId,
-    fence: record.lease.runtimeFence,
-    priorOptions: store.getRecord(record.sessionId)?.options
-  })
-  if (!options) {
-    throw new Error('The later ACP report must provide options')
-  }
-  await store.replaceSessionOptions({
-    sessionId: record.sessionId,
-    fence: record.lease.runtimeFence,
-    options,
-    now: NOW
-  })
-  const reopened = await openTestAgentSessionRecordStore(directory)
-  expect(reopened.getRecord(record.sessionId)?.options).toEqual({
-    model: 'reported-model',
-    effort: 'off'
-  })
-})
-
 it('persists resumed provider options atomically with owner proof', async () => {
-  const store = await openTestAgentSessionRecordStore(directory)
+  const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
   const reserved = await store.reserveOwner({
     sessionId: SESSION,
     location: {
@@ -173,7 +96,7 @@ it('persists resumed provider options atomically with owner proof', async () => 
     fence,
     link: {
       linkId: 'codex-options-1',
-      handle: codexProviderHandle('thread-options'),
+      handle: { provider: 'codex', threadId: 'thread-options' },
       origin: 'created',
       mintedAtFence: fence,
       observedAt: NOW
@@ -182,6 +105,6 @@ it('persists resumed provider options atomically with owner proof', async () => 
     ...(options ? { options } : {})
   })
 
-  const reopened = await openTestAgentSessionRecordStore(directory)
+  const reopened = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
   expect(reopened.getRecord(SESSION)?.options).toEqual({ model: 'gpt-tui', effort: 'low' })
 })

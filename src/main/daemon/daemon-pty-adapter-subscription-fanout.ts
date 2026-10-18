@@ -1,31 +1,27 @@
-import type { PtyBackgroundStreamEvent } from '../providers/pty-provider-contract'
+import type { PtyBackgroundStreamEvent } from '../providers/types'
 import { combineUnsubscribes } from './combine-unsubscribes'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import type { DaemonPtyRouterDataEvent, DaemonPtyRouterExitEvent } from './daemon-pty-router-events'
 
 export class DaemonPtyAdapterSubscriptionFanout {
   private unsubscribers: (() => void)[] = []
-  private readonly adapterUnsubscribers = new Map<DaemonPtyAdapter, (() => void)[]>()
   private dataListeners: ((payload: DaemonPtyRouterDataEvent) => void)[] = []
   private exitListeners: ((payload: DaemonPtyRouterExitEvent) => void)[] = []
 
-  private readonly adapters: DaemonPtyAdapter[]
-
   constructor(
-    adapters: readonly DaemonPtyAdapter[],
-    onAdapterExit: (id: string, adapter: DaemonPtyAdapter) => void,
+    private readonly adapters: readonly DaemonPtyAdapter[],
+    onAdapterExit: (id: string) => void,
     onAdapterIdentityChanged?: (adapter: DaemonPtyAdapter) => void
   ) {
-    this.adapters = [...adapters]
-    for (const adapter of this.adapters) {
-      const unsubscribers = [
+    for (const adapter of adapters) {
+      this.unsubscribers.push(
         adapter.onData((payload) => {
           for (const listener of this.dataListeners) {
             listener(payload)
           }
         }),
         adapter.onExit((payload) => {
-          onAdapterExit(payload.id, adapter)
+          onAdapterExit(payload.id)
           for (const listener of this.exitListeners) {
             listener(payload)
           }
@@ -33,28 +29,7 @@ export class DaemonPtyAdapterSubscriptionFanout {
         ...(onAdapterIdentityChanged && typeof adapter.onDaemonIdentityChanged === 'function'
           ? [adapter.onDaemonIdentityChanged(() => onAdapterIdentityChanged(adapter))]
           : [])
-      ]
-      this.adapterUnsubscribers.set(adapter, unsubscribers)
-      this.unsubscribers.push(...unsubscribers)
-    }
-  }
-
-  dropAdapter(adapter: DaemonPtyAdapter): void {
-    const index = this.adapters.indexOf(adapter)
-    if (index !== -1) {
-      this.adapters.splice(index, 1)
-    }
-    const unsubscribers = this.adapterUnsubscribers.get(adapter)
-    if (!unsubscribers) {
-      return
-    }
-    this.adapterUnsubscribers.delete(adapter)
-    for (const unsubscribe of unsubscribers) {
-      unsubscribe()
-      const listed = this.unsubscribers.indexOf(unsubscribe)
-      if (listed !== -1) {
-        this.unsubscribers.splice(listed, 1)
-      }
+      )
     }
   }
 

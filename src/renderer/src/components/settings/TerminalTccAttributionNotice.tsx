@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { Button } from '../ui/button'
+import { useAppStore } from '../../store'
 import { translate } from '@/i18n/i18n'
-import { openTerminalManageSessions } from './open-terminal-manage-sessions'
-export { MANAGE_SESSIONS_SECTION_ID } from './open-terminal-manage-sessions'
+
+export const MANAGE_SESSIONS_SECTION_ID = 'terminal-manage-sessions'
 
 /**
  * Why this exists: macOS pins the TCC "responsible process" of the detached terminal
@@ -44,9 +45,23 @@ export function TerminalTccAttributionNotice(props: {
   refreshRevision?: number
 }): React.JSX.Element | null {
   const severed = useMacTccAttributionSevered(props.refreshRevision)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
+  const setSettingsSearchQuery = useAppStore((s) => s.setSettingsSearchQuery)
 
   if (!severed) {
     return null
+  }
+
+  const openManageSessions = (): void => {
+    // Why: a stale Settings search would hide the Manage Sessions section this points at.
+    setSettingsSearchQuery('')
+    openSettingsTarget({
+      pane: 'terminal',
+      repoId: null,
+      sectionId: MANAGE_SESSIONS_SECTION_ID
+    })
+    openSettingsPage()
   }
 
   return (
@@ -72,12 +87,7 @@ export function TerminalTccAttributionNotice(props: {
         </div>
       </div>
       {props.showManageSessionsButton !== false && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={openTerminalManageSessions}
-        >
+        <Button variant="outline" size="sm" className="shrink-0" onClick={openManageSessions}>
           {translate(
             'auto.components.settings.TerminalTccAttributionNotice.openManageSessions',
             'Open Manage Sessions'

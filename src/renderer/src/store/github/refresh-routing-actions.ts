@@ -9,10 +9,6 @@ import {
   shouldEnqueueLocalPRRefresh
 } from './repository-routing'
 import { buildPRRefreshCandidate, findWorktreeById } from './worktree-refresh'
-import {
-  hasNonGitHubReview,
-  shouldCoordinateVisibleGitHubReview
-} from './visible-hosted-review-refresh-ownership'
 
 export const createRefreshRoutingActions = (
   set: Parameters<StateCreator<AppState>>[0],
@@ -22,24 +18,12 @@ export const createRefreshRoutingActions = (
   | 'enqueueGitHubPRRefresh'
   | 'reportVisibleGitHubPRRefreshCandidates'
   | 'bumpGitHubPRVisibleRefreshGeneration'
-  | 'setVisibleReviewCardWorktreeIds'
 > => ({
-  setVisibleReviewCardWorktreeIds: (ids) => {
-    set((s) =>
-      s.visibleReviewCardWorktreeIds?.length === ids.length &&
-      ids.every((id, index) => s.visibleReviewCardWorktreeIds[index] === id)
-        ? s
-        : { visibleReviewCardWorktreeIds: ids }
-    )
-  },
   enqueueGitHubPRRefresh: (worktreeId, reason, priority = 0) => {
     const state = get()
     const worktree = findWorktreeById(state, worktreeId)
     const candidate = worktree ? buildPRRefreshCandidate(state, worktree) : null
     if (!candidate) {
-      return
-    }
-    if (worktree && hasNonGitHubReview(state, worktree, candidate)) {
       return
     }
     if (getPRRefreshRuntimeRepoTarget(state, candidate)) {
@@ -70,28 +54,25 @@ export const createRefreshRoutingActions = (
     })
   },
 
-  reportVisibleGitHubPRRefreshCandidates: async (worktreeIds, generation) => {
-    set((s) =>
-      s.visibleReviewWorktreeIds?.length === worktreeIds.length &&
-      worktreeIds.every((id, index) => s.visibleReviewWorktreeIds[index] === id)
-        ? s
-        : { visibleReviewWorktreeIds: worktreeIds }
-    )
+  reportVisibleGitHubPRRefreshCandidates: (worktreeIds, generation) => {
     const state = get()
     const candidates = worktreeIds
       .map((id) => {
         const worktree = findWorktreeById(state, id)
-        const candidate = worktree ? buildPRRefreshCandidate(state, worktree) : null
-        return worktree &&
-          candidate &&
-          shouldCoordinateVisibleGitHubReview(state, worktree, candidate)
-          ? candidate
-          : null
+        return worktree ? buildPRRefreshCandidate(state, worktree) : null
       })
       .filter((candidate): candidate is GitHubPRRefreshCandidate => candidate !== null)
     const localCandidates: GitHubPRRefreshCandidate[] = []
     for (const candidate of candidates) {
       if (getPRRefreshRuntimeRepoTarget(state, candidate)) {
+        void get().fetchPRForBranch(candidate.repoPath, candidate.branch, {
+          repoId: candidate.repoId,
+          worktreeId: candidate.worktreeId,
+          linkedPRNumber: candidate.linkedPRNumber ?? null,
+          fallbackPRNumber: candidate.fallbackPRNumber ?? null,
+          fallbackPRSource: candidate.fallbackPRSource ?? null,
+          reason: 'visible'
+        })
         continue
       }
       if (shouldEnqueueLocalPRRefresh(candidate)) {
@@ -100,7 +81,7 @@ export const createRefreshRoutingActions = (
     }
     const reportVisible = window.api.gh.reportVisiblePRRefreshCandidates
     if (reportVisible) {
-      await reportVisible({ candidates: localCandidates, generation }).catch((err) => {
+      void reportVisible({ candidates: localCandidates, generation }).catch((err) => {
         console.warn('Failed to report visible PR refresh candidates:', err)
       })
     }

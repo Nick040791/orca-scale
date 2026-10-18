@@ -167,8 +167,6 @@ describe('ActivityThreadListPane collapsible sections', () => {
             onJumpToWorkspace={vi.fn()}
             onMarkThreadRead={vi.fn()}
             onMarkThreadUnread={vi.fn()}
-            onMarkThreadsRead={vi.fn()}
-            onMarkThreadsUnread={vi.fn()}
             canJumpToWorkspace={() => true}
             showFilterControls={false}
             showOptionsMenu={false}
@@ -224,8 +222,6 @@ describe('ActivityThreadListPane collapsible sections', () => {
             onJumpToWorkspace={vi.fn()}
             onMarkThreadRead={vi.fn()}
             onMarkThreadUnread={vi.fn()}
-            onMarkThreadsRead={vi.fn()}
-            onMarkThreadsUnread={vi.fn()}
             canJumpToWorkspace={() => true}
             showFilterControls={false}
             showOptionsMenu={false}
@@ -273,8 +269,6 @@ describe('ActivityThreadListPane collapsible sections', () => {
             onJumpToWorkspace={vi.fn()}
             onMarkThreadRead={vi.fn()}
             onMarkThreadUnread={onMarkThreadUnread}
-            onMarkThreadsRead={vi.fn()}
-            onMarkThreadsUnread={vi.fn()}
             canJumpToWorkspace={() => true}
             allowMarkUnreadWhenSelected
             showFilterControls={false}

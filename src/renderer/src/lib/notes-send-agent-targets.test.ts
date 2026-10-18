@@ -6,7 +6,6 @@ import {
 } from '../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../shared/terminal-tab-types'
 import { makePaneKey } from '../../../shared/stable-pane-id'
-import { structuredAgentSessionPaneKey } from '../../../shared/structured-agent-session-projection'
 import {
   deriveNotesSendAgentTargets,
   type NotesSendAgentTargetState
@@ -83,7 +82,6 @@ function state(
   overrides: Partial<{
     agentStatusByPaneKey: Record<string, AgentStatusEntry>
     tabsByWorktree: Record<string, TerminalTab[]>
-    unifiedTabsByWorktree: NotesSendAgentTargetState['unifiedTabsByWorktree']
     terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot>
     ptyIdsByTabId: Record<string, string[]>
     runtimePaneTitlesByTabId: Record<string, Record<number, string>>
@@ -93,12 +91,11 @@ function state(
   return {
     agentStatusByPaneKey: {},
     tabsByWorktree: { [WORKTREE_ID]: [] },
-    unifiedTabsByWorktree: {},
     terminalLayoutsByTabId,
     ptyIdsByTabId: deriveLivePtyIdsByTabId(terminalLayoutsByTabId),
     runtimePaneTitlesByTabId: {},
     ...overrides
-  }
+  } as NotesSendAgentTargetState
 }
 
 function deriveLivePtyIdsByTabId(
@@ -129,7 +126,7 @@ describe('notes send agent targets', () => {
       {
         paneKey,
         tabId: STATUS_TAB_ID,
-        messageTarget: { kind: 'terminal', tabId: STATUS_TAB_ID, leafId: LEAF_A },
+        leafId: LEAF_A,
         agentType: 'codex',
         tabTitle: 'Terminal 1',
         status: 'eligible'
@@ -197,7 +194,7 @@ describe('notes send agent targets', () => {
       {
         paneKey: makePaneKey(LAUNCH_TAB_ID, LEAF_B),
         tabId: LAUNCH_TAB_ID,
-        messageTarget: { kind: 'terminal', tabId: LAUNCH_TAB_ID, leafId: LEAF_B },
+        leafId: LEAF_B,
         agentType: 'codex',
         tabTitle: 'Terminal 2',
         status: 'eligible'
@@ -222,7 +219,7 @@ describe('notes send agent targets', () => {
       {
         paneKey: makePaneKey(MANUAL_TAB_ID, LEAF_B),
         tabId: MANUAL_TAB_ID,
-        messageTarget: { kind: 'terminal', tabId: MANUAL_TAB_ID, leafId: LEAF_B },
+        leafId: LEAF_B,
         agentType: 'codex',
         tabTitle: 'Terminal 2',
         status: 'eligible'
@@ -414,7 +411,7 @@ describe('notes send agent targets', () => {
     expect(targets).toHaveLength(1)
     expect(targets[0]).toMatchObject({
       tabId: LAUNCH_TAB_ID,
-      messageTarget: { kind: 'terminal', tabId: LAUNCH_TAB_ID, leafId: LEAF_A },
+      leafId: LEAF_A,
       status: 'eligible'
     })
   })
@@ -439,7 +436,7 @@ describe('notes send agent targets', () => {
     expect(targets).toHaveLength(1)
     expect(targets[0]).toMatchObject({
       tabId: MANUAL_TAB_ID,
-      messageTarget: { kind: 'terminal', tabId: MANUAL_TAB_ID, leafId: LEAF_A },
+      leafId: LEAF_A,
       status: 'eligible'
     })
   })
@@ -467,7 +464,7 @@ describe('notes send agent targets', () => {
       {
         paneKey,
         tabId: LAUNCH_TAB_ID,
-        messageTarget: { kind: 'terminal', tabId: LAUNCH_TAB_ID, leafId: LEAF_B },
+        leafId: LEAF_B,
         agentType: 'codex',
         tabTitle: 'Previous Codex session',
         status: 'eligible'
@@ -674,7 +671,7 @@ describe('notes send agent targets', () => {
       {
         paneKey: makePaneKey(MANUAL_TAB_ID, LEAF_B),
         tabId: MANUAL_TAB_ID,
-        messageTarget: { kind: 'terminal', tabId: MANUAL_TAB_ID, leafId: LEAF_B },
+        leafId: LEAF_B,
         agentType: 'opencode',
         tabTitle: 'Terminal 2',
         status: 'eligible'
@@ -701,44 +698,6 @@ describe('notes send agent targets', () => {
 
     expect(targets).toEqual([
       expect.objectContaining({ paneKey, agentType: 'opencode', status: 'eligible' })
-    ])
-  })
-
-  it('lists a chat before its first turn, which the shared sidebar targets leave out', () => {
-    const chatTabId = 'structured-agent-session-claude_1'
-    const targets = deriveNotesSendAgentTargets(
-      state({
-        unifiedTabsByWorktree: {
-          [WORKTREE_ID]: [
-            {
-              id: chatTabId,
-              entityId: 'claude_1',
-              groupId: 'group-1',
-              worktreeId: WORKTREE_ID,
-              contentType: 'agent-session',
-              agentSessionAgent: 'claude',
-              label: 'Claude Chat',
-              customLabel: null,
-              color: null,
-              sortOrder: 0,
-              createdAt: 1
-            }
-          ]
-        }
-      }),
-      WORKTREE_ID,
-      NOW
-    )
-
-    expect(targets).toEqual([
-      {
-        paneKey: structuredAgentSessionPaneKey(chatTabId, 'claude_1'),
-        tabId: chatTabId,
-        messageTarget: { kind: 'structured-session', sessionId: 'claude_1' },
-        agentType: 'claude',
-        tabTitle: 'Claude Chat',
-        status: 'eligible'
-      }
     ])
   })
 })

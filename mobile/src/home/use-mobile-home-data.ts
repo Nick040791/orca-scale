@@ -10,7 +10,7 @@ import {
   mobileOnboardingDestination
 } from '../onboarding/mobile-onboarding-plan'
 import { totalHomeStats, type HomeStatsRow } from '../stats/home-stats-total'
-import type { TaskProvider } from '../../../src/shared/task-providers'
+import type { TaskProvider } from '../tasks/mobile-task-providers'
 import {
   selectConnectableHostProfiles,
   sortHostsByLastConnected
@@ -164,6 +164,10 @@ export function useMobileHomeData() {
     () => sortedHosts.filter((host) => connections.hostStates[host.id] === 'connected'),
     [sortedHosts, connections.hostStates]
   )
+  const primaryHost = connectedHosts[0] ?? null
+  const primaryTaskProviders = primaryHost
+    ? (taskProvidersByHost[primaryHost.id] ?? ['github'])
+    : []
   const hostConnections = useMemo(
     () => projectHomeHostConnections(connections.allClients),
     [connections.allClients]
@@ -175,12 +179,13 @@ export function useMobileHomeData() {
     connectedHosts,
     hostCatalog,
     hostConnections,
+    primaryHost,
+    primaryTaskProviders,
     resumeCard,
     router,
     setHostCatalog,
     sortedHostCatalog,
     stats,
-    taskProvidersByHost,
     worktreeInfo
   }
 }

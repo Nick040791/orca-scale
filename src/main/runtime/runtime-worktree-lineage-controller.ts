@@ -1,5 +1,4 @@
 import type { WorktreeLineage, WorkspaceLineage } from '../../shared/worktree/lineage-types'
-import type { ExecutionHostId } from '../../shared/execution-host'
 import type { WorkspaceKey } from '../../shared/folder-workspace-types'
 import {
   folderWorkspaceKey,
@@ -10,10 +9,8 @@ import { sharesResolvedWorktreeLineageBoundary } from '../../shared/resolved-wor
 import type { OrchestrationDb } from './orchestration/db'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
-import { isWslMoveWorktreeBlocked } from '../persistence/moving-wsl-projects/wsl-move-background-backoff'
 import {
   RuntimeLineageError,
-  enforceCreateLineageHostBoundary,
   resolveRuntimeWorktreeCreateLineage,
   type ResolvedWorkspaceParent,
   type WorktreeLineageCandidate,
@@ -33,11 +30,8 @@ type RuntimeWorktreeLineageDependencies = {
 export class RuntimeWorktreeLineageController {
   constructor(private readonly deps: RuntimeWorktreeLineageDependencies) {}
 
-  async resolveCreate(
-    input?: WorktreeLineageInput,
-    childHostId?: ExecutionHostId
-  ): Promise<WorktreeLineageResolution> {
-    const resolution = await resolveRuntimeWorktreeCreateLineage(input, {
+  async resolveCreate(input?: WorktreeLineageInput): Promise<WorktreeLineageResolution> {
+    return resolveRuntimeWorktreeCreateLineage(input, {
       resolveParent: (selector) => this.resolveParent(selector),
       resolveWorktreeParent: (selector) => this.resolveWorktreeParent(selector),
       resolveTaskCandidate: (taskId) => this.resolveTaskCandidate(taskId),
@@ -54,7 +48,6 @@ export class RuntimeWorktreeLineageController {
         }
       }
     })
-    return enforceCreateLineageHostBoundary(resolution, childHostId)
   }
 
   async resolveParent(selector: string): Promise<ResolvedWorkspaceParent> {
@@ -97,18 +90,15 @@ export class RuntimeWorktreeLineageController {
     if (!sharesResolvedWorktreeLineageBoundary(child, parent)) {
       throw new RuntimeLineageError(
         'LINEAGE_PARENT_CONTEXT_CONFLICT',
-        'Parent worktree must be on the same execution host.'
+        'Parent worktree must belong to the same repository, execution host, and project.'
       )
     }
-    const hostId = child.hostId ?? parent.hostId
     const instanceById = new Map(
-      this.deps
-        .getCachedWorktrees()
-        ?.filter((worktree) => !hostId || !worktree.hostId || worktree.hostId === hostId)
-        .map((worktree) => [worktree.id, worktree.instanceId]) ?? []
+      this.deps.getCachedWorktrees()?.map((worktree) => [worktree.id, worktree.instanceId]) ?? [
+        [child.id, child.instanceId],
+        [parent.id, parent.instanceId]
+      ]
     )
-    instanceById.set(child.id, child.instanceId)
-    instanceById.set(parent.id, parent.instanceId)
     let cursor: string | undefined = parent.id
     const visited = new Set<string>([child.id])
     while (cursor) {
@@ -158,11 +148,7 @@ export class RuntimeWorktreeLineageController {
       return
     }
     for (const worktree of await this.deps.listResolvedWorktrees()) {
-      if (
-        store.getWorktreeLineage(worktree.id) ||
-        !worktree.instanceId ||
-        isWslMoveWorktreeBlocked(worktree.id, worktree.hostId, worktree.path)
-      ) {
+      if (store.getWorktreeLineage(worktree.id) || !worktree.instanceId) {
         continue
       }
       const taskId = worktree.comment?.match(/\btask_[A-Za-z0-9]+\b/)?.[0]

@@ -98,7 +98,7 @@ async function continueOnboarding(page: Page): Promise<void> {
 }
 
 async function selectCodexAgent(page: Page): Promise<void> {
-  const codexButton = page.getByRole('button', { name: 'Codex', exact: true })
+  const codexButton = page.getByRole('button', { name: /^Codex\s/ })
   const codexVisible = await codexButton
     .first()
     .waitFor({ state: 'visible', timeout: 1_000 })
@@ -298,15 +298,11 @@ async function renderedTabIds(page: Page): Promise<string[]> {
 }
 
 async function expectTerminalSurface(page: Page): Promise<void> {
-  const terminalSurface = page
-    .locator('[data-terminal-tab-id][data-terminal-layout-leaf-ids]:visible')
-    .first()
-  await expect(terminalSurface).toBeVisible({ timeout: 30_000 })
-  await expect(terminalSurface).not.toHaveAttribute('data-os-file-drop-owner')
-  await expect(terminalSurface.locator('.pane[data-leaf-id]').first()).toHaveAttribute(
-    'data-os-file-drop-owner',
-    ''
-  )
+  await expect
+    .poll(() => page.locator('[data-terminal-tab-id]').count(), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+  const terminalSurface = page.locator('[data-terminal-tab-id]').first()
+  await expect(terminalSurface).toHaveAttribute('data-native-file-drop-target', 'terminal')
 }
 
 async function waitForTerminalPaneManager(page: Page): Promise<void> {

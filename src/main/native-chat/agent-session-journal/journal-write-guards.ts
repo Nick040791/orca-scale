@@ -5,22 +5,16 @@
 
 export class AgentSessionJournalError extends Error {
   constructor(
-    readonly code:
-      | 'journal_read_only'
-      | 'journal_stale_fence'
-      | 'journal_closed'
-      | 'journal_submission_exists'
-      | 'journal_row_rejected',
-    message: string,
-    options?: ErrorOptions
+    readonly code: 'journal_read_only' | 'journal_stale_fence' | 'journal_closed',
+    message: string
   ) {
-    super(message, options)
+    super(message)
     this.name = 'AgentSessionJournalError'
   }
 }
 
-/** A newer Orca's database is never written: this host cannot represent rows it does not
- *  understand. */
+/** A journal written by a newer schema is readable but never writable: this
+ *  host cannot represent rows it does not understand. */
 export function assertJournalWritable(readOnly: boolean, sessionId: string): void {
   if (readOnly) {
     throw new AgentSessionJournalError(
@@ -37,20 +31,6 @@ export function assertJournalFence(fence: number, highestFence: number): void {
     throw new AgentSessionJournalError(
       'journal_stale_fence',
       `fence ${fence} is behind the journal's ${highestFence}`
-    )
-  }
-}
-
-/** One id, one delivery: a second submission row under an id would reset its
- *  settled answer to pending and hand the message over again. */
-export function assertSubmissionIdUnused(
-  submissions: ReadonlyMap<string, unknown>,
-  clientMessageId: string
-): void {
-  if (submissions.has(clientMessageId)) {
-    throw new AgentSessionJournalError(
-      'journal_submission_exists',
-      `a submission ${clientMessageId} is already recorded`
     )
   }
 }

@@ -115,17 +115,7 @@ try {
     bundles.unshift(['baseline', baseline])
   }
 
-  runDocker([
-    'build',
-    '--platform',
-    platform,
-    ...(process.env.ORCA_DAEMON_SHUTDOWN_FIXTURE_CACHE_IMAGE
-      ? ['--cache-from', process.env.ORCA_DAEMON_SHUTDOWN_FIXTURE_CACHE_IMAGE]
-      : []),
-    '-t',
-    image,
-    dockerDir
-  ])
+  runDocker(['build', '--platform', platform, '-t', image, dockerDir])
   for (const [mode, bundlePath] of bundles) {
     const result = runDocker(
       [

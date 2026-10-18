@@ -7,7 +7,7 @@ import type { TuiAgent } from './tui-agent'
 import type {
   RepoSourceControlAiOverrides,
   SourceControlAiModelChoice,
-  AiTextOperation,
+  SourceControlAiOperation,
   SourceControlAiSettings
 } from './source-control-ai-types'
 
@@ -114,20 +114,18 @@ export function selectPersistedModelId(args: {
   source: SourceControlAiSettings
   legacy: CommitMessageAiSettings | null | undefined
   repoOverrides: RepoSourceControlAiOverrides | null | undefined
-  operation: AiTextOperation
+  operation: SourceControlAiOperation
   hostKey: string
   agentId: TuiAgent
   defaultModelId: string
 }): string {
   const { source, legacy, repoOverrides, operation, hostKey, agentId, defaultModelId } = args
   return (
-    (operation === 'conversationName'
-      ? undefined
-      : readSourceControlAiModelChoiceForHost(
-          repoOverrides?.modelOverridesByOperation?.[operation],
-          hostKey,
-          agentId
-        )) ??
+    readSourceControlAiModelChoiceForHost(
+      repoOverrides?.modelOverridesByOperation?.[operation],
+      hostKey,
+      agentId
+    ) ??
     readSourceControlAiModelChoiceForHost(
       source.modelOverridesByOperation?.[operation],
       hostKey,
@@ -154,17 +152,15 @@ export function resolveThinkingLevel(args: {
   source: SourceControlAiSettings
   legacy: CommitMessageAiSettings | null | undefined
   repoOverrides: RepoSourceControlAiOverrides | null | undefined
-  operation: AiTextOperation
+  operation: SourceControlAiOperation
 }): string | undefined {
   if (!args.model.thinkingLevels?.length) {
     return undefined
   }
   const persisted =
-    (args.operation === 'conversationName'
-      ? undefined
-      : args.repoOverrides?.modelOverridesByOperation?.[args.operation]?.selectedThinkingByModel?.[
-          args.model.id
-        ]) ??
+    args.repoOverrides?.modelOverridesByOperation?.[args.operation]?.selectedThinkingByModel?.[
+      args.model.id
+    ] ??
     args.source.modelOverridesByOperation?.[args.operation]?.selectedThinkingByModel?.[
       args.model.id
     ] ??

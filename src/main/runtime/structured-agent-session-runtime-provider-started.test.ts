@@ -1,5 +1,5 @@
-// A Claude child proving its start must not wait on another session's start, and must not make
-// that start, or the session's own serialized operations, wait on the CLI: the host
+// A Claude child proving its start must not wait on another session's exit recovery, and must
+// not make that recovery, or the session's own serialized operations, wait on the CLI: the host
 // records what the child proved from what the adapter already holds.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,13 +13,12 @@ const CALLER = { callerKey: 'client-1' }
 let claude = createScriptedClaudeRuntime([STALLED, HEALTHY])
 
 afterEach(async () => {
-  vi.restoreAllMocks()
   await claude.dispose()
   claude = createScriptedClaudeRuntime([STALLED, HEALTHY])
 })
 
 describe('a Claude child proving its start', () => {
-  it("never holds another session's start, or its own close, on a CLI read", async () => {
+  it("never holds another session's exit recovery, or its own close, on a CLI read", async () => {
     claude.behave(STALLED, { stallsControlReads: true })
     const host = await claude.install()
 
@@ -33,9 +32,8 @@ describe('a Claude child proving its start', () => {
       ok: true
     })
     await vi.waitFor(() => expect(claude.child(STALLED).calls).toContain('get_settings'))
-    await vi.waitFor(() =>
-      expect(host.collaboratorsForTests().sessions.get(STALLED)?.child?.phase).toBe('ready')
-    )
+    // Its `started` reaches the shared chain ahead of the exit below.
+    await new Promise((resolve) => setImmediate(resolve))
 
     claude.child(HEALTHY).exit(new Error('claude stream-json exited (code 1): crashed'))
     await vi.waitFor(() =>
@@ -44,53 +42,80 @@ describe('a Claude child proving its start', () => {
 
     // What the child proved is still recorded, from the startup it already answered.
     await vi.waitFor(() =>
-      expect(host.collaboratorsForTests().sessions.get(STALLED)?.child?.phase).toBe('ready')
+      expect(host.deps.store.getRecord(STALLED)?.options).toEqual({
+        model: 'claude-sonnet-5',
+        effort: 'high'
+      })
     )
-    expect(host.deps.store.getRecord(STALLED)?.options).toBeUndefined()
-    expect(host.deps.store.getRecord(STALLED)?.providerHandleChain).toHaveLength(1)
     expect(claude.child(STALLED).calls).toEqual(['get_settings'])
 
     let closed = false
-    void host.close(STALLED, 'evict').then(() => {
+    void host.close(STALLED).then(() => {
       closed = true
     })
     await vi.waitFor(() => expect(closed).toBe(true))
   })
 
-  it("flips to ready while another session's start is still acquiring", async () => {
+  it("flips to ready while another session's exit recovery is still acquiring", async () => {
     const host = await claude.install()
-    // This start never returns from its spawn, so its lease stays reserved with no child.
+    await expect(host.attach(CALLER, claude.attachParams(HEALTHY, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await host.hold(HEALTHY, 'surface-1')
+    await waitForStructuredAgentSessionRecovery()
+
+    // Its exit recovery reacquires, and that spawn never returns. The exit hands the lease back
+    // and the restart queued behind it reserves it again at once, so `released` is not a state a
+    // poll can count on seeing; `reserved` with the spawn hanging is what "still acquiring" is.
     claude.behave(HEALTHY, { spawnHangs: true })
-    void host.attach(CALLER, claude.attachParams(HEALTHY, null)).catch(() => undefined)
+    claude.child(HEALTHY).exit(new Error('claude stream-json exited (code 1): crashed'))
     await vi.waitFor(() =>
       expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('reserved')
     )
-    const childrenWhileHung = claude.children(HEALTHY).length
+    expect(claude.children(HEALTHY)).toHaveLength(1)
 
     await expect(host.attach(CALLER, claude.attachParams(STALLED, null))).resolves.toMatchObject({
       ok: true
     })
     await vi.waitFor(() =>
-      expect(host.collaboratorsForTests().sessions.get(STALLED)?.child?.phase).toBe('ready')
+      expect(host.deps.store.getRecord(STALLED)?.options).toEqual({
+        model: 'claude-sonnet-5',
+        effort: 'high'
+      })
     )
-    // The other start is still where it was: reserved, with no new child.
+    // The other recovery is still where it was: reserved, with no child yet.
     expect(host.deps.store.getRecord(HEALTHY)?.lease.claimStatus).toBe('reserved')
-    expect(claude.children(HEALTHY)).toHaveLength(childrenWhileHung)
+    expect(claude.children(HEALTHY)).toHaveLength(1)
   })
 
-  it('records the proven start without overwriting saved choices with provider reports', async () => {
+  it('is drained by the runtime before teardown proceeds', async () => {
     const host = await claude.install()
-    const replaceOptions = vi.spyOn(host.deps.store, 'replaceSessionOptions')
-    const saved = { model: 'opus', effort: 'low' }
-    await expect(
-      host.attach(CALLER, claude.attachParams(HEALTHY, null, { options: saved }))
-    ).resolves.toMatchObject({ ok: true })
-    await vi.waitFor(() =>
-      expect(host.collaboratorsForTests().sessions.get(HEALTHY)?.child?.phase).toBe('ready')
-    )
+    const store = host.deps.store
+    const replaceSessionOptions = store.replaceSessionOptions.bind(store)
+    let landWrite = (): void => {}
+    const writeHeld = new Promise<void>((resolve) => {
+      landWrite = resolve
+    })
+    let writing = false
+    vi.spyOn(store, 'replaceSessionOptions').mockImplementation(async (input) => {
+      writing = true
+      await writeHeld
+      return replaceSessionOptions(input)
+    })
+    await expect(host.attach(CALLER, claude.attachParams(HEALTHY, null))).resolves.toMatchObject({
+      ok: true
+    })
+    await vi.waitFor(() => expect(writing).toBe(true))
 
-    expect(host.deps.store.getRecord(HEALTHY)?.providerHandleChain).toHaveLength(1)
-    expect(host.deps.store.getRecord(HEALTHY)?.options).toEqual(saved)
-    expect(replaceOptions).not.toHaveBeenCalled()
+    let drained = false
+    const recovery = waitForStructuredAgentSessionRecovery().then(() => {
+      drained = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(drained).toBe(false)
+
+    landWrite()
+    await recovery
+    expect(store.getRecord(HEALTHY)?.options).toEqual({ model: 'claude-sonnet-5', effort: 'high' })
   })
 })

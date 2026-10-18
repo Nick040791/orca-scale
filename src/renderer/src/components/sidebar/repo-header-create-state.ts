@@ -14,8 +14,7 @@ export type RepoHeaderCreateState = {
 export function getRepoHeaderCreateState(input: {
   repo: Repo
   label: string
-  /** From selectRepoSshGateInput, so a paired server's own target reads that server's state. */
-  sshGate: { connectionId: string | null; status: SshConnectionStatus | null }
+  sshStatus: SshConnectionStatus | null
 }): RepoHeaderCreateState {
   if (!isGitRepoKind(input.repo)) {
     return {
@@ -34,7 +33,10 @@ export function getRepoHeaderCreateState(input: {
     }
   }
 
-  const sshGate = getSelectedRepoSshGate(input.sshGate)
+  const sshGate = getSelectedRepoSshGate({
+    connectionId: input.repo.connectionId,
+    status: input.repo.connectionId ? input.sshStatus : null
+  })
   if (sshGate.selectedRepoRequiresConnection) {
     return {
       disabled: true,

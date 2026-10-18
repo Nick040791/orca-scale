@@ -20,7 +20,6 @@ export class LazyWorkerThreadHost<TResponse> {
   private idleTimer: NodeJS.Timeout | null = null
   private cleanupListeners: (() => void) | null = null
   private reportedUnavailable = false
-  private retiring: Promise<void> | null = null
 
   constructor(
     private readonly options: {
@@ -33,11 +32,6 @@ export class LazyWorkerThreadHost<TResponse> {
       isIdle: () => boolean
       /** First spawn failure only: a repeating one must not repeat the log. */
       onUnavailable: (error: unknown) => void
-      /**
-       * No replacement until a terminated worker has exited (#24572): terminate()
-       * cannot interrupt a native call, so respawning would stack threads on it.
-       */
-      awaitRetirement?: boolean
     }
   ) {}
 
@@ -45,18 +39,10 @@ export class LazyWorkerThreadHost<TResponse> {
     return this.worker
   }
 
-  /** A terminated worker has not exited yet, so `ensure` refuses to spawn. */
-  get isRetiring(): boolean {
-    return this.retiring !== null
-  }
-
   /** The live worker, spawning one if needed; null when no worker can be had. */
   ensure(): WorkerRequestTransport | null {
     if (this.worker) {
       return this.worker
-    }
-    if (this.retiring) {
-      return null
     }
     try {
       const worker = this.options.factory()
@@ -94,13 +80,7 @@ export class LazyWorkerThreadHost<TResponse> {
     this.cleanupListeners?.()
     this.cleanupListeners = null
     worker.removeAllListeners()
-    // A rejected terminate still ends retirement, so it cannot latch spawning off.
-    const exited = worker.terminate().catch(() => undefined)
-    if (this.options.awaitRetirement) {
-      this.retiring = exited.then(() => {
-        this.retiring = null
-      })
-    }
+    void worker.terminate().catch(() => undefined)
   }
 
   scheduleIdleTeardown(): void {

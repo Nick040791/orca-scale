@@ -35,7 +35,7 @@ describe('resolveGitHubPrStartPointForRepo', () => {
       resolveGitHubPrStartPointForRepo({
         repoId: 'repo-1',
         prNumber: 42,
-        target: { kind: 'local' as const },
+        settings: { activeRuntimeEnvironmentId: null },
         headRefName: 'feature/fix',
         baseRefName: 'main',
         isCrossRepository: false
@@ -67,7 +67,7 @@ describe('resolveGitHubPrStartPointForRepo', () => {
       resolveGitHubPrStartPointForRepo({
         repoId: 'repo-runtime',
         prNumber: 7,
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         headRefName: 'feature/runtime',
         baseRefName: 'develop',
         isCrossRepository: true
@@ -101,7 +101,7 @@ describe('resolveGitHubPrStartPointForRepo', () => {
       resolveGitHubPrStartPointForRepo({
         repoId: 'repo-1',
         prNumber: 99,
-        target: { kind: 'local' }
+        settings: null
       })
     ).rejects.toThrow('Could not resolve PR head.')
   })

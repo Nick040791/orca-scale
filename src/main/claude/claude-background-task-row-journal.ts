@@ -1,9 +1,12 @@
 import type {
-  AgentJournalItemIdentity,
-  AgentJournalTurnScope
+  AgentJournalItemBody,
+  AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
-import { backgroundTaskJournalBody } from '../../shared/native-chat-background-task-row'
-import { isBackgroundTaskBlock } from '../../shared/native-chat-types'
+import { backgroundTaskFallbackText } from '../../shared/native-chat-background-task-row'
+import {
+  isBackgroundTaskBlock,
+  type NativeChatBackgroundTaskBlock
+} from '../../shared/native-chat-types'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionLifecycleJournal,
@@ -33,7 +36,15 @@ export function claudeBackgroundTaskIdentity(
   return { provider: 'orca', clientMessageId: key }
 }
 
-export const claudeBackgroundTaskBody = backgroundTaskJournalBody
+export function claudeBackgroundTaskBody(
+  block: NativeChatBackgroundTaskBlock
+): AgentJournalItemBody {
+  return {
+    kind: 'message',
+    role: 'system',
+    blocks: [{ type: 'text', text: backgroundTaskFallbackText(block) }, { ...block }]
+  }
+}
 
 /** Reconcile one queued row against the durable run identity after a rebind. */
 export function resolveClaudeBackgroundTaskIdentity(
@@ -130,8 +141,6 @@ export function writeClaudeBackgroundTaskRow(
   identities: ClaudeBackgroundTaskIdentityResolver,
   id: string,
   row: ClaudeBackgroundTaskRow,
-  /** The turn the row belongs to, read once `beforeAppend` has opened it. */
-  turnScope: () => AgentJournalTurnScope,
   /** Runs before admission to preserve turn-before-row ordering; duplicate
    *  delivery skips it, and a retry reuses the turn the first attempt opened. */
   beforeAppend?: () => void,
@@ -144,12 +153,11 @@ export function writeClaudeBackgroundTaskRow(
   }
   beforeAppend?.()
   const identity = claudeBackgroundTaskIdentity(id, row.generation)
-  // A task row a later run reuses (`resolveClaudeBackgroundTaskIdentity`) is that run's work now.
-  const appendOptions = {
-    turnScope: turnScope(),
-    executes: true as const,
-    ...(lifecycle ? { lifecycle: true } : {})
-  }
+  // Generation is translator-local and resets when a provider stream is
+  // recreated. Keep unresolved writes from distinct provider runs queued side
+  // by using the provider's parent tool identity as the coalescing discriminator.
+  const coalescingKey = JSON.stringify(['claude-background-task', id, row.toolUseId ?? null])
+  const appendOptions = { coalescingKey, ...(lifecycle ? { lifecycle: true } : {}) }
   const publishOptions = lifecycle ? { lifecycle: true } : {}
   const resolveIdentity = (journal: StructuredAgentSessionLifecycleJournal) =>
     identities.resolve(journal, id, row.toolUseId)

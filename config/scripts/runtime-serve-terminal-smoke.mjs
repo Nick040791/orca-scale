@@ -28,17 +28,10 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import process from 'node:process'
-import {
-  ORCAD_CLI_ENTRY_FILENAME,
-  ORCAD_SERVER_ENTRY_FILENAME
-} from '../../src/shared/orcad-artifacts.ts'
-import { packagedNodeRuntimePath } from './build-orcad-node.mjs'
-import { currentTarget } from './server-build-target.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const serveEntry = join(projectDir, 'out', 'main', 'index.js')
-const ORCAD_DIR = join(projectDir, 'out', 'orcad')
-const ORCAD_ENTRY = join(ORCAD_DIR, ORCAD_SERVER_ENTRY_FILENAME)
+const ORCAD_ENTRY = join(projectDir, 'out', 'orcad', 'orcad.js')
 const READY_TIMEOUT_MS = 120_000
 const OUTPUT_TIMEOUT_MS = 30_000
 const SHUTDOWN_TIMEOUT_MS = 15_000
@@ -55,21 +48,11 @@ function fail(message) {
 }
 
 /**
- * Orcad uses its packaged CLI and Node; Electron prefers the checkout's desktop CLI.
+ * Prefer the CLI built from this checkout over whatever `orca` is on PATH: it is the
+ * version under test, and a CI runner has no installed Orca app to fall back on.
  */
-export function resolveCli(target, root = projectDir) {
-  if (target === 'orcad') {
-    const directory = join(root, 'out', 'orcad')
-    const built = join(directory, ORCAD_CLI_ENTRY_FILENAME)
-    if (!existsSync(built)) {
-      throw new Error(`Missing packaged Orcad CLI at ${built}; run pnpm build:orcad`)
-    }
-    return {
-      command: packagedNodeRuntimePath(directory, currentTarget()),
-      prefix: [built]
-    }
-  }
-  const built = join(root, 'out', 'cli', 'index.js')
+function resolveCli() {
+  const built = join(projectDir, 'out', 'cli', 'index.js')
   return existsSync(built)
     ? { command: process.execPath, prefix: [built] }
     : { command: 'orca', prefix: [] }
@@ -77,7 +60,7 @@ export function resolveCli(target, root = projectDir) {
 
 /** The `orca` CLI, driven with an explicit pairing code so it targets this server only. */
 function orca(pairingCode, args) {
-  const cli = resolveCli(smokeTarget())
+  const cli = resolveCli()
   const result = spawnSync(
     cli.command,
     [...cli.prefix, ...args, '--pairing-code', pairingCode, '--json'],
@@ -183,21 +166,16 @@ async function waitForNonce(pairingCode, terminalHandle, nonce) {
  * contract as the Electron server, proven by the same code rather than a parallel test
  * that could drift into asserting less.
  */
-function smokeTarget() {
+function resolveLaunch(userDataDir) {
   // Why a flag and not just an env var: package scripts have to set this on Windows too,
   // and `FOO=bar cmd` is not portable there.
   const flagIndex = process.argv.indexOf('--target')
-  return flagIndex !== -1
-    ? process.argv[flagIndex + 1]
-    : (process.env.ORCA_SMOKE_TARGET ?? 'electron')
-}
-
-function resolveLaunch(userDataDir) {
-  const target = smokeTarget()
+  const target =
+    flagIndex !== -1 ? process.argv[flagIndex + 1] : (process.env.ORCA_SMOKE_TARGET ?? 'electron')
   if (target === 'orcad') {
     return {
       label: `orcad (${ORCAD_ENTRY})`,
-      command: packagedNodeRuntimePath(ORCAD_DIR, currentTarget()),
+      command: process.execPath,
       args: [ORCAD_ENTRY, '--port', String(PORT), '--json'],
       env: { ORCA_USER_DATA: userDataDir }
     }
@@ -220,7 +198,7 @@ function resolveLaunch(userDataDir) {
     label: `electron (${serveEntry})`,
     command: override ?? 'npx',
     args: override ? serveArgs : ['electron', ...serveArgs],
-    env: { ORCA_DEV_USER_DATA_PATH: userDataDir }
+    env: {}
   }
 }
 
@@ -369,28 +347,12 @@ async function main() {
       )
     }
     log('terminal round trip OK')
-    if (launch.env.ORCA_USER_DATA && process.platform !== 'win32') {
-      const cliNonce = randomBytes(8).toString('hex')
-      orca(pairingCode, [
-        'terminal',
-        'send',
-        '--terminal',
-        terminal.handle,
-        '--text',
-        `orca status && orca worktree ps --json && printf 'ORCA_CLI_%s\\n' '${cliNonce}'`,
-        '--enter'
-      ])
-      if (!(await waitForNonce(pairingCode, terminal.handle, `ORCA_CLI_${cliNonce}`))) {
-        throw new Error('The managed terminal could not run the execution host CLI')
-      }
-      log('execution host CLI round trip OK')
-    }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error))
   } finally {
     // Why before SIGTERM: worktree removal is a server operation, so it needs the server.
     if (seeded?.worktreeId && pairing) {
-      const cleanupCli = resolveCli(smokeTarget())
+      const cleanupCli = resolveCli()
       const removed = spawnSync(
         cleanupCli.command,
         [
@@ -426,9 +388,7 @@ async function main() {
       child.kill('SIGTERM')
       const exited = await Promise.race([
         new Promise((r) => child.on('exit', () => r(true))),
-        // unref'd: the loser of this race must not hold the event loop open after the
-        // winner already decided. The timer still bounds the wait.
-        new Promise((r) => setTimeout(() => r(false), SHUTDOWN_TIMEOUT_MS).unref())
+        new Promise((r) => setTimeout(() => r(false), SHUTDOWN_TIMEOUT_MS))
       ])
       if (!exited) {
         child.kill('SIGKILL')
@@ -446,6 +406,4 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  await main()
-}
+await main()

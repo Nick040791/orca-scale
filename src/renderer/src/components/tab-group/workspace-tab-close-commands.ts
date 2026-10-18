@@ -3,7 +3,6 @@ import { useAppStore } from '../../store'
 import { requestEditorFileClose } from '../editor/editor-autosave'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { closeWorkspaceBrowserTab } from '@/lib/workspace-browser-tab-close'
-import { isEditorTabContentType } from '@/store/slices/editor/tabs/editor-tab-content-type'
 
 export function createWorkspaceTabCloseCommands({
   worktreeId,
@@ -12,24 +11,23 @@ export function createWorkspaceTabCloseCommands({
   worktreeId: string
   groupTabs: Tab[]
 }) {
-  const { closeUnifiedTab, closeFile } = useAppStore.getState()
+  const { closeUnifiedTab, closeFile, setActiveWorktree } = useAppStore.getState()
 
-  const closeEditorIfUnreferenced = (
-    entityId: string,
-    closingTabId: string,
-    whenEmptied: (() => void) | null
-  ) => {
+  const closeEditorIfUnreferenced = (entityId: string, closingTabId: string) => {
     const otherReference = (useAppStore.getState().unifiedTabsByWorktree[worktreeId] ?? []).some(
       (item) =>
         item.id !== closingTabId &&
         item.entityId === entityId &&
-        isEditorTabContentType(item.contentType)
+        (item.contentType === 'editor' ||
+          item.contentType === 'diff' ||
+          item.contentType === 'conflict-review' ||
+          item.contentType === 'check-details')
     )
     if (!otherReference) {
       const file = useAppStore.getState().openFiles.find((candidate) => candidate.id === entityId)
       if (file?.isDirty) {
         // Why: route through Terminal.tsx so the unsaved-confirmation save/discard queue stays centralized across all close paths.
-        requestEditorFileClose(entityId, whenEmptied ? { onClosed: whenEmptied } : undefined)
+        requestEditorFileClose(entityId)
         return false
       }
       closeFile(entityId)
@@ -37,19 +35,31 @@ export function createWorkspaceTabCloseCommands({
     return true
   }
 
-  /** `whenEmptied` is captured by the caller when the close is requested, before any prompt. */
+  const leaveWorktreeIfEmpty = () => {
+    const state = useAppStore.getState()
+    if (state.activeWorktreeId !== worktreeId) {
+      return
+    }
+    // Why: split-group closes bypass legacy Terminal.tsx; deselect the emptied worktree here or the window goes blank instead of landing.
+    const { renderableTabCount } = state.reconcileWorktreeTabModel(worktreeId)
+    if (renderableTabCount === 0) {
+      setActiveWorktree(null)
+    }
+  }
+
   const closeItem = (
     itemId: string,
-    opts?: { whenEmptied?: () => void; skipRunningProcessConfirm?: boolean }
+    opts?: { skipEmptyCheck?: boolean; skipRunningProcessConfirm?: boolean }
   ) => {
     const item = groupTabs.find((candidate) => candidate.id === itemId)
     if (!item) {
       return
     }
-    const whenEmptied = opts?.whenEmptied ?? null
     if (item.contentType === 'agent-session') {
       closeUnifiedTab(item.id)
-      whenEmptied?.()
+      if (!opts?.skipEmptyCheck) {
+        leaveWorktreeIfEmpty()
+      }
       return
     }
     if (item.contentType === 'terminal') {
@@ -57,7 +67,7 @@ export function createWorkspaceTabCloseCommands({
       // empty check has to run on the actual close — never on cancel.
       closeTerminalTab(item.entityId, {
         ...(opts?.skipRunningProcessConfirm ? { skipRunningProcessConfirm: true } : {}),
-        ...(whenEmptied ? { onClosed: whenEmptied } : {})
+        ...(!opts?.skipEmptyCheck ? { onClosed: leaveWorktreeIfEmpty } : {})
       })
       return
     }
@@ -71,14 +81,16 @@ export function createWorkspaceTabCloseCommands({
     } else if (item.contentType === 'simulator') {
       closeUnifiedTab(item.id)
     } else {
-      const canCloseTab = closeEditorIfUnreferenced(item.entityId, item.id, whenEmptied)
+      const canCloseTab = closeEditorIfUnreferenced(item.entityId, item.id)
       if (!canCloseTab) {
         return
       }
       closeUnifiedTab(item.id)
     }
-    whenEmptied?.()
+    if (!opts?.skipEmptyCheck) {
+      leaveWorktreeIfEmpty()
+    }
   }
 
-  return { closeItem }
+  return { closeItem, leaveWorktreeIfEmpty }
 }

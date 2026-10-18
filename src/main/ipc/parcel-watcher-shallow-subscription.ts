@@ -2,7 +2,6 @@ import { statSync, watch, type FSWatcher } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Event as ParcelWatcherEvent } from '@parcel/watcher'
-import { watcherDirectoryIdentity } from './watcher-directory-identity'
 
 export type ShallowWatcherSubscription = {
   unsubscribe: () => Promise<void>
@@ -34,9 +33,7 @@ export function startShallowWatcher(
 ): ShallowWatcherSubscription {
   const pathsByDirectory = new Map<string, Set<string>>()
   for (const relativePath of relativePaths) {
-    const parts = relativePath
-      .split(process.platform === 'win32' ? /[\\/]+/ : /\/+/)
-      .filter(Boolean)
+    const parts = relativePath.split(/[\\/]+/).filter(Boolean)
     const fileName = parts.pop()
     if (!fileName) {
       continue
@@ -69,11 +66,11 @@ export function startShallowWatcher(
     )
   }
 
-  const watchDirectory = (parent: string, fileNames: Set<string>, rebind = false): boolean => {
+  const watchDirectory = (parent: string, fileNames: Set<string>, rebind = false): void => {
     const existing = watchers.get(parent)
     if (existing) {
       if (!rebind) {
-        return true
+        return
       }
       watchers.delete(parent)
       boundIdentities.delete(parent)
@@ -105,20 +102,18 @@ export function startShallowWatcher(
       })
       watcher.on('error', reportError)
       watchers.set(parent, watcher)
-      return true
     } catch (error) {
       // Nested metadata directories may not exist until Git creates them.
       if (parent === '') {
         reportError(error)
       }
-      return false
     }
   }
 
   const directoryIdentitySync = (parent: string): string | null => {
     try {
-      const entry = statSync(join(rootPath, parent), { bigint: true })
-      return watcherDirectoryIdentity(entry)
+      const entry = statSync(join(rootPath, parent))
+      return entry.isDirectory() ? `${entry.dev}:${entry.ino}` : null
     } catch {
       return null
     }
@@ -126,8 +121,8 @@ export function startShallowWatcher(
 
   const directoryIdentity = async (parent: string): Promise<string | null> => {
     try {
-      const entry = await stat(join(rootPath, parent), { bigint: true })
-      return watcherDirectoryIdentity(entry)
+      const entry = await stat(join(rootPath, parent))
+      return entry.isDirectory() ? `${entry.dev}:${entry.ino}` : null
     } catch {
       return null
     }
@@ -144,11 +139,11 @@ export function startShallowWatcher(
     }
     // Either the directory appeared after we started, or it was replaced while
     // watched. Both leave the old binding deaf, so rebind and resync.
-    if (!watchDirectory(parent, fileNames, true)) {
-      return
-    }
+    watchDirectory(parent, fileNames, true)
     boundIdentities.set(parent, identity)
-    emitUpdates(parent, fileNames)
+    if (bound !== undefined) {
+      emitUpdates(parent, fileNames)
+    }
   }
 
   const rebindTimer = setInterval(() => {

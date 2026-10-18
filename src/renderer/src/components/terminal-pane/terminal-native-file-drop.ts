@@ -1,64 +1,113 @@
 import { toast } from 'sonner'
+import { getConnectionId } from '@/lib/connection-context'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
+import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import { importExternalPathsToRuntime } from '@/runtime/runtime-file-import-client'
+import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
+import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
-import { isWslUncPath } from '../../../../shared/wsl-paths'
-import type { PtyTransport } from './pty-transport-types'
+import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
+import { isWslUncPath, parseWslUncPath } from '../../../../shared/wsl-paths'
+import type { PtyTransport } from './pty-transport'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import { reportTerminalDropUploadSkipsAndFailures } from './terminal-drop-upload-report'
-import {
-  type captureTerminalDropTarget,
-  getCurrentTerminalDropTransport
-} from './terminal-drop-target'
+import { captureTerminalDropTarget, getCurrentTerminalDropTransport } from './terminal-drop-target'
 import {
   getTerminalTargetShellForWorktreePath,
   isTerminalDropWindowsPathLike,
   resolveTerminalDropTargetShell
 } from './terminal-drop-shell'
 import { writeTerminalDropPathsToCapturedTarget } from './terminal-drop-path-writer'
+import { resolveNativeTerminalDropPane } from './terminal-drop-pane-resolution'
+import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
 import { showTerminalDropWriteFailure } from './terminal-drop-write-failure'
-import { joinRuntimeTerminalDropDir } from './terminal-drop-worktree-path'
-import type { captureTerminalDropTransportOwner } from './terminal-drop-transport-owner'
-import { toLocalWslDropPath } from './terminal-drop-local-wsl'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
+import { captureDirectSshMutationExpectation } from '@/lib/ssh-mutation-expectation'
+import {
+  joinRuntimeTerminalDropDir,
+  resolveTerminalDropWorktreePath
+} from './terminal-drop-worktree-path'
+import { captureRuntimeTerminalDropOwner } from './terminal-drop-runtime-owner'
 
-export async function deliverNativeTerminalFileDrop(
-  args: NativeDropFlowArgs & {
-    owner: ReturnType<typeof captureTerminalDropTransportOwner>
-    worktreeId: string
-    localWslDrop: boolean
-  }
+export type NativeTerminalFileDropArgs = {
+  manager: PaneManager
+  paneTransports: Map<number, PtyTransport>
+  worktreeId: string
+  tabId: string
+  cwd: string | undefined
+  data: { paths: string[]; target: string; tabId?: string; paneLeafId?: string }
+}
+
+/**
+ * Handle a native file drop targeted at a terminal pane.
+ *
+ * Local worktrees: paste the local absolute path (reference-in-place; no copy
+ * or IPC). SSH worktrees: upload each file into `${worktreePath}/.orca/drops`
+ * and paste the remote path so the remote agent can read it. See
+ * docs/terminal-drop-ssh.md.
+ */
+export async function handleNativeTerminalFileDrop(
+  args: NativeTerminalFileDropArgs
 ): Promise<void> {
-  const {
-    manager,
-    paneTransports,
-    worktreeId,
-    tabId,
-    pane,
-    dataPaths,
-    dropTarget,
-    owner,
-    worktreePath,
-    localWslDrop
-  } = args
-  if (owner?.runtimeEnvironmentId) {
+  try {
+    await handleNativeTerminalFileDropWithCapturedOwner(args)
+  } catch (err) {
+    // Why: native drop listeners fire-and-forget, so owner-capture failures must terminate here.
+    toast.error(extractIpcErrorMessage(err, 'Failed to drop files.'))
+  }
+}
+
+async function handleNativeTerminalFileDropWithCapturedOwner(
+  args: NativeTerminalFileDropArgs
+): Promise<void> {
+  const { manager, paneTransports, worktreeId, tabId, cwd, data } = args
+  if (data.paths.length === 0) {
+    return
+  }
+  const pane = resolveNativeTerminalDropPane(manager, data.paneLeafId)
+  if (!pane) {
+    return
+  }
+  const transport = paneTransports.get(pane.id)
+  if (!transport) {
+    return
+  }
+  const dropTarget = captureTerminalDropTarget(pane, transport)
+  const state = useAppStore.getState()
+  const settings = state.settings
+  const runtimeOwner = captureRuntimeTerminalDropOwner(worktreeId)
+  const worktreePath = resolveTerminalDropWorktreePath(worktreeId, cwd)
+  if (!worktreePath) {
+    toast.error(
+      translate(
+        'auto.components.terminal.pane.terminal.drop.handler.ce8248b835',
+        'Worktree path not available.'
+      )
+    )
+    return
+  }
+
+  if (runtimeOwner) {
     await uploadRuntimeDropPaths({
-      dataPaths,
+      dataPaths: data.paths,
       dropTarget,
       manager,
       paneTransports,
       pane,
+      settings,
       tabId,
       worktreeId,
       worktreePath,
-      ...owner,
-      runtimeEnvironmentId: owner.runtimeEnvironmentId
+      ...runtimeOwner
     })
     return
   }
 
-  const connectionId = owner?.connectionId
+  // Why: `getConnectionId` returns `string` (SSH), `null` (local repo found),
+  // or `undefined` (store not hydrated / worktree not found). Treat
+  // `undefined` as an error — otherwise a drop during hydration would
+  // silently paste local paths into a remote shell.
+  const connectionId = getConnectionId(worktreeId)
   if (connectionId === undefined) {
     toast.error(
       translate(
@@ -71,19 +120,20 @@ export async function deliverNativeTerminalFileDrop(
   const targetShell = resolveTerminalDropTargetShell({
     activeRuntimeEnvironmentId: null,
     worktreePath,
-    connectionId
+    connectionId,
+    remotePlatform: getTerminalPasteSshRemotePlatform(connectionId)
   })
   const isRemote = connectionId !== null
+  const localWslDrop = !isRemote && isWorktreeUsingLocalWslRuntime(state, worktreeId)
 
   if (!isRemote) {
     await pasteLocalDropPaths({
-      dataPaths,
+      dataPaths: data.paths,
       dropTarget,
       localWslDrop,
       manager,
       paneTransports,
       pane,
-      assertCurrent: owner?.assertCurrent,
       tabId,
       targetShell: localWslDrop ? 'posix' : targetShell,
       worktreePath
@@ -92,9 +142,9 @@ export async function deliverNativeTerminalFileDrop(
   }
 
   await uploadRemoteDropPaths({
-    ...owner,
     connectionId,
-    dataPaths,
+    ...captureDirectSshMutationExpectation(state, connectionId),
+    dataPaths: data.paths,
     dropTarget,
     manager,
     paneTransports,
@@ -105,12 +155,12 @@ export async function deliverNativeTerminalFileDrop(
   })
 }
 
-export type NativeDropFlowArgs = {
+type NativeDropFlowArgs = {
   dataPaths: string[]
   dropTarget: ReturnType<typeof captureTerminalDropTarget>
   manager: PaneManager
   paneTransports: Map<number, PtyTransport>
-  pane: { id: number; leafId: string }
+  pane: ReturnType<typeof resolveNativeTerminalDropPane> & {}
   tabId: string
   worktreePath: string
   expectedSshTargetId?: string
@@ -122,6 +172,7 @@ export type NativeDropFlowArgs = {
 async function uploadRuntimeDropPaths(
   args: NativeDropFlowArgs & {
     runtimeEnvironmentId: string
+    settings: ReturnType<typeof useAppStore.getState>['settings']
     worktreeId: string
   }
 ): Promise<void> {
@@ -139,7 +190,7 @@ async function uploadRuntimeDropPaths(
       {
         // Why: drops into existing worktrees must follow the worktree owner,
         // not the currently focused host in the sidebar.
-        target: runtimeTargetForOwnerEnvironment(args.runtimeEnvironmentId),
+        settings: { ...args.settings, activeRuntimeEnvironmentId: args.runtimeEnvironmentId },
         worktreeId: args.worktreeId,
         worktreePath: args.worktreePath,
         expectedExecutionHostId: args.expectedExecutionHostId,
@@ -227,7 +278,6 @@ async function uploadRemoteDropPaths(
 async function pasteResolvedDropPaths(
   args: NativeDropFlowArgs & { paths: string[]; targetShell: 'posix' | 'windows' }
 ): Promise<void> {
-  args.assertCurrent?.()
   // Why: pane may have unmounted during upload/resolution (tab closed,
   // worktree switched). Re-check before writing so we do not call sendInput
   // on a torn-down PTY.
@@ -250,4 +300,30 @@ async function pasteResolvedDropPaths(
   if (writeResult.sentAnyPath) {
     recordTerminalUserInputForLeaf(args.tabId, args.pane.leafId)
   }
+  if (writeResult.targetCurrent) {
+    args.pane.terminal.focus()
+  }
+}
+
+function isWorktreeUsingLocalWslRuntime(
+  state: ReturnType<typeof useAppStore.getState>,
+  worktreeId: string
+): boolean {
+  const projectRuntime = getLocalProjectExecutionRuntimeContext(state, worktreeId, CLIENT_PLATFORM)
+  if (projectRuntime?.status === 'repair-required') {
+    return projectRuntime.repair.preferredRuntime.kind === 'wsl'
+  }
+  return projectRuntime?.status === 'resolved' && projectRuntime.runtime.kind === 'wsl'
+}
+
+function toLocalWslDropPath(path: string): string {
+  const wslUnc = parseWslUncPath(path)
+  if (wslUnc) {
+    return wslUnc.linuxPath
+  }
+  if (isWindowsAbsolutePathLike(path)) {
+    const drive = path[0].toLowerCase()
+    return `/mnt/${drive}/${path.slice(3).replace(/\\/g, '/')}`
+  }
+  return path.replace(/\\/g, '/')
 }

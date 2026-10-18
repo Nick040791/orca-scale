@@ -138,21 +138,16 @@ export function useSettingsNavigationModel(
       navSections,
       getSettingsSectionSearchEntries
     ).map(({ item }) => item)
-    const visible = [...rankedSections]
-    for (const [id, dirty] of [
-      ['git', model.hasUnsavedCommitPromptChanges || model.hasUnsavedBranchPromptChanges],
-      ['chat', model.hasUnsavedChatPromptChanges]
-    ] as const) {
-      const section = navSectionById.get(id)
-      if (dirty && section && !visible.some((item) => item.id === id)) {
-        visible.push(section)
-      }
+    if (
+      !interactions.hasUnsavedSourceControlAiPromptChanges ||
+      rankedSections.some((section) => section.id === 'git')
+    ) {
+      return rankedSections
     }
-    return visible
+    const gitSection = navSectionById.get('git')
+    return gitSection ? [...rankedSections, gitSection] : rankedSections
   }, [
-    model.hasUnsavedCommitPromptChanges,
-    model.hasUnsavedBranchPromptChanges,
-    model.hasUnsavedChatPromptChanges,
+    interactions.hasUnsavedSourceControlAiPromptChanges,
     navSectionById,
     navSections,
     model.settingsSearchQuery

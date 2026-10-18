@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import {
   diffNativeChatTaskLists,
-  nativeChatTaskChangeWords,
   nativeChatTaskLabel,
   type NativeChatTask,
   type NativeChatTaskChange,
@@ -22,22 +21,22 @@ function statusLabel(task: NativeChatTask): string {
 }
 
 function changeLabel(change: NativeChatTaskChange): string {
-  const { key, task } = nativeChatTaskChangeWords(change)
-  switch (key) {
+  const values = { task: change.task.content }
+  switch (change.kind) {
     case 'added':
-      return translate('components.native-chat.taskList.added', 'Added {{task}}', { task })
+      return translate('components.native-chat.taskList.added', 'Added {{task}}', values)
     case 'removed':
-      return translate('components.native-chat.taskList.removed', 'Removed {{task}}', { task })
+      return translate('components.native-chat.taskList.removed', 'Removed {{task}}', values)
     case 'started':
-      return translate('components.native-chat.taskList.started', 'Started {{task}}', { task })
-    case 'finished':
-      return translate('components.native-chat.taskList.finished', 'Completed {{task}}', { task })
-    case 'reset':
-      return translate('components.native-chat.taskList.reset', 'Marked pending: {{task}}', {
-        task
-      })
+      return translate('components.native-chat.taskList.started', 'Started {{task}}', values)
+    case 'completed':
+      return translate('components.native-chat.taskList.finished', 'Completed {{task}}', values)
+    case 'pending':
+      return translate('components.native-chat.taskList.reset', 'Marked pending: {{task}}', values)
     case 'updated':
-      return translate('components.native-chat.taskList.updated', 'Updated {{task}}', { task })
+      return translate('components.native-chat.taskList.updated', 'Updated {{task}}', {
+        task: nativeChatTaskLabel(change.task)
+      })
   }
 }
 
@@ -47,8 +46,8 @@ function TaskRow({ task, label }: { task: NativeChatTask; label?: string }): Rea
   return (
     <li
       className={cn(
-        'flex items-start gap-1.5',
-        task.status === 'in_progress' && 'font-medium text-chat-foreground-strong'
+        'flex items-start gap-1.5 text-xs text-muted-foreground',
+        task.status === 'in_progress' && 'font-medium text-foreground'
       )}
     >
       <Icon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
@@ -67,7 +66,9 @@ function TaskRow({ task, label }: { task: NativeChatTask; label?: string }): Rea
 
 function Checklist({ list }: { list: TaskList }): React.JSX.Element {
   return list.tasks.length === 0 ? (
-    <p className="text-xs">{translate('components.native-chat.taskList.empty', 'No tasks')}</p>
+    <p className="text-xs text-muted-foreground">
+      {translate('components.native-chat.taskList.empty', 'No tasks')}
+    </p>
   ) : (
     <ul
       aria-label={translate('components.native-chat.taskList.title', 'Tasks')}
@@ -111,7 +112,7 @@ export function NativeChatTaskList({
           <ChevronRight aria-hidden className="size-3.5 group-data-[state=open]:rotate-90" />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="max-h-40 overflow-y-auto px-3 pb-2 text-xs text-muted-foreground scrollbar-sleek">
+          <div className="max-h-40 overflow-y-auto px-3 pb-2 scrollbar-sleek">
             <Checklist list={list} />
             {list.explanation ? (
               <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
@@ -125,8 +126,8 @@ export function NativeChatTaskList({
   }
   const changes = previous ? diffNativeChatTaskLists(previous, list) : null
   return (
-    <div className="space-y-1 py-1 text-sm text-chat-foreground-faint">
-      <div className="flex items-center gap-1.5 text-xs text-chat-foreground-faint">
+    <div className="space-y-1 py-1">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <ListChecks aria-hidden className="size-4 shrink-0" />
         <span className="font-medium">
           {translate('components.native-chat.taskList.title', 'Tasks')}
@@ -155,21 +156,16 @@ export function NativeChatTaskList({
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-chat-foreground-faint">
+            <p className="text-xs text-muted-foreground">
               {translate('components.native-chat.taskList.unchanged', 'Tasks unchanged')}
             </p>
           )}
           <Collapsible>
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="group flex items-center gap-1 rounded py-0.5 text-xs text-chat-foreground-faint hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ChevronRight aria-hidden className="size-3.5 group-data-[state=open]:rotate-90" />
-                {translate('components.native-chat.taskList.showAll', 'Full task list')}
-              </button>
+            <CollapsibleTrigger className="group flex items-center gap-1 rounded py-0.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ChevronRight aria-hidden className="size-3.5 group-data-[state=open]:rotate-90" />
+              {translate('components.native-chat.taskList.showAll', 'Full task list')}
             </CollapsibleTrigger>
-            <CollapsibleContent animation="height" data-native-chat-member-detail>
+            <CollapsibleContent>
               <Checklist list={list} />
             </CollapsibleContent>
           </Collapsible>
@@ -178,7 +174,7 @@ export function NativeChatTaskList({
         <Checklist list={list} />
       )}
       {list.explanation ? (
-        <p className="whitespace-pre-wrap break-words text-xs text-chat-foreground-faint">
+        <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
           {list.explanation}
         </p>
       ) : null}

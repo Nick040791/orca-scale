@@ -3,10 +3,8 @@ import type {
   MobileWebShellBridgeMessagePayload,
   OrcaMobileWebShellViewHandle
 } from '../../modules/orca-mobile-web-shell/src'
-import { useHostClient } from '../transport/host-client-hooks'
+import { useHostClient } from '../transport/client-context'
 import { createBridgeDiagnosticReporter } from './bridge-diagnostic-log'
-import { bridgeDiagnosticLine, frameWithoutHostLine } from './shell-bridge-log-lines'
-import { recordShellLifecycleLine } from './shell-lifecycle-line-recorder'
 import type { BridgeInitRoute } from './bridge/bridge-envelope'
 import type { BridgeClearableRouteParam } from './bridge/bridge-route-update'
 import type { BridgeSafeAreaInsets } from './bridge/bridge-safe-area-insets'
@@ -16,7 +14,10 @@ import type { BridgeSessionBack } from './bridge-host-back'
 import type { BridgeNavigateBackOutcome } from './bridge-host-contract'
 import type { BridgeNativeVerb } from './bridge/bridge-native-verbs'
 import type { BridgeErrorCapture } from './bridge/bridge-error-capture'
-import type { MobileWebShellSessionState } from './mobile-web-shell-session-contract'
+import type {
+  MobileWebShellSessionState,
+  PageReadyDeclaration
+} from './mobile-web-shell-session-contract'
 import type { PageHostSnapshot } from './use-page-host-snapshot'
 import type { PageStorageForInit } from './page-storage-keys'
 
@@ -61,8 +62,6 @@ export type MobileWebShellBridgeView = {
   readonly publishRoute: (route: BridgeInitRoute) => void
   /** Hands the mounted host moved safe-area insets; dropped with no host, as a route is. */
   readonly publishSafeAreaInsets: (insets: BridgeSafeAreaInsets) => void
-  /** Hands the mounted host a moved keyboard height; dropped with no host, as the insets are. */
-  readonly publishKeyboardInset: (height: number) => void
   /**
    * Hands the mounted host one Back press. False when there is no host, or when the document it
    * serves never said it takes one — the caller then leaves the key to the navigator.
@@ -87,15 +86,11 @@ export type MobileWebShellBridgeArgs = {
   route: BridgeInitRoute
   /** What the first `init` of a new host carries; later moves go through `publishSafeAreaInsets`. */
   safeAreaInsets: BridgeSafeAreaInsets
-  /** What the first `init` of a new host carries; later moves go through `publishKeyboardInset`. */
-  keyboardInset: number
   /** The route patterns the page keeps for itself; everything else comes back as `navigate`. */
   pageRoutes: readonly string[]
   pageRouteGrants: readonly { pathname: string; grants: readonly string[] }[]
   /** What this route declared, which is what `init` grants and what every grant check reads. */
   routeGrants: readonly string[]
-  /** This session owns the whole host area, which `init` tells the page. */
-  ownsHostArea?: boolean
   /** Opens a screen the page does not render, over the still-mounted view. */
   onNavigate: (href: string) => void
   /** Opens a URL outside the app, on the page's behalf. */
@@ -118,9 +113,10 @@ export type MobileWebShellBridgeArgs = {
   onStorageWrite: (key: string, value: string | null) => void
   /** The page could not render the generation on screen. Reported, never recovered from here. */
   onPageFault: (error: BridgeErrorCapture) => void
-  /** The page asked for a session. Reported so the screen can stop waiting for it. */
-  onPageReady: () => void
-  /** The page has a frame on screen. */
+  /** The page asked for a session, and what it declared it reports. Reported so the screen can
+   *  stop waiting for it, and so it knows whether a paint report is coming. */
+  onPageReady: (ready: PageReadyDeclaration) => void
+  /** The page has a frame on screen, from a page that said it would report one. */
   onPagePainted: () => void
   /** The page is holding the device Back key, or has let it go. False arrives on its own for
    *  every way a document ends, so no claim outlives the page that made it. */
@@ -162,8 +158,8 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
    *
    * The route in it is not the whole story any more (ruling 33.1). A same-path param change used
    * to be unreachable — the page routes once, before its first render, so a route that changed
-   * afterwards had nothing left to change, and every route file keyed on the whole route to make one
-   * a remount. The session route does not: a notification tap for another pane of the session on
+   * afterwards had nothing left to change, and every switch keyed on the whole route to make one
+   * a remount. The session switch does not: a notification tap for another pane of the session on
    * screen is a tab switch, so it keeps `paneKey` out of its key and hands the change to
    * `publishRoute` below, which re-sends `init` to a page that said it takes one.
    */
@@ -171,10 +167,6 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
   // Held rather than depended on, for the reason every prop above is: the identity settles with the
   // client, and taking it as a dependency would tear a live page session down to re-read a string.
   const clientIdRef = useRef(clientId)
-  // Read only by the dropped-frame log line, which says which of the two a host waits on.
-  const clientRef = useRef(client)
-  // The session a dropped frame was last logged for, so a page re-asking `ready` logs once.
-  const droppedFrameLoggedRef = useRef<string | null>(null)
   // Commit-phase and declared above the host's effect, so the host is built against what this
   // render passed: a native frame can land between a commit and a passive effect.
   //
@@ -184,7 +176,6 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
   useLayoutEffect(() => {
     argsRef.current = args
     clientIdRef.current = clientId
-    clientRef.current = client
   })
   const snapshot = args.snapshot
 
@@ -204,11 +195,9 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
       sessionId,
       route: latest.route,
       safeAreaInsets: latest.safeAreaInsets,
-      keyboardInset: latest.keyboardInset,
       pageRoutes: latest.pageRoutes,
       pageRouteGrants: latest.pageRouteGrants,
       routeGrants: latest.routeGrants,
-      ownsHostArea: latest.ownsHostArea === true,
       sessionEstablished: latest.sessionEstablished,
       ...(establishedBackRef.current?.sessionId === sessionId
         ? { sessionBack: establishedBackRef.current.back }
@@ -221,12 +210,7 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
           ? Promise.reject(new BridgeViewGoneError())
           : mounted.handle.postBridgeMessage(json)
       },
-      onDiagnostic: createBridgeDiagnosticReporter((diagnostic) => {
-        const line = bridgeDiagnosticLine(diagnostic)
-        if (line !== null) {
-          recordShellLifecycleLine(latest.hostId, line)
-        }
-      }),
+      onDiagnostic: createBridgeDiagnosticReporter(),
       onNavigate: (href) => argsRef.current.onNavigate(href),
       onNavigateBack: () => argsRef.current.onNavigateBack(),
       onExternalLink: (url) => argsRef.current.onExternalLink(url),
@@ -238,7 +222,7 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
       onRouteParamClear: (param, value) => argsRef.current.onRouteParamClear(param, value),
       onRouteRefused: (issue) => argsRef.current.onRouteRefused(issue),
       onBinaryFramesDropped: (total) => argsRef.current.onBinaryFramesDropped(total),
-      onPageReady: () => argsRef.current.onPageReady(),
+      onPageReady: (ready) => argsRef.current.onPageReady(ready),
       onPagePainted: () => argsRef.current.onPagePainted(),
       onPageBackClaim: (claimed) => argsRef.current.onPageBackClaim(claimed)
     })
@@ -268,20 +252,6 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
       (event: MobileWebShellBridgeMessageEvent) => {
         const mounted = hostRef.current
         if (mounted === null || mounted.sessionId !== sessionId) {
-          if (
-            mounted === null &&
-            sessionId !== null &&
-            droppedFrameLoggedRef.current !== sessionId
-          ) {
-            droppedFrameLoggedRef.current = sessionId
-            recordShellLifecycleLine(
-              argsRef.current.hostId,
-              frameWithoutHostLine({
-                clientReady: clientRef.current !== null,
-                snapshotReady: argsRef.current.snapshot !== null
-              })
-            )
-          }
           return
         }
         mounted.host.receive(event.nativeEvent.json)
@@ -309,15 +279,6 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
         const mounted = hostRef.current
         if (mounted !== null && mounted.sessionId === sessionId) {
           mounted.host.publishSafeAreaInsets(insets)
-        }
-      },
-      [buildId, client, sessionId, snapshot]
-    ),
-    publishKeyboardInset: useCallback(
-      (height: number) => {
-        const mounted = hostRef.current
-        if (mounted !== null && mounted.sessionId === sessionId) {
-          mounted.host.publishKeyboardInset(height)
         }
       },
       [buildId, client, sessionId, snapshot]

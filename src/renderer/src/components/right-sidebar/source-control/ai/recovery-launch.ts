@@ -2,17 +2,12 @@ import { toast } from 'sonner'
 import type { AppState } from '@/store'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 import { getConnectionId } from '@/lib/connection-context'
-import {
-  ensureDetectedAgentsForWorktree,
-  type WorktreeAgentInventoryState
-} from '@/lib/agent-detection-target-inventory'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import {
   pickSourceControlLaunchAgent,
   readSourceControlLaunchRecipeAgentId
-} from '../../../../../../shared/source-control-launch-agent-selection'
+} from '@/lib/source-control-launch-agent-selection'
 import { isTuiAgentEnabled } from '../../../../../../shared/tui-agent-selection'
 import type {
   SourceControlActionRecipe,
@@ -21,7 +16,10 @@ import type {
 import { buildSourceControlRecoveryAgentCommandInput } from '../../../../../../shared/source-control-recovery-agent-command'
 import { translate } from '@/i18n/i18n'
 
-type SourceControlAiLaunchStoreSnapshot = Pick<AppState, 'settings'> & WorktreeAgentInventoryState
+type SourceControlAiLaunchStoreSnapshot = Pick<
+  AppState,
+  'settings' | 'ensureDetectedAgents' | 'ensureRemoteDetectedAgents'
+>
 
 export type SourceControlRecoveryLaunchCopy = {
   promptUnavailable: string
@@ -90,7 +88,7 @@ export async function launchSourceControlRecoveryAgentWithDefault({
 }: {
   activeWorktreeId: string
   activeGroupId: string | null | undefined
-  activeSourceControlLaunchPlatform: NodeJS.Platform | undefined
+  activeSourceControlLaunchPlatform: NodeJS.Platform
   sourceRepoConnectionId?: string | null
   actionId: SourceControlLaunchActionId
   basePrompt: string | null
@@ -134,7 +132,10 @@ export async function launchSourceControlRecoveryAgentWithDefault({
     return false
   }
 
-  const detectedAgents = await ensureDetectedAgentsForWorktree(store, activeWorktreeId)
+  const detectedAgents =
+    typeof connectionId === 'string'
+      ? await store.ensureRemoteDetectedAgents(connectionId)
+      : await store.ensureDetectedAgents()
   const savedAgent = readSourceControlLaunchRecipeAgentId(savedRecipe)
   if (
     savedAgent &&
@@ -155,7 +156,6 @@ export async function launchSourceControlRecoveryAgentWithDefault({
     return false
   }
   const result = launchAgentInNewTab({
-    requestId: newAgentLaunchRequestId(),
     agent,
     worktreeId: activeWorktreeId,
     groupId: activeGroupId ?? activeWorktreeId,

@@ -3,8 +3,6 @@ import type { WebContents } from 'electron'
 import { acquireElectronDebugger, type ElectronDebuggerLease } from './electron-debugger-lease'
 import type { CdpClientResponseWriter } from './cdp-client-response-writer'
 import type { CdpSyntheticSessionRegistry } from './cdp-synthetic-session-registry'
-import { sendGuestCdpCommand } from './guest-cdp-command'
-import { isOrcaFrameSessionTraffic } from './guest-focused-frame-route'
 
 /**
  * The IO boundary with webContents.debugger: lease-based attach, event fan-out to
@@ -47,11 +45,6 @@ export class CdpDebuggerChannel {
         Record<string, unknown>,
         string | undefined
       ]
-      // Why: Orca's own frame sessions (focused cross-site frame input) were never asked for by
-      // the agent's client; their events would describe sessions it does not know.
-      if (isOrcaFrameSessionTraffic(this.webContents, method, params, sessionId || undefined)) {
-        return
-      }
       const client = this.getClient()
       if (!client || client.readyState !== WebSocket.OPEN) {
         return
@@ -93,9 +86,10 @@ export class CdpDebuggerChannel {
     params: Record<string, unknown>,
     sessionId?: string
   ): Promise<unknown> {
-    return sessionId
-      ? sendGuestCdpCommand(this.webContents, method, params, sessionId)
-      : sendGuestCdpCommand(this.webContents, method, params)
+    const command = sessionId
+      ? this.webContents.debugger.sendCommand(method, params, sessionId)
+      : this.webContents.debugger.sendCommand(method, params)
+    return Promise.resolve(command)
   }
 
   forwardCommand(

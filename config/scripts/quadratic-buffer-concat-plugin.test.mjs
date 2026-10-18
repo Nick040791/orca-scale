@@ -1,14 +1,14 @@
 import path from 'node:path'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { runOxlintPluginOnSources } from './oxlint-plugin-test-runner.mjs'
+import { describe, expect, it } from 'vitest'
+import { runOxlintPluginOnSource } from './oxlint-plugin-test-runner.mjs'
 
 const pluginPath = path.resolve('config/oxlint-plugins/quadratic-buffer-concat.mjs')
 
-function lintSources(sources) {
-  return runOxlintPluginOnSources({
+function lintSource(source) {
+  return runOxlintPluginOnSource({
     pluginName: 'quadratic-buffer-concat',
     pluginPath,
-    sources,
+    source,
     extension: 'ts',
     rules: {
       'quadratic-buffer-concat/no-loop-carried-concat': 'warn'
@@ -99,23 +99,15 @@ const accepted = [
   ['no Buffer concat', 'export const x = 1']
 ]
 
-const diagnosticsBySource = new Map()
-beforeAll(() => {
-  const sources = [...violations, ...accepted].map(([, source]) => source)
-  lintSources(sources).forEach((diagnostics, index) => {
-    diagnosticsBySource.set(sources[index], diagnostics)
-  })
-})
-
 describe('quadratic Buffer.concat Oxlint plugin', () => {
   it.each(violations)('reports %s', (_name, source, accumulator) => {
-    const diagnostics = diagnosticsBySource.get(source)
+    const diagnostics = lintSource(source)
 
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0].message).toContain(accumulator)
   })
 
   it.each(accepted)('accepts %s', (_name, source) => {
-    expect(diagnosticsBySource.get(source)).toEqual([])
+    expect(lintSource(source)).toEqual([])
   })
 })

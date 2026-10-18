@@ -1,29 +1,26 @@
 /**
- * Where a worker's agent comes from: the terminal the caller passed, or a fresh launch through the
- * shared executor — into a worktree this start creates or into an existing one.
+ * Where a worker's agent comes from: a worktree this start creates, a structured session, a new
+ * terminal in an existing worktree, or the terminal the caller passed.
  *
- * The executor owns the sequencing: a structured worker's worktree is created with no startup
- * agent, the host is then asked about the workspace that now exists, and only then is the session
- * created. What stays here is what makes it a worker: the worktree is created with the dispatch's
- * lineage and effects, and the surface is a background session or a `worker-<task>` terminal that
- * does not take the sidebar. The mode was decided before the dispatch record existed, so it is
- * handed in rather than decided again.
+ * A structured worker never takes the agent-first worktree path. `createWorkerWorktree` used to be
+ * the only way a new worktree was made, and it creates one WITH its startup agent terminal, which
+ * left the structured branch below it unreachable for every `--worktree new-child` dispatch. Here
+ * the worktree is created without a startup agent and the structured session is created for it
+ * afterwards — the same order the renderer's own structured worktree create uses.
  *
- * A refused structured session fails the start: the worker factory throws its own error, never the
- * executor's downgrade signal, so a dispatch that asked for a chat does not quietly get a terminal.
+ * That reorder is also why the host verdict lands here: `agentSession.createSupport` can only be
+ * asked about a workspace that exists, so for a created worktree it cannot run before the start.
+ * A refusal becomes a terminal agent in the worktree that was just created, never a failed start.
  */
 
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
-import { executeAgentLaunch } from '../../../../../agent-launch/agent-launch-executor'
-import type { AgentLaunchSurfaceFactory } from '../../../../../agent-launch/agent-launch-surface-factories'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { OrchestrationDb } from '../../../../orchestration/db'
 import {
-  WORKER_START_VOCABULARY,
+  resolveWorkerStartModeOnHost,
   type WorkerStartModeReceipt
 } from '../../orchestration-worker-start-mode'
-import { tearDownFailedWorkerStart } from './failed-worker-start-teardown'
 import type { WorkerStartInput } from './worker-start-schema'
 import {
   createExistingWorktreeWorkerTerminal,
@@ -59,7 +56,6 @@ type WorkerAgentPlacementArgs = {
   creationWorktree: PlacedWorktree | undefined
   /** The already-resolved placement, present only when this start does not create one. */
   resolvedWorktree: PlacedWorktree | undefined
-  /** Decided before the dispatch record; for an existing worktree, already settled on its host. */
   mode: WorkerStartModeReceipt
   agent: TuiAgent | undefined
   launchPreferences: AgentLaunchPreferences | undefined
@@ -82,8 +78,11 @@ export const EXISTING_WORKTREE_SETUP: WorkerSetupReceipt = {
 export async function placeWorkerAgent(
   args: WorkerAgentPlacementArgs
 ): Promise<WorkerAgentPlacement> {
-  const existing = args.creationWorktree ? undefined : requireWorktree(args.resolvedWorktree)
-  if (existing && args.params.terminal) {
+  if (args.creationWorktree) {
+    return placeInCreatedWorktree(args, args.creationWorktree)
+  }
+  const worktree = requireWorktree(args.resolvedWorktree)
+  if (args.params.terminal) {
     args.effects.push({
       kind: 'terminal',
       role: 'agent',
@@ -92,141 +91,92 @@ export async function placeWorkerAgent(
     })
     return {
       mode: args.mode,
-      worktree: existing,
+      worktree,
       terminalHandle: args.params.terminal,
       structuredSession: null,
       setupReceipt: EXISTING_WORKTREE_SETUP
     }
   }
-  return launchWorkerAgent(args, existing)
-}
-
-async function launchWorkerAgent(
-  args: WorkerAgentPlacementArgs,
-  existing: PlacedWorktree | undefined
-): Promise<WorkerAgentPlacement> {
-  const agent = requireAgent(args.agent)
-  let created: Awaited<ReturnType<typeof createWorkerWorktree>> | undefined
-  let structuredSession: WorkerStructuredSession | null = null
-  let launched: Awaited<ReturnType<typeof executeAgentLaunch>>
-  try {
-    launched = await executeAgentLaunch({
-      runtime: args.runtime,
-      intent: {
-        agent,
-        // The worker's own factory builds the create from the dispatch, so the target carries none.
-        target: existing
-          ? { kind: 'existing', worktree: existing.id }
-          : { kind: 'create-worktree', create: {} },
-        launchSource: 'orchestration'
-      },
-      decidedMode: args.mode,
-      vocabulary: WORKER_START_VOCABULARY,
-      onStage: (stage) =>
-        args.onStage(stage === 'worktree_create' ? 'worktree_create' : 'terminal_create'),
-      workspaces: {
-        createRecoveryShell: async (worktreeId) => {
-          const shell = await args.runtime.createTerminal(`id:${worktreeId}`, {
-            surfaceOwner: false
-          })
-          args.effects.push({
-            kind: 'terminal',
-            role: 'recovery_shell',
-            action: 'created',
-            id: shell.handle,
-            tabId: shell.tabId
-          })
-        },
-        createWorktree: async ({ startupAgent, promisedAgentChat, onWorkspaceCreated }) => {
-          created = await createWorkerWorktree({
-            runtime: args.runtime,
-            db: args.db,
-            dispatchId: args.dispatchId,
-            requestedWorktree: args.requestedWorktree,
-            coordinatorWorktree: requireWorktree(args.creationWorktree),
-            params: args.params,
-            agent,
-            // The executor withholds the startup agent exactly when the worker is to be a session.
-            withAgentTerminal: startupAgent !== undefined,
-            promisedAgentChat,
-            onWorkspaceCreated,
-            ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
-            effects: args.effects
-          })
-          return {
-            worktreeId: created.worktree.id,
-            startupTerminalHandle: created.terminalHandle
-          }
-        }
-      },
-      surfaces: workerSurfaceFactory(args, agent, (session) => {
-        structuredSession = session
-      })
-    })
-  } catch (error) {
-    // The caller only sees a returned placement, so a session made before this throw is ours.
-    await tearDownFailedWorkerStart({
-      runtime: args.runtime,
-      structuredSession,
-      dispatchId: args.dispatchId
-    })
-    throw error
-  }
   return {
-    mode: launched.receipt,
-    worktree: existing ?? requireWorktree(created?.worktree),
-    terminalHandle: launched.outcome.handle,
-    structuredSession,
-    setupReceipt: created?.setupReceipt ?? EXISTING_WORKTREE_SETUP,
-    ...(launched.warning ? { warning: launched.warning } : {})
+    mode: args.mode,
+    worktree,
+    ...(await createWorkerAgentSurface(args, worktree.id, args.mode)),
+    setupReceipt: EXISTING_WORKTREE_SETUP
   }
 }
 
-/** A worker's surface in a worktree that exists: a background session with the dispatch's redrive
- *  and mailbox, or a `worker-<task>` terminal that leaves the sidebar where the user has it. */
-function workerSurfaceFactory(
+async function placeInCreatedWorktree(
   args: WorkerAgentPlacementArgs,
-  agent: TuiAgent,
-  onStructuredSession: (session: WorkerStructuredSession) => void
-): AgentLaunchSurfaceFactory {
-  const recordSurfaceStage = (worktreeId: string): void => {
-    args.db.recordWorkerStage({
-      dispatchId: args.dispatchId,
-      stage: 'terminal_creating',
+  coordinatorWorktree: PlacedWorktree
+): Promise<WorkerAgentPlacement> {
+  args.onStage('worktree_create')
+  const created = await createWorkerWorktree({
+    runtime: args.runtime,
+    db: args.db,
+    dispatchId: args.dispatchId,
+    requestedWorktree: args.requestedWorktree,
+    coordinatorWorktree,
+    params: args.params,
+    agent: args.agent as TuiAgent,
+    withAgentTerminal: args.mode.mode !== 'structured',
+    ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
+    effects: args.effects
+  })
+  const worktree = requireWorktree(created.worktree)
+  if (args.mode.mode !== 'structured') {
+    return {
+      mode: args.mode,
+      worktree,
+      terminalHandle: requireTerminal(created.terminalHandle),
+      structuredSession: null,
+      setupReceipt: created.setupReceipt
+    }
+  }
+  args.onStage('terminal_create')
+  const mode = await resolveWorkerStartModeOnHost(args.runtime, args.mode, worktree.id, args.agent)
+  return {
+    mode,
+    worktree,
+    ...(await createWorkerAgentSurface(args, worktree.id, mode)),
+    setupReceipt: created.setupReceipt
+  }
+}
+
+/** The agent surface for a worktree that exists; the settled mode picks which one. */
+async function createWorkerAgentSurface(
+  args: WorkerAgentPlacementArgs,
+  worktreeId: string,
+  mode: WorkerStartModeReceipt
+): Promise<Pick<WorkerAgentPlacement, 'terminalHandle' | 'structuredSession' | 'warning'>> {
+  args.db.recordWorkerStage({
+    dispatchId: args.dispatchId,
+    stage: 'terminal_creating',
+    worktreeId,
+    effects: args.effects
+  })
+  if (mode.mode === 'structured') {
+    const structuredSession = await createStructuredWorkerSessionForWorktree({
+      runtime: args.runtime,
       worktreeId,
+      agent: args.agent as TuiAgent,
+      dispatchId: args.dispatchId,
+      ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
       effects: args.effects
     })
+    return { terminalHandle: structuredSession.identity.handle, structuredSession }
   }
+  const terminal = await createExistingWorktreeWorkerTerminal({
+    runtime: args.runtime,
+    worktreeId,
+    agent: args.agent as TuiAgent,
+    ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
+    taskId: args.taskId,
+    effects: args.effects
+  })
   return {
-    createStructuredSession: async ({ worktreeId }) => {
-      recordSurfaceStage(worktreeId)
-      const session = await createStructuredWorkerSessionForWorktree({
-        runtime: args.runtime,
-        worktreeId,
-        agent,
-        dispatchId: args.dispatchId,
-        ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
-        effects: args.effects
-      })
-      onStructuredSession(session)
-      return {
-        sessionId: session.identity.sessionId,
-        handle: session.identity.handle,
-        fence: session.fence
-      }
-    },
-    createTerminalAgent: async ({ worktreeId }) => {
-      recordSurfaceStage(worktreeId)
-      const terminal = await createExistingWorktreeWorkerTerminal({
-        runtime: args.runtime,
-        worktreeId,
-        agent,
-        ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
-        taskId: args.taskId,
-        effects: args.effects
-      })
-      return { handle: terminal.handle, ...(terminal.warning ? { warning: terminal.warning } : {}) }
-    }
+    terminalHandle: terminal.handle,
+    structuredSession: null,
+    ...(terminal.warning ? { warning: terminal.warning } : {})
   }
 }
 
@@ -237,10 +187,9 @@ function requireWorktree(worktree: PlacedWorktree | undefined): PlacedWorktree {
   return worktree
 }
 
-/** Validation refuses a fresh launch with no agent; this only narrows the type. */
-function requireAgent(agent: TuiAgent | undefined): TuiAgent {
-  if (!agent) {
-    throw new Error('Worker topology did not resolve an agent.')
+function requireTerminal(terminalHandle: string | undefined): string {
+  if (!terminalHandle) {
+    throw new Error('Worker topology did not resolve an agent terminal.')
   }
-  return agent
+  return terminalHandle
 }

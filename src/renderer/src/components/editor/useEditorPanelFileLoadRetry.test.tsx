@@ -169,7 +169,7 @@ describe('useEditorPanelFileLoadRetry — owner-not-ready bounding (#6648)', () 
     expect(attemptsRef.current[file.id]).toBe(1)
   })
 
-  it('stops after the budget and shows a truthful terminal message', () => {
+  it('stops after the budget and shows a truthful terminal message, then Retry re-arms', () => {
     const file = makeFile()
     const attemptsRef = { current: {} as Record<string, number> }
     // The owner never hydrates: every retry re-fails with owner-not-ready.
@@ -227,6 +227,10 @@ describe('useEditorPanelFileLoadRetry — owner-not-ready bounding (#6648)', () 
       )
     })
     expect(loadFileContent.mock.calls.length).toBe(callsAfterTerminal)
+
+    // Retry (reloadContent) clears the attempt budget for a fresh start.
+    delete attemptsRef.current[file.id]
+    expect(attemptsRef.current[file.id]).toBeUndefined()
   })
 
   it('stops immediately once the read succeeds (no terminal message)', () => {

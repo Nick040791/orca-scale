@@ -12,10 +12,12 @@ type ComposerNavigationActionsInput = Pick<
   | 'setActiveRuntimeEnvironmentPreference'
   | 'smartNameJiraSourceContext'
   | 'sourceIntentBlocksCreate'
+  | 'updateWorktreeMeta'
 >
 
 import { useCallback } from 'react'
 import { getTaskSourceRuntimeSettings } from '../../../../shared/task-source-context'
+import type { WorktreeMeta } from '../../../../shared/worktree/meta-types'
 
 export function useComposerNavigationActions(input: ComposerNavigationActionsInput) {
   const {
@@ -28,7 +30,8 @@ export function useComposerNavigationActions(input: ComposerNavigationActionsInp
     selectedProjectGroup,
     setActiveRuntimeEnvironmentPreference,
     smartNameJiraSourceContext,
-    sourceIntentBlocksCreate
+    sourceIntentBlocksCreate,
+    updateWorktreeMeta
   } = input
 
   const handleOpenAgentSettings = useCallback((): void => {
@@ -58,6 +61,20 @@ export function useComposerNavigationActions(input: ComposerNavigationActionsInp
     smartNameJiraSourceContext
   ])
 
+  const applyWorktreeMeta = useCallback(
+    async (worktreeId: string, meta: Partial<WorktreeMeta>): Promise<void> => {
+      if (Object.keys(meta).length === 0) {
+        return
+      }
+      try {
+        await updateWorktreeMeta(worktreeId, meta)
+      } catch {
+        console.error('Failed to update worktree meta after creation')
+      }
+    },
+    [updateWorktreeMeta]
+  )
+
   const folderCreateDisabled =
     creating ||
     sourceIntentBlocksCreate ||
@@ -68,6 +85,7 @@ export function useComposerNavigationActions(input: ComposerNavigationActionsInp
   return {
     handleOpenAgentSettings,
     handleOpenJiraSettings,
+    applyWorktreeMeta,
     folderCreateDisabled
   }
 }

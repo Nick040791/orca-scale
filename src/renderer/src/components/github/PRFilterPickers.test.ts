@@ -3,6 +3,7 @@ import {
   PULL_REQUEST_PICKER_QUERY_MAX_BYTES,
   filterPullRequestPickerOptions,
   getPullRequestPickerQueryState,
+  isPullRequestPickerQueryTooLarge,
   type PickerOption
 } from './PRFilterPickers'
 
@@ -37,6 +38,7 @@ describe('filterPullRequestPickerOptions', () => {
       }
     ]
 
+    expect(isPullRequestPickerQueryTooLarge(oversizedQuery)).toBe(true)
     expect(filterPullRequestPickerOptions(throwingOptions, oversizedQuery)).toEqual([])
   })
 

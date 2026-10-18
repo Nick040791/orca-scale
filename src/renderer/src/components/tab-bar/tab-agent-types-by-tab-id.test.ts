@@ -307,7 +307,7 @@ describe('selectTabAgentTypesByTabId', () => {
     expect(select({ settings: { experimentalNativeChat: true } })).toBe(first)
   })
 
-  it('keeps agent evidence available for explicit chat toggles while the default is off', () => {
+  it('releases enabled inputs on disable and rescans them after re-enabling', () => {
     const onStatusEntryVisited = vi.fn()
     const onAgentTypeLayoutVisited = vi.fn()
     const onUnsafeLayoutVisited = vi.fn()
@@ -323,17 +323,16 @@ describe('selectTabAgentTypesByTabId', () => {
     }
 
     const first = select(state)
-    const disabled = select({ ...state, settings: { experimentalNativeChat: false } })
+    select({ ...state, settings: { experimentalNativeChat: false } })
     const afterReenable = select(state)
 
-    expect(disabled.tabAgentTypesByTabId).toEqual({ 'tab-1': 'claude' })
     expect(afterReenable).not.toBe(first)
-    expect(onStatusEntryVisited).toHaveBeenCalledTimes(1)
-    expect(onAgentTypeLayoutVisited).toHaveBeenCalledTimes(1)
-    expect(onUnsafeLayoutVisited).toHaveBeenCalledTimes(1)
+    expect(onStatusEntryVisited).toHaveBeenCalledTimes(2)
+    expect(onAgentTypeLayoutVisited).toHaveBeenCalledTimes(2)
+    expect(onUnsafeLayoutVisited).toHaveBeenCalledTimes(2)
   })
 
-  it('production selector scans once and reuses agent evidence with Chat UI off', () => {
+  it('production selector skips all map scans while native chat is disabled', () => {
     let statusEnumerations = 0
     let layoutEnumerations = 0
     const statuses = new Proxy(
@@ -364,8 +363,8 @@ describe('selectTabAgentTypesByTabId', () => {
     for (let consumer = 0; consumer < 100; consumer++) {
       expect(selectTabBarAgentProjections(disabledState)).toBe(disabled)
     }
-    expect(statusEnumerations).toBe(1)
-    expect(layoutEnumerations).toBe(2)
+    expect(statusEnumerations).toBe(0)
+    expect(layoutEnumerations).toBe(0)
 
     const enabledState = {
       ...disabledState,

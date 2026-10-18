@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { extractTerminalHttpLinks } from './terminal-http-url-extraction'
-import { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
+import {
+  extractTerminalHttpLinks,
+  TERMINAL_HTTP_URL_MAX_LENGTH
+} from './terminal-url-link-hit-testing'
 
 afterEach(() => {
   vi.restoreAllMocks()

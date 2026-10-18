@@ -1,11 +1,6 @@
-import { useMemo } from 'react'
-import { getDetachedWorkspaceReviewRequest } from './workspace-detached-review-request'
-import { getLinearReadScope, scopedLinearCacheKey } from '@/store/slices/linear/linear-slice-scope'
-import { getWorkspaceAttachmentSourceContext } from './workspace-attachment-source-result'
-import { getWorkspaceReferenceLinearWorkspaceId } from './workspace-reference-details'
-import { getWorktreeGitIdentityDisplay } from '../../../../shared/worktree/git-identity-display'
+import { getWorktreeGitIdentityDisplay } from '@/lib/worktree-git-identity-display'
 import { useAppStore } from '@/store'
-import { getGitHubPRCacheKey } from '../../../../shared/github/github-cache-key'
+import { getGitHubPRCacheKey } from '@/store/slices/github-cache-key'
 import { issueCacheKey as getIssueCacheKey } from '@/store/github/cache-identity'
 import { getHostedReviewCacheKey } from '@/store/slices/hosted-review-cache-identity'
 import { hostedReviewInfoFromGitHubPRInfo } from '../../../../shared/hosted-review-github'
@@ -48,10 +43,8 @@ export function useWorktreeCardReviewDetails({
   const folderMetaRowContent = newCardStyle
     ? hasPathIdentityEnabled && Boolean(folderPathIdentityDisplay)
     : isFolder
-  const hostedReviewExactKey = getDetachedWorkspaceReviewRequest(worktree, repo)?.key
   const hostedReviewCacheKey =
-    hostedReviewExactKey ??
-    (repo && branch
+    repo && branch
       ? getHostedReviewCacheKey(
           repo.path,
           branch,
@@ -61,7 +54,7 @@ export function useWorktreeCardReviewDetails({
           repo.executionHostId,
           true
         )
-      : '')
+      : ''
   const prCacheKey =
     repo && branch
       ? getGitHubPRCacheKey(
@@ -86,21 +79,8 @@ export function useWorktreeCardReviewDetails({
           true
         )
       : ''
-  // Saved workspace bindings keep equal Linear identifiers separate.
-  const linearSourceContext = useMemo(
-    () => getWorkspaceAttachmentSourceContext('linear', repo, worktree),
-    [repo, worktree]
-  )
-  const linearWorkspaceId = getWorkspaceReferenceLinearWorkspaceId(
-    worktree.linkedLinearIssueWorkspaceId,
-    linearSourceContext
-  )
-  const linearIssueCacheKey = worktree.linkedLinearIssue
-    ? scopedLinearCacheKey(
-        getLinearReadScope(settings, linearSourceContext),
-        `${linearWorkspaceId}::${worktree.linkedLinearIssue}`
-      )
-    : ''
+  // Why: use 'all' — the issue may belong to a different Linear workspace than the selected one.
+  const linearIssueCacheKey = worktree.linkedLinearIssue ? `all::${worktree.linkedLinearIssue}` : ''
 
   // Subscribe to ONLY the specific cache entry, not entire review/issue caches.
   const hostedReviewEntry = useAppStore((s) =>
@@ -112,9 +92,7 @@ export function useWorktreeCardReviewDetails({
     linearIssueCacheKey ? s.linearIssueCache[linearIssueCacheKey] : undefined
   )
   const linearIssueFallbackEntry = useAppStore((s) =>
-    !linearSourceContext && worktree.linkedLinearIssue
-      ? s.linearIssueCache[worktree.linkedLinearIssue]
-      : undefined
+    worktree.linkedLinearIssue ? s.linearIssueCache[worktree.linkedLinearIssue] : undefined
   )
 
   const hostedReview: HostedReviewInfo | null | undefined =
@@ -210,8 +188,6 @@ export function useWorktreeCardReviewDetails({
     issueEntry,
     linearIssueEntry,
     linearIssueFallbackEntry,
-    linearSourceContext,
-    linearWorkspaceId,
     linkedGitHubPR,
     linkedGitLabMR,
     linkedBitbucketPR,

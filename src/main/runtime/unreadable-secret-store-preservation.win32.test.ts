@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, type Stats } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { loadWindowsSecurity, type WindowsSecurity } from '../../shared/windows-security-addon'
+import { runProcessSync } from '../../shared/child-process/run-process'
+import { windowsSystem32Binary } from '../../shared/child-process/windows-system-binary'
 import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 
 /**
@@ -11,7 +12,7 @@ import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
  * Path hardening writes a protected DACL granting only the SIDs the running process holds. Where
  * the data root came from somewhere else — a relocated `ORCA_USER_DATA_PATH`, a share, a roaming
  * profile, a backup restored under a recreated local account, or a harden whose `/reset` landed
- * and whose grant did not — the file ends up granting a SID this process does not have. It then
+ * and whose `/grant` did not — the file ends up granting a SID this process does not have. It then
  * reads as `EPERM` while its *directory* stays writable, because file hardening is synchronous on
  * the write path and directory hardening is fire-and-forget.
  *
@@ -20,7 +21,7 @@ import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
  * parent, not `DELETE` on the file. So the healing path destroyed the thing it could not read.
  * Before hardening actually applied, this failed open — the file was simply readable.
  *
- * These assert the file is still the same, untouched inode afterwards. Runs only on win32, where a
+ * These assert the file still holds its original bytes afterwards. Runs only on win32, where a
  * DACL is the mechanism; skipped elsewhere.
  */
 
@@ -49,9 +50,12 @@ function canDenyReads(): boolean {
   const probe = join(probeRoot, 'probe.json')
   try {
     writeFileSync(probe, '{}')
-    lockAgainstThisProcess(probe)
+    icacls(probe, '/inheritance:r', '/q')
+    icacls(probe, '/grant:r', `*${FOREIGN_SID}:(F)`, '/q')
     return readDenied(probe)
   } finally {
+    icacls(probe, '/reset', '/q')
+    icacls(probeRoot, '/reset', '/t', '/q')
     removeTreeSync(probeRoot)
   }
 }
@@ -60,41 +64,27 @@ function canDenyReads(): boolean {
  * BUILTIN\Guests: a real, always-resolvable group that no interactive token is a member of.
  * `S-1-5-32-544` looks foreign only until the suite meets a host that is elevated AND logged
  * in as the built-in Administrator -- a CI runner -- where it grants the reader full control
- * and every assertion below goes vacuous.
+ * and every assertion below goes vacuous. An unresolvable SID is not an option: icacls
+ * rejects one with ERROR_NONE_MAPPED (1332).
  */
 const FOREIGN_SID = 'S-1-5-32-546'
 
-function addon(): WindowsSecurity['addon'] {
-  const loaded = loadWindowsSecurity()
-  if ('error' in loaded) {
-    throw new Error(`the windows-security addon did not load: ${loaded.error}`)
-  }
-  return loaded.addon
-}
-
-/**
- * Protected, so nothing inherited from %TEMP% keeps the file readable. The OWNER RIGHTS rule
- * withdraws the owner's implicit READ_CONTROL and WRITE_DAC: this process created the file, but
- * the case being modelled is one owned by another account (a restored backup, a share), which
- * Orca's read-path hardening cannot simply take back. Its parent stays ours, so it still deletes.
- */
-function lockAgainstThisProcess(filePath: string): void {
-  addon().setDaclSddl(filePath, `D:P(A;;FA;;;${FOREIGN_SID})(A;;0x100000;;;OW)`)
+function icacls(...args: string[]): number | null {
+  return runProcessSync({
+    program: windowsSystem32Binary('icacls.exe'),
+    args,
+    timeoutMs: 10_000
+  }).code
 }
 
 /** The on-disk state a successful harden leaves for a SID this process does not hold. */
-function makeUnreadable(filePath: string): Stats {
-  lockAgainstThisProcess(filePath)
+function makeUnreadable(filePath: string): void {
+  // Two invocations: the combined `/inheritance:r /grant:r` form keeps %TEMP%'s inherited
+  // [SYSTEM, Administrators, user] as *explicit* ACEs on Windows Server, which left the file
+  // readable and every assertion below vacuous. Remove inheritance first, then grant.
+  expect(icacls(filePath, '/inheritance:r', '/q')).toBe(0)
+  expect(icacls(filePath, '/grant:r', `*${FOREIGN_SID}:(F)`, '/q')).toBe(0)
   expect(readDenied(filePath), 'fixture should be unreadable').toBe(true)
-  return statSync(filePath)
-}
-
-/** The same file, never replaced: a regenerated one would be a new, readable inode. */
-function expectUntouched(filePath: string, before: Stats): void {
-  const after = statSync(filePath)
-  expect(after.ino).toBe(before.ino)
-  expect(after.size).toBe(before.size)
-  expect(readDenied(filePath)).toBe(true)
 }
 
 const describeOnWindows = process.platform === 'win32' && canDenyReads() ? describe : describe.skip
@@ -107,6 +97,8 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
   })
 
   afterAll(() => {
+    // Reset first: the tree is not removable while its files grant only Administrators.
+    icacls(root, '/reset', '/t', '/q')
     removeTreeSync(root)
   })
 
@@ -122,12 +114,13 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       secretKeyB64: Buffer.alloc(32, 9).toString('base64')
     })
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     expect(() => loadOrCreateE2EEKeypair(dir)).toThrow(/Refusing to (regenerate|overwrite)/)
 
     // The point: the secret key is still the one every paired phone derived its shared secret from.
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
   })
 
   it('does not erase the device registry, which would revoke every paired token', async () => {
@@ -147,7 +140,7 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       }
     ])
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     const registry = new DeviceRegistry(dir)
     // Any mutator reaches save(); it must refuse rather than write the empty list it loaded.
@@ -155,7 +148,8 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       /Refusing to (regenerate|overwrite)/
     )
 
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
   })
 
   it('does not blank the plugin secret vault on write', async () => {
@@ -179,12 +173,13 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       ciphertexts: { existing: Buffer.from('enc:keep-me').toString('base64') }
     })
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     expect(store.set('added', 'value')).toEqual({ ok: false, error: expect.any(String) })
     store.delete('existing')
 
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
     vi.doUnmock('electron')
   })
   it('does not blank the plugin KV store on write', async () => {
@@ -196,16 +191,17 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     mkdirSync(join(filePath, '..'), { recursive: true })
     const original = JSON.stringify({ keep: 'me' })
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     expect(store.set('added', 'value')).toEqual({ ok: false, error: expect.any(String) })
     store.delete('keep')
 
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
   })
 
   it('does not drop pending relay revocations', async () => {
-    const { RelayRevokeOutbox } = await import('./mobile-cloud-relay/relay-revoke-outbox')
+    const { RelayRevokeOutbox } = await import('./relay/relay-revoke-outbox')
     const dir = join(root, 'relay')
     mkdirSync(dir, { recursive: true })
     const filePath = join(dir, 'mobile-relay-revoke-outbox.json')
@@ -219,7 +215,7 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       }
     ])
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     const outbox = new RelayRevokeOutbox(dir)
     expect(() =>
@@ -230,7 +226,8 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
       })
     ).toThrow(/Refusing to (regenerate|overwrite)/)
 
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
   })
 
   /**
@@ -253,12 +250,13 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     mkdirSync(join(filePath, '..'), { recursive: true })
     const original = JSON.stringify({ version: 1, format: 'dev-plaintext-v1', savedAt: 1 })
     writeFileSync(filePath, original)
-    const locked = makeUnreadable(filePath)
+    makeUnreadable(filePath)
 
     // The status the delete path keys off: `unreadable`, never `decrypt-failed`.
     expect(readOrcaCloudSession('profile-1', dir).status).toBe('unreadable')
 
-    expectUntouched(filePath, locked)
+    icacls(filePath, '/reset', '/q')
+    expect(readFileSync(filePath, 'utf8')).toBe(original)
     vi.doUnmock('electron')
   })
 })

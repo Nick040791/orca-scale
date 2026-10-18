@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
-import { quietRichMarkdownEditorHost } from './rich-markdown-editor-host.test-support'
 import { createRichMarkdownEditorScope } from './document-scope'
 import { listMarkdown } from './html-list-markdown'
 import { markdownToHtml } from './markdown-to-html'
@@ -22,7 +21,7 @@ import { startEditorSurface } from './editor-surface'
  */
 function surface(markdown: string, options: { editable?: boolean } = {}) {
   document.body.innerHTML = RICH_MARKDOWN_EDITOR_MARKUP
-  const scope = createRichMarkdownEditorScope(quietRichMarkdownEditorHost())
+  const scope = createRichMarkdownEditorScope()
   scope.editable = options.editable ?? true
   startEditorSurface(scope)
   const editor = document.getElementById('editor')!
@@ -39,7 +38,7 @@ function surface(markdown: string, options: { editable?: boolean } = {}) {
  */
 function nestedListSurface(paragraphMarkup: string) {
   document.body.innerHTML = RICH_MARKDOWN_EDITOR_MARKUP
-  const scope = createRichMarkdownEditorScope(quietRichMarkdownEditorHost())
+  const scope = createRichMarkdownEditorScope()
   scope.editable = true
   startEditorSurface(scope)
   const editor = document.getElementById('editor')!
@@ -178,22 +177,14 @@ describe('the editor document, from markdown and back', () => {
     // after the hashes and `parseListLine` needs text after the marker, so neither consumed the
     // line and the index never moved: `markdownToHtml` looped forever on a one-line source the
     // host could hand it from any file. Bare markers are text.
-    expect(markdownToHtml(createRichMarkdownEditorScope(quietRichMarkdownEditorHost()), '# ')).toBe(
-      '<p># </p>'
-    )
-    expect(markdownToHtml(createRichMarkdownEditorScope(quietRichMarkdownEditorHost()), '- ')).toBe(
-      '<p>- </p>'
-    )
-    expect(
-      markdownToHtml(createRichMarkdownEditorScope(quietRichMarkdownEditorHost()), '1. ')
-    ).toBe('<p>1. </p>')
+    expect(markdownToHtml(createRichMarkdownEditorScope(), '# ')).toBe('<p># </p>')
+    expect(markdownToHtml(createRichMarkdownEditorScope(), '- ')).toBe('<p>- </p>')
+    expect(markdownToHtml(createRichMarkdownEditorScope(), '1. ')).toBe('<p>1. </p>')
     // The control, so the guard is not swallowing the readers it falls back from.
-    expect(
-      markdownToHtml(createRichMarkdownEditorScope(quietRichMarkdownEditorHost()), '# ok')
-    ).toBe('<h1>ok</h1>')
-    expect(
-      markdownToHtml(createRichMarkdownEditorScope(quietRichMarkdownEditorHost()), '- ok')
-    ).toBe('<ul><li><p>ok</p></li></ul>')
+    expect(markdownToHtml(createRichMarkdownEditorScope(), '# ok')).toBe('<h1>ok</h1>')
+    expect(markdownToHtml(createRichMarkdownEditorScope(), '- ok')).toBe(
+      '<ul><li><p>ok</p></li></ul>'
+    )
   })
 
   it('renders no link for a javascript: URL, which is the one scheme it filters', () => {

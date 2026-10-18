@@ -1,4 +1,3 @@
-import './rpc/unused-default-rpc-methods.test-fixture'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,8 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 import * as runtimeMetadataModule from './runtime-metadata'
 import { readRuntimeMetadata, writeRuntimeMetadata } from './runtime-metadata'
-import { createRuntimeTransportMetadata } from './runtime-rpc/runtime-rpc-socket-metadata'
-import { OrcaRuntimeRpcServer } from './runtime-rpc'
+import { createRuntimeTransportMetadata, OrcaRuntimeRpcServer } from './runtime-rpc'
 import type { DeviceRegistry } from './device-registry'
 import type { RuntimeMetadata } from '../../shared/runtime-bootstrap'
 
@@ -31,7 +29,7 @@ describe('OrcaRuntimeRpcServer', () => {
   it('writes runtime metadata with transport details when started', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()
-    const server = new OrcaRuntimeRpcServer({ methods: [], runtime, userDataPath })
+    const server = new OrcaRuntimeRpcServer({ runtime, userDataPath })
 
     await server.start()
 
@@ -53,7 +51,7 @@ describe('OrcaRuntimeRpcServer', () => {
     // against this still-serving runtime once that instance exits.
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()
-    const server = new OrcaRuntimeRpcServer({ methods: [], runtime, userDataPath })
+    const server = new OrcaRuntimeRpcServer({ runtime, userDataPath })
     await server.start()
     const published = readRuntimeMetadata(userDataPath)
 
@@ -76,7 +74,6 @@ describe('OrcaRuntimeRpcServer', () => {
     // Why: a synthetic owned pid frees the always-alive process.pid to stand in for
     // the sibling — Windows never assigns pid 1, so hardcoding it there reads as dead.
     const server = new OrcaRuntimeRpcServer({
-      methods: [],
       runtime: new OrcaRuntimeService(),
       userDataPath,
       pid: 4242
@@ -99,11 +96,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
   it('stops reclaiming runtime metadata after the server is stopped', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    const server = new OrcaRuntimeRpcServer({
-      methods: [],
-      runtime: new OrcaRuntimeService(),
-      userDataPath
-    })
+    const server = new OrcaRuntimeRpcServer({ runtime: new OrcaRuntimeService(), userDataPath })
     await server.start()
     const watch = server['metadataOwnershipWatch']
     if (!watch) {
@@ -132,7 +125,7 @@ describe('OrcaRuntimeRpcServer', () => {
     // activeTransports guard — not the interval teardown — is what stops it republishing.
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()
-    const server = new OrcaRuntimeRpcServer({ methods: [], runtime, userDataPath, pid: 1001 })
+    const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, pid: 1001 })
     await server.start()
 
     let releaseRead: (record: RuntimeMetadata | null) => void = () => {}
@@ -162,7 +155,6 @@ describe('OrcaRuntimeRpcServer', () => {
 
   it('flushes a lastSeen refresh scheduled while transports stop', async () => {
     const server = new OrcaRuntimeRpcServer({
-      methods: [],
       runtime: new OrcaRuntimeService(),
       userDataPath: mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-')),
       enableWebSocket: false
@@ -217,7 +209,6 @@ describe('OrcaRuntimeRpcServer', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()
     const server = new OrcaRuntimeRpcServer({
-      methods: [],
       runtime,
       userDataPath,
       pid: 1001
@@ -237,7 +228,7 @@ describe('OrcaRuntimeRpcServer', () => {
   it('closes the socket if metadata publication fails during startup', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = new OrcaRuntimeService()
-    const server = new OrcaRuntimeRpcServer({ methods: [], runtime, userDataPath })
+    const server = new OrcaRuntimeRpcServer({ runtime, userDataPath })
     const writeMetadataSpy = vi
       .spyOn(runtimeMetadataModule, 'writeRuntimeMetadata')
       .mockImplementationOnce(() => {

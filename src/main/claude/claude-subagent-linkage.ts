@@ -38,12 +38,6 @@ export type ClaudeSubagentLinkageSource = {
   ) => Exclude<ClaudeSubagentLinkageVerdict, { kind: 'pending' }>
 }
 
-/** The linkage of an agent the provider names by its own task id rather than by a frame's
- *  `parent_tool_use_id`, as a permission request does. */
-export type ClaudeAgentLinkageSource = {
-  linkageForAgent: (agentId: string) => AgentJournalProducerLinkage
-}
-
 /** What the roster knows about one child, reduced to what attribution needs. */
 export type ClaudeSubagentLinkageEntry = { attempt: number }
 
@@ -60,8 +54,6 @@ export type ClaudeSubagentLinkageDeps = {
    *  `parent_tool_use_id` is one of those ids, and this is the only route from
    *  it to the agent that actually spawned the grandchild. */
   childOwnerRefOf?: (toolUseId: string) => string | null
-  /** The spawn call the roster tracked a child under, by its canonical id. */
-  spawnRefOf?: (canonicalId: string) => string | null
 }
 
 /** How far a sidechain is followed when naming a row's parent. Depth beyond
@@ -74,9 +66,7 @@ const MAX_PARENT_RESOLUTION_DEPTH = 8
  *  parent, which is what an unrecorded owner also means. */
 type ParentAgentVerdict = { kind: 'known'; agentId?: string } | { kind: 'pending' }
 
-export class ClaudeSubagentLinkage
-  implements ClaudeSubagentLinkageSource, ClaudeAgentLinkageSource
-{
+export class ClaudeSubagentLinkage implements ClaudeSubagentLinkageSource {
   constructor(private readonly deps: ClaudeSubagentLinkageDeps) {}
 
   linkageFor = (parentToolUseId: string): ClaudeSubagentLinkageVerdict =>
@@ -95,22 +85,6 @@ export class ClaudeSubagentLinkage
       : verdict
   }
 
-  /** Resolved through the agent's spawn call, so it states what that agent's own rows state; the
-   *  provider's id stays the agent's id. Before the roster tracks the agent, its id alone. */
-  linkageForAgent = (agentId: string): AgentJournalProducerLinkage => {
-    const spawnRef = this.deps.spawnRefOf?.(agentId) ?? null
-    if (spawnRef === null) {
-      return { agentId, producerKind: 'agent' }
-    }
-    const { linkage } = this.settledLinkageFor(spawnRef)
-    const { parentAgentId, ...rest } = linkage
-    return {
-      ...rest,
-      agentId,
-      ...(parentAgentId === undefined || parentAgentId === agentId ? {} : { parentAgentId })
-    }
-  }
-
   private resolve(
     parentToolUseId: string,
     settled: boolean,
@@ -122,9 +96,7 @@ export class ClaudeSubagentLinkage
     const excluded = this.deps.ids.isExcluded(parentToolUseId, canonical)
     // An announcement named this spawn call, so the task id behind it is
     // settled — including the case where the two ids are the same string, which
-    // comparing them could not tell from never having been announced. An earlier
-    // run's announcement counts: a child resumed after a restart keeps that run's
-    // spawn id on its frames, and its rows recall the id that run resolved.
+    // comparing them could not tell from never having been announced.
     const announced = this.deps.ids.isAnnounced(parentToolUseId)
     if (
       !settled &&
@@ -160,9 +132,8 @@ export class ClaudeSubagentLinkage
       )
     }
     // Nothing is coming for this id: nested tool traffic, a grandchild inside a
-    // sidechain, a forwarded spawn call that can wait no longer, or a resumed
-    // child no journaled row ever resolved. The raw reference is the only handle
-    // there will ever be for it.
+    // sidechain, or a forwarded spawn call that can wait no longer. The raw
+    // reference is the only handle there will ever be for it.
     return linked(
       parentToolUseId,
       canonical,

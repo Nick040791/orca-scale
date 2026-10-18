@@ -188,7 +188,6 @@ describe('advancePartialEscapeTail differential fuzz', () => {
 
   it('ran the whole corpus', () => {
     expect(checked).toBe(963_819)
-    // Completed strings retain only ESC, so the same corpus has fewer tail splits.
-    expect(foldSplits).toBe(6_234_666)
+    expect(foldSplits).toBe(6_236_429)
   })
 })

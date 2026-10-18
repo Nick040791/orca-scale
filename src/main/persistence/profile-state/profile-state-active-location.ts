@@ -9,8 +9,7 @@ import { ProfileStateRecoveryCommandError } from '../../../shared/profile-state-
 
 /** Resolve the active profile files for offline profile-state commands. */
 export function getActiveProfileStateLocation(
-  userDataPath: string,
-  selectedProfileId?: string
+  userDataPath: string
 ): ProfileStateOfflineLocation | undefined {
   const indexPath = join(userDataPath, 'orca-profile-index.json')
   const candidates = [indexPath, `${indexPath}.bak`].filter(existsSync)
@@ -23,7 +22,7 @@ export function getActiveProfileStateLocation(
       if (!isRecord(parsed) || !Array.isArray(parsed.profiles)) {
         continue
       }
-      const profileId = selectedProfileId ?? parsed.activeProfileId
+      const profileId = parsed.activeProfileId
       if (
         typeof profileId === 'string' &&
         /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(profileId) &&
@@ -41,7 +40,7 @@ export function getActiveProfileStateLocation(
   }
   throw new ProfileStateRecoveryCommandError(
     'runtime_error',
-    `Could not resolve ${selectedProfileId ?? 'active'} profile from index ${indexPath}`
+    `Could not read active profile index ${indexPath}`
   )
 }
 

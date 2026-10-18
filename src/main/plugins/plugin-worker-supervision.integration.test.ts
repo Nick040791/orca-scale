@@ -97,9 +97,8 @@ describe('real plugin worker supervision', () => {
     const spec = await createPluginSpec(`
       export default function activate(orca) {
         orca.commands.register('disconnect', async () => {
-          process.removeAllListeners('disconnect')
-          setInterval(() => {}, 1_000)
           process.disconnect?.()
+          setInterval(() => {}, 1_000)
           await new Promise(() => {})
         })
       }

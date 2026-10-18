@@ -21,22 +21,11 @@ import {
   readWorkerListSnapshot
 } from './worker-list-snapshot-store'
 import { projectWorkerFleet, type WorkerListPageParams } from './worker-list-projection'
-import { chatAssigneeObserver } from './session-worker-observation'
-import { exposeWorkerTerminalResource } from './worker-terminal-resource-presentation'
-import {
-  WORKER_TERMINAL_LIST_STATES,
-  WorkerListParams
-} from '../../../../../../shared/rpc-contract/orchestration-worker-release-schemas-params'
-
-const emptyWorkerListPage = (limit: number) => ({
-  workers: [],
-  counts: {},
-  page: { limit, total: 0, hasMore: false, nextCursor: null }
-})
+import { exposeWorkerTerminalResource } from './worker-release-completion'
+import { WORKER_TERMINAL_LIST_STATES, WorkerListParams } from './worker-release-schemas'
 
 export const ORCHESTRATION_WORKER_LIST_METHOD = defineMethod({
   name: 'orchestration.workerList',
-  permission: 'workspace',
   params: WorkerListParams,
   handler: async (params, { runtime }) => {
     const db = runtime.getOrchestrationDb()
@@ -77,7 +66,11 @@ export const ORCHESTRATION_WORKER_LIST_METHOD = defineMethod({
       }
       const snapshot = db.getWorkerTerminalListingSnapshot(params.run)
       if (!snapshot) {
-        return emptyWorkerListPage(limit)
+        return {
+          workers: [],
+          counts: {},
+          page: { limit, total: 0, hasMore: false, nextCursor: null }
+        }
       }
       cursor = { version: 2, snapshot, after: legacyKey }
     }
@@ -92,7 +85,11 @@ export const ORCHESTRATION_WORKER_LIST_METHOD = defineMethod({
     }
     const snapshot = cursor?.snapshot ?? db.getWorkerTerminalListingSnapshot(params.run)
     if (!snapshot) {
-      return emptyWorkerListPage(limit)
+      return {
+        workers: [],
+        counts: {},
+        page: { limit, total: 0, hasMore: false, nextCursor: null }
+      }
     }
     const rows = db.listWorkerTerminalResources({
       runId: params.run,
@@ -206,8 +203,7 @@ async function projectWorkerListPageWithFilteredSnapshot(
     statuses,
     limit,
     now: authorityNow,
-    completeProjection: args.completeProjection,
-    observeChat: await chatAssigneeObserver(runtime, db, pageRows)
+    completeProjection: args.completeProjection
   })
   const federated = params.includeRemote
     ? await readFederatedFleetSnapshots({

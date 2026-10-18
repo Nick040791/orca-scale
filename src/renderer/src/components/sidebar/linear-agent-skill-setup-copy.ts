@@ -1,14 +1,44 @@
 import type { LocalAgentRuntime } from '../settings/CliSkillRuntimeSetup'
 import { translate } from '@/i18n/i18n'
 
-export function getLinearAgentSkillSetupMissingLabel(): string {
+export function getLinearAgentSkillSetupMissingLabel(
+  cliAvailable: boolean,
+  skillInstalled: boolean
+): string {
+  if (!cliAvailable && !skillInstalled) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.missingCliAndSkill',
+      'Orca CLI and Linear agent skill are missing.'
+    )
+  }
+  if (!cliAvailable) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.missingCli',
+      'Orca CLI is missing.'
+    )
+  }
   return translate(
     'auto.components.sidebar.LinearAgentSkillSetupPrompt.missingSkill',
     'Linear agent skill is missing.'
   )
 }
 
-export function getLinearAgentSkillSetupToastTitle(): string {
+export function getLinearAgentSkillSetupToastTitle(
+  cliAvailable: boolean,
+  skillInstalled: boolean
+): string {
+  if (!cliAvailable && !skillInstalled) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastMissingCliAndSkill',
+      'Orca CLI and Linear skill are missing'
+    )
+  }
+  if (!cliAvailable) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastMissingCli',
+      'Orca CLI is missing'
+    )
+  }
   return translate(
     'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastMissingSkill',
     'Linear skill is missing'
@@ -16,10 +46,12 @@ export function getLinearAgentSkillSetupToastTitle(): string {
 }
 
 export function getLinearAgentSkillSetupToastDescription(
+  cliAvailable: boolean,
+  skillInstalled: boolean,
   remote: boolean,
   agentRuntime: LocalAgentRuntime
 ): string {
-  const baseDescription = getLinearAgentSkillSetupToastBaseDescription()
+  const baseDescription = getLinearAgentSkillSetupToastBaseDescription(cliAvailable, skillInstalled)
   if (remote) {
     return translate(
       'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastRemoteDescription',
@@ -37,7 +69,22 @@ export function getLinearAgentSkillSetupToastDescription(
   return baseDescription
 }
 
-function getLinearAgentSkillSetupToastBaseDescription(): string {
+function getLinearAgentSkillSetupToastBaseDescription(
+  cliAvailable: boolean,
+  skillInstalled: boolean
+): string {
+  if (!cliAvailable && !skillInstalled) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastInstallCliAndSkillDescription',
+      'Install the Orca CLI and the Linear skill to enable your agents to read and edit Linear tasks.'
+    )
+  }
+  if (!cliAvailable) {
+    return translate(
+      'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastInstallCliDescription',
+      'Install the Orca CLI to enable your agents to read and edit Linear tasks.'
+    )
+  }
   return translate(
     'auto.components.sidebar.LinearAgentSkillSetupPrompt.toastInstallSkillDescription',
     'Install the Linear skill to enable your agents to read and edit Linear tasks through the Orca CLI.'

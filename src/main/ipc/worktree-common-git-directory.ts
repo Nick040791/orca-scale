@@ -6,7 +6,7 @@ import {
   normalizeRuntimePathSeparators,
   resolveRuntimePath
 } from '../../shared/cross-platform-path'
-import type { FileStat } from '../providers/filesystem-provider-contract'
+import type { FileStat } from '../providers/types'
 
 type GitDirectoryStat = Stats | FileStat
 

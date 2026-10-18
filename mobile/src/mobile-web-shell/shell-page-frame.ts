@@ -7,12 +7,19 @@ import type { MobileWebShellSession } from './mobile-web-shell-session-contract'
  */
 export type ShellPageFrame = 'pending' | 'unpainted' | 'painted'
 
-/** Up until the page reports a frame of its own; every page the shell serves reports one. */
+/**
+ * Bounded by the page's declaration, never by a timer. A page that declared none is one served by
+ * a desktop older than the report, and `ready` is the newest thing it will ever say: waiting on a
+ * word it cannot speak would hide a working workspace for the life of the document.
+ */
 export function shellPageFrame(
-  session: Pick<MobileWebShellSession, 'state' | 'pagePainted'>
+  session: Pick<MobileWebShellSession, 'state' | 'pageReady' | 'pageReportsPaint' | 'pagePainted'>
 ): ShellPageFrame {
   if (session.state.kind !== 'ready') {
     return 'pending'
   }
-  return session.pagePainted ? 'painted' : 'unpainted'
+  if (session.pagePainted) {
+    return 'painted'
+  }
+  return session.pageReportsPaint || !session.pageReady ? 'unpainted' : 'painted'
 }

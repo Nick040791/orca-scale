@@ -1,10 +1,7 @@
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
 import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
 import type { Worktree } from '../../../../shared/worktree/types'
-import {
-  buildWorktreeSortLabels,
-  compareWorktreeSortLabel
-} from '../../../../shared/sidebar-list/smart-sort'
+import { buildWorktreeSortLabels, compareWorktreeSortLabel } from './smart-sort'
 
 export type WorktreeManualOrderCatalog = {
   orderedIds: readonly string[]

@@ -1,5 +1,4 @@
 import { BrowserWindow, Menu, webContents } from 'electron'
-import { isNativeBrowserPopupWindow } from '../browser/native-browser-popup-windows'
 
 export type AppMenuSelectionAction = 'copy' | 'select-all'
 
@@ -18,11 +17,8 @@ export function createAppMenuSelectionItem({
     click: () => {
       const focusedWindow = BrowserWindow.getFocusedWindow()
       if (focusedWindow) {
-        const focusedContents = webContents.getFocusedWebContents() ?? focusedWindow.webContents
-        if (
-          isNativeBrowserPopupWindow(focusedWindow) ||
-          focusedContents !== focusedWindow.webContents
-        ) {
+        const focusedContents = webContents.getFocusedWebContents()
+        if (focusedContents && focusedContents !== focusedWindow.webContents) {
           if (action === 'copy') {
             focusedContents.copy()
           } else {

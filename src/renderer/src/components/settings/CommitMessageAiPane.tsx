@@ -1,7 +1,6 @@
 import { useRef } from 'react'
 import type React from 'react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type {
   SourceControlAiSettingsPatch,
@@ -19,9 +18,9 @@ import {
   type CommitMessageModelCapability
 } from '../../../../shared/commit-message-agent-spec'
 import { getCommitMessageModelDiscoveryHostKeyForScope } from '../../../../shared/commit-message-host-key'
-import { getRuntimeGitScope } from '../../runtime/runtime-git-client-context'
+import { getRuntimeGitScope } from '../../runtime/runtime-git-client'
 import { useAppStore } from '../../store'
-import { CustomAgentCommandField } from './CustomAgentCommandField'
+import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Switch } from '../ui/switch'
 import { SearchableSetting } from './SearchableSetting'
@@ -83,12 +82,12 @@ export function mergeDiscoveredModelsIntoCommitMessageConfig(
 }
 
 export function getCommitMessageSettingsPaneDiscoveryHostKey(
-  target: RuntimeClientTarget,
+  settings: GlobalSettings,
   activeConnectionId: string | null | undefined,
   hasActiveWorktree: boolean
 ): string {
   const runtimeScope = hasActiveWorktree
-    ? getRuntimeGitScope(target, activeConnectionId)
+    ? getRuntimeGitScope(settings, activeConnectionId)
     : activeConnectionId
   return getCommitMessageModelDiscoveryHostKeyForScope(runtimeScope)
 }
@@ -263,10 +262,36 @@ export function CommitMessageAiPane({
         keywords={['custom', 'command', 'cli', 'binary', 'prompt', 'placeholder']}
         className="space-y-2 py-2"
       >
-        <CustomAgentCommandField
+        <div className="space-y-0.5">
+          <Label htmlFor="source-control-ai-custom-command">
+            {translate('auto.components.settings.CommitMessageAiPane.47e45cbd5a', 'Custom command')}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {translate(
+              'auto.components.settings.CommitMessageAiPane.4f722a5f53',
+              'Used by commit-message, pull-request, and branch-name recipes that select Custom command. Use'
+            )}{' '}
+            <code className="font-mono">
+              {translate('auto.components.settings.CommitMessageAiPane.b8b6fd55b4', '{prompt}')}
+            </code>{' '}
+            {translate(
+              'auto.components.settings.CommitMessageAiPane.3f1b26cc91',
+              'to pass the command input as an argument; otherwise Orca pipes it on stdin.'
+            )}
+          </p>
+        </div>
+        <Input
           id="source-control-ai-custom-command"
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
           value={config.customAgentCommand}
-          onChange={onCustomCommandChange}
+          onChange={(event) => onCustomCommandChange(event.target.value)}
+          placeholder={translate(
+            'auto.components.settings.CommitMessageAiPane.15b60d54b2',
+            'e.g. ollama run llama3.1 {prompt}'
+          )}
+          className="h-8 font-mono text-xs"
         />
       </SearchableSetting>
     )

@@ -1,4 +1,3 @@
-import { normalizeExplorerDisplayRootByWorktree } from '../../../../../shared/file-explorer-display-root'
 import type { AppState } from '../../types'
 import type { PersistedTrustedOrcaHooks } from '../../../../../shared/orca-yaml-hook-types'
 import type { PersistedUIState } from '../../../../../shared/persisted-ui-state-types'
@@ -11,13 +10,16 @@ import type {
 import type { WorkspaceCleanupDismissal } from '../../../../../shared/workspace-cleanup'
 import { WORKSPACE_CLEANUP_CLASSIFIER_VERSION } from '../../../../../shared/workspace-cleanup'
 import { isTopLevelView } from '../../../../../shared/top-level-view'
-import { AGENT_STATUS_HYDRATE_MAX_AGE_MS } from '../../../../../shared/agent-status-freshness'
-import { resolveVisibleWorkspaceHostIds } from '../../../../../shared/workspace-view/workspace-host-visibility'
+import {
+  normalizeVisibleExecutionHostIds,
+  normalizeExecutionHostScope
+} from '../../../../../shared/execution-host'
 import { persistedUIValuesEqual } from '../../../../../shared/persisted-ui-equality'
 import { DEFAULT_STATUS_BAR_ITEMS } from '../../../../../shared/constants'
 import type { UISlice } from './ui-slice-contract'
 
 const MIN_SIDEBAR_WIDTH = 220
+const HYDRATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 export function preserveStringArrayIdentity<T extends string>(
   current: readonly T[] | null,
@@ -104,7 +106,7 @@ export function sanitizePersistedSidebarWidth(
 
 export function sanitizePaneKeyTimestampRecord(
   value: unknown,
-  maxAgeMs: number = AGENT_STATUS_HYDRATE_MAX_AGE_MS
+  maxAgeMs: number = HYDRATE_MAX_AGE_MS
 ): Record<string, number> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return {}
@@ -126,11 +128,11 @@ export function sanitizePaneKeyTimestampRecord(
 export const sanitizeAcknowledgedAgentsByPaneKey = sanitizePaneKeyTimestampRecord
 
 /** Cleared-at cutoffs must outlive any persisted status entry they guard: main prunes entries
- *  at AGENT_STATUS_HYDRATE_MAX_AGE_MS from receivedAt, and cutoff values trail receipt time, so pruning them
+ *  at HYDRATE_MAX_AGE_MS from receivedAt, and cutoff values trail receipt time, so pruning them
  *  on the same clock can resurrect a cleared entry. Double the TTL keeps the guard alive past
  *  every entry it can still shadow. */
 export function sanitizeActivityClearedAtByPaneKey(value: unknown): Record<string, number> {
-  return sanitizePaneKeyTimestampRecord(value, 2 * AGENT_STATUS_HYDRATE_MAX_AGE_MS)
+  return sanitizePaneKeyTimestampRecord(value, 2 * HYDRATE_MAX_AGE_MS)
 }
 
 export function sanitizeWorkspaceCleanupDismissals(
@@ -189,7 +191,12 @@ export function hydratedUIPartialMatchesState(
 export function normalizeHydratedVisibleWorkspaceHostIds(
   ui: PersistedUIState
 ): VisibleWorkspaceHostIds {
-  return resolveVisibleWorkspaceHostIds(ui.visibleWorkspaceHostIds, ui.workspaceHostScope)
+  const visibleHostIds = normalizeVisibleExecutionHostIds(ui.visibleWorkspaceHostIds)
+  if (visibleHostIds) {
+    return visibleHostIds
+  }
+  const legacyScope = normalizeExecutionHostScope(ui.workspaceHostScope)
+  return legacyScope === 'all' ? null : [legacyScope]
 }
 
 export function clampPetSize(
@@ -242,17 +249,5 @@ export function hydrateUnexpectedSignoutDismissal(
     // A later sync must never undo any dismissal observed in this session.
     unexpectedSignoutDismissedVersions:
       typeof version === 'string' && !observed.includes(version) ? [...observed, version] : observed
-  }
-}
-
-/** Normalizes persisted explorer records before hydration, including malformed or absent legacy values. */
-export function sanitizeExplorerPreferences(
-  ui: PersistedUIState
-): Pick<AppState, 'explorerDisplayRootByWorktree' | 'showDotfilesByWorktree'> {
-  return {
-    explorerDisplayRootByWorktree: normalizeExplorerDisplayRootByWorktree(
-      ui.explorerDisplayRootByWorktree
-    ),
-    showDotfilesByWorktree: sanitizeShowDotfilesByWorktree(ui.showDotfilesByWorktree)
   }
 }

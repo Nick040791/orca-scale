@@ -159,7 +159,7 @@ async function sendPtyCommands(
 ): Promise<void> {
   await page.evaluate((items) => {
     for (const item of items) {
-      window.api.pty.write(item.ptyId, `${item.command}\r`, 'driving')
+      window.api.pty.write(item.ptyId, `${item.command}\r`)
     }
   }, commands)
 }

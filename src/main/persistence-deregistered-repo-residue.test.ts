@@ -18,7 +18,7 @@ import { composeWorktreeHostIdentity } from '../shared/worktree/host-qualified-i
 import { folderWorkspaceKey, worktreeWorkspaceKey } from '../shared/workspace-scope'
 import type { PersistedState } from '../shared/persisted-state-types'
 
-vi.mock('./ssh/config/ssh-config-parser', () => ({
+vi.mock('./ssh/ssh-config-parser', () => ({
   loadUserSshConfig: vi.fn(),
   sshConfigHostsToTargets: vi.fn()
 }))
@@ -184,31 +184,6 @@ describe('deregistered repo residue', () => {
 
     // Self-clearing: with the residue gone nothing re-seeds the orphan id, so the next launch has
     // no work. Before the fix this stayed non-empty forever and every load scheduled another save.
-    const reloaded = await createStore()
-    expect(reloaded.sweepDeregisteredRepoResidue()).toEqual([])
-  })
-
-  // A close record names its workspace only in its value, so like a sleeping agent it must seed the
-  // sweep itself or a removed project's records wait out the TTL.
-  it("drops a close record that is the orphan repo's only residue, and self-clears", async () => {
-    writeDataFile({
-      schemaVersion: 1,
-      repos: [makeRepo({ id: LIVE_REPO, path: '/workspace/live' })],
-      worktreeMeta: {},
-      workspaceSession: {
-        ...getDefaultWorkspaceSession(),
-        closedTerminalTabTombstonesByTabId: {
-          'tab-gone': { worktreeId: GONE_WORKTREE, closedAt: Date.now(), reason: 'user' },
-          'tab-live': { worktreeId: LIVE_WORKTREE, closedAt: Date.now(), reason: 'user' }
-        }
-      }
-    })
-
-    const store = await createStore()
-    store.flush()
-    expect(
-      Object.keys(store.getWorkspaceSession('local').closedTerminalTabTombstonesByTabId ?? {})
-    ).toEqual(['tab-live'])
     const reloaded = await createStore()
     expect(reloaded.sweepDeregisteredRepoResidue()).toEqual([])
   })

@@ -1,9 +1,12 @@
 import { useEffect } from 'react'
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 
 import { isMacAppDataPath } from '@/lib/passive-macos-app-data-access'
 import { installWindowVisibilityInterval, isWindowVisible } from '@/lib/window-visibility-interval'
-import { isWebClient, type WorktreeCardProps } from './worktree-card-model'
+import {
+  HOSTED_REVIEW_CARD_REFRESH_INTERVAL_MS,
+  isWebClient,
+  type WorktreeCardProps
+} from './worktree-card-model'
 import type { useWorktreeCardFoundation } from './use-worktree-card-foundation'
 import type { useWorktreeCardReviewDetails } from './use-worktree-card-review-details'
 
@@ -29,8 +32,6 @@ export function useWorktreeCardLifecycleEffects({
   issueCacheKey,
   fetchIssue,
   showLinearIssue,
-  linearSourceContext,
-  linearWorkspaceId,
   fetchLinearIssue
 }: Pick<WorktreeCardProps, 'worktree' | 'repo'> &
   Pick<
@@ -44,8 +45,6 @@ export function useWorktreeCardLifecycleEffects({
     | 'linkedGiteaPR'
     | 'branch'
     | 'issueCacheKey'
-    | 'linearSourceContext'
-    | 'linearWorkspaceId'
   > &
   Pick<
     Foundation,
@@ -56,12 +55,65 @@ export function useWorktreeCardLifecycleEffects({
     showIssue: boolean
     showLinearIssue: boolean
   }): void {
-  const hostedReviewExactKey = !branch || branch === 'HEAD' ? hostedReviewCacheKey : undefined
+  // Why: card surfaces are presentational, so skip hosted-review fetches when hidden to save rate-limit budget.
+  useEffect(() => {
+    // Why: paired web must not fan out per-card decoration RPCs during startup; host session/tab parity is critical.
+    if (isWebClient()) {
+      return
+    }
+    if (
+      !repo ||
+      isFolder ||
+      worktree.isBare ||
+      !hostedReviewCacheKey ||
+      !shouldRefreshHostedReview ||
+      isMacAppDataPath(repo.path)
+    ) {
+      return
+    }
+    const refreshHostedReview = (): void => {
+      // Why: branch lookup is lossy for fork/deleted-head PRs; reuse a known PR number from explicit metadata when we have one.
+      void fetchHostedReviewForBranch(repo.path, branch, {
+        repoId: repo.id,
+        linkedGitHubPR: worktree.linkedPR ?? null,
+        ...(cachedBranchFallbackGitHubPRNumber !== null
+          ? { fallbackGitHubPR: cachedBranchFallbackGitHubPRNumber }
+          : {}),
+        currentHeadOid: worktree.head ?? null,
+        linkedGitLabMR,
+        linkedBitbucketPR,
+        linkedAzureDevOpsPR,
+        linkedGiteaPR,
+        staleWhileRevalidate: true
+      })
+    }
+    // Why: PRs created outside Orca (e.g. `gh pr create`) emit no renderer event; poll visible cards to discover them.
+    return installWindowVisibilityInterval({
+      run: refreshHostedReview,
+      jitterOnVisible: true,
+      intervalMs: HOSTED_REVIEW_CARD_REFRESH_INTERVAL_MS
+    })
+  }, [
+    repo,
+    isFolder,
+    worktree.isBare,
+    worktree.linkedPR,
+    worktree.head,
+    cachedBranchFallbackGitHubPRNumber,
+    linkedGitLabMR,
+    linkedBitbucketPR,
+    linkedAzureDevOpsPR,
+    linkedGiteaPR,
+    fetchHostedReviewForBranch,
+    branch,
+    hostedReviewCacheKey,
+    shouldRefreshHostedReview
+  ])
+
   useEffect(() => {
     if (
       !newCardStyle ||
       !hoverDetailsOpen ||
-      !isWindowVisible() ||
       shouldRefreshHostedReview ||
       isWebClient() ||
       !repo ||
@@ -75,13 +127,11 @@ export function useWorktreeCardLifecycleEffects({
     // Why: hidden card metadata is revealed on whole-card hover, so fetch lazily instead of always-on polling.
     void fetchHostedReviewForBranch(repo.path, branch, {
       repoId: repo.id,
-      repoOwnerExecutionHostId: getRepoExecutionHostId(repo),
-      ...(hostedReviewExactKey ? { exactReviewKey: hostedReviewExactKey } : {}),
       linkedGitHubPR: worktree.linkedPR ?? null,
       ...(cachedBranchFallbackGitHubPRNumber !== null
         ? { fallbackGitHubPR: cachedBranchFallbackGitHubPRNumber }
         : {}),
-      currentHeadOid: hostedReviewExactKey ? null : (worktree.head ?? null),
+      currentHeadOid: worktree.head ?? null,
       linkedGitLabMR,
       linkedBitbucketPR,
       linkedAzureDevOpsPR,
@@ -104,8 +154,7 @@ export function useWorktreeCardLifecycleEffects({
     linkedGiteaPR,
     fetchHostedReviewForBranch,
     branch,
-    hostedReviewCacheKey,
-    hostedReviewExactKey
+    hostedReviewCacheKey
   ])
 
   // Why: same as above for issues — hidden-surface polling only burns GitHub calls for invisible data.
@@ -165,9 +214,7 @@ export function useWorktreeCardLifecycleEffects({
       if (!isWindowVisible()) {
         return
       }
-      void fetchLinearIssue(linearIssueId, linearWorkspaceId, {
-        sourceContext: linearSourceContext
-      })
+      void fetchLinearIssue(linearIssueId, 'all')
     }
     refreshLinearIssueIfVisible()
     window.addEventListener('focus', refreshLinearIssueIfVisible)
@@ -176,28 +223,18 @@ export function useWorktreeCardLifecycleEffects({
       window.removeEventListener('focus', refreshLinearIssueIfVisible)
       document.removeEventListener('visibilitychange', refreshLinearIssueIfVisible)
     }
-  }, [
-    worktree.linkedLinearIssue,
-    fetchLinearIssue,
-    showLinearIssue,
-    linearSourceContext,
-    linearWorkspaceId
-  ])
+  }, [worktree.linkedLinearIssue, fetchLinearIssue, showLinearIssue])
 
   useEffect(() => {
     if (!newCardStyle || !hoverDetailsOpen || showLinearIssue || !worktree.linkedLinearIssue) {
       return
     }
-    void fetchLinearIssue(worktree.linkedLinearIssue, linearWorkspaceId, {
-      sourceContext: linearSourceContext
-    })
+    void fetchLinearIssue(worktree.linkedLinearIssue, 'all')
   }, [
     newCardStyle,
     hoverDetailsOpen,
     showLinearIssue,
     worktree.linkedLinearIssue,
-    linearSourceContext,
-    linearWorkspaceId,
     fetchLinearIssue
   ])
 }

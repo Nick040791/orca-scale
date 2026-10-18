@@ -8,9 +8,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import type { AgentSessionMutationEnvelope } from '../../../shared/agent-session-wire'
-import type * as AgentSessionRecordRows from '../../runtime/agent-session-record-rows'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import type * as DurableFileWrite from '../../durable-file-write'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type {
   AgentSessionDispatchOutcome,
   StructuredAgentSessionAdapter
@@ -25,27 +24,26 @@ import {
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
-import { startsWhenPublished } from './structured-agent-session-instant-start.test-support'
 
 const CALLER = { callerKey: 'client-1' }
 
 const publishFault = vi.hoisted(() => ({ failOnPublish: 0, publishCount: 0 }))
 
-vi.mock('../../runtime/agent-session-record-rows', async (importOriginal) => {
-  const actual = await importOriginal<typeof AgentSessionRecordRows>()
+vi.mock('../../durable-file-write', async (importOriginal) => {
+  const actual = await importOriginal<typeof DurableFileWrite>()
   return {
     ...actual,
-    writeAgentSessionStoreRows: (...args: Parameters<typeof actual.writeAgentSessionStoreRows>) => {
-      publishFault.publishCount += 1
-      if (publishFault.publishCount === publishFault.failOnPublish) {
+    renameDurable: async (tmpPath: string, finalPath: string) => {
+      if (finalPath.endsWith('agent-sessions.json')) {
+        publishFault.publishCount += 1
+      }
+      if (
+        finalPath.endsWith('agent-sessions.json') &&
+        publishFault.publishCount === publishFault.failOnPublish
+      ) {
         throw new Error('simulated crash before failed-settlement publish')
       }
-      return actual.writeAgentSessionStoreRows(...args)
+      return actual.renameDurable(tmpPath, finalPath)
     }
   }
 })
@@ -65,17 +63,14 @@ function accepted(): AgentSessionDispatchOutcome {
 }
 
 function adapter(): StructuredAgentSessionAdapter {
-  return startsWhenPublished(
-    {
-      acquire,
-      releaseAcquisition,
-      dispatch,
-      cancelTurn: vi.fn(async () => ({ cancelled: true })),
-      answerPrompt: vi.fn(async () => undefined),
-      setOption: vi.fn(async () => undefined)
-    },
-    () => host
-  )
+  return {
+    acquire,
+    releaseAcquisition,
+    dispatch,
+    cancelTurn: vi.fn(async () => ({ cancelled: true })),
+    answerPrompt: vi.fn(async () => undefined),
+    setOption: vi.fn(async () => undefined)
+  }
 }
 
 function envelope(method: string, fields: Record<string, unknown>): AgentSessionMutationEnvelope {
@@ -97,7 +92,6 @@ beforeEach(async () => {
   publishFault.publishCount = 0
   resetHostTestOperationIds()
   acquire = vi.fn(async ({ fence }) => ({
-    providerChildPhase: 'starting' as const,
     process: {
       hostId: 'local',
       pid: 4242,
@@ -106,7 +100,7 @@ beforeEach(async () => {
     },
     link: {
       linkId: `link-${fence}`,
-      handle: codexProviderHandle(THREAD),
+      handle: { provider: 'codex', threadId: THREAD },
       origin: store.getRecord(SESSION)?.providerHandleChain.length ? 'resumed' : 'created',
       mintedAtFence: fence,
       observedAt: NOW
@@ -114,13 +108,11 @@ beforeEach(async () => {
   }))
   releaseAcquisition = vi.fn(async () => true)
   dispatch = vi.fn(async () => accepted())
-  store = await openTestAgentSessionRecordStore(root)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   host = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     adapter: adapter(),
-    journalDatabase: openTestJournalHostDatabase(root),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
     now: () => NOW
@@ -133,23 +125,16 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-/** The host starting the agent with no message to deliver, as an operation that needs it does. */
-function startAgent(): Promise<unknown> {
-  return host['serialize'](SESSION, () => host['mutationContext']().ensureAgent(SESSION))
-}
-
 describe('settled attach retry', () => {
   it('settles a post-acquisition journal failure and retries without a restart', async () => {
-    const journalDatabase = openTestJournalHostDatabase(root)
-    vi.spyOn(AgentSessionJournal.prototype, 'open').mockRejectedValueOnce(
-      new Error('journal path unavailable')
-    )
+    const historyFilePath = vi
+      .fn<NonNullable<StructuredAgentSessionAdapter['historyFilePath']>>()
+      .mockRejectedValueOnce(new Error('journal path unavailable'))
+      .mockResolvedValue(null)
     host = new StructuredAgentSessionHost({
-      agents: NO_STRUCTURED_AGENTS,
-      logger: createStructuredAgentSessionLogger(),
       store,
-      adapter: adapter(),
-      journalDatabase,
+      adapter: { ...adapter(), historyFilePath },
+      journalRoot: root,
       claimKeyId: 'key-1',
       mintSpawnToken: () => 'spawn-a',
       now: () => NOW
@@ -187,7 +172,6 @@ describe('settled attach retry', () => {
         throw new Error('reply lost')
       }
       return {
-        providerChildPhase: 'starting' as const,
         process: {
           hostId: 'local',
           pid: 4242,
@@ -196,7 +180,7 @@ describe('settled attach retry', () => {
         },
         link: {
           linkId: `link-${fence}`,
-          handle: codexProviderHandle(THREAD),
+          handle: { provider: 'codex', threadId: THREAD },
           origin: 'created',
           mintedAtFence: fence,
           observedAt: NOW
@@ -205,11 +189,9 @@ describe('settled attach retry', () => {
     })
     const mintSpawnToken = vi.fn(() => 'spawn-safe')
     host = new StructuredAgentSessionHost({
-      agents: NO_STRUCTURED_AGENTS,
-      logger: createStructuredAgentSessionLogger(),
       store,
       adapter: adapter(),
-      journalDatabase: openTestJournalHostDatabase(root),
+      journalRoot: root,
       claimKeyId: 'key-1',
       mintSpawnToken,
       now: () => NOW
@@ -233,7 +215,6 @@ describe('settled attach retry', () => {
         throw new Error('reply lost')
       }
       return {
-        providerChildPhase: 'starting' as const,
         process: {
           hostId: 'local',
           pid: 4242,
@@ -242,7 +223,7 @@ describe('settled attach retry', () => {
         },
         link: {
           linkId: `link-${fence}`,
-          handle: codexProviderHandle(THREAD),
+          handle: { provider: 'codex', threadId: THREAD },
           origin: 'created',
           mintedAtFence: fence,
           observedAt: NOW
@@ -252,11 +233,9 @@ describe('settled attach retry', () => {
     let token = 0
     const mintSpawnToken = vi.fn(() => `spawn-${++token}`)
     host = new StructuredAgentSessionHost({
-      agents: NO_STRUCTURED_AGENTS,
-      logger: createStructuredAgentSessionLogger(),
       store,
       adapter: adapter(),
-      journalDatabase: openTestJournalHostDatabase(root),
+      journalRoot: root,
       claimKeyId: 'key-1',
       mintSpawnToken,
       // A host that cannot read another process's environment, so no scan can prove anything.
@@ -282,13 +261,11 @@ describe('settled attach retry', () => {
     })
 
     await host.flushAllStreamedEvents()
-    store = await openTestAgentSessionRecordStore(root)
+    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
     host = new StructuredAgentSessionHost({
-      agents: NO_STRUCTURED_AGENTS,
-      logger: createStructuredAgentSessionLogger(),
       store,
       adapter: adapter(),
-      journalDatabase: openTestJournalHostDatabase(root),
+      journalRoot: root,
       claimKeyId: 'key-1',
       mintSpawnToken,
       // A host that cannot read another process's environment, so no scan can prove anything.
@@ -337,24 +314,20 @@ describe('settled attach retry', () => {
     }
     const first = await host.send(CALLER, unknownParams)
     expect(first).toMatchObject({ ok: true, value: { submission: { dispatchState: 'pending' } } })
-    // Handed over before the host dies: that is what makes the restart's answer doubt.
-    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1))
 
     await host.flushAllStreamedEvents()
-    store = await openTestAgentSessionRecordStore(root)
+    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
     host = new StructuredAgentSessionHost({
-      agents: NO_STRUCTURED_AGENTS,
-      logger: createStructuredAgentSessionLogger(),
       store,
       adapter: adapter(),
-      journalDatabase: openTestJournalHostDatabase(root),
+      journalRoot: root,
       claimKeyId: 'key-1',
       mintSpawnToken: () => 'spawn-restarted',
       probeOwner: async () => ({ outcome: 'pid-absent' }),
       now: () => NOW
     })
     await host.restoreReadableSessions()
-    await startAgent()
+    await host.hold(SESSION, 'desktop-chat:restart')
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'live',
       handoffStage: null,
@@ -370,8 +343,8 @@ describe('settled attach retry', () => {
     if (!sent.ok) {
       throw new Error(`unexpected restored send refusal: ${sent.refusal.message}`)
     }
-    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2))
-    const restoredHistory = await host.history({ sessionId: SESSION, direction: 'tail' })
+    expect(dispatch).toHaveBeenCalledTimes(2)
+    const restoredHistory = host.history({ sessionId: SESSION, direction: 'tail' })
     if (!restoredHistory.ok) {
       throw new Error(`unexpected restored history reset: ${restoredHistory.reset}`)
     }
@@ -403,10 +376,7 @@ describe('settled attach retry', () => {
 
     await expect(host.attach(CALLER, hostTestAttachParams(null))).resolves.toMatchObject({
       ok: false,
-      refusal: {
-        message: "Codex couldn't restart. Send your message to try again.",
-        ownerVerdict: 'exited'
-      }
+      refusal: { message: 'resume rejected', ownerVerdict: 'exited' }
     })
 
     expect(releaseAcquisition).toHaveBeenCalledTimes(1)

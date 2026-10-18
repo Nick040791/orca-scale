@@ -10,7 +10,6 @@ import type { ProfileStateParsedDocument } from '../persistence/profile-state/pr
 import { writeProfileStateDomains } from '../persistence/profile-state/profile-state-domain-writes'
 import { withProfileStateReadSnapshot } from '../persistence/profile-state/profile-state-read-snapshot'
 import { getOrcaProfileStateDatabaseFile } from './profile-storage-paths'
-import { ensureProfileStateAuthorityMarker } from '../persistence/profile-state/profile-state-authority-marker'
 import {
   normalizeProfileProjectState,
   profileStateStorage,
@@ -67,10 +66,11 @@ export function writeProfileProjectDomainChanges(
   if (profileStateStorage(profileId, userDataPath) !== 'sqlite') {
     throw new Error('Profile domain transfer requires an established SQLite participant')
   }
-  const databaseFile = getOrcaProfileStateDatabaseFile(profileId, userDataPath)
-  const opened = openProfileStateDatabase(databaseFile, profileId)
+  const opened = openProfileStateDatabase(
+    getOrcaProfileStateDatabaseFile(profileId, userDataPath),
+    profileId
+  )
   try {
-    ensureProfileStateAuthorityMarker(databaseFile)
     const result = writeProfileStateDomains(opened.db, {
       expectedRevision: changes.expectedRevision,
       replacements: changes.replacements.map(({ domain, payload }) => ({ domain, payload }))

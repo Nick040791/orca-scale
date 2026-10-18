@@ -31,27 +31,25 @@ export function createUiSettingsActions(set: UISliceSet, get: UISliceGet): Parti
     settingsProjectHostSelection: {},
     settingsProjectSetupSelection: {},
     // Why: renderer-only, never persisted — no window.api.ui.set, and absent from the debounced UI writer in App.tsx.
-    setSettingsProjectHostSelection: (selectionKey, hostId, setupId) =>
+    setSettingsProjectHostSelection: (projectId, hostId, setupId) =>
       set((s) => {
         const nextSetupSelections = { ...s.settingsProjectSetupSelection }
         if (setupId) {
-          nextSetupSelections[selectionKey] = setupId
+          nextSetupSelections[projectId] = setupId
         } else {
-          delete nextSetupSelections[selectionKey]
+          delete nextSetupSelections[projectId]
         }
         if (
-          s.settingsProjectHostSelection[selectionKey] === hostId &&
-          s.settingsProjectSetupSelection[selectionKey] === setupId &&
-          Object.keys(s.settingsProjectHostSelection).at(-1) === selectionKey
+          s.settingsProjectHostSelection[projectId] === hostId &&
+          s.settingsProjectSetupSelection[projectId] === setupId
         ) {
           return s
         }
-        // Reinsert so equivalent project/checkout keys resolve to the latest explicit pick.
-        const nextHostSelections = { ...s.settingsProjectHostSelection }
-        delete nextHostSelections[selectionKey]
-        nextHostSelections[selectionKey] = hostId
         return {
-          settingsProjectHostSelection: nextHostSelections,
+          settingsProjectHostSelection: {
+            ...s.settingsProjectHostSelection,
+            [projectId]: hostId
+          },
           settingsProjectSetupSelection: nextSetupSelections
         }
       }),

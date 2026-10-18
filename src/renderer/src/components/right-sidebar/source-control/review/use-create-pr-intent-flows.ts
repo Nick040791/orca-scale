@@ -16,7 +16,7 @@ export function useSourceControlCreatePrIntentFlows(
 ) {
   const {
     activeRepo,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     beginGitBranchCompareRequest,
     branchName,
@@ -84,7 +84,7 @@ export function useSourceControlCreatePrIntentFlows(
   })
   const createPrIntentProbes = useSourceControlCreatePrIntentProbes({
     activeRepo,
-    activeRepoTarget,
+    activeRepoSettings,
     beginGitBranchCompareRequest,
     fallbackGitHubPRNumber,
     getCreatePrIntentOperationTarget,

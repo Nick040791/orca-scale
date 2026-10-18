@@ -1,19 +1,22 @@
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { GitHubPRMergeMethod } from '../../../../../shared/github/pull-request-types'
 import type { Repo } from '../../../../../shared/repo-types'
-import type { TaskSourceContext } from '../../../../../shared/task-source-context'
-import React, { useState } from 'react'
+import {
+  type TaskSourceContext,
+  getTaskSourceRuntimeSettings
+} from '../../../../../shared/task-source-context'
+import React, { useState, useMemo } from 'react'
 import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { translate } from '@/i18n/i18n'
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
 import {
   resolveGitHubPRMergeMethods,
   GITHUB_PR_MERGE_METHOD_LABELS
 } from '../../../../../shared/github/pull-request-merge-methods'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getActiveRuntimeTarget, callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,8 +42,18 @@ export function PRMergeCell({
 }): React.JSX.Element {
   const [merging, setMerging] = useState(false)
   const confirm = useConfirmationDialog()
-  const ownerTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, repo?.id ?? null, sourceContext))
+  const repoOwnerSettings = useAppStore(
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repo?.id ?? null))
+  )
+  const sourceSettings = useMemo(
+    () =>
+      sourceContext?.provider === 'github'
+        ? ({
+            ...repoOwnerSettings,
+            ...getTaskSourceRuntimeSettings(sourceContext)
+          } as typeof repoOwnerSettings)
+        : repoOwnerSettings,
+    [repoOwnerSettings, sourceContext]
   )
   if (item.type !== 'pr') {
     return (
@@ -104,7 +117,7 @@ export function PRMergeCell({
           'Failed to merge pull request'
         ),
         mutate: async () => {
-          const target = ownerTarget
+          const target = getActiveRuntimeTarget(sourceSettings)
           const runtimeRepoId =
             sourceContext?.provider === 'github' ? (sourceContext.repoId ?? repo.id) : repo.id
           return target.kind === 'environment'
@@ -159,7 +172,7 @@ export function PRMergeCell({
           ? translate('auto.components.TaskPage.a3318684bc', 'Failed to enable auto-merge')
           : translate('auto.components.TaskPage.1a9ea003dc', 'Failed to disable auto-merge'),
         mutate: async () => {
-          const target = ownerTarget
+          const target = getActiveRuntimeTarget(sourceSettings)
           const runtimeRepoId =
             sourceContext?.provider === 'github' ? (sourceContext.repoId ?? repo.id) : repo.id
           return target.kind === 'environment'

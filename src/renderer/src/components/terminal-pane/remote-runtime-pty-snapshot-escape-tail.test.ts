@@ -1,17 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// These transport fixtures never read abandoned-launch ownership from the app store.
-const appStore = vi.hoisted(() => ({
-  getState: vi.fn(() => {
-    throw new Error('These transport fixtures must not read app-store ownership')
-  })
-}))
-
-vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
-
-afterEach(() => {
-  expect(appStore.getState).not.toHaveBeenCalled()
-})
-
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -20,7 +7,6 @@ import {
   encodeTerminalStreamJson,
   encodeTerminalStreamText
 } from '../../../../shared/terminal-stream-protocol'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
 
 // Client-side wire regression for #7329: the daemon's pendingEscapeTailAnsi
 // rides the SnapshotStart JSON frame. This drives REAL binary frames through
@@ -63,7 +49,11 @@ describe('remote transport snapshot escape-tail threading (#7329)', () => {
         return { unsubscribe: vi.fn(), sendBinary: subscriptionSendBinary }
       }
     )
-    stubRuntimeEnvironmentBridge({ call: runtimeCall, subscribe: runtimeSubscribe })
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: { call: runtimeCall, subscribe: runtimeSubscribe }
+      }
+    })
   })
 
   it('delivers the SnapshotStart pendingEscapeTailAnsi to onReplayData meta', async () => {

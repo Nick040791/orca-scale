@@ -183,14 +183,14 @@ async function connectRemotePane(): Promise<{
 }
 
 describe('pushed remote snapshot replay grid', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
     mockStoreState = createInitialStoreState(() => mockStoreState)
-    await installTerminalTestGlobals()
+    installTerminalTestGlobals()
   })
 
   afterEach(async () => {

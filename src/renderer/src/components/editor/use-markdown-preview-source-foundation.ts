@@ -3,9 +3,8 @@ import { createConnectionIdForFileSelector } from '@/lib/connection-owner-resolu
 import { computeEditorFontSize } from '@/lib/editor-font-zoom'
 import type { HttpLinkSourceOwner } from '@/lib/http-link-routing'
 import { isMarkdownComment } from '@/lib/diff-comment-compat'
-import { useFileOwnerRuntimeTarget } from '@/runtime/use-worktree-runtime-target'
+import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
-import { exceedsMarkdownRichModeSizeLimit } from './markdown-rich-size-limit'
 import { prewarmMarkdownPreviewLocalImages } from './markdown-preview-local-images'
 import type { MarkdownPreviewSearchInstance } from './markdown-preview-search'
 import {
@@ -14,7 +13,6 @@ import {
   getMarkdownPreviewSourceRelativePath,
   resolveMarkdownPreviewSourceWorktree
 } from './markdown-preview-source-routing'
-import { useDocumentDarkTheme } from '@/hooks/use-document-dark-theme'
 import { usePreserveSectionDuringExternalEdit } from './usePreserveSectionDuringExternalEdit'
 
 export function useMarkdownPreviewSourceFoundation({
@@ -22,14 +20,12 @@ export function useMarkdownPreviewSourceFoundation({
   filePath,
   sourceFileId,
   sourceWorktreeId,
-  sourceRuntimeEnvironmentId,
-  prewarmImages = true
+  sourceRuntimeEnvironmentId
 }: {
   content: string
   filePath: string
   sourceFileId: string | null
   sourceWorktreeId: string | null
-  prewarmImages?: boolean
   sourceRuntimeEnvironmentId: string | null | undefined
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -124,47 +120,41 @@ export function useMarkdownPreviewSourceFoundation({
       ),
     [allDiffComments, sourceRelativePath]
   )
-  const sourceRuntimeTarget = useFileOwnerRuntimeTarget(
-    sourceRoutingWorktreeId,
-    resolvedSourceRuntimeEnvironmentId
-  )
+  const settings = useAppStore((s) => s.settings)
   const imageRuntimeContext = useMemo(
     () =>
-      !sourceRoutingWorktreeId || !worktreeRoot
-        ? undefined
-        : sourceRuntimeTarget
-          ? {
-              target: sourceRuntimeTarget,
-              worktreeId: sourceRoutingWorktreeId,
-              worktreePath: worktreeRoot,
-              connectionId: sourceConnectionId,
-              expectedExternalSshTargetId: sourceOpenFile?.externalSshTargetId
-            }
-          : // Why null, not undefined: undefined reads as a plain local file and would read here.
-            null,
+      sourceRoutingWorktreeId && worktreeRoot
+        ? {
+            settings: settingsForRuntimeOwner(settings, resolvedSourceRuntimeEnvironmentId),
+            worktreeId: sourceRoutingWorktreeId,
+            worktreePath: worktreeRoot,
+            connectionId: sourceConnectionId,
+            expectedExternalSshTargetId: sourceOpenFile?.externalSshTargetId
+          }
+        : undefined,
     [
-      sourceRuntimeTarget,
+      settings,
       sourceConnectionId,
       sourceOpenFile?.externalSshTargetId,
+      resolvedSourceRuntimeEnvironmentId,
       sourceRoutingWorktreeId,
       worktreeRoot
     ]
   )
   const editorFontZoomLevel = useAppStore((s) => s.editorFontZoomLevel)
   const editorFontSize = computeEditorFontSize(14, editorFontZoomLevel)
-  const isDark = useDocumentDarkTheme()
+  const isDark =
+    settings?.theme === 'dark' ||
+    (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
   const renderedContent = usePreserveSectionDuringExternalEdit(content, bodyRef)
 
   useEffect(() => {
-    if (!prewarmImages || exceedsMarkdownRichModeSizeLimit(renderedContent)) {
-      return
-    }
     const prewarm = prewarmMarkdownPreviewLocalImages(renderedContent, filePath, {
       runtimeContext: imageRuntimeContext
     })
     return prewarm.cancel
-  }, [renderedContent, filePath, imageRuntimeContext, prewarmImages])
+  }, [renderedContent, filePath, imageRuntimeContext])
 
   return {
     rootRef,

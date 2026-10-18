@@ -27,7 +27,6 @@ export type SnapshottedThreadResolverDeps = {
     iid: number
     discussionId: string
     resolved: boolean
-    repoOwnerExecutionHostId: string
   }) => Promise<SnapshottedThreadResolveOutcome>
   /** False once the panel moved to another review: host calls continue, UI writes stop. */
   isPanelStillOnLaunchReview: () => boolean
@@ -71,8 +70,7 @@ async function resolveOnHost(
         repoId: deps.gitlabTarget.repoId,
         iid: deps.gitlabTarget.iid,
         discussionId: threadId,
-        resolved: true,
-        repoOwnerExecutionHostId: deps.gitlabTarget.ownerHostId
+        resolved: true
       })
     }
     if (deps.provider !== 'github' || !deps.githubResolveTarget) {

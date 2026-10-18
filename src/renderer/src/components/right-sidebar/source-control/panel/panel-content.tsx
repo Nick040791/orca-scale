@@ -37,8 +37,6 @@ export function SourceControlPanelContent(props: SourceControlPanelReadyProps) {
     handleSelect,
     handleStage,
     handleStageAllPaths,
-    handleStageSectionPaths,
-    handleStageWorktreeChanges,
     handleUnstage,
     handleUnstagePaths,
     hasUncommittedEntries,
@@ -104,8 +102,6 @@ export function SourceControlPanelContent(props: SourceControlPanelReadyProps) {
         repositoryHuge={repositoryHuge}
         worktreeId={currentWorktreeId}
         onRetryStatus={refreshActiveGitStatus}
-        onStageAllChanges={handleStageWorktreeChanges}
-        isExecutingBulk={isExecutingBulk}
         showGenericEmptyState={showGenericEmptyState}
         normalizedFilter={normalizedFilter}
         branchBaseRef={branchSummary?.baseRef ?? null}
@@ -150,8 +146,6 @@ export function SourceControlPanelContent(props: SourceControlPanelReadyProps) {
           isExecutingBulk={isExecutingBulk}
           requestDiscardAllInArea={requestDiscardAllInArea}
           handleStageAllPaths={handleStageAllPaths}
-          handleStageSectionPaths={handleStageSectionPaths}
-          isStatusTruncated={repositoryHuge !== undefined}
           handleUnstagePaths={handleUnstagePaths}
           sourceControlViewMode={sourceControlViewMode}
           visibleTreeRowsBySection={visibleTreeRowsBySection}

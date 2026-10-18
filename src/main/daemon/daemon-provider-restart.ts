@@ -1,10 +1,6 @@
-import {
-  rebindLocalProviderListeners,
-  unbindLocalProviderListeners
-} from '../ipc/pty/provider/listener-lifecycle'
+import { rebindLocalProviderListeners, unbindLocalProviderListeners } from '../ipc/pty'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
 import {
-  DaemonEndpointOwnershipError,
   cleanupFailedDaemonAdoption,
   releaseDaemonAdoptionLease,
   takeDaemonAdoptionLeaseRelease
@@ -26,44 +22,23 @@ import { getDaemonProvider, getDaemonSpawner, replaceDaemonProvider } from './da
 import { DaemonPtyAdapter } from './daemon-pty-adapter'
 import type { DaemonRespawnReason } from './daemon-pty-runtime-state'
 import { DaemonPtyRouter } from './daemon-pty-router'
-import { isHoldingForNewerProtocolDaemon } from './daemon-newer-protocol-hold'
 import { cleanupDaemonForProtocol } from './daemon-protocol-cleanup'
 import {
   isDaemonRestartInFlight,
   runCoalescedDaemonRestart,
   type RestartDaemonResult
 } from './daemon-restart-state'
-import {
-  getDaemonPidPath,
-  getDaemonSocketPath,
-  getDaemonTokenPath,
-  type DaemonSpawner
-} from './daemon-spawner'
-import { DaemonClient } from './client'
-import { endpointIsProvenDead, probeSocketConnect } from './daemon-endpoint-probe'
-import { clearSeveredDaemon } from './daemon-host-image-state'
+import { getDaemonPidPath, type DaemonSpawner } from './daemon-spawner'
 import { PROTOCOL_VERSION } from './types'
-import { recoverRetiredMacDaemonJobs } from './macos-retired-daemon-recovery'
 
 export type { RestartDaemonResult } from './daemon-restart-state'
 
 // Why: the 7-step restart sequence from docs/daemon-staleness-ux.md §Phase 1; current-protocol only (legacy adapters preserved).
-export async function restartDaemon(
-  options: {
-    expectedDaemonPid?: number
-    /** A retired daemon may already have left; only a different live owner aborts. */
-    endpointMayBeGone?: boolean
-  } = {}
-): Promise<RestartDaemonResult> {
-  return runCoalescedDaemonRestart(() =>
-    runRestartDaemon(options.expectedDaemonPid, options.endpointMayBeGone === true)
-  )
+export async function restartDaemon(): Promise<RestartDaemonResult> {
+  return runCoalescedDaemonRestart(runRestartDaemon)
 }
 
-async function runRestartDaemon(
-  expectedDaemonPid?: number,
-  endpointMayBeGone = false
-): Promise<RestartDaemonResult> {
+async function runRestartDaemon(): Promise<RestartDaemonResult> {
   const currentSpawner = getDaemonSpawner()
   const currentAdapter = getDaemonProvider()
   if (!currentSpawner || !currentAdapter) {
@@ -71,27 +46,11 @@ async function runRestartDaemon(
   }
 
   const runtimeDir = getRuntimeDir()
-  if (expectedDaemonPid === undefined) {
-    // Why not abort: a wedged leftover must never disable the restart that replaces the current daemon.
-    await recoverRetiredMacDaemonJobs(runtimeDir).catch((error: unknown) => {
-      console.warn(
-        `[daemon] Retired macOS terminal service recovery failed: ${error instanceof Error ? error.message : String(error)}`
-      )
-    })
-  }
-  if (expectedDaemonPid !== undefined) {
-    // Why before any teardown: a targeted restart must not end a single terminal when the
-    // endpoint now belongs to a replacement daemon.
-    await assertDaemonEndpointOwner(runtimeDir, expectedDaemonPid, endpointMayBeGone)
-  }
   // An operator asking for a restart is the deliberate "try again" that clears crash-loop
   // containment; without this a wedged host could never be recovered from the UI.
   currentSpawner.resetRespawnWindow()
   const currentOnly = getCurrentDaemonAdapter(currentAdapter)
-  // A generation that accepted idle retirement is leaving; keeping its route would fail every inventory.
-  const legacyAdapters = getLegacyDaemonAdapters(currentAdapter).filter(
-    (legacy) => !legacy.hasRetiredForIdle()
-  )
+  const legacyAdapters = getLegacyDaemonAdapters(currentAdapter)
 
   // Step 1: synthesize pty:exit for every active session BEFORE teardown — the daemon's shutdown path never fans onExit to clients (session.ts:246-252), so the renderer would otherwise never see exits.
   const fallbackKilledCount =
@@ -100,14 +59,14 @@ async function runRestartDaemon(
       : 0
   const currentDaemonSessionIds =
     currentAdapter instanceof DegradedDaemonPtyProvider
-      ? currentAdapter.getSessionIdsRoutedTo('current-daemon')
+      ? currentAdapter.getCurrentDaemonSessionIds()
       : []
   const killedCount =
     new Set([...currentOnly.getActiveSessionIds(), ...currentDaemonSessionIds]).size +
     fallbackKilledCount
-  currentOnly.fanoutSyntheticExits(-1, { replacedByRestart: true })
+  currentOnly.fanoutSyntheticExits(-1)
   if (currentAdapter instanceof DegradedDaemonPtyProvider) {
-    currentAdapter.fanoutCurrentDaemonSyntheticExits(-1, { replacedByRestart: true })
+    currentAdapter.fanoutCurrentDaemonSyntheticExits(-1)
   }
 
   // Step 2: detach renderer listeners — after step 1 (so synthesized exits land) and before step 6 (no stale binding).
@@ -116,7 +75,7 @@ async function runRestartDaemon(
   // Step 3: kill the current-protocol daemon process; legacy adapters untouched.
   let info: Awaited<ReturnType<DaemonSpawner['ensureRunning']>>
   try {
-    await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION, expectedDaemonPid)
+    await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)
 
     // Step 4: reuse the existing spawner so the respawn closure baked into long-lived adapters stays valid (do NOT new one).
     currentSpawner.resetHandle()
@@ -163,13 +122,10 @@ async function runRestartDaemon(
     await newCurrent.establishLifecycleLease()
     releaseDaemonAdoptionLease(currentSpawner.getHandle())
 
-    // Re-wrap in a router when legacy adapters exist (preserved by reference, still routed to their pre-upgrade daemons) or a newer daemon holds restores.
+    // Re-wrap in a router only if legacy adapters exist; they're preserved by reference and still route to their pre-upgrade daemons.
     newProvider =
-      legacyAdapters.length > 0 || isHoldingForNewerProtocolDaemon()
-        ? new DaemonPtyRouter({
-            current: newCurrent,
-            legacy: legacyAdapters
-          })
+      legacyAdapters.length > 0
+        ? new DaemonPtyRouter({ current: newCurrent, legacy: legacyAdapters })
         : newCurrent
     if (newProvider instanceof DaemonPtyRouter) {
       await newProvider.discoverLegacySessions()
@@ -200,34 +156,6 @@ async function runRestartDaemon(
 
   // Step 7: rebind renderer listeners against the new provider.
   rebindLocalProviderListeners()
-  // A new incarnation replaced any daemon whose AppImage files were gone.
-  clearSeveredDaemon()
 
   return { killedCount }
-}
-
-async function assertDaemonEndpointOwner(
-  runtimeDir: string,
-  expectedPid: number,
-  endpointMayBeGone: boolean
-): Promise<void> {
-  const socketPath = getDaemonSocketPath(runtimeDir, PROTOCOL_VERSION)
-  // Only a proven-dead endpoint skips the check; a timeout or EPERM proves nothing.
-  if (endpointMayBeGone && endpointIsProvenDead(await probeSocketConnect(socketPath))) {
-    return
-  }
-  const client = new DaemonClient({
-    socketPath,
-    tokenPath: getDaemonTokenPath(runtimeDir, PROTOCOL_VERSION)
-  })
-  try {
-    await client.ensureConnected()
-    if (client.getDaemonIdentity()?.pid !== expectedPid) {
-      throw new DaemonEndpointOwnershipError(
-        'Daemon restart aborted: the endpoint is owned by a different daemon than expected'
-      )
-    }
-  } finally {
-    client.disconnect()
-  }
 }

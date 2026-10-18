@@ -1,9 +1,8 @@
-import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
 import { MobileImageBase64Accumulator } from './mobile-image-base64-accumulator'
 
 function decodeBase64(data: string): Uint8Array {
-  return Buffer.from(atob(data), 'latin1')
+  return Uint8Array.from(atob(data), (character) => character.charCodeAt(0))
 }
 
 describe('MobileImageBase64Accumulator', () => {
@@ -25,6 +24,6 @@ describe('MobileImageBase64Accumulator', () => {
     accumulator.append(bytes.subarray(0, 123_457))
     accumulator.append(bytes.subarray(123_457))
 
-    expect(Buffer.compare(decodeBase64(accumulator.finish()), bytes)).toBe(0)
+    expect(decodeBase64(accumulator.finish())).toEqual(bytes)
   })
 })

@@ -5,7 +5,6 @@ import { findWorktreeById } from './worktree-helpers'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { findFolderWorkspaceOwner } from '@/lib/folder-workspace-runtime-owner'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
-import { isMarkdownComment } from '@/lib/diff-comment-compat'
 import {
   enqueueDiffCommentPersist,
   mutateDiffComments,
@@ -26,17 +25,8 @@ export type DiffCommentsSlice = {
     sentAt?: number
   ) => Promise<boolean>
   deleteDiffComment: (worktreeId: string, commentId: string) => Promise<void>
-  clearDiffComments: (worktreeId: string, options?: DiffCommentsClearOptions) => Promise<boolean>
-  clearDiffCommentsForFile: (
-    worktreeId: string,
-    filePath: string,
-    options?: DiffCommentsClearOptions
-  ) => Promise<boolean>
-}
-
-export type DiffCommentsClearOptions = {
-  // Why: markdown notes hidden by the Markdown Review Notes setting must survive a clear the user can't see them in.
-  keepMarkdownNotes?: boolean
+  clearDiffComments: (worktreeId: string) => Promise<boolean>
+  clearDiffCommentsForFile: (worktreeId: string, filePath: string) => Promise<boolean>
 }
 
 export type DiffCommentDeliverySnapshot = Pick<
@@ -231,11 +221,10 @@ export const createDiffCommentsSlice: StateCreator<AppState, [], [], DiffComment
     }
   },
 
-  clearDiffComments: async (worktreeId, options) => {
-    const result = mutateDiffComments(set, worktreeId, (existing) => {
-      const next = options?.keepMarkdownNotes ? existing.filter(isMarkdownComment) : []
-      return next.length === existing.length ? null : next
-    })
+  clearDiffComments: async (worktreeId) => {
+    const result = mutateDiffComments(set, worktreeId, (existing) =>
+      existing.length === 0 ? null : []
+    )
     if (!result) {
       return true
     }
@@ -248,12 +237,9 @@ export const createDiffCommentsSlice: StateCreator<AppState, [], [], DiffComment
     }
   },
 
-  clearDiffCommentsForFile: async (worktreeId, filePath, options) => {
+  clearDiffCommentsForFile: async (worktreeId, filePath) => {
     const result = mutateDiffComments(set, worktreeId, (existing) => {
-      const next = existing.filter(
-        (c) =>
-          c.filePath !== filePath || (options?.keepMarkdownNotes === true && isMarkdownComment(c))
-      )
+      const next = existing.filter((c) => c.filePath !== filePath)
       return next.length === existing.length ? null : next
     })
     if (!result) {

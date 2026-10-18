@@ -24,7 +24,6 @@ import {
   getActivityVirtualItemKey
 } from './activity-thread-virtual-items'
 import { ActivityThreadCollapseContext } from './activity-thread-collapse-context'
-import { useActivityThreadSelection } from './use-activity-thread-selection'
 import type {
   ActivityGroupBy,
   ActivityThreadGroup,
@@ -67,8 +66,6 @@ export function ActivityThreadListPane({
   onJumpToWorkspace,
   onMarkThreadRead,
   onMarkThreadUnread,
-  onMarkThreadsRead,
-  onMarkThreadsUnread,
   canJumpToWorkspace,
   allowMarkUnreadWhenSelected = false,
   showJumpAction = true,
@@ -105,8 +102,6 @@ export function ActivityThreadListPane({
   onJumpToWorkspace: (thread: AgentPaneThread) => void
   onMarkThreadRead: (thread: AgentPaneThread) => void
   onMarkThreadUnread: (thread: AgentPaneThread) => void
-  onMarkThreadsRead: (threads: readonly AgentPaneThread[]) => void
-  onMarkThreadsUnread: (threads: readonly AgentPaneThread[]) => void
   canJumpToWorkspace: (thread: AgentPaneThread) => boolean
   allowMarkUnreadWhenSelected?: boolean
   showJumpAction?: boolean
@@ -176,15 +171,6 @@ export function ActivityThreadListPane({
   const headerItemIndexes = useMemo(
     () => getActivityHeaderItemIndexes(virtualItems),
     [virtualItems]
-  )
-  const { selectedKeys, handleSelectThread, getContextMenuTargets } = useActivityThreadSelection({
-    virtualItems,
-    scrollContainerRef,
-    onSelectThread
-  })
-  const canMarkThreadUnread = useCallback(
-    (thread: AgentPaneThread) => allowMarkUnreadWhenSelected || thread.paneKey !== selectedPaneKey,
-    [allowMarkUnreadWhenSelected, selectedPaneKey]
   )
   const selectedItemIndex = useMemo(
     () => findActivityThreadItemIndex(virtualItems, selectedPaneKey),
@@ -374,18 +360,13 @@ export function ActivityThreadListPane({
                     }
                     onToggleGroup={handleToggleGroup}
                     selectedPaneKey={selectedPaneKey}
-                    multiSelectedKeys={selectedKeys}
-                    onSelectThread={handleSelectThread}
-                    onOpenThread={onSelectThread}
-                    getContextMenuTargets={getContextMenuTargets}
+                    onSelectThread={onSelectThread}
                     onJumpToWorkspace={onJumpToWorkspace}
                     onMarkThreadRead={onMarkThreadRead}
                     onMarkThreadUnread={onMarkThreadUnread}
-                    onMarkThreadsRead={onMarkThreadsRead}
-                    onMarkThreadsUnread={onMarkThreadsUnread}
                     canJumpToWorkspace={canJumpToWorkspace}
-                    canMarkThreadUnread={canMarkThreadUnread}
                     compactMode={compactMode}
+                    allowMarkUnreadWhenSelected={allowMarkUnreadWhenSelected}
                     showJumpAction={showJumpAction}
                   />
                 </div>

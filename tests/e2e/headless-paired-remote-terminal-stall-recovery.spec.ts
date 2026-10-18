@@ -8,7 +8,6 @@ import { expect, test } from './helpers/orca-app'
 import { launchHeadlessPairedRuntimeHost } from './helpers/headless-paired-runtime-host'
 import { launchPairedWebClient } from './helpers/paired-electron-client'
 import { getTerminalContent, waitForActivePanePtyId } from './helpers/terminal'
-import { quotePosixShell } from '../../src/shared/wsl-login-shell-command'
 
 const MIN_EXHAUSTED_ACK_BYTES = 400 * 1024
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'orca-headless-stalled-stream-'))
@@ -41,11 +40,15 @@ test.afterAll(() => {
   rmSync(scratch, { recursive: true, force: true })
 })
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
 function fixtureCommand(): string {
   const command = [process.execPath, fixturePath]
   return process.platform === 'win32'
     ? command.map((value) => `"${value.replaceAll('"', '""')}"`).join(' ')
-    : command.map(quotePosixShell).join(' ')
+    : command.map(shellQuote).join(' ')
 }
 
 async function callRuntime<TResult>(page: Page, method: string, params: unknown): Promise<TResult> {

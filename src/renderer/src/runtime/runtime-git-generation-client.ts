@@ -11,14 +11,14 @@ import {
   type RuntimeGitContext,
   type RuntimePullRequestGenerationInput
 } from './runtime-git-client-context'
-import { callRuntimeRpc } from './runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 
 export async function generateRuntimeCommitMessage(
   context: RuntimeGitContext,
   overrides?: RuntimeGenerateCommitMessageOverrides
 ): Promise<RuntimeGenerateCommitMessageResult> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.generateCommitMessage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -47,7 +47,7 @@ export async function generateRuntimeCommitMessage(
     'git.generateCommitMessage',
     {
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
-      ...getRuntimeCommitMessageSettings(context.target, context.prefs, context.connectionId),
+      ...getRuntimeCommitMessageSettings(context.settings, context.connectionId),
       ...(overrides?.sourceControlAiResolvedParams
         ? { sourceControlAiResolvedParams: overrides.sourceControlAiResolvedParams }
         : {}),
@@ -62,7 +62,7 @@ export async function discoverRuntimeCommitMessageModels(
   context: RuntimeGitContext,
   agentId: string
 ): Promise<RuntimeDiscoverCommitMessageModelsResult> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.discoverCommitMessageModels({
       agentId,
@@ -76,8 +76,8 @@ export async function discoverRuntimeCommitMessageModels(
     {
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       agentId,
-      ...(context.prefs?.agentCmdOverrides
-        ? { agentCmdOverrides: context.prefs.agentCmdOverrides }
+      ...(context.settings?.agentCmdOverrides
+        ? { agentCmdOverrides: context.settings.agentCmdOverrides }
         : {})
     },
     { timeoutMs: 75_000 }
@@ -87,7 +87,7 @@ export async function discoverRuntimeCommitMessageModels(
 export async function cancelRuntimeGenerateCommitMessage(
   context: RuntimeGitContext
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.cancelGenerateCommitMessage({
       worktreePath: resolveLocalWorktreePath(context),
@@ -108,7 +108,7 @@ export async function generateRuntimePullRequestFields(
   input: RuntimePullRequestGenerationInput,
   overrides?: RuntimeGeneratePullRequestFieldsOverrides
 ): Promise<RuntimeGeneratePullRequestFieldsResult> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.generatePullRequestFields({
       worktreePath: resolveLocalWorktreePath(context),
@@ -139,7 +139,7 @@ export async function generateRuntimePullRequestFields(
     {
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       ...input,
-      ...getRuntimeCommitMessageSettings(context.target, context.prefs, context.connectionId),
+      ...getRuntimeCommitMessageSettings(context.settings, context.connectionId),
       ...(overrides?.sourceControlAiResolvedParams
         ? { sourceControlAiResolvedParams: overrides.sourceControlAiResolvedParams }
         : {}),
@@ -153,7 +153,7 @@ export async function generateRuntimePullRequestFields(
 export async function cancelRuntimeGeneratePullRequestFields(
   context: RuntimeGitContext
 ): Promise<void> {
-  const target = context.target
+  const target = getActiveRuntimeTarget(context.settings)
   if (target.kind === 'local' || !context.worktreeId) {
     await window.api.git.cancelGeneratePullRequestFields({
       worktreePath: resolveLocalWorktreePath(context),

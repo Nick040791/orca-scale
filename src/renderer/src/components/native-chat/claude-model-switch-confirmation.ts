@@ -1,3 +1,4 @@
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { subscribeToPtyData } from '../terminal-pane/pty-data-sidecar-subscriptions'
 import { isRemoteRuntimePtyId, sendRuntimePtyInput } from '@/runtime/runtime-terminal-inspection'
 import { subscribeToRuntimeTerminalData } from '@/runtime/runtime-terminal-stream'
@@ -63,6 +64,7 @@ function hasClaudeModelSwitchRejection(buffer: string): boolean {
 
 function subscribeToClaudeModelSwitchData(args: {
   ptyId: string
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   subscribeToData?: SubscribeToData
   watcher: (data: string) => void
 }): Promise<() => void> | (() => void) {
@@ -71,6 +73,7 @@ function subscribeToClaudeModelSwitchData(args: {
   }
   if (isRemoteRuntimePtyId(args.ptyId)) {
     return subscribeToRuntimeTerminalData(
+      args.settings,
       args.ptyId,
       `desktop:native-chat-model-switch:${args.ptyId}`,
       args.watcher,
@@ -82,6 +85,7 @@ function subscribeToClaudeModelSwitchData(args: {
 
 export function createClaudeModelSwitchConfirmationObserver(args: {
   ptyId: string
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   expectedModelLabel: string | null
   subscribeToData?: SubscribeToData
   submitConfirmation?: () => boolean | void
@@ -143,7 +147,7 @@ export function createClaudeModelSwitchConfirmationObserver(args: {
         // exact Claude warning defaults to “Yes” and needs only one Enter.
         const accepted = args.submitConfirmation
           ? args.submitConfirmation() !== false
-          : sendRuntimePtyInput(args.ptyId, NATIVE_CHAT_SUBMIT, 'driving')
+          : sendRuntimePtyInput(args.settings, args.ptyId, NATIVE_CHAT_SUBMIT)
         if (!accepted) {
           finish('unknown')
           return
@@ -158,6 +162,7 @@ export function createClaudeModelSwitchConfirmationObserver(args: {
   try {
     const subscription = subscribeToClaudeModelSwitchData({
       ptyId: args.ptyId,
+      settings: args.settings,
       subscribeToData: args.subscribeToData,
       watcher: observeData
     })

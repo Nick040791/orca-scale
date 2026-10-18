@@ -1,12 +1,16 @@
 import { stat } from 'node:fs/promises'
 import { mapWithConcurrency } from '../shared/map-with-concurrency'
 import { PrioritySemaphore } from '../shared/priority-semaphore'
-import { abortSignalWithTimeout } from './lib/abort-signal-with-timeout'
 
 // Why: share one bound across polling callers so slow mounts cannot multiply libuv work.
 const LOCAL_WORKTREE_PATH_PROBE_CONCURRENCY = 2
 export const LOCAL_WORKTREE_PATH_PROBE_TIMEOUT_MS = 2_000
 const localWorktreePathProbeSemaphore = new PrioritySemaphore(LOCAL_WORKTREE_PATH_PROBE_CONCURRENCY)
+
+function probeDeadline(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(LOCAL_WORKTREE_PATH_PROBE_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
 
 async function probeLocalWorktreePath(pathValue: string, signal: AbortSignal): Promise<boolean> {
   let release: () => void
@@ -47,10 +51,7 @@ export function localWorktreePathExistsOrIsUnverifiable(
   pathValue: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<boolean> {
-  return probeLocalWorktreePath(
-    pathValue,
-    abortSignalWithTimeout(options.signal, LOCAL_WORKTREE_PATH_PROBE_TIMEOUT_MS)
-  )
+  return probeLocalWorktreePath(pathValue, probeDeadline(options.signal))
 }
 
 export async function localWorktreePathsExistOrAreUnverifiable(
@@ -61,7 +62,7 @@ export async function localWorktreePathsExistOrAreUnverifiable(
   if (uniquePaths.length === 0) {
     return new Map()
   }
-  const signal = abortSignalWithTimeout(options.signal, LOCAL_WORKTREE_PATH_PROBE_TIMEOUT_MS)
+  const signal = probeDeadline(options.signal)
   const results = await mapWithConcurrency(
     uniquePaths,
     LOCAL_WORKTREE_PATH_PROBE_CONCURRENCY,

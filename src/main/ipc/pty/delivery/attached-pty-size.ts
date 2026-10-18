@@ -1,4 +1,4 @@
-import type { PtySpawnResult } from '../../../providers/pty-provider-contract'
+import type { PtySpawnResult } from '../../../providers/types'
 import { ptySizes } from './visibility-state'
 
 export type PtyGrid = { cols: number; rows: number }

@@ -1,5 +1,6 @@
 import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
-import type { StreamFrames, StreamWriteChunk } from './daemon-stream-data-split'
+import { writeStreamDataEvents } from './daemon-stream-data-split'
+import { encodeNdjson } from './ndjson'
 import { accountDaemonStreamEntry } from './daemon-stream-entry-accounting'
 
 export type DaemonStreamEnqueueOptions = {
@@ -77,14 +78,13 @@ export function flushDaemonStreamSession(
   batch: PendingStreamDataBatch,
   sessionId: string,
   maxLineBytes: number,
-  frames: StreamFrames,
-  write: (line: StreamWriteChunk) => void
+  write: (line: string) => void
 ): void {
   for (const entry of takeDaemonStreamSession(batch, sessionId)) {
     if (entry.control) {
-      write(frames.control(entry.control))
+      write(encodeNdjson(entry.control))
     } else {
-      frames.data(
+      writeStreamDataEvents(
         { write },
         entry.sessionId,
         entry.data,

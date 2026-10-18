@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { foldToolMessages, pairToolBlocks } from '../../../src/shared/native-chat-tool-fold'
+import {
+  foldToolMessages,
+  pairToolBlocks,
+  splitNativeChatBlocks
+} from '../../../src/shared/native-chat-tool-fold'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 
 function msg(
@@ -9,6 +13,18 @@ function msg(
 ): NativeChatMessage {
   return { id, role, blocks, timestamp: 0, source: 'transcript' }
 }
+
+describe('splitNativeChatBlocks', () => {
+  it('separates prose from tool blocks', () => {
+    const { prose, tools } = splitNativeChatBlocks([
+      { type: 'text', text: 'hi' },
+      { type: 'tool-call', name: 'Bash', input: {} },
+      { type: 'tool-result', output: 'ok' }
+    ])
+    expect(prose.map((b) => b.type)).toEqual(['text'])
+    expect(tools.map((b) => b.type)).toEqual(['tool-call', 'tool-result'])
+  })
+})
 
 describe('pairToolBlocks', () => {
   it('pairs each call with the following result', () => {

@@ -1,3 +1,4 @@
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { LinearIssue } from '../../../shared/linear/issue-types'
 import type { LinearProjectDetail } from '../../../shared/linear/project-types'
 import type {
@@ -6,9 +7,15 @@ import type {
   LinearViewer,
   LinearWorkspaceSelection
 } from '../../../shared/linear/workspace-types'
-import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { rowLessSourceTarget, type RowLessSource } from '@/lib/default-creation-host'
+import {
+  callRuntimeRpc,
+  getActiveRuntimeTarget,
+  runtimeEnvironmentSupportsCapability
+} from './runtime-rpc-client'
+import {
+  getTaskSourceRuntimeSettings,
+  type TaskSourceContext
+} from '../../../shared/task-source-context'
 import { isRuntimeProviderSearchQueryWithinLimit } from './runtime-provider-search-bounds'
 import type { LinearIssueAttributeFilter } from '../../../shared/linear/issue-attribute-filter'
 import {
@@ -17,7 +24,11 @@ import {
 } from '../../../shared/linear/issue-attribute-filter'
 import { LINEAR_ISSUE_ATTRIBUTE_FILTER_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 
-export type RuntimeLinearSettings = RowLessSource
+export type RuntimeLinearSettings =
+  | Pick<GlobalSettings, 'activeRuntimeEnvironmentId'>
+  | TaskSourceContext
+  | null
+  | undefined
 
 // Why: mixed-version remotes must not look like an empty filtered result. The
 // Linear store swallows most read failures; this typed error is rethrown so UI
@@ -51,8 +62,20 @@ export function linearReadForce(options?: LinearReadOptions): { force: true } | 
   return options?.force ? { force: true } : {}
 }
 
-export function getLinearRuntimeTarget(source: RuntimeLinearSettings): RuntimeClientTarget {
-  return rowLessSourceTarget(source)
+function isTaskSourceRuntimeSettings(
+  settings: RuntimeLinearSettings
+): settings is TaskSourceContext {
+  return settings !== null && settings !== undefined && 'kind' in settings
+}
+
+export function getLinearRuntimeTarget(
+  settings: RuntimeLinearSettings
+): ReturnType<typeof getActiveRuntimeTarget> {
+  // Why: task source context makes provider ownership explicit; legacy callers
+  // still pass focused runtime settings until Tasks finishes migrating.
+  return getActiveRuntimeTarget(
+    isTaskSourceRuntimeSettings(settings) ? getTaskSourceRuntimeSettings(settings) : settings
+  )
 }
 
 function normalizeLinearIssueCollectionResult(
@@ -78,12 +101,7 @@ function normalizeLinearIssueCollectionResult(
 export async function linearStatus(
   settings: RuntimeLinearSettings
 ): Promise<LinearConnectionStatus> {
-  return linearStatusForTarget(getLinearRuntimeTarget(settings))
-}
-
-export async function linearStatusForTarget(
-  target: RuntimeClientTarget
-): Promise<LinearConnectionStatus> {
+  const target = getLinearRuntimeTarget(settings)
   return target.kind === 'environment'
     ? callRuntimeRpc<LinearConnectionStatus>(target, 'linear.status', undefined, {
         timeoutMs: 15_000
@@ -167,18 +185,10 @@ export async function linearSearchIssues(
   limit?: number,
   workspaceId?: LinearWorkspaceSelection | null
 ): Promise<LinearIssue[]> {
-  return linearSearchIssuesForTarget(getLinearRuntimeTarget(settings), query, limit, workspaceId)
-}
-
-export async function linearSearchIssuesForTarget(
-  target: RuntimeClientTarget,
-  query: string,
-  limit?: number,
-  workspaceId?: LinearWorkspaceSelection | null
-): Promise<LinearIssue[]> {
   if (!isRuntimeProviderSearchQueryWithinLimit(query)) {
     return []
   }
+  const target = getLinearRuntimeTarget(settings)
   return target.kind === 'environment'
     ? callRuntimeRpc<LinearIssue[]>(
         target,

@@ -1,4 +1,5 @@
 import { readLocalGitConfigSignature } from '../github/local-git-config-signature'
+import { getSshGitProvider, getSshGitProviderGeneration } from '../providers/ssh-git-dispatch'
 import { runCoalescedProbe, type CoalescedProbes } from './coalesced-probe'
 import type { GitAdmissionTier } from './command-runner/git-exec-options'
 import { REMOTE_URL_PROBE_TIMEOUT_MS } from './remote-url-probe'
@@ -37,9 +38,13 @@ function parseRemoteNames(stdout: string): string[] {
 
 function remoteNameListingCacheKey(
   repoPath: string,
+  connectionId?: string | null,
   localGitOptions: RemoteNameListingGitOptions = {}
 ): string {
-  return `local:${localGitOptions.wslDistro ?? 'host'}\0${repoPath}`
+  const runtimeKey = connectionId
+    ? `ssh:${connectionId}:${getSshGitProviderGeneration(connectionId)}`
+    : `local:${localGitOptions.wslDistro ?? 'host'}`
+  return `${runtimeKey}\0${repoPath}`
 }
 
 function pruneRemoteNameListingCache(now: number): void {
@@ -59,11 +64,12 @@ function pruneRemoteNameListingCache(now: number): void {
 
 function listingGitConfigContext(
   repoPath: string,
+  connectionId?: string | null,
   localGitOptions: RemoteNameListingGitOptions = {}
-): { repoPath: string; connectionId: null; wslDistro?: string } {
+): { repoPath: string; connectionId: string | null; wslDistro?: string } {
   return {
     repoPath,
-    connectionId: null,
+    connectionId: connectionId ?? null,
     ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
   }
 }
@@ -71,25 +77,21 @@ function listingGitConfigContext(
 /**
  * `git remote` names for one repo/runtime. Failed listings are not cached: a
  * missed `upstream` would otherwise send issue/PR resolvers to origin on a
- * contributor clone (#7331). An `ssh:` repo is not served here, so it lists as
- * failed (`null`), never as this machine's remotes.
+ * contributor clone (#7331).
  */
 export async function listCachedRemoteNames(
   repoPath: string,
   connectionId?: string | null,
   localGitOptions: RemoteNameListingGitOptions = {}
 ): Promise<string[] | null> {
-  if (connectionId) {
-    return null
-  }
-  const cacheKey = remoteNameListingCacheKey(repoPath, localGitOptions)
+  const cacheKey = remoteNameListingCacheKey(repoPath, connectionId, localGitOptions)
   const now = Date.now()
   pruneRemoteNameListingCache(now)
   const cached = remoteNameListingCache.get(cacheKey)
   if (cached && cached.expiresAt > now) {
     if (cached.configSignature !== undefined) {
       const currentSignature = await readLocalGitConfigSignature(
-        listingGitConfigContext(repoPath, localGitOptions)
+        listingGitConfigContext(repoPath, connectionId, localGitOptions)
       )
       if (currentSignature === cached.configSignature) {
         return cached.remotes
@@ -101,9 +103,9 @@ export async function listCachedRemoteNames(
   }
 
   return runCoalescedProbe(remoteNameListingInFlight, cacheKey, async (ownsKey) => {
-    const configContext = listingGitConfigContext(repoPath, localGitOptions)
+    const configContext = listingGitConfigContext(repoPath, connectionId, localGitOptions)
     const configSignatureBefore = await readLocalGitConfigSignature(configContext)
-    const remotes = await listUncachedRemoteNames(repoPath, localGitOptions)
+    const remotes = await listUncachedRemoteNames(repoPath, connectionId, localGitOptions)
     if (remotes === null) {
       return null
     }
@@ -130,8 +132,23 @@ export async function listCachedRemoteNames(
 
 async function listUncachedRemoteNames(
   repoPath: string,
+  connectionId?: string | null,
   localGitOptions: RemoteNameListingGitOptions = {}
 ): Promise<string[] | null> {
+  if (connectionId) {
+    const provider = getSshGitProvider(connectionId)
+    if (!provider) {
+      return null
+    }
+    try {
+      const { stdout } = await provider.exec(['remote'], repoPath, {
+        signal: AbortSignal.timeout(REMOTE_URL_PROBE_TIMEOUT_MS)
+      })
+      return parseRemoteNames(stdout)
+    } catch {
+      return null
+    }
+  }
   try {
     const { stdout } = await gitExecFileAsync(['remote'], {
       cwd: repoPath,

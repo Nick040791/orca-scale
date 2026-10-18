@@ -1,4 +1,3 @@
-import { isRemoteRuntimePtyId } from '../../../shared/remote-runtime-pty-id'
 import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 import { parseRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
@@ -52,7 +51,7 @@ export function resolveAgentStatusConnectionRouting(args: {
     }
     return { connectionId: null }
   }
-  if (isRemoteRuntimePtyId(ptyId)) {
+  if (ptyId.startsWith('remote:')) {
     return undefined
   }
 

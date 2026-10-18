@@ -16,7 +16,6 @@ import {
   type LinearLocalComment
 } from '@/components/linear-item-drawer-types'
 import { renderLinearItemDrawerSheet } from '@/components/linear-item-drawer-sheet'
-import { defaultScopeSource } from '@/lib/default-creation-host'
 
 export { LinearIssueEditSection } from '@/components/linear-item-drawer-edit-section'
 export { LinearIssueCommentFooter } from '@/components/linear-item-drawer-comment-footer'
@@ -38,7 +37,7 @@ export default function LinearItemDrawer({
   const hasEditedRef = useRef(false)
   const optimisticCommentsRef = useRef<LinearComment[]>([])
   const settings = useAppStore((s) => s.settings)
-  const providerSettings = sourceContext ?? defaultScopeSource(settings)
+  const providerSettings = sourceContext ?? settings
   const allWorktrees = useAllWorktrees()
   const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
   const attachmentWorkspaces = useMemo(

@@ -139,9 +139,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onActivateWorktree: () => () => {},
           onCreateTerminal: () => () => {},
           onRequestTerminalCreate: () => () => {},
-          onPublishAgentLaunchTab: () => () => {},
-          onRevealTerminalPane: () => () => {},
-          onAgentLaunchPaneVerdict: () => () => {},
           onRequestTerminalTabMount: () => () => {},
           replyTerminalCreate: () => {},
           onSplitTerminal: () => () => {},
@@ -160,7 +157,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onNewBrowserTab: () => () => {},
           onNewMarkdownTab: () => () => {},
           onRequestTabCreate: () => () => {},
-          onRequestRemoteCliBrowserScope: () => () => {},
           replyTabCreate: () => {},
           onRequestTabClose: (
             listener: (data: {
@@ -369,9 +365,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onActivateWorktree: () => () => {},
           onCreateTerminal: () => () => {},
           onRequestTerminalCreate: () => () => {},
-          onPublishAgentLaunchTab: () => () => {},
-          onRevealTerminalPane: () => () => {},
-          onAgentLaunchPaneVerdict: () => () => {},
           onRequestTerminalTabMount: () => () => {},
           replyTerminalCreate: () => {},
           onSplitTerminal: () => () => {},
@@ -390,7 +383,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onNewBrowserTab: () => () => {},
           onNewMarkdownTab: () => () => {},
           onRequestTabCreate: () => () => {},
-          onRequestRemoteCliBrowserScope: () => () => {},
           replyTabCreate: () => {},
           onRequestTabClose: (
             listener: (data: {
@@ -594,9 +586,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onActivateWorktree: () => () => {},
           onCreateTerminal: () => () => {},
           onRequestTerminalCreate: () => () => {},
-          onPublishAgentLaunchTab: () => () => {},
-          onRevealTerminalPane: () => () => {},
-          onAgentLaunchPaneVerdict: () => () => {},
           onRequestTerminalTabMount: () => () => {},
           replyTerminalCreate: () => {},
           onSplitTerminal: () => () => {},
@@ -615,7 +604,6 @@ describe('useIpcEvents browser tab close routing', () => {
           onNewBrowserTab: () => () => {},
           onNewMarkdownTab: () => () => {},
           onRequestTabCreate: () => () => {},
-          onRequestRemoteCliBrowserScope: () => () => {},
           replyTabCreate: () => {},
           onRequestTabClose: (
             listener: (data: {

@@ -24,7 +24,6 @@ import {
   FAKE_AGENT_WINDOWS_SHELL
 } from './helpers/fake-agent-command-override'
 import { FAKE_AGENT_PASTE_END_SCANNER_SOURCE } from './helpers/fake-agent-paste-end-scanner'
-import { FAKE_CODEX_LAUNCH_PROBES_SOURCE } from './helpers/fake-codex-launch-probes'
 
 const PROVIDER_SESSION_ID = 'e2e-missing-legacy-worker'
 const fakeCliDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-missing-legacy-worker-'))
@@ -42,7 +41,10 @@ function appendLedger(envName, event) {
     appendFileSync(ledgerPath, JSON.stringify({ pid: process.pid, ...event }) + '\\n')
   } catch {}
 }
-${FAKE_CODEX_LAUNCH_PROBES_SOURCE}
+if (process.argv.slice(2).includes('app-server')) {
+  process.stderr.write("error: unrecognized subcommand 'app-server'\\n")
+  process.exit(2)
+}
 appendLedger('ORCA_E2E_SPAWN_LEDGER', { event: 'spawn' })
 process.stdout.write('\\u001b]0;Codex Ready\\u0007OpenAI Codex\\nmodel: e2e\\ndirectory: e2e\\n')
 let acknowledged = false

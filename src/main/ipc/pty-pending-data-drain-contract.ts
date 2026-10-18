@@ -1,4 +1,3 @@
-import type { SynchronizedOutputLatchState } from '../../shared/terminal-synchronized-output-scan'
 import type { Mode2031ReplyScanState } from '../../shared/terminal-color-scheme-protocol'
 
 export type PendingPtyData = {
@@ -10,9 +9,8 @@ export type PendingPtyData = {
   droppedOutput?: true
   droppedMode2031Data?: string
   droppedMode2031ScanState?: Mode2031ReplyScanState
-  /** Latch state across bytes the renderer never received, so a drop that swallowed
-   *  a closing \x1b[?2026l can still release xterm's render hold. */
-  droppedSynchronizedOutputState?: SynchronizedOutputLatchState
+  projectionAdmissionIds?: readonly string[]
+  projectionAdmissionsTransferred?: true
 }
 
 export type PtyPendingDataDrainDisposition = 'active' | 'background' | 'blocked'

@@ -1,4 +1,3 @@
-import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
 import { once } from 'node:events'
 import { connect, type Socket } from 'node:net'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
@@ -59,7 +58,7 @@ describe('PairedRuntimeBrowserNetworkRoute', () => {
       })
     )
     const route = new PairedRuntimeBrowserNetworkRoute({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       lease,
       executionHostRevision: 1
     })
@@ -335,7 +334,7 @@ describe('PairedRuntimeBrowserNetworkRoute', () => {
     const attempts = mockSubscriptionAttempts()
     const commandLease = { ...lease, pageCommandProtocolVersion: 1 }
     const route = new PairedRuntimeBrowserNetworkRoute({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       lease: commandLease,
       executionHostRevision: 1
     })
@@ -650,7 +649,7 @@ function createRoute(
   } = {}
 ): PairedRuntimeBrowserNetworkRoute {
   return new PairedRuntimeBrowserNetworkRoute({
-    connection: pairedRuntimeConnectionFromOffer(pairing),
+    pairing,
     lease,
     executionHostRevision: 1,
     ...overrides

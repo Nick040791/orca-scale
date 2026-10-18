@@ -10,8 +10,6 @@ import {
 } from 'react-native'
 import type { RpcClient } from '../transport/rpc-client'
 import type { SmartWorkspaceSourceRow as SourceRow } from '../../../src/shared/new-workspace/smart-workspace-source-results'
-import type { JiraSite, JiraSiteSelection } from '../../../src/shared/jira-types'
-import { isBlockingJiraUrlIntent } from '../../../src/shared/new-workspace/smart-workspace-source-results'
 import {
   MR_STATE_FILTER_OPTIONS,
   resolveAvailableSmartModes,
@@ -45,14 +43,10 @@ type Props = {
   repoId: string | null
   repos: readonly PasteRepoCandidate[]
   linearWorkspaceId?: string | null
-  jiraSiteId?: JiraSiteSelection | null
-  jiraSites?: readonly JiraSite[]
   sshReady: boolean
   onRepoChange: (repoId: string) => void
   onClose: () => void
 }
-
-const NO_JIRA_SITES: readonly JiraSite[] = []
 
 export function SmartWorkspaceSourceDrawer({
   visible,
@@ -62,8 +56,6 @@ export function SmartWorkspaceSourceDrawer({
   repoId,
   repos,
   linearWorkspaceId,
-  jiraSiteId,
-  jiraSites = NO_JIRA_SITES,
   sshReady,
   onRepoChange,
   onClose
@@ -108,14 +100,9 @@ export function SmartWorkspaceSourceDrawer({
   // Snap the chosen mode back into the available set if availability changes.
   const effectiveMode = availableModes.includes(mode) ? mode : (availableModes[0] ?? 'text')
 
-  // A pasted Jira URL resolves to one issue without touching the repo, so it must
-  // stay reachable from Smart mode even when the repo is not connected.
-  const jiraUrlIntent =
-    availability.jiraAvailable && isBlockingJiraUrlIntent(effectiveMode, composer.name)
-  // Linear and Jira search without a repo; every other provider/branch search
-  // needs a connected repo-backed target.
-  const searchEnabled =
-    visible && (effectiveMode === 'linear' || effectiveMode === 'jira' || jiraUrlIntent || sshReady)
+  // Linear searches without a repo; every other provider/branch search needs a
+  // connected repo-backed target.
+  const searchEnabled = visible && (effectiveMode === 'linear' || sshReady)
 
   const {
     rows,
@@ -134,11 +121,8 @@ export function SmartWorkspaceSourceDrawer({
     githubAvailable: availability.githubAvailable,
     gitlabAvailable: availability.gitlabAvailable,
     linearAvailable: availability.linearAvailable,
-    jiraAvailable: availability.jiraAvailable,
     mrStateFilter,
     linearWorkspaceId,
-    jiraSiteId,
-    jiraSites,
     repos
   })
 
@@ -161,9 +145,6 @@ export function SmartWorkspaceSourceDrawer({
         break
       case 'linear':
         composer.handleSmartLinearIssueSelect(row.issue)
-        break
-      case 'jira':
-        composer.handleSmartJiraIssueSelect(row.issue)
         break
     }
     onClose()
@@ -244,11 +225,7 @@ export function SmartWorkspaceSourceDrawer({
             </View>
           ) : null}
 
-          {!sshReady &&
-          effectiveMode !== 'text' &&
-          effectiveMode !== 'linear' &&
-          effectiveMode !== 'jira' &&
-          !jiraUrlIntent ? (
+          {!sshReady && effectiveMode !== 'text' && effectiveMode !== 'linear' ? (
             <Text style={styles.notice}>Connect the repository to search sources.</Text>
           ) : needsGitHubRemote ? (
             <Text style={styles.notice}>

@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import type { TuiAgent } from '../../shared/tui-agent'
-import { registerPtyHandlers } from './pty/register-handlers'
+import { registerPtyHandlers } from './pty'
 import { accessSyncMock, spawnMock, statSyncMock } from './pty-ipc-mock-registry'
 import { BUNDLED_CLI_PATH, BUNDLED_RESOURCES_PATH } from './pty-ipc-test-constants'
 
@@ -29,7 +29,7 @@ export function createPtyIpcSpawnDrivers(ctx: {
     getSelectedCodexHomePath?: (
       target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
       launchEnv?: NodeJS.ProcessEnv,
-      launchContext?: { unavailableManagedHomePath?: string }
+      launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
     ) => string | null,
     getSettings?: () => {
       agentStatusHooksEnabled?: boolean

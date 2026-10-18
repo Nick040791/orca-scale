@@ -4,8 +4,6 @@ import type { WorkspaceSessionPatch } from '../../../shared/workspace-session-st
 import { SESSION_RELEVANT_FIELDS, shouldPersistWorkspaceSession } from './workspace-session'
 import { buildWorkspaceSessionPatch } from './workspace-session-patch'
 import { createWorktreeTabBucketProjection } from './worktree-tab-bucket-projection'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
-import { reportWindowSessionWriteActivity } from './window-session-write-activity'
 
 type SessionRelevantField = (typeof SESSION_RELEVANT_FIELDS)[number]
 type TabsByWorktree = AppState['tabsByWorktree']
@@ -82,15 +80,30 @@ export type WorkspaceSessionWrite = {
   patch: WorkspaceSessionPatch
 }
 
+/**
+ * Why the two are one unit and not two optional callbacks: a gate can reopen on a wall clock (the
+ * direct-SSH apply's suppression tail) with no store update behind it. A caller that supplies the
+ * gate but no wake-up would strand every write deferred in that window until some unrelated
+ * mutation happened along — the failure this deferral exists to prevent. Pairing them in the type
+ * makes that combination unwriteable rather than merely discouraged.
+ */
+type SessionWritePersistGate =
+  | { shouldSchedulePersist?: undefined; subscribeToPersistGateOpen?: undefined }
+  | {
+      /** False defers the write; it never drops it. */
+      shouldSchedulePersist: () => boolean
+      /** Called when the gate may have reopened. Returns an unsubscribe. */
+      subscribeToPersistGateOpen: (onGateOpen: () => void) => () => void
+    }
+
 export type SessionWriteSubscriberDeps = {
   store: {
     subscribe: (listener: (state: AppState) => void) => () => void
     getState: () => AppState
   }
-  persist: (payload: WorkspaceSessionWrite) => void | Promise<void>
-  onPersistError?: (error: unknown) => void
+  persist: (payload: WorkspaceSessionWrite) => void
   debounceMs?: number
-}
+} & SessionWritePersistGate
 
 /**
  * Why: factored out so a vitest can drive the real Zustand store and assert
@@ -101,12 +114,11 @@ export type SessionWriteSubscriberDeps = {
 export function createSessionWriteSubscriber({
   store,
   persist,
-  onPersistError,
+  shouldSchedulePersist,
+  subscribeToPersistGateOpen,
   debounceMs = 150
 }: SessionWriteSubscriberDeps): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
-  let disposed = false
-  let writing = false
   // Why: the subscriber fires on every store update (agent status, usage
   // refreshes, runtime title ticks, …). Without this gate each fire reset
   // the debounce, and when it finally expired buildWorkspaceSessionPayload
@@ -121,28 +133,14 @@ export function createSessionWriteSubscriber({
   let prevUnifiedTabsSource: UnifiedTabsByWorktree | null = null
   // Why: this set is the only record that a mutation still owes a write — `prev` has already
   // advanced past it, and change detection is identity-based, so a field dropped from here can
-  // never be re-detected. In-flight fields remain owned by that write until acknowledgment;
-  // failures merge them back without overwriting newer same-field edits.
+  // never be re-detected. It is retired only by a flush that reached `persist` (or found nothing
+  // left to write), and by unsubscribe. A closed gate never retires it.
   const pendingChangedFields = new Set<SessionRelevantField>()
   const terminalTabsProjection = createTerminalSessionTabsProjection()
   const unifiedTabsProjection = createUnifiedSessionTabsProjection()
-  // Switch point (each report below, inline so a window-owned build keeps none of it): layout
-  // frames wait while this window owes main a write, including before it may save at all.
-  const owesWrite = (): boolean =>
-    !disposed &&
-    (timer !== null ||
-      writing ||
-      pendingChangedFields.size > 0 ||
-      !shouldPersistWorkspaceSession(store.getState()))
 
   const flushPendingWrite = (): void => {
     timer = null
-    if (disposed || writing || pendingChangedFields.size === 0) {
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        reportWindowSessionWriteActivity(owesWrite())
-      }
-      return
-    }
     // Why: rebuild from the freshest store state rather than the snapshot
     // captured when this timer was scheduled. Today this is equivalent
     // because buildWorkspaceSessionPayload reads only SESSION_RELEVANT_FIELDS
@@ -152,66 +150,29 @@ export function createSessionWriteSubscriber({
     // builder — without this, such a change would silently start emitting
     // stale values for that field.
     const fresh = store.getState()
-    // Why: a closed shouldPersistWorkspaceSession defers, never discards. The pending set stays, so
-    // the next store update re-arms the write; nothing re-arms here, so staying closed costs no timer.
+    // Why: a closed gate defers, it never discards. Returning with the pending set intact leaves
+    // the write owed; the next store update or gate-open wake-up re-arms it. Nothing re-arms from
+    // here, so a gate that never reopens costs no timer.
     if (!shouldPersistWorkspaceSession(fresh)) {
+      return
+    }
+    if (shouldSchedulePersist && !shouldSchedulePersist()) {
       return
     }
     const changed = new Set(pendingChangedFields)
     pendingChangedFields.clear()
     const patch = buildWorkspaceSessionPatch(fresh, changed)
     if (Object.keys(patch).length === 0) {
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        reportWindowSessionWriteActivity(owesWrite())
-      }
       return
     }
-    writing = true
-    const settle = (failed: boolean, error?: unknown): void => {
-      writing = false
-      if (disposed) {
-        return
-      }
-      if (failed) {
-        for (const field of changed) {
-          pendingChangedFields.add(field)
-        }
-        // A rejection waits for the next store wake, not a retry loop.
-        onPersistError?.(error)
-      } else if (pendingChangedFields.size > 0) {
-        armFlushTimer()
-      }
-      // A failed write stays owed, so structure frames wait for the next store wake's resend.
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        reportWindowSessionWriteActivity(owesWrite())
-      }
-    }
-    try {
-      const result = persist({ patch })
-      if (result && typeof result.then === 'function') {
-        void result.then(
-          () => settle(false),
-          (error: unknown) => settle(true, error)
-        )
-      } else {
-        settle(false)
-      }
-    } catch (error) {
-      settle(true, error)
-    }
+    persist({ patch })
   }
 
   const armFlushTimer = (): void => {
-    if (disposed || writing) {
-      return
-    }
     if (timer !== null) {
       clearTimeout(timer)
     }
     timer = setTimeout(flushPendingWrite, debounceMs)
-    if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-      reportWindowSessionWriteActivity(owesWrite())
-    }
   }
 
   /**
@@ -240,11 +201,8 @@ export function createSessionWriteSubscriber({
     return false
   }
 
-  const evaluateSessionState = (state: AppState): void => {
+  const unsub = store.subscribe((state) => {
     if (!shouldPersistWorkspaceSession(state)) {
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        reportWindowSessionWriteActivity(owesWrite())
-      }
       return
     }
     // Why: this fires on every store write and almost none of them touch a session field. Scan
@@ -252,6 +210,9 @@ export function createSessionWriteSubscriber({
     // list; only a real identity change pays for them.
     if (!hasSessionFieldIdentityChange(state)) {
       if (pendingChangedFields.size === 0) {
+        return
+      }
+      if (shouldSchedulePersist && !shouldSchedulePersist()) {
         return
       }
       // An unrelated update may wake a deferred write but must never reset an armed debounce.
@@ -285,30 +246,30 @@ export function createSessionWriteSubscriber({
     for (const field of changedFields) {
       pendingChangedFields.add(field)
     }
+    if (shouldSchedulePersist && !shouldSchedulePersist()) {
+      return
+    }
     // Why: an unrelated update may wake a deferred write but must never reset an armed debounce —
     // that reset storm is exactly what the changed-field gate above exists to prevent.
     if (timer !== null && changedFields.length === 0) {
       return
     }
     armFlushTimer()
-  }
+  })
 
-  // Why evaluate once here: `prev === null` is what bootstraps the first full write, so a writer
-  // created when the session gate is *already* open owed that write to whatever unrelated store
-  // tick happened to arrive next. Catalog refreshes no longer publish when nothing changed, so
-  // that incidental wake-up is not guaranteed; seed from the current state instead.
-  evaluateSessionState(store.getState())
-  const unsub = store.subscribe(evaluateSessionState)
+  const unsubGateOpen = subscribeToPersistGateOpen?.(() => {
+    if (pendingChangedFields.size === 0 || timer !== null) {
+      return
+    }
+    armFlushTimer()
+  })
 
   return () => {
-    disposed = true
     unsub()
+    unsubGateOpen?.()
     if (timer !== null) {
       clearTimeout(timer)
     }
     pendingChangedFields.clear()
-    if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-      reportWindowSessionWriteActivity(owesWrite())
-    }
   }
 }

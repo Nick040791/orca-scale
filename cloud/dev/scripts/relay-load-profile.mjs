@@ -49,8 +49,6 @@ export function parseRelayLoadArguments(argv) {
   const placementOverflowProbes = integer('--placement-overflow-probes', 0)
   const regionalFallbackProbes = integer('--regional-fallback-probes', 0)
   const regionBehaviorProbes = integer('--region-behavior-probes', 0)
-  const duplicateAssignProbes = integer('--duplicate-assign-probes', 0)
-  const duplicateAssignHoldMs = integer('--duplicate-assign-hold-ms', 20_000)
   const requestUnitInvites = integer('--request-unit-invites', 0)
   const requestUnitInvitesPerSecond = integer('--request-unit-invites-per-second', 0)
   const requestUnitPrincipalCount = integer('--request-unit-principals', 0)
@@ -220,15 +218,6 @@ export function parseRelayLoadArguments(argv) {
     !directorOrigin || !capacityCellOrigin || preferredRegionValue(values) !== 'asia-east2' ||
     (shardCount > 1 && shardIndex !== 0)
   )) throw new Error('regional behavior proof requires the coordinating Asia shard')
-  if (duplicateAssignProbes > 1_000) {
-    throw new Error('--duplicate-assign-probes cannot exceed 1000')
-  }
-  if (duplicateAssignProbes > 0 && !directorOrigin) {
-    throw new Error('duplicate assign probes require --director-origin')
-  }
-  if (duplicateAssignHoldMs < 1_000 || duplicateAssignHoldMs > 120_000) {
-    throw new Error('--duplicate-assign-hold-ms must be between 1000 and 120000')
-  }
   if (phaseBarrierDir && shardCount < 2) {
     throw new Error('phase barrier requires multiple shards')
   }
@@ -258,11 +247,10 @@ export function parseRelayLoadArguments(argv) {
   if (requestUnitCleanupTimeoutMs > 0 && requestUnitOverflowProbes !== 1) {
     throw new Error('request-unit cleanup requires the overflow proof')
   }
-  // A US cell's canary uses the same synthetic principals, aimed at the root region instead.
   if (
     relayAsiaLoadPrincipalCount > 32 ||
     (relayAsiaLoadPrincipalCount > 0 &&
-      (!directorOrigin || !['asia-east2', 'us-central1'].includes(preferredRegionValue(values))))
+      (!directorOrigin || preferredRegionValue(values) !== 'asia-east2'))
   ) throw new Error('Relay Asia load principals require a regional director proof')
   if (capacityCellOrigin) {
     const origin = new URL(capacityCellOrigin)
@@ -287,8 +275,6 @@ export function parseRelayLoadArguments(argv) {
     placementOverflowProbes,
     regionalFallbackProbes,
     regionBehaviorProbes,
-    duplicateAssignProbes,
-    duplicateAssignHoldMs,
     requestUnitInvites,
     requestUnitInvitesPerSecond,
     requestUnitPrincipalCount,
@@ -307,8 +293,6 @@ export function parseRelayLoadArguments(argv) {
     rampMs: integer('--ramp-seconds', 60) * 1000,
     rampStartDelayMs: integer('--ramp-start-delay-ms', 0),
     reconnectMaxMs: integer('--reconnect-max-seconds', 30) * 1000,
-    // 0 keeps the old behaviour: the first splice failure fails the run.
-    spliceRetryMaxMs: integer('--splice-retry-max-seconds', 0) * 1000,
     shardCount,
     shardIndex,
     aggregateControls,

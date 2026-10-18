@@ -57,8 +57,6 @@ export async function emitCodexHookStatus(
     state: 'working' | 'done'
     prompt?: string
     lastAssistantMessage?: string
-    transcriptPath?: string | null
-    sessionId?: string
   }
 ): Promise<void> {
   const [tabId] = status.paneKey.split(':')
@@ -84,11 +82,7 @@ export async function emitCodexHookStatus(
       worktreeId: status.worktreeId,
       env: endpoint.env,
       version: endpoint.version,
-      payload: {
-        ...payload,
-        ...(status.transcriptPath !== undefined ? { transcript_path: status.transcriptPath } : {}),
-        ...(status.sessionId ? { session_id: status.sessionId } : {})
-      }
+      payload
     })
   })
   if (response.status !== 204) {
@@ -123,25 +117,4 @@ export async function emitGrokHookPayload(
   if (response.status !== 204) {
     throw new Error(`Grok hook POST returned ${response.status}`)
   }
-}
-
-/** One raw Claude hook event for a pane, as the agent's hook script posts it. */
-export async function postClaudeHook(
-  endpoint: AgentHookEndpoint,
-  pane: { paneKey: string; worktreeId: string },
-  payload: Record<string, unknown>
-): Promise<void> {
-  const response = await fetch(`http://127.0.0.1:${endpoint.port}/hook/claude`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Orca-Agent-Hook-Token': endpoint.token },
-    body: JSON.stringify({
-      paneKey: pane.paneKey,
-      tabId: pane.paneKey.split(':')[0],
-      worktreeId: pane.worktreeId,
-      env: endpoint.env,
-      version: endpoint.version,
-      payload: { session_id: 'e2e-claude-session', ...payload }
-    })
-  })
-  expect(response.status).toBe(204)
 }

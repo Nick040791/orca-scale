@@ -1,16 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const callMock = vi.fn()
-// worker_done carries a CLI-minted request id so its runtime_unavailable retries replay one mutation.
-const WORKER_DONE_REQUEST = { orchestrationRequestId: expect.any(String) }
 const getTerminalHandleMock = vi.hoisted(() => vi.fn())
 const originalTerminalHandle = process.env.ORCA_TERMINAL_HANDLE
 const originalPaneKey = process.env.ORCA_PANE_KEY
 // Why: a structured-session marker inherited from the runner diverts these cases to the
 // structured refusal, so which branch they exercise would depend on who ran them.
 const originalStructuredSession = process.env.ORCA_STRUCTURED_SESSION
-const originalCliCommand = process.env.ORCA_CLI_COMMAND
-const originalExitCode = process.exitCode
 function lifecycleGroupRecipientError(type: 'worker_done' | 'heartbeat'): string {
   return `${type} messages belong to one exact Dispatch and cannot target a group address.`
 }
@@ -40,13 +36,6 @@ afterEach(() => {
   } else {
     process.env.ORCA_STRUCTURED_SESSION = originalStructuredSession
   }
-  if (originalCliCommand === undefined) {
-    delete process.env.ORCA_CLI_COMMAND
-  } else {
-    process.env.ORCA_CLI_COMMAND = originalCliCommand
-  }
-  process.exitCode = originalExitCode
-  vi.restoreAllMocks()
 })
 
 describe('orchestration send structured payload flags', () => {
@@ -76,35 +65,29 @@ describe('orchestration send structured payload flags', () => {
         ['task-id', 'task_1'],
         ['dispatch-id', 'ctx_1'],
         ['outcome', 'succeeded'],
-        ['files-modified', ' src/a.ts, ,src/b.ts, '],
-        ['phase', 'verification'],
+        ['files-modified', 'src/a.ts, src/b.ts'],
         ['report-path', 'reports/done.md']
       ])
     )
 
-    expect(callMock).toHaveBeenCalledWith(
-      'orchestration.send',
-      {
-        from: 'term_worker',
-        to: 'term_coord',
-        subject: 'done',
-        body: undefined,
-        type: 'worker_done',
-        priority: undefined,
-        threadId: undefined,
-        payload: JSON.stringify({
-          taskId: 'task_1',
-          dispatchId: 'ctx_1',
-          outcome: 'succeeded',
-          filesModified: ['src/a.ts', 'src/b.ts'],
-          reportPath: 'reports/done.md',
-          phase: 'verification'
-        }),
-        waitForLifecycleSettlement: true,
-        devMode: false
-      },
-      WORKER_DONE_REQUEST
-    )
+    expect(callMock).toHaveBeenCalledWith('orchestration.send', {
+      from: 'term_worker',
+      to: 'term_coord',
+      subject: 'done',
+      body: undefined,
+      type: 'worker_done',
+      priority: undefined,
+      threadId: undefined,
+      payload: JSON.stringify({
+        taskId: 'task_1',
+        dispatchId: 'ctx_1',
+        outcome: 'succeeded',
+        filesModified: ['src/a.ts', 'src/b.ts'],
+        reportPath: 'reports/done.md'
+      }),
+      waitForLifecycleSettlement: true,
+      devMode: false
+    })
   })
 
   it('forwards multiline message bodies without normalization', async () => {
@@ -210,22 +193,18 @@ describe('orchestration send structured payload flags', () => {
       ])
     )
 
-    expect(callMock).toHaveBeenCalledWith(
-      'orchestration.send',
-      {
-        from: 'term_worker',
-        to: 'term_coord',
-        subject: 'done',
-        body: undefined,
-        type: 'worker_done',
-        priority: undefined,
-        threadId: undefined,
-        payload: JSON.stringify({ outcome: 'succeeded' }),
-        waitForLifecycleSettlement: true,
-        devMode: false
-      },
-      WORKER_DONE_REQUEST
-    )
+    expect(callMock).toHaveBeenCalledWith('orchestration.send', {
+      from: 'term_worker',
+      to: 'term_coord',
+      subject: 'done',
+      body: undefined,
+      type: 'worker_done',
+      priority: undefined,
+      threadId: undefined,
+      payload: JSON.stringify({ outcome: 'succeeded' }),
+      waitForLifecycleSettlement: true,
+      devMode: false
+    })
   })
 
   it('sends lifecycle messages from ORCA_TERMINAL_HANDLE without a liveness probe', async () => {
@@ -241,22 +220,18 @@ describe('orchestration send structured payload flags', () => {
     )
 
     expect(callMock).toHaveBeenCalledTimes(1)
-    expect(callMock).toHaveBeenCalledWith(
-      'orchestration.send',
-      {
-        from: 'term_worker_env',
-        to: 'term_coord',
-        subject: 'done',
-        body: undefined,
-        type: 'worker_done',
-        priority: undefined,
-        threadId: undefined,
-        payload: JSON.stringify({ outcome: 'succeeded' }),
-        waitForLifecycleSettlement: true,
-        devMode: false
-      },
-      WORKER_DONE_REQUEST
-    )
+    expect(callMock).toHaveBeenCalledWith('orchestration.send', {
+      from: 'term_worker_env',
+      to: 'term_coord',
+      subject: 'done',
+      body: undefined,
+      type: 'worker_done',
+      priority: undefined,
+      threadId: undefined,
+      payload: JSON.stringify({ outcome: 'succeeded' }),
+      waitForLifecycleSettlement: true,
+      devMode: false
+    })
   })
 
   it.each(['worker_done', 'heartbeat'] as const)(
@@ -281,8 +256,7 @@ describe('orchestration send structured payload flags', () => {
       expect(callMock).toHaveBeenCalledTimes(1)
       expect(callMock).toHaveBeenCalledWith(
         'orchestration.send',
-        expect.objectContaining({ from: 'term_worker_env' }),
-        ...(type === 'worker_done' ? [WORKER_DONE_REQUEST] : [])
+        expect.objectContaining({ from: 'term_worker_env' })
       )
     }
   )
@@ -302,8 +276,7 @@ describe('orchestration send structured payload flags', () => {
 
     expect(callMock).toHaveBeenCalledWith(
       'orchestration.send',
-      expect.objectContaining({ senderPaneKey: 'tab_worker:leaf_worker' }),
-      WORKER_DONE_REQUEST
+      expect.objectContaining({ senderPaneKey: 'tab_worker:leaf_worker' })
     )
   })
 
@@ -379,10 +352,7 @@ describe('orchestration timeout flag validation', () => {
     ['empty', ''],
     ['non-numeric', 'not-a-number'],
     ['zero', '0'],
-    ['negative', '-1'],
-    ['fractional', '1.5'],
-    ['rounded fractional', '9007199254740991.1'],
-    ['unsafe integer', String(Number.MAX_SAFE_INTEGER + 1)]
+    ['negative', '-1']
   ]
 
   beforeEach(() => {
@@ -390,7 +360,6 @@ describe('orchestration timeout flag validation', () => {
     delete process.env.ORCA_TERMINAL_HANDLE
     delete process.env.ORCA_PANE_KEY
     delete process.env.ORCA_STRUCTURED_SESSION
-    process.exitCode = undefined
   })
 
   const invokeCheck = (flags: Map<string, string | boolean>) =>
@@ -409,14 +378,6 @@ describe('orchestration timeout flag validation', () => {
       json: true
     } as never)
 
-  const invokePlainAsk = (flags: Map<string, string | boolean>) =>
-    ORCHESTRATION_HANDLERS['orchestration ask']({
-      flags,
-      client: { call: callMock },
-      cwd: '/tmp/repo',
-      json: false
-    } as never)
-
   it.each(invalidTimeoutValues)('rejects invalid check --timeout-ms: %s', async (_label, value) => {
     const flags = new Map<string, string | boolean>([
       ['wait', true],
@@ -425,7 +386,6 @@ describe('orchestration timeout flag validation', () => {
 
     await expect(invokeCheck(flags)).rejects.toThrow(/--timeout-ms/)
     expect(callMock).not.toHaveBeenCalled()
-    expect(getTerminalHandleMock).not.toHaveBeenCalled()
   })
 
   it('passes a parsed check timeout and peek mode into the RPC payload', async () => {
@@ -547,84 +507,6 @@ describe('orchestration timeout flag validation', () => {
 
     await expect(invokeAsk(flags)).rejects.toThrow(/--timeout-ms/)
     expect(callMock).not.toHaveBeenCalled()
-    expect(getTerminalHandleMock).not.toHaveBeenCalled()
-  })
-
-  it.each([String(Number.MAX_SAFE_INTEGER)])(
-    'clamps a safe ask timeout %s before adding transport headroom',
-    async (rawTimeout) => {
-      process.env.ORCA_TERMINAL_HANDLE = 'term_worker'
-      callMock.mockResolvedValue({
-        result: { answer: 'yes', messageId: 'msg_1', threadId: 'thread_1', timedOut: false }
-      })
-      vi.spyOn(console, 'log').mockImplementation(() => {})
-
-      await invokeAsk(
-        new Map<string, string | boolean>([
-          ['to', 'term_coord'],
-          ['question', 'Proceed?'],
-          ['timeout-ms', rawTimeout]
-        ])
-      )
-
-      expect(callMock).toHaveBeenCalledWith(
-        'orchestration.ask',
-        expect.objectContaining({ timeoutMs: 1_800_000 }),
-        { timeoutMs: 1_805_000 }
-      )
-    }
-  )
-
-  it('keeps an omitted ask timeout out of the payload while using default headroom', async () => {
-    process.env.ORCA_TERMINAL_HANDLE = 'term_worker'
-    callMock.mockResolvedValue({
-      result: { answer: 'yes', messageId: 'msg_1', threadId: 'thread_1', timedOut: false }
-    })
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    await invokeAsk(
-      new Map<string, string | boolean>([
-        ['to', 'term_coord'],
-        ['question', 'Proceed?']
-      ])
-    )
-
-    expect(callMock).toHaveBeenCalledWith(
-      'orchestration.ask',
-      expect.objectContaining({ timeoutMs: undefined }),
-      { timeoutMs: 605_000 }
-    )
-  })
-
-  it('prints the pending message ID and exact capability-bound resume command on timeout', async () => {
-    process.env.ORCA_TERMINAL_HANDLE = 'term_worker'
-    process.env.ORCA_CLI_COMMAND = 'orca-dev'
-    callMock.mockResolvedValue({
-      result: {
-        answer: null,
-        messageId: 'msg_question',
-        threadId: 'thread_question',
-        timedOut: true,
-        timeoutMs: 30_000
-      }
-    })
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    await invokePlainAsk(
-      new Map<string, string | boolean>([
-        ['question', 'Proceed?'],
-        ['dispatch-capability', 'dcap_secret'],
-        ['timeout-ms', '30000']
-      ])
-    )
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      'ask timeout after 30000ms; question is still pending (messageId: msg_question). ' +
-        'Resume waiting; do not ask again:\n' +
-        'orca-dev orchestration ask --from term_worker --dispatch-capability dcap_secret ' +
-        '--resume msg_question --timeout-ms 30000'
-    )
-    expect(process.exitCode).toBe(1)
   })
 
   it('uses the parsed ask timeout for both runtime wait and client timeout', async () => {

@@ -7,14 +7,26 @@ const {
   translateWslOutputPathsMock,
   statMock,
   readFileMock,
-  resolveGitDirMock
+  resolveGitDirMock,
+  moveWorktreeDirectoryToTrashMock,
+  restoreWorktreeDirectoryFromTrashMock,
+  scheduleWorktreeTrashDeletionMock
 } = vi.hoisted(() => ({
   gitExecFileAsyncMock: vi.fn(),
   gitExecFileSyncMock: vi.fn(),
   translateWslOutputPathsMock: vi.fn((output: string) => output),
   statMock: vi.fn(),
   readFileMock: vi.fn(),
-  resolveGitDirMock: vi.fn()
+  resolveGitDirMock: vi.fn(),
+  moveWorktreeDirectoryToTrashMock: vi.fn(),
+  restoreWorktreeDirectoryFromTrashMock: vi.fn(),
+  scheduleWorktreeTrashDeletionMock: vi.fn()
+}))
+
+vi.mock('../worktree-trash', () => ({
+  moveWorktreeDirectoryToTrash: moveWorktreeDirectoryToTrashMock,
+  restoreWorktreeDirectoryFromTrash: restoreWorktreeDirectoryFromTrashMock,
+  scheduleWorktreeTrashDeletion: scheduleWorktreeTrashDeletionMock
 }))
 
 vi.mock('./runner', () => ({
@@ -47,7 +59,11 @@ const mockGitCommands = createGitCommandMocker(gitExecFileAsyncMock)
 const getGitCalls = createGitCallReader(gitExecFileAsyncMock)
 
 beforeEach(() => {
-  resetWorktreeRemovalState()
+  resetWorktreeRemovalState({
+    moveWorktreeDirectoryToTrashMock,
+    restoreWorktreeDirectoryFromTrashMock,
+    scheduleWorktreeTrashDeletionMock
+  })
 })
 
 describe('addSparseWorktree', () => {

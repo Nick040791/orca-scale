@@ -1,8 +1,6 @@
 import type { Tab, TabContentType, TabGroup } from '../../../../shared/tab-types'
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session-state-types'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import { workspaceRootGroupId } from '../../../../shared/workspace-layout/workspace-layout-minted-ids'
 
 export function findTabAndWorktree(
   tabsByWorktree: Record<string, Tab[]>,
@@ -73,8 +71,7 @@ export function ensureGroup(
   if (existing) {
     return { group: existing, groupsByWorktree, activeGroupIdByWorktree }
   }
-  // Switch point: the root group id main and the Loader mint for a workspace with no group.
-  const groupId = ORCA_LAYOUT_OWNER_IS_MAIN ? workspaceRootGroupId(worktreeId) : createBrowserUuid()
+  const groupId = createBrowserUuid()
   const group: TabGroup = { id: groupId, worktreeId, activeTabId: null, tabOrder: [] }
   return {
     group,
@@ -228,6 +225,19 @@ export function dedupeEditorTabsWithinGroups(tabs: Tab[]): {
     return true
   })
   return { tabs: dedupedTabs, tabIdAliasesByGroup }
+}
+
+export function dedupeTabOrder(tabIds: string[]): string[] {
+  const seen = new Set<string>()
+  const deduped: string[] = []
+  for (const tabId of tabIds) {
+    if (seen.has(tabId)) {
+      continue
+    }
+    seen.add(tabId)
+    deduped.push(tabId)
+  }
+  return deduped
 }
 
 /**

@@ -1,4 +1,4 @@
-import { Check, Trash2 } from 'lucide-react'
+import { Check, Search, Trash2 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -32,8 +32,8 @@ export function WorkspaceSpaceManagerToolbar({
   } = model
   return (
     <>
-      {selectedDeletableIds.length > 0 ? (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background/95 px-2 py-1 shadow-xs">
+      {hasRows ? (
+        <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-background/95 px-3 py-2 shadow-xs backdrop-blur">
           <div className="min-w-0 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">
               {selectedDeletableIds.length}{' '}
@@ -82,8 +82,9 @@ export function WorkspaceSpaceManagerToolbar({
       ) : null}
 
       {hasRows ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[16rem] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -91,7 +92,7 @@ export function WorkspaceSpaceManagerToolbar({
                 'auto.components.status.bar.WorkspaceSpaceManagerPanel.6f8f6a6b04',
                 'Filter workspaces'
               )}
-              className="h-8"
+              className="pl-9"
             />
           </div>
 
@@ -99,7 +100,7 @@ export function WorkspaceSpaceManagerToolbar({
             value={sortKey}
             onValueChange={(value) => selectSortKey(value as WorkspaceSpaceSortKey)}
           >
-            <SelectTrigger size="sm" className="w-28">
+            <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -134,7 +135,7 @@ export function WorkspaceSpaceManagerToolbar({
             variant={onlyDeletable ? 'secondary' : 'outline'}
             size="sm"
             onClick={() => setOnlyDeletable((current) => !current)}
-            className="w-24"
+            className="w-32"
             aria-label={translate(
               'auto.components.status.bar.WorkspaceSpaceManagerPanel.81aaf1de65',
               'Show only deletable workspaces'
@@ -156,7 +157,7 @@ export function WorkspaceSpaceManagerToolbar({
             size="sm"
             onClick={toggleVisibleSelection}
             disabled={visibleDeletableIds.length === 0}
-            className="w-24"
+            className="w-32 gap-1.5"
             aria-label={
               allVisibleSelected
                 ? translate(

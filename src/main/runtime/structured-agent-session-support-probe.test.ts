@@ -22,15 +22,19 @@ function setPlatform(platform: NodeJS.Platform): void {
 
 type InstallEffects = {
   storeOpened: boolean
+  reaperStarted: boolean
 }
 
-/** Stands in for `install()` by performing the effect it performs, so a probe that
+/** Stands in for `install()` by performing the two effects it performs, so a probe that
  *  reinstalls the host is caught by what the install *does*, not by a call count alone. */
 function stubStructuredHostInstall(runtime: OrcaRuntimeService): {
   effects: InstallEffects
   ensure: ReturnType<typeof vi.fn>
 } {
-  const effects: InstallEffects = { storeOpened: false }
+  const effects: InstallEffects = {
+    storeOpened: false,
+    reaperStarted: false
+  }
   // `supportsCreate` answers as the real Codex adapter would, so a probe that reinstalls the host
   // still returns the right answer and fails on the install effects alone.
   const host = {
@@ -40,6 +44,7 @@ function stubStructuredHostInstall(runtime: OrcaRuntimeService): {
   }
   const ensure = vi.fn(async () => {
     effects.storeOpened = true
+    effects.reaperStarted = true
     setStructuredAgentSessionHost(host as never)
   })
   vi.spyOn(runtime, 'ensureStructuredAgentSessionHost').mockImplementation(ensure)
@@ -89,7 +94,10 @@ async function expectSupportWithoutInstall(input: {
 
   expect(answers).toEqual(Array(input.repetitions ?? 1).fill(input.expected))
   expect(ensure).not.toHaveBeenCalled()
-  expect(effects).toEqual({ storeOpened: false })
+  expect(effects).toEqual({
+    storeOpened: false,
+    reaperStarted: false
+  })
   expect(getStructuredAgentSessionHost()).toBeNull()
 }
 
@@ -115,21 +123,23 @@ describe('structured agent-session create-support probe', () => {
   )
 
   it.each([
-    ['codex', true],
-    ['codex', false],
-    ['claude', true],
-    ['claude', false]
+    ['codex', true, { supported: true }],
+    ['codex', false, { supported: false, reason: 'agent' }],
+    ['claude', true, { supported: true }],
+    ['claude', false, { supported: false, reason: 'agent' }]
   ] as const)(
-    'answers native Windows %s support whether or not process creation times are readable (%s)',
-    async (agent, creationTimesReadable) => {
+    'requires native Windows process identity proof before answering %s support (%s)',
+    async (agent, proofAvailable, expected) => {
       setPlatform('win32')
-      isWindowsProcessStartTimeAvailable.mockReturnValue(creationTimesReadable)
+      isWindowsProcessStartTimeAvailable.mockReturnValue(proofAvailable)
 
       await expectSupportWithoutInstall({
         agent,
         location: { executionHostId: 'local', wslDistro: null },
-        expected: { supported: true }
+        expected
       })
+
+      expect(isWindowsProcessStartTimeAvailable).toHaveBeenCalled()
     }
   )
 
@@ -183,7 +193,10 @@ describe('structured agent-session create-support probe', () => {
     await runtime.prepareStructuredAgentSessionStartupRestoration()
 
     expect(ensure).toHaveBeenCalledTimes(1)
-    expect(effects).toEqual({ storeOpened: true })
+    expect(effects).toEqual({
+      storeOpened: true,
+      reaperStarted: true
+    })
     expect(
       (getStructuredAgentSessionHost() as unknown as { reconcileRestartLeases: () => void })
         .reconcileRestartLeases

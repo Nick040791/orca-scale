@@ -193,8 +193,6 @@ describe('buildGitBranchLineTotalDiffArgs', () => {
     expect(buildGitBranchLineTotalDiffArgs(MERGE_BASE)).toEqual([
       '-c',
       'core.quotePath=false',
-      '-c',
-      'diff.autoRefreshIndex=false',
       'diff',
       '-z',
       '--numstat',

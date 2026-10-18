@@ -6,11 +6,7 @@ import {
   type DashboardWorkspaceState
 } from './dashboard-snapshot-workspaces'
 import { selectDashboardOrchestration } from './dashboard-orchestration-selection'
-import {
-  dashboardRowBucketProjection,
-  readAgentRowTurnRecords,
-  type AgentRowUnreadState
-} from './dashboard-row-bucket'
+import { dashboardRowBucketProjection } from './dashboard-row-bucket'
 import type { DashboardAgentRowWithLineage } from './agent-row-lineage'
 import { EMPTY_WORKTREE_AGENT_ORCHESTRATION } from '../sidebar/worktree-agent-orchestration-batch'
 import {
@@ -108,19 +104,17 @@ function countsEqual(
  * One worktree's bucket tally, reused while its rows and the acknowledgement map
  * both hold their identity.
  *
- * `dashboardRowBucketProjection` reads the row, the acknowledgement map, and the
- * live/retained records under the row's own key. Those records are this worktree's
- * row-cache inputs, so `rows` identity already covers them; keying on the ack slice
- * rather than folding it into the row cache keeps main's property that an
- * acknowledgement recounts without rebuilding rows.
+ * `dashboardRowBucketProjection` reads nothing but the row and
+ * `acknowledgedAgentsByPaneKey[row.paneKey]`, so those two identities are the
+ * whole input. Keying on the ack slice rather than folding it into the row cache
+ * keeps main's property that an acknowledgement recounts without rebuilding rows.
  */
 function tallyWorktreeRows(
   rows: DashboardAgentRowWithLineage[],
-  state: AgentRowUnreadState,
+  acknowledgedAgentsByPaneKey: Record<string, number> | undefined,
   worktreeId: string,
   cache: DashboardBucketCountsCache | undefined
 ): Record<DashboardBucket, number> {
-  const { acknowledgedAgentsByPaneKey } = state
   const memo = cache?.tallyByWorktree.get(worktreeId)
   if (
     memo &&
@@ -129,7 +123,6 @@ function tallyWorktreeRows(
   ) {
     return memo.tally
   }
-  const turnRecords = readAgentRowTurnRecords(state)
   const tally = { attention: 0, working: 0, done: 0, idle: 0 } satisfies Record<
     DashboardBucket,
     number
@@ -138,7 +131,7 @@ function tallyWorktreeRows(
     if (row.rowSource === 'subagent') {
       continue
     }
-    tally[dashboardRowBucketProjection(row, turnRecords).bucket] += 1
+    tally[dashboardRowBucketProjection(row, acknowledgedAgentsByPaneKey).bucket] += 1
   }
   cache?.tallyByWorktree.set(worktreeId, {
     rows,
@@ -193,7 +186,7 @@ export function buildDashboardBucketCounts(
       generation,
       cache
     })
-    const tally = tallyWorktreeRows(rows, state, worktreeId, cache)
+    const tally = tallyWorktreeRows(rows, state.acknowledgedAgentsByPaneKey, worktreeId, cache)
     counts.attention += tally.attention
     counts.working += tally.working
     counts.done += tally.done

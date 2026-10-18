@@ -37,13 +37,12 @@ export function createPtyOutputSideEffectQueue({
   apply
 }: PtyOutputSideEffectQueueOptions): PtyOutputSideEffectQueue {
   let drainTimer: ReturnType<typeof setTimeout> | null = null
-  let pendingEffects: (PendingPtySideEffect | undefined)[] = []
+  let pendingEffects: PendingPtySideEffect[] = []
   let pendingIndex = 0
   let pendingWorkingTitles = 0
-  let retainedEffects = 0
   const gauge: PtySideEffectGauge = {
     pending: () => pendingEffects.length - pendingIndex,
-    retained: () => retainedEffects
+    retained: () => pendingEffects.length
   }
   const disposeGauge = registerPtySideEffectPendingGauge(gauge)
 
@@ -54,30 +53,16 @@ export function createPtyOutputSideEffectQueue({
     if (pendingIndex >= pendingEffects.length) {
       pendingEffects = []
       pendingIndex = 0
-      retainedEffects = 0
       return
     }
     if (force || pendingIndex >= MAX_PTY_SIDE_EFFECTS_PER_DRAIN * 4) {
       pendingEffects = pendingEffects.slice(pendingIndex)
       pendingIndex = 0
-      retainedEffects = pendingEffects.length
-    }
-  }
-
-  function releaseConsumedEffect(effects: typeof pendingEffects, index: number): void {
-    if (effects[index] === undefined) {
-      return
-    }
-    effects[index] = undefined
-    if (effects === pendingEffects) {
-      retainedEffects -= 1
     }
   }
 
   function evictOldestIfFull(): void {
     while (pendingEffects.length - pendingIndex >= MAX_PENDING_PTY_SIDE_EFFECTS) {
-      const effects = pendingEffects
-      const evictedIndex = pendingIndex
       const evicted = pendingEffects[pendingIndex]
       if (!evicted) {
         return
@@ -97,7 +82,6 @@ export function createPtyOutputSideEffectQueue({
               : merged
         }
       }
-      releaseConsumedEffect(effects, evictedIndex)
       compact()
     }
   }
@@ -119,7 +103,6 @@ export function createPtyOutputSideEffectQueue({
     }
     evictOldestIfFull()
     pendingEffects.push(effect)
-    retainedEffects += 1
     pendingWorkingTitles += countWorkingTitles(effect.titles)
   }
 
@@ -142,8 +125,6 @@ export function createPtyOutputSideEffectQueue({
     const limit = options.flushAll ? Number.POSITIVE_INFINITY : MAX_PTY_SIDE_EFFECTS_PER_DRAIN
     let processed = 0
     while (pendingIndex < pendingEffects.length && processed < limit) {
-      const effects = pendingEffects
-      const appliedIndex = pendingIndex
       const next = pendingEffects[pendingIndex]
       if (!next) {
         break
@@ -152,8 +133,6 @@ export function createPtyOutputSideEffectQueue({
       processed += 1
       pendingWorkingTitles = Math.max(0, pendingWorkingTitles - countWorkingTitles(next.titles))
       apply(next)
-      // Release after apply so reentrant enqueues retain the existing tail coalescing behavior.
-      releaseConsumedEffect(effects, appliedIndex)
     }
     compact(options.flushAll === true)
     if (pendingIndex < pendingEffects.length) {
@@ -172,10 +151,8 @@ export function createPtyOutputSideEffectQueue({
     clear: () => {
       clearDrainTimer()
       pendingEffects.length = 0
-      pendingEffects = []
       pendingIndex = 0
       pendingWorkingTitles = 0
-      retainedEffects = 0
     },
     isDrained: () => pendingIndex >= pendingEffects.length,
     pendingWorkingTitleCount: () => pendingWorkingTitles,

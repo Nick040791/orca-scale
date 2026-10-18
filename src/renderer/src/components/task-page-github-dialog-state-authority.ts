@@ -1,5 +1,4 @@
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
-import type { GitHubOwnerRepo } from '../../../shared/github/pull-request-types'
 import {
   getTaskSourceCacheScope,
   type TaskSourceContext
@@ -33,57 +32,24 @@ export function assertTaskPageGitHubDialogStateAuthority(args: {
   itemId: string
   state: GitHubWorkItem['state']
   sourceContext?: TaskSourceContext | null
-  ownerRepo?: GitHubOwnerRepo | null
 }): { revert: () => boolean } {
   const sourceScope =
     args.sourceContext?.provider === 'github' ? getTaskSourceCacheScope(args.sourceContext) : null
-  const previous = getLastConfirmedClientValue(
-    sourceScope,
-    args.repoId,
-    args.itemId,
-    'state',
-    args.ownerRepo
-  )
-  setLastConfirmedClientValue(
-    sourceScope,
-    args.repoId,
-    args.itemId,
-    'state',
-    args.state,
-    args.ownerRepo
-  )
+  const previous = getLastConfirmedClientValue(sourceScope, args.repoId, args.itemId, 'state')
+  setLastConfirmedClientValue(sourceScope, args.repoId, args.itemId, 'state', args.state)
   markStateFamilyDirty(args.repoId, args.itemId)
   notifyTaskPageGitHubMutationRegistry()
   return {
     revert: () => {
-      const current = getLastConfirmedClientValue(
-        sourceScope,
-        args.repoId,
-        args.itemId,
-        'state',
-        args.ownerRepo
-      )
+      const current = getLastConfirmedClientValue(sourceScope, args.repoId, args.itemId, 'state')
       // A matching search adopt or newer mutation owns the state now.
       if (current !== args.state) {
         return false
       }
       if (previous === undefined) {
-        deleteLastConfirmedClientValue(
-          sourceScope,
-          args.repoId,
-          args.itemId,
-          'state',
-          args.ownerRepo
-        )
+        deleteLastConfirmedClientValue(sourceScope, args.repoId, args.itemId, 'state')
       } else {
-        setLastConfirmedClientValue(
-          sourceScope,
-          args.repoId,
-          args.itemId,
-          'state',
-          previous,
-          args.ownerRepo
-        )
+        setLastConfirmedClientValue(sourceScope, args.repoId, args.itemId, 'state', previous)
       }
       markStateFamilyDirty(args.repoId, args.itemId)
       notifyTaskPageGitHubMutationRegistry()

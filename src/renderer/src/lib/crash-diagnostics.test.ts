@@ -78,7 +78,6 @@ describe('renderer crash diagnostics', () => {
       name: 'renderer_memory',
       data: {
         reason: 'startup',
-        rendererSurface: 'main',
         usedHeapMB: 32,
         totalHeapMB: 64,
         heapLimitMB: 512,

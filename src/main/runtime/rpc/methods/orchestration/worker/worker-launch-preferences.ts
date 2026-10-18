@@ -1,5 +1,10 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
-import { checkAgentLaunchModelPreferences } from '../../../../../../shared/agent-launch-model-preferences'
+import {
+  findCatalogModel,
+  findCatalogOption,
+  getAgentSessionOptionCatalog
+} from '../../../../../../shared/agent-session-option-catalog'
+import { resolveAgentSessionOptionLaunch } from '../../../../../../shared/agent-session-option-launch'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
@@ -45,19 +50,64 @@ export function createPendingWorkerLaunchReceipt(args: {
 
 export function resolveWorkerLaunchPreferences(args: {
   agent: TuiAgent
-  openCodeModelLaunchSupported?: boolean
-  createsWorktree?: boolean
   model?: string
   effort?: string
 }): {
   preferences: AgentLaunchPreferences | undefined
   receipt: OrchestrationWorkerLaunchReceipt
 } {
-  const checked = checkAgentLaunchModelPreferences(args)
-  if ('refusal' in checked) {
-    throw new OrchestrationError(checked.refusal.code, checked.refusal.message)
+  if (args.effort && !args.model) {
+    throw new OrchestrationError('invalid_argument', '--effort requires --model.')
   }
-  const { preferences } = checked
+  if (!args.model) {
+    return {
+      preferences: undefined,
+      receipt: createWorkerLaunchReceipt({ agent: args.agent })
+    }
+  }
+
+  const catalog = getAgentSessionOptionCatalog(args.agent)
+  if (!catalog?.supportsWorkerLaunchPreferences || !catalog.modelApply.launchArgs) {
+    throw new OrchestrationError(
+      'invalid_argument',
+      `Agent ${args.agent} does not support launch-time model selection. Omit --model to run the model from its own config.`
+    )
+  }
+
+  if (args.effort) {
+    const model = findCatalogModel(catalog, args.model)
+    const option =
+      findCatalogOption(model, 'effort') ??
+      (!model
+        ? catalog.unknownModelOptions?.find((candidate) => candidate.id === 'effort')
+        : undefined)
+    if (
+      option?.kind.type !== 'select' ||
+      !option.kind.choices.some((choice) => choice.value === args.effort)
+    ) {
+      throw new OrchestrationError(
+        'invalid_argument',
+        `Agent ${args.agent} model ${args.model} does not support effort ${args.effort}.`
+      )
+    }
+  }
+
+  const requested = {
+    model: args.model,
+    ...(args.effort ? { effort: args.effort } : {})
+  }
+  const resolved = resolveAgentSessionOptionLaunch(args.agent, requested, [], false)
+  if (
+    resolved.appliedValues.model !== args.model ||
+    resolved.appliedValues.effort !== args.effort
+  ) {
+    throw new OrchestrationError(
+      'invalid_argument',
+      `Agent ${args.agent} cannot apply the requested worker launch preferences.`
+    )
+  }
+
+  const preferences: AgentLaunchPreferences = requested
   return {
     preferences,
     receipt: createWorkerLaunchReceipt({ agent: args.agent, ...preferences })

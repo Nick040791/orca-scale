@@ -6,7 +6,6 @@ import type { DiscoveredSkill } from '../../../../shared/skills'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '../ui/tooltip'
 import { LinearAgentSkillInstallCta } from './linear-agent-skill-install-cta'
-import { SKILLS_CLI_VERSION } from '../../../../shared/agent-feature-install-commands'
 
 const mocks = vi.hoisted(() => ({
   skillState: {
@@ -117,7 +116,7 @@ describe('LinearAgentSkillInstallCta', () => {
       'Full guided setup (connect + skill + visibility) is under Settings → Task Sources.'
     )
     expect(rendered.textContent).toContain(
-      `npx skills@${SKILLS_CLI_VERSION} add https://github.com/stablyai/orca/tree/${ORCA_BUILD_COMMIT} --skill orca-linear --global`
+      'npx skills add https://github.com/stablyai/orca --skill orca-linear --global'
     )
   })
 
@@ -131,7 +130,7 @@ describe('LinearAgentSkillInstallCta', () => {
     })
 
     expect(mocks.clipboardWrite).toHaveBeenCalledWith(
-      `npx skills@${SKILLS_CLI_VERSION} add https://github.com/stablyai/orca/tree/${ORCA_BUILD_COMMIT} --skill orca-linear --global`
+      'npx skills add https://github.com/stablyai/orca --skill orca-linear --global'
     )
     expect(mocks.toastSuccess).toHaveBeenCalled()
   })
@@ -144,9 +143,7 @@ describe('LinearAgentSkillInstallCta', () => {
 
     expect(rendered.textContent).toContain('Installed')
     expect(rendered.textContent).toContain('Agent skill installed. To update it, run:')
-    expect(rendered.textContent).toContain(
-      `npx skills@${SKILLS_CLI_VERSION} add https://github.com/stablyai/orca/tree/${ORCA_BUILD_COMMIT} --skill orca-linear --global`
-    )
+    expect(rendered.textContent).toContain('npx skills update orca-linear --global')
     expect(rendered.textContent).not.toContain('Not installed')
   })
 
@@ -162,9 +159,7 @@ describe('LinearAgentSkillInstallCta', () => {
 
     const rendered = await renderCta()
 
-    expect(rendered.textContent).toContain(
-      `npx skills@${SKILLS_CLI_VERSION} add https://github.com/stablyai/orca/tree/${ORCA_BUILD_COMMIT} --skill linear-tickets --global`
-    )
+    expect(rendered.textContent).toContain('npx skills update linear-tickets --global')
   })
 
   it('notes that remote agent environments need their own setup', async () => {

@@ -1,43 +1,17 @@
 // Binds the restart-resume surface to the host's own capabilities.
 //
 // Its own file because the bindings carry real decisions — which caller key the continuation sends
-// under, that the verdict comes from the settlement waiter rather than the send result, — and those belong next to the collaborator that consumes them
+// under, that the verdict comes from the settlement waiter rather than the send result, and where a
+// failed journal note is reported — and those belong next to the collaborator that consumes them
 // rather than buried in the host constructor.
 
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import type {
   AgentSessionMutationEnvelope,
   AgentSessionMutationResult,
-  AgentSessionSendResult,
-  AgentSessionWireRefusal
+  AgentSessionSendResult
 } from '../../../shared/agent-session-wire'
-import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
-import { MAX_TIMER_DELAY_MS } from '../../../shared/timer-delay'
-import type { SendSettlementWaitOptions } from './structured-agent-session-send-settlement'
-
-export type StructuredAgentSessionRestartResumeSurfaces = {
-  revealSession: (
-    sessionId: string
-  ) => Promise<{ readable: boolean; openRefusal?: AgentSessionWireRefusal }>
-  send: (input: {
-    envelope: AgentSessionMutationEnvelope
-    body: AgentJournalMessageItem
-    beforeRun?: () => void
-  }) => Promise<AgentSessionMutationResult<AgentSessionSendResult>>
-  awaitSendSettlement: (
-    sessionId: string,
-    clientMessageId: string
-  ) => Promise<{ value: AgentSessionSendResult } | undefined>
-  awaitSendHandedOver: (
-    sessionId: string,
-    clientMessageId: string
-  ) => Promise<{ value: AgentSessionSendResult } | undefined>
-  /** The session's child records, the host's one read of them. */
-  readChildWork: (sessionId: string) => readonly AgentChildWorkView[] | undefined
-  childWorkOpen: (sessionId: string) => boolean
-  publishStatus?: (sessionId: string) => void
-  now: () => number
-}
+import type { StructuredAgentSessionRestartResumeSurfaces } from './structured-agent-session-restart-resume-host'
 
 /** The caller key the continuation sends under, so its writes are attributable to Orca itself. */
 export const STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER =
@@ -46,7 +20,9 @@ export const STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER =
 /** Exactly the host members this binds. Structural, so the host satisfies it without declaring a
  *  dependency, and nothing outside this list is reachable from here. */
 type RestartResumeHostBindings = {
-  revealSession: StructuredAgentSessionRestartResumeSurfaces['revealSession']
+  revealSession: (sessionId: string) => Promise<{ readable: boolean }>
+  hold: (sessionId: string, holderId: string) => Promise<void>
+  release: (sessionId: string, holderId: string) => void
   send: (
     caller: { callerKey: string },
     params: {
@@ -58,30 +34,23 @@ type RestartResumeHostBindings = {
   /** The host's existing settlement waiter; a send returns while its dispatch is still pending. */
   waitForSendSettlement: (
     sessionId: string,
-    clientMessageId: string,
-    options: SendSettlementWaitOptions
+    clientMessageId: string
   ) => Promise<{ value: AgentSessionSendResult } | undefined>
 }
 
 export function structuredAgentSessionRestartResumeSurfaces(
   host: RestartResumeHostBindings,
   now: () => number
-): Omit<StructuredAgentSessionRestartResumeSurfaces, 'readChildWork' | 'childWorkOpen'> {
+): StructuredAgentSessionRestartResumeSurfaces {
   return {
     revealSession: host.revealSession,
+    hold: host.hold,
+    release: host.release,
     send: (params) =>
       host.send({ callerKey: STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER }, params),
-    // Accepted like any send, so its verdict is its delivery, however long the start takes; the
-    // wait ends when the submission settles or the session closes.
-    awaitSendSettlement: (sessionId, clientMessageId) =>
-      host.waitForSendSettlement(sessionId, clientMessageId, { budgetMs: MAX_TIMER_DELAY_MS }),
-    // How long a restart batch holds a chat's slot: until the agent took the message or its start
-    // failed. Undefined — the session closed, or too many waited — frees the slot too.
-    awaitSendHandedOver: (sessionId, clientMessageId) =>
-      host.waitForSendSettlement(sessionId, clientMessageId, {
-        until: 'handed-over',
-        budgetMs: MAX_TIMER_DELAY_MS
-      }),
+    awaitSendSettlement: host.waitForSendSettlement,
+    onNoteFailed: () =>
+      console.warn('[structured-agent-session] restart continuation attribution failed'),
     now
   }
 }

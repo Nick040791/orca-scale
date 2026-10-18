@@ -79,22 +79,6 @@ export function clearElectronProxyCredentialsForSession(proxySession: ProxySessi
   proxyCredentialsBySession.delete(proxySession)
 }
 
-export function hasElectronProxyCredentialsForSession(proxySession: ProxySession): boolean {
-  return proxyCredentialsBySession.has(proxySession)
-}
-
-export function getElectronProxyCredentialsForChallenge(
-  proxySession: ProxySession,
-  authInfo: { isProxy: boolean; host: string; port: number }
-): ElectronProxyCredentials | null {
-  const credentials = proxyCredentialsBySession.get(proxySession)
-  return authInfo.isProxy &&
-    credentials?.host === normalizeProxyHost(authInfo.host) &&
-    credentials.port === authInfo.port
-    ? credentials
-    : null
-}
-
 export function resetElectronProxyCredentialsForTests(proxySession?: ProxySession): void {
   if (proxySession) {
     clearElectronProxyCredentialsForSession(proxySession)
@@ -118,8 +102,12 @@ export function handleElectronProxyLogin(
   if (!proxySession) {
     return
   }
-  const credentials = getElectronProxyCredentialsForChallenge(proxySession, authInfo)
-  if (!credentials) {
+  const credentials = proxyCredentialsBySession.get(proxySession)
+  if (
+    !credentials ||
+    credentials.host !== normalizeProxyHost(authInfo.host) ||
+    credentials.port !== authInfo.port
+  ) {
     return
   }
   event.preventDefault()

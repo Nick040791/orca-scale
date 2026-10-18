@@ -26,32 +26,29 @@ import {
 } from '../../shared/structured-agent-session-projection'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import { isOrcaSessionId, type OrcaSessionId } from '../../shared/orca-session-address'
-import type { TuiAgent } from '../../shared/tui-agent'
-import {
-  STRUCTURED_WORKER_HANDLE_PREFIX,
-  isStructuredWorkerHandle
-} from '../../shared/structured-worker-handle'
 import {
   parseWorkerTerminalHostScope,
   type WorkerTerminalHostScope
-} from '../../shared/worker-terminal-host-scope'
+} from './orchestration/worker-terminal-process-liveness'
 
+// Deliberately not `term_`: `issueHandle` revalidates the renderer graph epoch against the
+// renderer-driven leaves map, so a main-minted `term_` leaf evaporates on the next window reload.
+export const STRUCTURED_WORKER_HANDLE_PREFIX = 'structworker_'
 export const STRUCTURED_WORKER_INCARNATION_PREFIX = 'structured:'
 
 export type StructuredWorkerIdentity = {
   handle: string
-  /**
-   * The session minted for the worker: its conversation id and `/clear` lineage root, which keys
-   * the handle, pane key and incarnation. Not necessarily the session running it now; worker-level
-   * readers and actors resolve that through `structuredWorkerSession`.
-   */
   sessionId: string
   /** Null when the entry was rehydrated from the durable row, which does not carry the provider. */
-  agent: TuiAgent | null
+  agent: 'claude' | 'codex' | null
   paneKey: string
   processIncarnation: string
   worktreeId: string
   hostScope: WorkerTerminalHostScope
+}
+
+export function isStructuredWorkerHandle(handle: string | null | undefined): boolean {
+  return typeof handle === 'string' && handle.startsWith(STRUCTURED_WORKER_HANDLE_PREFIX)
 }
 
 export function mintStructuredWorkerHandle(): string {
@@ -110,7 +107,7 @@ function persistedStructuredWorkerPaneKeyIsValid(
  *
  * NOT the runtime fence: the fence is an owner-generation counter that the host bumps during its
  * own transparent crash recovery, so fencing identity on it would make a recovered — but same —
- * worker fail its process check forever and wedge release as `identity_unproven`. The
+ * worker fail `verifyDispatchCapability` forever and wedge release as `identity_unproven`. The
  * session id is minted once per dispatch and survives that recovery, so it is the lineage.
  */
 export function structuredWorkerProcessIncarnation(sessionId: string): string {
@@ -144,60 +141,17 @@ export function structuredWorkerHostScope(
     : null
 }
 
-/**
- * Whether the durable record still describes THIS worker under this host — ownership, not whether
- * its process runs. A released lease is a worker at rest while its chat tab is listed; released
- * with the tab gone is retired. `tabListed` is the persisted tab index's answer.
- */
+/** Whether the durable record still describes THIS worker under this host. */
 export function structuredWorkerRecordIsCurrent(
-  record: AgentSessionRecord | null | undefined,
-  tabListed: boolean
+  record: AgentSessionRecord | null | undefined
 ): boolean {
   return Boolean(
     record &&
     // Why: a conflicted claim may name a terminal an older build recorded as owner, not this worker.
     record.lease.claimStatus !== 'conflicted' &&
-    (record.lease.claimStatus !== 'released' || tabListed) &&
+    record.lease.claimStatus !== 'released' &&
     structuredWorkerHostScope(record.location)
   )
-}
-
-type StructuredWorkerResourceRow = {
-  terminal_handle: string
-  pane_key: string | null
-  process_incarnation: string | null
-  worktree_id: string | null
-  host_scope: string | null
-}
-
-/** A worker's identity as its durable worker-terminal resource row records it, or null for a row
- *  that is not a structured worker's or whose pane key does not belong to its own session. */
-export function structuredWorkerIdentityFromRow(
-  row: StructuredWorkerResourceRow
-): StructuredWorkerIdentity | null {
-  const sessionId = sessionIdFromStructuredWorkerIncarnation(row.process_incarnation)
-  const hostScope = parseWorkerTerminalHostScope(row.host_scope)
-  const paneKey = row.pane_key
-  if (
-    !sessionId ||
-    !hostScope ||
-    !row.worktree_id ||
-    !paneKey ||
-    !isStructuredWorkerHandle(row.terminal_handle) ||
-    !persistedStructuredWorkerPaneKeyIsValid(paneKey, sessionId)
-  ) {
-    return null
-  }
-  return {
-    handle: row.terminal_handle,
-    sessionId,
-    // The row does not carry the provider; callers that need it read the durable record.
-    agent: null,
-    paneKey,
-    processIncarnation: structuredWorkerProcessIncarnation(sessionId),
-    worktreeId: row.worktree_id,
-    hostScope
-  }
 }
 
 export class StructuredWorkerIdentityRegistry {
@@ -239,9 +193,35 @@ export class StructuredWorkerIdentityRegistry {
    * only place a structured worker's pane key and host scope outlive this process. A row whose
    * pane key does not belong to its own recorded session is refused rather than trusted.
    */
-  rehydrate(row: StructuredWorkerResourceRow): StructuredWorkerIdentity | null {
-    const identity = structuredWorkerIdentityFromRow(row)
-    return identity ? this.register(identity) : null
+  rehydrate(row: {
+    terminal_handle: string
+    pane_key: string | null
+    process_incarnation: string | null
+    worktree_id: string | null
+    host_scope: string | null
+  }): StructuredWorkerIdentity | null {
+    const sessionId = sessionIdFromStructuredWorkerIncarnation(row.process_incarnation)
+    const hostScope = parseWorkerTerminalHostScope(row.host_scope)
+    if (
+      !sessionId ||
+      !hostScope ||
+      !row.worktree_id ||
+      !isStructuredWorkerHandle(row.terminal_handle) ||
+      // The durable row bootstraps the registry after restart, so validate it before registration.
+      !persistedStructuredWorkerPaneKeyIsValid(row.pane_key, sessionId)
+    ) {
+      return null
+    }
+    return this.register({
+      handle: row.terminal_handle,
+      sessionId,
+      // The row does not carry the provider; callers that need it read the durable record.
+      agent: null,
+      paneKey: row.pane_key,
+      processIncarnation: structuredWorkerProcessIncarnation(sessionId),
+      worktreeId: row.worktree_id,
+      hostScope
+    })
   }
 
   clear(): void {

@@ -1,52 +1,52 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Repo } from '../../shared/repo-types'
-import { tuiAgentToAgentKind } from '../../shared/agent-kind'
-import { getDefaultSettings } from '../../shared/constants'
-import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
-import type { AgentLaunchRuntime } from '../../shared/agent-launch-runtime'
 
 const mocks = vi.hoisted(() => ({
+  markAntigravityWorkspaceTrusted: vi.fn(),
+  markCodexProjectTrusted: vi.fn(),
+  markCopilotFolderTrusted: vi.fn(),
+  markCursorWorkspaceTrusted: vi.fn(),
+  detectRemoteAgents: vi.fn(),
   detectInstalledAgentsWithShellPathHydration: vi.fn()
 }))
 
+vi.mock('../agent-trust-presets', () => ({
+  markAntigravityWorkspaceTrusted: mocks.markAntigravityWorkspaceTrusted,
+  markCodexProjectTrusted: mocks.markCodexProjectTrusted,
+  markCopilotFolderTrusted: mocks.markCopilotFolderTrusted,
+  markCursorWorkspaceTrusted: mocks.markCursorWorkspaceTrusted
+}))
+
 vi.mock('../preflight/agent-detection', () => ({
+  detectRemoteAgents: mocks.detectRemoteAgents,
   detectInstalledAgentsWithShellPathHydration: mocks.detectInstalledAgentsWithShellPathHydration
 }))
 
 import {
   buildWorktreeStartupForAgent,
   buildWorktreeStartupForDraft,
-  resolveWorktreeCreateAgentStartup,
-  resolveWorktreeStartupDraftAgent
+  markLocalWorktreeTrusted
 } from './runtime-worktree-agent-startup'
 
 function makeRepo(fields: Partial<Repo>): Repo {
   return {
     id: 'repo-1',
-    displayName: 'repo',
-    badgeColor: '#737373',
-    addedAt: 0,
+    name: 'repo',
     path: '/srv/repo',
     connectionId: null,
     executionHostId: null,
     ...fields
-  }
+  } as Repo
 }
-
-const LINUX_FACT: AgentLaunchRuntime = {
-  platform: 'linux',
-  pty: { shellOverride: undefined, terminalWindowsWslDistro: null }
-}
-const LINUX = { platform: 'linux' as const, shell: 'posix' as const, launchRuntime: LINUX_FACT }
 
 const settings = {
-  ...getDefaultSettings('/tmp'),
   agentCmdOverrides: {},
   agentDefaultArgs: {},
   agentDefaultEnv: {},
   disabledTuiAgents: [],
-  defaultTuiAgent: null
-}
+  defaultTuiAgent: undefined,
+  terminalWindowsShell: null
+} as never
 
 /** The launched CLI name is the whole decision: `orca` is the relay shim, `orca-ide` is local. */
 function launchCliNameFor(repo: Repo): string {
@@ -54,7 +54,7 @@ function launchCliNameFor(repo: Repo): string {
     repo,
     settings,
     agent: 'claude-agent-teams',
-    getLaunchRuntime: () => LINUX,
+    getLaunchPlatform: () => 'linux',
     toSessionOptions: () => undefined
   }).startup.command.split(' ')[0]!
 }
@@ -90,7 +90,7 @@ describe('buildWorktreeStartupForAgent host resolution', () => {
       agent: 'claude',
       agentArgs: '--model opus',
       launchSource: 'source_control_recovery',
-      getLaunchRuntime: () => LINUX,
+      getLaunchPlatform: () => 'linux',
       toSessionOptions: () => undefined
     })
 
@@ -101,298 +101,89 @@ describe('buildWorktreeStartupForAgent host resolution', () => {
       request_kind: 'new'
     })
   })
-
-  it('attributes a startup agent whose caller named no surface as unknown', () => {
-    const result = buildWorktreeStartupForAgent({
-      repo: makeRepo({}),
-      settings,
-      agent: 'claude',
-      getLaunchRuntime: () => LINUX,
-      toSessionOptions: () => undefined
-    })
-
-    expect(result.startup.telemetry).toEqual({
-      agent_kind: 'claude-code',
-      launch_source: 'unknown',
-      request_kind: 'new'
-    })
-  })
-})
-
-// Relied on by C2/C4: a host-built startup is typed into the shell it was quoted for.
-it('quotes a worktree startup for its fact, not the Settings shell, and hands the fact on', () => {
-  const pty = { shellOverride: 'powershell.exe', terminalWindowsWslDistro: null }
-  const launchRuntime: AgentLaunchRuntime = { platform: 'win32', pty }
-  const result = buildWorktreeStartupForAgent({
-    repo: makeRepo({ path: 'C:\\repo' }),
-    settings: { ...settings, terminalWindowsShell: 'wsl.exe' },
-    agent: 'claude',
-    prompt: "fix Bob's bug",
-    getLaunchRuntime: () => ({ platform: 'win32', shell: 'powershell', launchRuntime }),
-    toSessionOptions: () => undefined
-  })
-  expect(result.startup.command).toContain("'fix Bob''s bug'")
-  expect(result.launchRuntime).toBe(launchRuntime)
-})
-
-describe('buildWorktreeStartupForAgent prompt carry', () => {
-  const build = (onPromptCarry?: (carried: boolean) => void, terminalDefaultShell = '/bin/bash') =>
-    buildWorktreeStartupForAgent({
-      repo: makeRepo({}),
-      settings: Object.assign({}, settings, { terminalDefaultShell }),
-      agent: 'claude',
-      prompt: 'summarize the diff\nthen list the risks',
-      getLaunchRuntime: () => ({
-        ...LINUX,
-        launchRuntime: {
-          ...LINUX_FACT,
-          pty: { shellOverride: terminalDefaultShell, terminalWindowsWslDistro: null }
-        }
-      }),
-      toSessionOptions: () => undefined,
-      ...(onPromptCarry ? { onPromptCarry } : {})
-    })
-
-  it('starts clean and reports it when a caller that pastes offers a prompt the line cannot carry', () => {
-    const onPromptCarry = vi.fn()
-    const result = build(onPromptCarry)
-
-    expect(result.startup.command).not.toContain('summarize')
-    expect(result.followup).toBeUndefined()
-    expect(onPromptCarry).toHaveBeenCalledWith(false)
-  })
-
-  it('carries a short-lined multi-line prompt on a local zsh line, as main typed it', () => {
-    const onPromptCarry = vi.fn()
-    const result = build(onPromptCarry, '/bin/zsh')
-
-    expect(result.startup.command).toContain('summarize the diff\nthen list the risks')
-    expect(onPromptCarry).toHaveBeenCalledWith(true)
-  })
-
-  it('keeps folding the prompt for a caller that delivers nothing afterwards', () => {
-    // `orca worktree create --prompt` has no post-start paste of its own for an argv agent.
-    expect(build().startup.command).toContain('summarize the diff')
-  })
-})
-
-// `worktree.create` through the launch executor passes no prompt for a blank one; the create must
-// launch the agent exactly as it did when handed the blank text itself.
-describe('buildWorktreeStartupForAgent blank prompt', () => {
-  it.each(['claude', 'aider'] as const)(
-    'launches %s bare for an absent or blank prompt',
-    (agent) => {
-      const build = (prompt?: string) =>
-        buildWorktreeStartupForAgent({
-          repo: makeRepo({}),
-          settings,
-          agent,
-          ...(prompt !== undefined ? { prompt } : {}),
-          getLaunchRuntime: () => LINUX,
-          toSessionOptions: () => undefined
-        })
-
-      const bare = build()
-      expect(bare.followup).toBeUndefined()
-      expect(build('')).toEqual(bare)
-      expect(build('  \n ')).toEqual(bare)
-    }
-  )
 })
 
 describe('buildWorktreeStartupForDraft agent detection', () => {
-  it('never probes this client for an SSH host named only by executionHostId', async () => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue(['claude'])
+  it('probes the SSH host named only by executionHostId instead of this client', async () => {
+    mocks.detectRemoteAgents.mockResolvedValueOnce(['claude'])
+    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue([])
 
     const result = await buildWorktreeStartupForDraft({
       repo: makeRepo({ executionHostId: 'ssh:openclaw' }),
       settings,
       draft: 'ship it',
-      getLaunchRuntime: () => LINUX
+      getLaunchPlatform: () => 'linux'
     })
 
+    expect(mocks.detectRemoteAgents).toHaveBeenCalledWith({ connectionId: 'openclaw' })
     expect(mocks.detectInstalledAgentsWithShellPathHydration).not.toHaveBeenCalled()
-    expect(result).toBeNull()
+    expect(result?.agent).toBe('claude')
   })
 
   it('probes this client for a local row carrying a stale connection', async () => {
+    mocks.detectRemoteAgents.mockClear()
     mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValueOnce(['claude'])
 
     const result = await buildWorktreeStartupForDraft({
       repo: makeRepo({ connectionId: 'm4air', executionHostId: 'local' }),
       settings,
       draft: 'ship it',
-      getLaunchRuntime: () => LINUX
+      getLaunchPlatform: () => 'linux'
     })
 
+    expect(mocks.detectRemoteAgents).not.toHaveBeenCalled()
     expect(result?.agent).toBe('claude')
   })
-
-  // The host picks and launches this agent itself, so it is attributed like any other it builds,
-  // whether the draft rides the launch command or is pasted once the agent is up.
-  it.each([
-    ['claude', 'cli', 'cli', false],
-    ['claude', undefined, 'unknown', false],
-    ['claude-agent-teams', 'orchestration', 'orchestration', true],
-    ['claude-agent-teams', undefined, 'unknown', true]
-  ] as const)(
-    'attributes a %s draft launch named %s as %s',
-    async (agent, launchSource, expected, pasted) => {
-      const result = await buildWorktreeStartupForDraft({
-        repo: makeRepo({}),
-        settings,
-        draft: 'ship it',
-        requestedAgent: agent,
-        getLaunchRuntime: () => LINUX,
-        ...(launchSource ? { launchSource } : {})
-      })
-
-      expect(result?.draftPaste !== undefined).toBe(pasted)
-      expect(result?.startup.telemetry).toEqual({
-        agent_kind: tuiAgentToAgentKind(agent),
-        launch_source: expected,
-        request_kind: 'new'
-      })
-    }
-  )
 })
 
-describe('buildWorktreeStartupForAgent extra agent args', () => {
-  it("merges an automation's extras over the host defaults", () => {
-    const result = buildWorktreeStartupForAgent({
-      repo: makeRepo({}),
-      settings: {
-        ...settings,
-        agentDefaultArgs: { claude: '--dangerously-skip-permissions --model sonnet' }
-      },
-      agent: 'claude',
-      prompt: 'go',
-      extraAgentArgs: '--model opus',
-      getLaunchRuntime: () => LINUX,
-      toSessionOptions: () => undefined
-    })
-
-    expect(result.startup.command).toBe(
-      "claude '--dangerously-skip-permissions' '--model' 'opus' 'go'"
-    )
-  })
-
-  it('refuses invalid extras before any terminal exists', () => {
-    expect(() =>
-      buildWorktreeStartupForAgent({
-        repo: makeRepo({}),
-        settings,
-        agent: 'claude',
-        prompt: 'go',
-        extraAgentArgs: '--settings evil.json',
-        getLaunchRuntime: () => LINUX,
-        toSessionOptions: () => undefined
+describe('markLocalWorktreeTrusted', () => {
+  it('waits for the Codex trust write before resolving', async () => {
+    let finish!: () => void
+    mocks.markCodexProjectTrusted.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve
       })
-    ).toThrow('"--settings"')
-  })
-
-  it('threads worktree-create extras into the startup build', () => {
-    const build = vi.fn(() => ({
-      agent: 'claude' as const,
-      startup: { command: 'claude' },
-      launchRuntime: LINUX_FACT
-    }))
-    const createArgs: RuntimeManagedWorktreeCreateArgs = {
-      repoSelector: 'repo-1',
-      name: 'Review',
-      startupAgent: 'claude',
-      startupPrompt: 'go',
-      startupExtraAgentArgs: '--effort high'
-    }
-    resolveWorktreeCreateAgentStartup(createArgs, build)
-
-    expect(build).toHaveBeenCalledWith('claude', 'go', undefined, {
-      extraAgentArgs: '--effort high'
-    })
-  })
-
-  it("merges a launch's account env over the startup plan's env", () => {
-    const build = vi.fn(() => ({
-      agent: 'codex' as const,
-      startup: { command: 'codex', env: { CODEX_HOME: '/stale', KEEP: '1' } },
-      launchRuntime: LINUX_FACT
-    }))
-    const resolved = resolveWorktreeCreateAgentStartup(
-      {
-        repoSelector: 'repo-1',
-        name: 'Review',
-        startupAgent: 'codex',
-        startupAccountEnv: { CODEX_HOME: '/home/u/.codex-b' }
-      },
-      build
     )
-
-    expect(resolved?.startup.env).toEqual({ CODEX_HOME: '/home/u/.codex-b', KEEP: '1' })
-    expect(resolved?.launchRuntime).toBe(LINUX_FACT)
-  })
-})
-
-describe('resolveWorktreeStartupDraftAgent', () => {
-  beforeEach(() => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockReset()
-    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue([])
-  })
-  afterEach(() => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockReset()
-  })
-
-  const resolve = (
-    fields: Partial<Parameters<typeof resolveWorktreeStartupDraftAgent>[0]['settings']>,
-    requestedAgent?: 'claude' | 'codex',
-    repo = makeRepo({})
-  ) =>
-    resolveWorktreeStartupDraftAgent({
-      repo,
-      settings: { ...settings, ...fields },
-      ...(requestedAgent ? { requestedAgent } : {})
+    let settled = false
+    const marking = markLocalWorktreeTrusted('codex', '/workspace/app').then(() => {
+      settled = true
     })
 
-  it('returns an enabled requested agent without detecting', async () => {
-    await expect(resolve({ defaultTuiAgent: 'claude' }, 'codex')).resolves.toBe('codex')
-    expect(mocks.detectInstalledAgentsWithShellPathHydration).not.toHaveBeenCalled()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish()
+    await marking
+    expect(mocks.markCodexProjectTrusted).toHaveBeenCalledWith('/workspace/app')
   })
 
-  it('returns the default when nothing was requested', async () => {
-    await expect(resolve({ defaultTuiAgent: 'claude' })).resolves.toBe('claude')
-    expect(mocks.detectInstalledAgentsWithShellPathHydration).not.toHaveBeenCalled()
+  it('contains a rejected Codex trust write', async () => {
+    mocks.markCodexProjectTrusted.mockRejectedValueOnce(new Error('write failed'))
+
+    await expect(markLocalWorktreeTrusted('codex', '/workspace/app')).resolves.toBeUndefined()
   })
 
-  // The requested agent replaces the default rather than preceding it, so a disabled request goes
-  // straight to detection — the order the create has always used.
-  it('detects instead of using the default when the requested agent is disabled', async () => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue(['codex', 'gemini'])
+  /**
+   * Why this test exists: Orca has two trust dispatch chains — the renderer's
+   * preflightAgentTrust (via the agentTrust:markTrusted IPC) and this main-process
+   * one, which is the only path `orchestration worker-start` takes. Adding
+   * `preflightTrust: 'antigravity'` to TUI_AGENT_CONFIG clears the `!preset` guard
+   * here but matched none of the cursor/copilot/codex branches, so every supervised
+   * agy worker still failed at agent_readiness with 'agent-trust-workspace' while
+   * the renderer-side unit tests passed. Verified live: with the branch added, the
+   * worktree is appended to ~/.gemini/antigravity-cli/settings.json and the dispatch
+   * reaches worker_done.
+   */
+  it('writes the agy workspace trust artifact on the orchestration path', async () => {
+    await markLocalWorktreeTrusted('antigravity', '/workspace/app')
 
-    await expect(
-      resolve({ defaultTuiAgent: 'claude', disabledTuiAgents: ['codex'] }, 'codex')
-    ).resolves.toBe('gemini')
-    expect(mocks.detectInstalledAgentsWithShellPathHydration).toHaveBeenCalledTimes(1)
+    expect(mocks.markAntigravityWorkspaceTrusted).toHaveBeenCalledWith('/workspace/app')
   })
 
-  it('starts no agent when the default is blank', async () => {
-    await expect(resolve({ defaultTuiAgent: 'blank' })).resolves.toBeNull()
-    expect(mocks.detectInstalledAgentsWithShellPathHydration).not.toHaveBeenCalled()
-  })
+  it('contains a throwing agy trust write', async () => {
+    mocks.markAntigravityWorkspaceTrusted.mockImplementationOnce(() => {
+      throw new Error('write failed')
+    })
 
-  it('detects an enabled agent on this host when nothing usable was named', async () => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue(['codex', 'claude'])
-
-    await expect(resolve({ disabledTuiAgents: ['codex'] })).resolves.toBe('claude')
-  })
-
-  // Why: the SSH host runs the agent; an unserved host must never be answered by this client.
-  it('starts no agent on an unserved SSH host rather than detecting locally', async () => {
-    mocks.detectInstalledAgentsWithShellPathHydration.mockResolvedValue(['codex'])
-
-    await expect(resolve({}, undefined, makeRepo({ connectionId: 'ssh-1' }))).resolves.toBeNull()
-    expect(mocks.detectInstalledAgentsWithShellPathHydration).not.toHaveBeenCalled()
-  })
-
-  it('starts no agent when detection finds none', async () => {
-    await expect(resolve({})).resolves.toBeNull()
+    await expect(markLocalWorktreeTrusted('antigravity', '/workspace/app')).resolves.toBeUndefined()
   })
 })

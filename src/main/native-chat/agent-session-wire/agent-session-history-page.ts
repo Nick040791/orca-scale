@@ -8,9 +8,6 @@
 // `after` is the only direction that can answer `cursor_compacted`.
 
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
-import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
-import { latestStructuredAgentSessionTurn } from '../../../shared/structured-agent-session-live-turn'
-import { isSubagentBlock } from '../../../shared/native-chat-types'
 import type {
   AgentJournalCursor,
   AgentJournalRenderItem,
@@ -22,23 +19,18 @@ import {
   type AgentSessionHistoryDirection,
   type AgentSessionHistoryPage,
   type AgentSessionHistoryRequest,
-  type AgentSessionHistoryResult,
-  type AgentSessionLatestTurn,
-  type AgentSessionSubagentRosterEntry
+  type AgentSessionHistoryResult
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { projectJournalBatch } from './agent-session-journal-batch'
 import {
   boundHistoryItemsByBytes,
-  STORED_HISTORY_READER,
-  type HistoryReader,
+  HISTORY_PAGE_CONTENT_BUDGET_BYTES,
   historyEntryBytes,
   newestWholeSequenceGroups,
-  wholeSubagentGroupsStart,
   oversizedHistoryItem,
   submissionBytesByItemId
 } from './agent-session-history-page-bounds'
-import { offPageSubagentRoster } from './agent-session-history-subagent-roster'
 
 export { AGENT_SESSION_HISTORY_MAX_PAGE_BYTES } from './agent-session-history-page-bounds'
 
@@ -51,82 +43,38 @@ export function resolveHistoryLimit(limit: number | undefined): number {
   return Math.min(AGENT_SESSION_HISTORY_MAX_LIMIT, Math.max(1, Math.floor(limit)))
 }
 
-/** Whose rows a backward read serves. Both window over the session's own rows; a
- *  reader of the session's own agent alone gets only those. In-process only: no wire
- *  request carries it. */
-export type AgentSessionHistoryScope = 'every-agent' | 'own-agent'
-
-/**
- * The newest `limit` of the session's own rows, in whole sequence groups, and every
- * row after the oldest of them: a subagent's rows, and each subagent's own row, ride
- * along with the conversation they happened in, so a burst or a fan-out cannot crowd
- * the conversation off the page. The page stays contiguous and starts at its first
- * item, as the cursor means; the byte budget still bounds it. Fewer own rows than
- * `limit` reach back to the start. With no subagent rows this is the newest `limit`
- * rows, as before. A page reaches back to the first sibling of each subagent group it holds
- * part of, so loading an older page does not renumber a group's ordinals or move its row.
- */
-function conversationWindow(
-  items: readonly AgentJournalRenderItem[],
-  limit: number
-): AgentJournalRenderItem[] {
-  const own = items.filter((item) => isRootAgentJournalItem(item) && !isSubagentRow(item))
-  if (own.length === items.length) {
-    return newestWholeSequenceGroups(items, limit)
-  }
-  const ownWindow = newestWholeSequenceGroups(own, limit)
-  const start = ownWindow.length < own.length ? ownWindow[0]?.sequence : undefined
-  if (start === undefined) {
-    return [...items]
-  }
-  const reach = newestWholeSequenceGroups(own, 2 * limit)
-  const floor = reach.length < own.length ? reach[0]!.sequence : Number.NEGATIVE_INFINITY
-  const whole = wholeSubagentGroupsStart(items, start, floor)
-  return items.filter((item) => item.sequence >= whole)
-}
-
-function isSubagentRow(item: AgentJournalRenderItem): boolean {
-  return item.body.kind === 'message' && item.body.blocks.some(isSubagentBlock)
-}
-
 export function readAgentSessionHistory(
   journal: AgentSessionJournal,
   request: AgentSessionHistoryRequest,
-  {
-    snapshot = journal.snapshot(),
-    scope = 'every-agent',
-    reader = STORED_HISTORY_READER
-  }: {
-    /** Reduced state to read against. A synchronous multi-page catch-up passes one
-     *  snapshot for the whole run so each page costs its own rows, not the timeline. */
-    snapshot?: AgentJournalSnapshot
-    scope?: AgentSessionHistoryScope
-    reader?: HistoryReader
-  } = {}
+  /** Reduced state to read against. A synchronous multi-page catch-up passes one
+   *  snapshot for the whole run so each page costs its own rows, not the timeline. */
+  snapshot: AgentJournalSnapshot = journal.snapshot()
 ): AgentSessionHistoryResult {
+  if (journal.isReadOnly) {
+    return historyReset(snapshot, 'schema_unreadable')
+  }
   const limit = resolveHistoryLimit(request.limit)
   if (request.direction === 'after') {
-    return readForward(journal, snapshot, request.cursor, limit, reader)
+    return readForward(journal, snapshot, request.cursor, limit)
   }
   const cursor = request.direction === 'before' ? request.cursor : undefined
   if (cursor) {
     if (cursor.epoch !== snapshot.cursor.epoch) {
-      return historyReset(snapshot, 'epoch_changed', reader)
+      return historyReset(snapshot, 'epoch_changed')
     }
     if (cursor.sequence > snapshot.cursor.sequence) {
-      return historyReset(snapshot, 'cursor_ahead', reader)
+      return historyReset(snapshot, 'cursor_ahead')
     }
   }
-  const scoped =
-    scope === 'own-agent' ? snapshot.items.filter(isRootAgentJournalItem) : snapshot.items
-  const older = cursor ? scoped.filter((item) => item.sequence < cursor.sequence) : scoped
-  const windowed = conversationWindow(older, limit)
+  const older = cursor
+    ? snapshot.items.filter((item) => item.sequence < cursor.sequence)
+    : snapshot.items
+  const windowed = newestWholeSequenceGroups(older, limit)
   const { items, dropped } = boundHistoryItemsByBytes(
     windowed,
     'newest',
     submissionBytesByItemId(snapshot.submissions),
-    reader.budgetBytes,
-    reader.form
+    HISTORY_PAGE_CONTENT_BUDGET_BYTES
   )
   return {
     ok: true,
@@ -135,12 +83,11 @@ export function readAgentSessionHistory(
       direction: request.direction,
       items,
       hasOlder: older.length > windowed.length || dropped > 0,
-      hasNewer: older.length < scoped.length,
+      hasNewer: older.length < snapshot.items.length,
       fallbackCursor: cursor ?? { epoch: snapshot.cursor.epoch, sequence: 0 },
       nextCursor: items[0]
         ? { epoch: snapshot.cursor.epoch, sequence: items[0].sequence }
-        : undefined,
-      subagentRoster: offPageSubagentRoster(scoped, items)
+        : undefined
     })
   }
 }
@@ -151,8 +98,7 @@ export function readAgentSessionHistory(
  * check re-reduces if anything did advance the journal between pages.
  */
 export function createAgentSessionCatchUpReader(
-  journal: AgentSessionJournal,
-  reader: HistoryReader = STORED_HISTORY_READER
+  journal: AgentSessionJournal
 ): (request: AgentSessionHistoryRequest) => AgentSessionHistoryResult {
   let snapshot = journal.snapshot()
   return (request) => {
@@ -160,30 +106,27 @@ export function createAgentSessionCatchUpReader(
     if (live.epoch !== snapshot.cursor.epoch || live.sequence !== snapshot.cursor.sequence) {
       snapshot = journal.snapshot()
     }
-    return readAgentSessionHistory(journal, request, { snapshot, reader })
+    return readAgentSessionHistory(journal, request, snapshot)
   }
 }
 
 export function readAgentSessionHydrationPage(
   journal: AgentSessionJournal,
-  fence?: number,
-  reader: HistoryReader = STORED_HISTORY_READER
+  fence?: number
 ): AgentSessionHistoryPage {
-  return buildHydrationPage(journal.snapshot(), fence, reader)
+  return buildHydrationPage(journal.snapshot(), fence)
 }
 
 function buildHydrationPage(
   snapshot: AgentJournalSnapshot,
-  fence: number | undefined,
-  reader: HistoryReader
+  fence?: number
 ): AgentSessionHistoryPage {
-  const items = conversationWindow(snapshot.items, AGENT_SESSION_HISTORY_MAX_LIMIT)
+  const items = newestWholeSequenceGroups(snapshot.items, AGENT_SESSION_HISTORY_MAX_LIMIT)
   const bounded = boundHistoryItemsByBytes(
     items,
     'newest',
     submissionBytesByItemId(snapshot.submissions),
-    reader.budgetBytes,
-    reader.form
+    HISTORY_PAGE_CONTENT_BUDGET_BYTES
   )
   return buildPage({
     snapshot,
@@ -195,20 +138,18 @@ function buildHydrationPage(
     nextCursor: bounded.items[0]
       ? { epoch: snapshot.cursor.epoch, sequence: bounded.items[0].sequence }
       : undefined,
-    fence,
-    subagentRoster: offPageSubagentRoster(snapshot.items, bounded.items)
+    fence
   })
 }
 
 function historyReset(
   snapshot: AgentJournalSnapshot,
-  reset: Extract<AgentSessionHistoryResult, { ok: false }>['reset'],
-  reader: HistoryReader
+  reset: Extract<AgentSessionHistoryResult, { ok: false }>['reset']
 ): AgentSessionHistoryResult {
   return {
     ok: false,
     reset,
-    page: buildHydrationPage(snapshot, undefined, reader)
+    page: buildHydrationPage(snapshot)
   }
 }
 
@@ -216,19 +157,18 @@ function readForward(
   journal: AgentSessionJournal,
   snapshot: AgentJournalSnapshot,
   cursor: AgentJournalCursor | undefined,
-  limit: number,
-  reader: HistoryReader
+  limit: number
 ): AgentSessionHistoryResult {
   if (!cursor) {
     // Why: forward paging replays rows after a position; without one there is
     // nothing to be after, and silently serving the tail would hand the client
     // a page it cannot place.
-    return historyReset(snapshot, 'cursor_ahead', reader)
+    return historyReset(snapshot, 'cursor_ahead')
   }
   // One lookahead preserves hasNewer without rereading the entire remaining journal per page.
   const since = journal.readSince(cursor, limit + 1)
   if (!since.ok) {
-    return historyReset(snapshot, since.reset, reader)
+    return historyReset(snapshot, since.reset)
   }
   const submissionBytes = submissionBytesByItemId(snapshot.submissions)
   // The page cost is EVERYTHING variable it carries: items with their
@@ -247,47 +187,46 @@ function readForward(
   // clipping projected items: dropping an item while advancing the cursor past
   // the rows that touched it would lose that revision for good.
   let rows = since.rows.slice(0, limit)
-  const project = (window: typeof rows): ReturnType<typeof projectJournalBatch> => {
-    const result = projectJournalBatch({
-      rows: window,
+  let projected = projectJournalBatch({
+    rows,
+    snapshot,
+    afterSequence: cursor.sequence,
+    canonicalItemId: (itemId) => journal.canonicalItemId(itemId)
+  })
+  if (!projected.ok) {
+    return historyReset(snapshot, projected.reset)
+  }
+  let contentBytes = pageContentBytes(projected.batch.items, projected.batch.removedItemIds)
+  while (rows.length > 1 && contentBytes > HISTORY_PAGE_CONTENT_BUDGET_BYTES) {
+    rows = rows.slice(0, Math.ceil(rows.length / 2))
+    const shrunk = projectJournalBatch({
+      rows,
       snapshot,
       afterSequence: cursor.sequence,
       canonicalItemId: (itemId) => journal.canonicalItemId(itemId)
     })
-    return result.ok
-      ? { ...result, batch: { ...result.batch, items: result.batch.items.map(reader.form) } }
-      : result
-  }
-  let projected = project(rows)
-  if (!projected.ok) {
-    return historyReset(snapshot, projected.reset, reader)
-  }
-  let contentBytes = pageContentBytes(projected.batch.items, projected.batch.removedItemIds)
-  while (rows.length > 1 && contentBytes > reader.budgetBytes) {
-    rows = rows.slice(0, Math.ceil(rows.length / 2))
-    const shrunk = project(rows)
     if (!shrunk.ok) {
-      return historyReset(snapshot, shrunk.reset, reader)
+      return historyReset(snapshot, shrunk.reset)
     }
     projected = shrunk
     contentBytes = pageContentBytes(projected.batch.items, projected.batch.removedItemIds)
   }
   // One row can still touch an over-budget item; degrade it visibly.
   let items = projected.batch.items
-  if (contentBytes > reader.budgetBytes) {
+  if (contentBytes > HISTORY_PAGE_CONTENT_BUDGET_BYTES) {
     items = items.map((item) => {
       const bytes = historyEntryBytes(item, submissionBytes)
-      return bytes > reader.budgetBytes ? oversizedHistoryItem(item) : item
+      return bytes > HISTORY_PAGE_CONTENT_BUDGET_BYTES ? oversizedHistoryItem(item, bytes) : item
     })
     contentBytes = pageContentBytes(items, projected.batch.removedItemIds)
   }
-  if (contentBytes > reader.budgetBytes) {
+  if (contentBytes > HISTORY_PAGE_CONTENT_BUDGET_BYTES) {
     // A single row's semantic payload — in practice a pre-bounding oversized
     // removal id — can never fit any page, and truncating a removal id would
     // break the client's keying. A bounded tail replaces the client's state
     // wholesale, which applies the removal without carrying the id, and the
     // client resumes from the live cursor past this row.
-    return historyReset(snapshot, 'cursor_compacted', reader)
+    return historyReset(snapshot, 'cursor_compacted')
   }
   const lastSequence = rows.at(-1)?.seq ?? cursor.sequence
   return {
@@ -316,7 +255,6 @@ function buildPage(input: {
   fallbackCursor: AgentJournalCursor
   nextCursor: AgentJournalCursor | undefined
   fence?: number
-  subagentRoster?: AgentSessionSubagentRosterEntry[]
 }): AgentSessionHistoryPage {
   const epoch = input.snapshot.cursor.epoch
   const pageItemIds = new Set(input.items.map((item) => item.itemId))
@@ -339,21 +277,6 @@ function buildPage(input: {
     },
     liveCursor: input.snapshot.cursor,
     hasOlder: input.hasOlder,
-    hasNewer: input.hasNewer,
-    ...(input.subagentRoster === undefined ? {} : { subagentRoster: input.subagentRoster }),
-    // From the whole timeline, never the page: a long turn's record sits below any window.
-    latestTurn: snapshotLatestTurn(input.snapshot)
+    hasNewer: input.hasNewer
   }
-}
-
-// A catch-up run pages one snapshot many times; its scan back to the turn record is paid once.
-const latestTurnBySnapshot = new WeakMap<AgentJournalSnapshot, AgentSessionLatestTurn | null>()
-
-export function snapshotLatestTurn(snapshot: AgentJournalSnapshot): AgentSessionLatestTurn | null {
-  let latest = latestTurnBySnapshot.get(snapshot)
-  if (latest === undefined) {
-    latest = latestStructuredAgentSessionTurn(snapshot.items)
-    latestTurnBySnapshot.set(snapshot, latest)
-  }
-  return latest
 }

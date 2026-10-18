@@ -1,10 +1,19 @@
 {
-  "goldenFormatVersion": 6,
   "operation": "tasks.item-metadata-gitlab",
   "family": "tasks.item-metadata-gitlab",
   "namedDeltas": [],
+  "runnerVersion": 1,
+  "baseline": "02a55944347346065453e179e071e64d9ae861dc",
+  "lockfileSha256": "9317f3a98ab047f9f96fe26fd8531b8a632ac5954064b322f41a904148cbf6bb",
+  "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
+  "adapterSha256": "97cfbcd82778ed6517ca2d10b2f3ad5a8d366e380d7846c1e89d5a5baf17e739",
+  "scenarioSha256": "4daf374f040e27836c154245d6a7fbad9ba3f6e6c0c9608218451286e4712d6b",
+  "platform": "darwin",
+  "scenarioVersion": 1,
+  "projectionVersion": 2,
+  "goldenFormatVersion": 5,
   "values": {
-    "1607ea6e021e": {
+    "06ebfa394e4c": {
       "error": "",
       "item": {
         "provider": "gitlab",
@@ -12,10 +21,7 @@
           "id": "gitlab:issue:4",
           "labels": ["bug", "triage"],
           "number": 4,
-          "projectRef": {
-            "host": "gitlab.com",
-            "path": "group/project"
-          },
+          "projectRef": "group/project",
           "repoId": "repo-1",
           "state": "opened",
           "title": "Renamed",
@@ -30,10 +36,7 @@
             "id": "gitlab:issue:4",
             "labels": ["bug", "triage"],
             "number": 4,
-            "projectRef": {
-              "host": "gitlab.com",
-              "path": "group/project"
-            },
+            "projectRef": "group/project",
             "repoId": "repo-1",
             "state": "opened",
             "title": "Renamed",
@@ -64,7 +67,17 @@
       "ordinal": 11,
       "value": ""
     },
-    "6d09f297c6ee": {
+    "885570183416": {
+      "name": "gitlab.updateIssue#1",
+      "ordinal": 4,
+      "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"gitlab.updateIssue\",\"params\":{\"repo\":\"id:repo-1\",\"number\":4,\"updates\":{\"title\":\"Renamed\",\"addLabels\":[\"triage\"]},\"projectRef\":\"group/project\"}}"
+    },
+    "9de8a1be3f13": {
+      "name": "mutatingStatus",
+      "ordinal": 12,
+      "value": false
+    },
+    "a372249e4dd9": {
       "name": "gitlab.updateIssue#1",
       "ordinal": 3,
       "args": [
@@ -76,10 +89,7 @@
           "name": "params",
           "value": {
             "number": 4,
-            "projectRef": {
-              "host": "gitlab.com",
-              "path": "group/project"
-            },
+            "projectRef": "group/project",
             "repo": "id:repo-1",
             "updates": {
               "addLabels": ["triage"],
@@ -107,22 +117,12 @@
         }
       }
     },
-    "9de8a1be3f13": {
-      "name": "mutatingStatus",
-      "ordinal": 12,
-      "value": false
-    },
     "b4055ff60394": {
       "name": "itemAddLabelsDraft",
       "ordinal": 8,
       "value": ""
     },
-    "c217dd32a83b": {
-      "name": "gitlab.updateIssue#1",
-      "ordinal": 4,
-      "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"gitlab.updateIssue\",\"params\":{\"repo\":\"id:repo-1\",\"number\":4,\"updates\":{\"title\":\"Renamed\",\"addLabels\":[\"triage\"]},\"projectRef\":{\"host\":\"gitlab.com\",\"path\":\"group/project\"}}}"
-    },
-    "c43f4fb1b61f": {
+    "cbb029dd26e9": {
       "name": "actionItem",
       "ordinal": 5,
       "value": {
@@ -131,10 +131,7 @@
           "id": "gitlab:issue:4",
           "labels": ["bug", "triage"],
           "number": 4,
-          "projectRef": {
-            "host": "gitlab.com",
-            "path": "group/project"
-          },
+          "projectRef": "group/project",
           "repoId": "repo-1",
           "state": "opened",
           "title": "Renamed",
@@ -167,29 +164,6 @@
         "provider": "gitlab"
       }
     },
-    "e2912ad4d0f1": {
-      "name": "items",
-      "ordinal": 6,
-      "value": [
-        {
-          "provider": "gitlab",
-          "source": {
-            "id": "gitlab:issue:4",
-            "labels": ["bug", "triage"],
-            "number": 4,
-            "projectRef": {
-              "host": "gitlab.com",
-              "path": "group/project"
-            },
-            "repoId": "repo-1",
-            "state": "opened",
-            "title": "Renamed",
-            "type": "issue"
-          },
-          "title": "Renamed"
-        }
-      ]
-    },
     "eb79a9b3682a": {
       "status": "fulfilled",
       "startedAt": 0,
@@ -208,6 +182,26 @@
       "ordinal": 9,
       "value": ""
     },
+    "fb7a40f606c1": {
+      "name": "items",
+      "ordinal": 6,
+      "value": [
+        {
+          "provider": "gitlab",
+          "source": {
+            "id": "gitlab:issue:4",
+            "labels": ["bug", "triage"],
+            "number": 4,
+            "projectRef": "group/project",
+            "repoId": "repo-1",
+            "state": "opened",
+            "title": "Renamed",
+            "type": "issue"
+          },
+          "title": "Renamed"
+        }
+      ]
+    },
     "fd2fad47bec2": {
       "name": "mutatingStatus",
       "ordinal": 1,
@@ -220,18 +214,18 @@
       {
         "id": "update-gitlab-settled",
         "observation": {
-          "sender": ["6d09f297c6ee"],
-          "payloads": ["c217dd32a83b"],
+          "sender": ["a372249e4dd9"],
+          "payloads": ["885570183416"],
           "settlements": {
             "mount": "eb79a9b3682a",
             "update-gitlab-0": "eb79a9b3682a"
           },
-          "state": "1607ea6e021e",
+          "state": "06ebfa394e4c",
           "effects": [
             "fd2fad47bec2",
             "ed3a7d6bc894",
-            "c43f4fb1b61f",
-            "e2912ad4d0f1",
+            "cbb029dd26e9",
+            "fb7a40f606c1",
             "d6b74d32804d",
             "b4055ff60394",
             "f11c308f1979",

@@ -24,14 +24,14 @@ const oldJson = JSON.stringify({ opaque: 'x'.repeat(8 * 1024 * 1024), revision: 
 const selectedJson = JSON.stringify({ opaque: 'y'.repeat(8 * 1024 * 1024), revision: 'selected' })
 let bundle: string
 beforeAll(() => {
-  bundle = buildRecoveryCrashProcess(suite).bundle
+  bundle = buildRecoveryCrashProcess(suite)
 })
 afterEach(() => {
   for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    rmSync(root, { recursive: true, force: true })
   }
 })
-afterAll(() => rmSync(suite, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+afterAll(() => rmSync(suite, { recursive: true, force: true }))
 
 async function fixture() {
   const root = mkdtempSync(join(suite, 'profile-'))
@@ -144,7 +144,6 @@ describe('large independent recovery copies under process death', () => {
       expect(snapshot(profile.databasePath)).toEqual({ json: selectedJson, revision: 3 })
       expect(readFileSync(profile.backupPath).equals(profile.backupBytes)).toBe(true)
     },
-    // Windows CI must copy and flush several 8 MiB databases alongside other persistence suites.
-    process.platform === 'win32' ? 120_000 : 30_000
+    30_000
   )
 })

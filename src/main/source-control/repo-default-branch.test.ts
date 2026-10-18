@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { gitExecFileAsyncMock } = vi.hoisted(() => ({
-  gitExecFileAsyncMock: vi.fn()
+const { gitExecFileAsyncMock, getSshGitProviderMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn(),
+  getSshGitProviderMock: vi.fn()
 }))
 
 vi.mock('../git/runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
+}))
+
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: getSshGitProviderMock
 }))
 
 import {
@@ -16,8 +21,11 @@ import {
 
 function primeLocalGitExec(defaultRef = 'refs/remotes/origin/master'): void {
   gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
-    if (args[0] === 'for-each-ref' && args.includes('--format=%(refname)%00%(symref)')) {
-      return { stdout: `refs/remotes/origin/HEAD\0${defaultRef}\n`, stderr: '' }
+    if (args[0] === 'symbolic-ref' && args.includes('refs/remotes/origin/HEAD')) {
+      return { stdout: `${defaultRef}\n`, stderr: '' }
+    }
+    if (args[0] === 'rev-parse' && args[1] === '--verify' && args.includes(defaultRef)) {
+      return { stdout: 'default-oid\n', stderr: '' }
     }
     throw new Error(`unexpected git call: ${args.join(' ')}`)
   })
@@ -26,6 +34,7 @@ function primeLocalGitExec(defaultRef = 'refs/remotes/origin/master'): void {
 describe('getRepoDefaultBranchName', () => {
   beforeEach(() => {
     gitExecFileAsyncMock.mockReset()
+    getSshGitProviderMock.mockReset()
     __resetRepoDefaultBranchCacheForTests()
   })
 
@@ -34,7 +43,7 @@ describe('getRepoDefaultBranchName', () => {
 
     await expect(getRepoDefaultBranchName('/repo')).resolves.toBe('master')
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      expect.arrayContaining(['for-each-ref', '--format=%(refname)%00%(symref)']),
+      ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       // Why: the timeout keeps a dead filesystem from wedging the serial PR
       // refresh drain — assert it stays armed on the local path.
       { cwd: '/repo', timeout: expect.any(Number) }
@@ -48,9 +57,31 @@ describe('getRepoDefaultBranchName', () => {
       'main'
     )
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      expect.arrayContaining(['for-each-ref', '--format=%(refname)%00%(symref)']),
+      ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       { cwd: '/repo', wslDistro: 'Ubuntu', timeout: expect.any(Number) }
     )
+  })
+
+  it('routes resolution through the SSH provider exec and never local git', async () => {
+    const provider = {
+      exec: vi.fn(async (args: string[], repoPath: string) => {
+        expect(repoPath).toBe('/remote/repo')
+        if (args[0] === 'symbolic-ref') {
+          return { stdout: 'refs/remotes/origin/trunk\n' }
+        }
+        return { stdout: 'oid\n' }
+      })
+    }
+    getSshGitProviderMock.mockReturnValue(provider)
+
+    await expect(getRepoDefaultBranchName('/remote/repo', 'ssh-1')).resolves.toBe('trunk')
+    expect(getSshGitProviderMock).toHaveBeenCalledWith('ssh-1')
+    expect(provider.exec).toHaveBeenCalledWith(
+      ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
+      '/remote/repo',
+      { timeoutMs: expect.any(Number) }
+    )
+    expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
   it('shares one wall-clock timeout budget across all fallback probes', async () => {
@@ -77,6 +108,8 @@ describe('getRepoDefaultBranchName', () => {
   })
 
   it('returns null without running local git when the SSH provider is unavailable', async () => {
+    getSshGitProviderMock.mockReturnValue(undefined)
+
     await expect(getRepoDefaultBranchName('/remote/repo', 'ssh-gone')).resolves.toBeNull()
     expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
   })
@@ -101,14 +134,17 @@ describe('getRepoDefaultBranchName', () => {
   })
 
   it('coalesces concurrent resolutions for the same repo and runtime', async () => {
-    let releaseSnapshot: (() => void) | undefined
-    const snapshotGate = new Promise<void>((resolve) => {
-      releaseSnapshot = resolve
+    let releaseSymbolicRef: (() => void) | undefined
+    const symbolicRefGate = new Promise<void>((resolve) => {
+      releaseSymbolicRef = resolve
     })
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
-      if (args[0] === 'for-each-ref') {
-        await snapshotGate
-        return { stdout: 'refs/remotes/origin/HEAD\0refs/remotes/origin/main\n', stderr: '' }
+      if (args[0] === 'symbolic-ref') {
+        await symbolicRefGate
+        return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse') {
+        return { stdout: 'default-oid\n', stderr: '' }
       }
       throw new Error(`unexpected git call: ${args.join(' ')}`)
     })
@@ -116,10 +152,10 @@ describe('getRepoDefaultBranchName', () => {
     const first = getRepoDefaultBranchName('/repo')
     const second = getRepoDefaultBranchName('/repo')
     await vi.waitFor(() => expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1))
-    releaseSnapshot?.()
+    releaseSymbolicRef?.()
 
     await expect(Promise.all([first, second])).resolves.toEqual(['main', 'main'])
-    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
   })
 
   it('scopes the cache per runtime so WSL and host resolutions do not collide', async () => {
@@ -137,6 +173,7 @@ describe('getRepoDefaultBranchName', () => {
 describe('shouldHideNonOpenReviewOnDefaultBranch', () => {
   beforeEach(() => {
     gitExecFileAsyncMock.mockReset()
+    getSshGitProviderMock.mockReset()
     __resetRepoDefaultBranchCacheForTests()
   })
 

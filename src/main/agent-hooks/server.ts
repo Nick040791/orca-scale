@@ -4,7 +4,7 @@ import { normalizeHookPayload } from '../../shared/agent-hook-listener'
 import { parseFormEncodedBody } from '../../shared/agent-hook-listener/request-body'
 import type { AgentHookEventPayload } from '../../shared/agent-hook-listener/listener-event'
 import type { AgentHookSource } from '../../shared/agent-hook-relay'
-import { AgentHookServerAgentPresence } from './server/server-agent-presence'
+import { AgentHookServerLifecycle } from './server/server-lifecycle'
 import { isValidPaneKey } from './server/server-status-identity'
 
 export type {
@@ -26,7 +26,7 @@ export {
 export { isValidPaneKey }
 
 /** Public composition seam for the loopback hook listener and relay status adapter. */
-export class AgentHookServer extends AgentHookServerAgentPresence {}
+export class AgentHookServer extends AgentHookServerLifecycle {}
 
 export const agentHookServer = new AgentHookServer()
 

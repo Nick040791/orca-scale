@@ -1,15 +1,18 @@
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { GitHubAssignableUser } from '../../../../../shared/github/pull-request-types'
 import type { Repo } from '../../../../../shared/repo-types'
-import type { TaskSourceContext } from '../../../../../shared/task-source-context'
+import {
+  type TaskSourceContext,
+  getTaskSourceRuntimeSettings
+} from '../../../../../shared/task-source-context'
 import React, { useMemo, useState, useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { parseGitHubIssueOrPRLink } from '@/lib/github-links'
 import { useRepoAssigneesBySlug } from '@/hooks/useGitHubSlugMetadata'
 import { translate } from '@/i18n/i18n'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getActiveRuntimeTarget, callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { githubProjectHost } from '../../../../../shared/github/project-identity'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -28,8 +31,18 @@ export function GHAssigneesCell({
   sourceContext?: TaskSourceContext | null
   workItemMutation: TaskPageGitHubWorkItemMutationRunner
 }): React.JSX.Element {
-  const ownerTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, repo?.id ?? null, sourceContext))
+  const repoOwnerSettings = useAppStore(
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repo?.id ?? null))
+  )
+  const sourceSettings = useMemo(
+    () =>
+      sourceContext?.provider === 'github'
+        ? ({
+            ...repoOwnerSettings,
+            ...getTaskSourceRuntimeSettings(sourceContext)
+          } as typeof repoOwnerSettings)
+        : repoOwnerSettings,
+    [repoOwnerSettings, sourceContext]
   )
   const [open, setOpen] = useState(false)
   const [pendingLogin, setPendingLogin] = useState<string | null>(null)
@@ -49,7 +62,7 @@ export function GHAssigneesCell({
     open ? owner : null,
     open ? repoName : null,
     seedLogins,
-    ownerTarget,
+    sourceSettings,
     parsed?.slug.host
   )
   const toggleAssignee = useCallback(
@@ -92,7 +105,7 @@ export function GHAssigneesCell({
               : {
                   addAssignees: [user.login]
                 }
-            const target = ownerTarget
+            const target = getActiveRuntimeTarget(sourceSettings)
             if (owner && repoName) {
               const args = {
                 owner,
@@ -161,7 +174,7 @@ export function GHAssigneesCell({
       repo,
       repoName,
       sourceContext,
-      ownerTarget,
+      sourceSettings,
       workItemMutation
     ]
   )

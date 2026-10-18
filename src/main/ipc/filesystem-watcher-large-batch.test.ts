@@ -29,8 +29,7 @@ vi.mock('../providers/ssh-filesystem-dispatch', () => ({
   onSshFilesystemProviderRegistered: () => () => {}
 }))
 
-import { closeAllWatchers } from './filesystem-watcher-shutdown'
-import { registerFilesystemWatcherHandlers } from './filesystem-watcher-handlers'
+import { closeAllWatchers, registerFilesystemWatcherHandlers } from './filesystem-watcher'
 import { stat } from 'node:fs/promises'
 import { subscribe as subscribeParcelWatcher } from '@parcel/watcher'
 import type { Event as WatcherEvent } from '@parcel/watcher'
@@ -58,6 +57,28 @@ describe('local filesystem watcher large batches', () => {
     })
     registerFilesystemWatcherHandlers()
     await closeAllWatchers()
+  })
+
+  it('accepts a large local watcher event batch without overflowing V8 arguments', async () => {
+    vi.useFakeTimers()
+    vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as never)
+    const worktreePath = resolve('/tmp/repo')
+    let watcherCallback: ((err: Error | null, events: WatcherEvent[]) => void) | undefined
+    vi.mocked(subscribeParcelWatcher).mockImplementation(async (_root, callback) => {
+      watcherCallback = callback as typeof watcherCallback
+      return { unsubscribe: vi.fn() } as never
+    })
+
+    await handlers['fs:watchWorktree']({ sender: createWatcherSender(1) }, { worktreePath })
+
+    const events = Array.from({ length: 200_000 }, (_, index): WatcherEvent => ({
+      type: 'delete',
+      path: join(worktreePath, `file-${index}`)
+    }))
+
+    expect(() => watcherCallback?.(null, events)).not.toThrow()
+    await closeAllWatchers()
+    vi.useRealTimers()
   })
 
   it('emits one overflow event for oversized native watcher batches', async () => {

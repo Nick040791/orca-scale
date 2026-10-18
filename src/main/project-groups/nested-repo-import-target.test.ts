@@ -4,7 +4,8 @@ import type { GitWorktreeInfo } from '../../shared/worktree/types'
 import { listWorktreeGraph } from '../git/worktree'
 import {
   createNestedRepoImportTargetResolver,
-  resolveLocalNestedRepoImportTargetPath
+  resolveLocalNestedRepoImportTargetPath,
+  resolveSshNestedRepoImportTargetPath
 } from './nested-repo-import-target'
 
 vi.mock('../git/worktree', () => ({
@@ -92,5 +93,24 @@ describe('nested repo import target resolution', () => {
     ])
 
     await expect(resolveLocalNestedRepoImportTargetPath(selectedPath)).resolves.toBe(selectedPath)
+  })
+
+  it('uses the SSH provider worktree list for remote import targets', async () => {
+    const mainPath = join('/srv', 'source', 'demo')
+    const selectedPath = join('/srv', 'paseo', 'demo', 'brash-binder')
+    const gitProvider = {
+      listWorktrees: vi
+        .fn()
+        .mockResolvedValue([
+          worktree({ path: mainPath, isMainWorktree: true }),
+          worktree({ path: selectedPath, branch: 'refs/heads/brash-binder' })
+        ])
+    }
+
+    await expect(resolveSshNestedRepoImportTargetPath(selectedPath, gitProvider)).resolves.toBe(
+      mainPath
+    )
+    expect(gitProvider.listWorktrees).toHaveBeenCalledWith(selectedPath)
+    expect(listWorktreeGraph).not.toHaveBeenCalled()
   })
 })

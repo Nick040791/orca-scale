@@ -1,23 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 import type { DetectedWorktreeListResult } from '../../../../../../shared/worktree/types'
-import { applyDetectedWorktreeUpdates, folderWorkspaceMatchesHost } from './detected-worktree-meta'
-
-describe('folderWorkspaceMatchesHost', () => {
-  it('prefers the host stamp, then the connection id, then local', () => {
-    type Row = Pick<FolderWorkspace, 'connectionId' | 'executionHostId'>
-    const ssh: Row = { executionHostId: 'ssh:target-1', connectionId: null }
-    expect(folderWorkspaceMatchesHost(ssh, 'ssh:target-1')).toBe(true)
-    expect(folderWorkspaceMatchesHost(ssh, 'local')).toBe(false)
-    const stamped: Row = { executionHostId: 'runtime:env-1', connectionId: 'target-1' }
-    expect(folderWorkspaceMatchesHost(stamped, 'runtime:env-1')).toBe(true)
-    expect(folderWorkspaceMatchesHost(stamped, 'ssh:target-1')).toBe(false)
-    const legacy: Row = { executionHostId: undefined, connectionId: 'target-1' }
-    expect(folderWorkspaceMatchesHost(legacy, 'ssh:target-1')).toBe(true)
-    expect(folderWorkspaceMatchesHost({ connectionId: '  ' }, 'local')).toBe(true)
-    expect(folderWorkspaceMatchesHost({ connectionId: null }, 'local')).toBe(true)
-  })
-})
+import { applyDetectedWorktreeUpdates } from './detected-worktree-meta'
 
 describe('applyDetectedWorktreeUpdates display-name provenance', () => {
   it('projects pinning changes into detected rows', () => {

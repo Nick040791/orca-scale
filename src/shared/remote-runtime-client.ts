@@ -1,21 +1,21 @@
-import type { PairedRuntimeConnection } from './paired-runtime-connection'
+import type { PairingOffer } from './pairing'
 import type { RuntimeCapability } from './protocol-version'
 import type { RemoteRuntimeClientError } from './remote-runtime-client-error'
 import { sendRemoteRuntimeRequestOnSocket } from './remote-runtime-request-socket'
-import { subscribeRemoteRuntimeTransport } from './remote-runtime-subscription-transport'
-import type {
-  RemoteRuntimeSubscriptionOptions,
-  RemoteRuntimeTransportSubscriptionCallbacks
-} from './remote-runtime-subscription-contract'
+import {
+  subscribeRemoteRuntimeTransport,
+  type RemoteRuntimeSubscriptionOptions,
+  type RemoteRuntimeTransportSubscriptionCallbacks
+} from './remote-runtime-subscription-transport'
 import type { RuntimeOrchestrationEnvelope, RuntimeRpcResponse } from './runtime-rpc-envelope'
 import type { RuntimeStatus } from './runtime-types'
 
 export { RemoteRuntimeClientError } from './remote-runtime-client-error'
 export type {
   RemoteRuntimeOutboundMemoryBudget,
-  RemoteRuntimeOutboundSocketMemory
-} from './remote-runtime-subscription-outbound'
-export type { RemoteRuntimeSubscriptionOptions } from './remote-runtime-subscription-contract'
+  RemoteRuntimeOutboundSocketMemory,
+  RemoteRuntimeSubscriptionOptions
+} from './remote-runtime-subscription-transport'
 
 export type RemoteRuntimeSubscription = {
   requestId: string
@@ -36,7 +36,7 @@ export type RemoteRuntimeSubscriptionCallbacks<TResult = unknown> = {
 }
 
 export function sendRemoteRuntimeRequest<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
@@ -45,7 +45,7 @@ export function sendRemoteRuntimeRequest<TResult>(
   clientCapabilities: readonly RuntimeCapability[] = []
 ): Promise<RuntimeRpcResponse<TResult>> {
   return sendRemoteRuntimeRequestOnSocket(
-    connection,
+    pairing,
     method,
     params,
     timeoutMs,
@@ -57,29 +57,28 @@ export function sendRemoteRuntimeRequest<TResult>(
 }
 
 export function sendRemoteRuntimeRequestWithStatusPreflight<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
   validateStatus: (response: RuntimeRpcResponse<RuntimeStatus>) => void,
   envelope?: RuntimeOrchestrationEnvelope,
-  clientCapabilities: readonly RuntimeCapability[] = [],
-  signal?: AbortSignal
+  clientCapabilities: readonly RuntimeCapability[] = []
 ): Promise<RuntimeRpcResponse<TResult>> {
   return sendRemoteRuntimeRequestOnSocket(
-    connection,
+    pairing,
     method,
     params,
     timeoutMs,
     envelope,
     validateStatus,
-    signal,
+    undefined,
     clientCapabilities
   )
 }
 
 export function subscribeRemoteRuntimeRequest<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
@@ -87,7 +86,7 @@ export function subscribeRemoteRuntimeRequest<TResult>(
   options?: RemoteRuntimeSubscriptionOptions
 ): Promise<RemoteRuntimeSubscription> {
   return subscribeRemoteRuntimeTransport(
-    connection,
+    pairing,
     method,
     params,
     timeoutMs,

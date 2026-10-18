@@ -26,7 +26,6 @@ export type RemoteRuntimeTransportSubscriptionCallbacks<TResult = unknown> = {
 }
 
 export type RemoteRuntimeSubscriptionOptions = RemoteRuntimeSocketLivenessOptions & {
-  signal?: AbortSignal
   clientCapabilities?: readonly RuntimeCapability[]
   perMessageDeflate?: boolean
   outboundQueue?: RemoteRuntimeOutboundQueueOptions

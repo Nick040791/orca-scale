@@ -23,6 +23,7 @@ export function WorktreeCardSecondaryRows({
     settings,
     isActive,
     newCardStyle,
+    lineageChildren,
     lineageCollapsed,
     onLineageToggle,
     remoteBranchConflict,
@@ -31,8 +32,7 @@ export function WorktreeCardSecondaryRows({
     compactInlineAgentRows,
     showLineageChildChip,
     lineageChildAriaLabel,
-    childWorkspaceShortLabel,
-    isDeleting
+    childWorkspaceShortLabel
   } = card
   const { hasMetaRow } = presentation
 
@@ -53,27 +53,6 @@ export function WorktreeCardSecondaryRows({
           </span>
         </div>
       )}
-
-      {/* Why from the row: the host lists a failed delete until it is retried, forgotten or gone.
-          Why a tooltip: the error leads with the path; the Delete dialog shows it inline too. */}
-      {worktree.removalError && !isDeleting ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-snug text-destructive"
-              data-worktree-card-delete-failed=""
-            >
-              <AlertTriangle className="size-3 shrink-0" />
-              <span className="min-w-0 truncate">
-                {translate('auto.components.sidebar.WorktreeCard.deleteFailed', 'Delete failed')}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8} className="max-w-72 break-words">
-            {worktree.removalError}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
 
       {isActive && worktree.linkedLinearIssue ? (
         <LinearAgentSkillSetupPrompt
@@ -130,6 +109,12 @@ export function WorktreeCardSecondaryRows({
                   )}
             </TooltipContent>
           </Tooltip>
+        </div>
+      )}
+
+      {!newCardStyle && lineageChildren && (
+        <div className="-ml-[1.125rem] mt-1.5 w-[calc(100%+1.125rem)] space-y-1">
+          {lineageChildren}
         </div>
       )}
     </>

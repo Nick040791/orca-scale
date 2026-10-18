@@ -168,7 +168,6 @@ describe('external worktree discovery for paired clients', () => {
       pendingGitStatusRepoIds: new Set<string>(),
       pendingHeadIdentityRepoIds: new Set<string>(),
       pendingHeadIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-      pendingGitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE,
       headIdentityRefresh: createWorktreeHeadIdentityRefreshState(),
       disposed: false
     }
@@ -356,7 +355,6 @@ describe('external worktree discovery for paired clients', () => {
       pendingGitStatusRepoIds: new Set<string>(),
       pendingHeadIdentityRepoIds: new Set<string>(),
       pendingHeadIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-      pendingGitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE,
       headIdentityRefresh: createWorktreeHeadIdentityRefreshState(),
       disposed: false
     }
@@ -443,7 +441,6 @@ describe('external worktree discovery for paired clients', () => {
       pendingGitStatusRepoIds: new Set<string>(),
       pendingHeadIdentityRepoIds: new Set<string>(),
       pendingHeadIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-      pendingGitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE,
       headIdentityRefresh: createWorktreeHeadIdentityRefreshState(),
       disposed: false
     }
@@ -501,7 +498,6 @@ describe('external worktree discovery for paired clients', () => {
       pendingGitStatusRepoIds: new Set<string>(),
       pendingHeadIdentityRepoIds: new Set<string>(),
       pendingHeadIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-      pendingGitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE,
       headIdentityRefresh: createWorktreeHeadIdentityRefreshState(),
       disposed: false
     }

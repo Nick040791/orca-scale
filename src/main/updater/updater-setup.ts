@@ -111,9 +111,8 @@ export class UpdaterSetup extends UpdaterDownloadInstall {
     super.dismissAvailableUpdate()
   }
 
-  setupAutoUpdater(mainWindow: BrowserWindow | null, opts?: UpdaterSetupOptions): void {
-    // Why keep: headless serve sets up without a window; a later window attach must not be undone.
-    this.mainWindowRef = mainWindow ?? this.mainWindowRef
+  setupAutoUpdater(mainWindow: BrowserWindow, opts?: UpdaterSetupOptions): void {
+    this.mainWindowRef = mainWindow
     this.onBeforeQuitCleanup = opts?.onBeforeQuit ?? null
     this.onBeforeQuitFailure = opts?.onBeforeQuitFailure ?? 'continue'
     this.persistLastUpdateCheckAt = opts?.setLastUpdateCheckAt ?? null
@@ -200,10 +199,6 @@ export class UpdaterSetup extends UpdaterDownloadInstall {
       markMissingManifestPrereleaseFallbackChecking: () =>
         this.markMissingManifestPrereleaseFallbackChecking(),
       performQuitAndInstall: () => this.performQuitAndInstall(),
-      commitStagedMacInstall: () => this.commitStagedMacInstall(),
-      failMacStaging: (error) => this.failMacStaging(error),
-      isAwaitingMacStaging: () => this.isAwaitingMacStaging(),
-      isMacStagingDeferredToInstall: () => this.isMacStagingDeferredToInstall(),
       shouldDeferMacQuitForInstall: () => this.updateInstallMode === 'interactive',
       recordCompletedUpdateCheck: () => this.recordCompletedUpdateCheck(),
       restoreReleaseUpdateSource: () => this.restoreReleaseUpdateSource(),

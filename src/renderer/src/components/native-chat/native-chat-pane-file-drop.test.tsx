@@ -52,8 +52,7 @@ function ClaimingComposer({
   onDropCapture?: (event: React.DragEvent<HTMLDivElement>) => void
 }) {
   useNativeChatPaneFileDropClaim({
-    destinationKey: 'pane:1',
-    captureExternalDrop: () => async () => {},
+    scopeKey: 'pane:1',
     disabled,
     onDragOverCapture,
     onDropCapture
@@ -116,18 +115,20 @@ describe('NativeChatPaneFileDropSurface', () => {
     expect(container.querySelector(OVERLAY)).toBeNull()
   })
 
-  it('owns OS drops without publishing a scope marker', () => {
+  it('publishes the claiming composer as the OS drop route target', () => {
     const { container } = renderPane(<ClaimingComposer />)
     const surface = container.querySelector('.pane')
-    expect(surface?.hasAttribute('data-os-file-drop-owner')).toBe(true)
-    expect(surface?.hasAttribute('data-composer-scope-key')).toBe(false)
+    expect(surface?.getAttribute('data-native-file-drop-target')).toBe('composer')
+    expect(surface?.getAttribute('data-composer-scope-key')).toBe('pane:1')
   })
 
-  it('keeps an OS owner even while no composer is mounted', () => {
+  it('leaves the pane to the terminal behind it while no composer is mounted', () => {
     const { transcript, container } = renderPane(null)
     fireDrag(transcript, 'dragover', workspaceDrag())
     expect(container.querySelector(OVERLAY)).toBeNull()
-    expect(container.querySelector('.pane')?.hasAttribute('data-os-file-drop-owner')).toBe(true)
+    expect(container.querySelector('.pane')?.hasAttribute('data-native-file-drop-target')).toBe(
+      false
+    )
   })
 
   it('does not invite a drop the guarded composer will refuse', () => {
@@ -142,7 +143,7 @@ describe('NativeChatPaneFileDropSurface', () => {
     expect(onDragOverCapture).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the overlay for OS drags while keeping workspace handlers separate', () => {
+  it('shows the overlay for an OS drag without claiming its drop', () => {
     const onDropCapture = vi.fn()
     const { transcript, container } = renderPane(<ClaimingComposer onDropCapture={onDropCapture} />)
     fireDrag(transcript, 'dragover', osDrag())
@@ -163,7 +164,7 @@ describe('NativeChatPaneFileDropSurface', () => {
 
     rerender(pane(true))
     expect(container.querySelector(OVERLAY)).toBeNull()
-    expect(container.querySelector('.pane')?.hasAttribute('data-os-file-drop-owner')).toBe(true)
+    expect(container.querySelector('.pane')?.getAttribute('data-composer-scope-key')).toBe('pane:1')
 
     rerender(pane(false))
     expect(container.querySelector(OVERLAY)).toBeNull()
@@ -182,12 +183,13 @@ describe('NativeChatPaneFileDropSurface', () => {
     expect(container.querySelector(OVERLAY)).toBeNull()
   })
 
-  it('clears an OS drag overlay when a drop ends outside the pane', () => {
+  it('clears an OS drag overlay from the document drop the preload route consumes', () => {
     const { transcript, container } = renderPane(<ClaimingComposer />)
     fireDrag(transcript, 'dragover', osDrag())
     expect(container.querySelector(OVERLAY)).not.toBeNull()
 
-    // A drop outside the pane still ends its hover state.
+    // The preload listener stops this event at `document`, so the surface never
+    // sees it as a React drop.
     act(() => {
       document.dispatchEvent(new Event('drop', { bubbles: false }))
     })

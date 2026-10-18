@@ -19,6 +19,7 @@ export type QuickSubmitPreparationInput = Pick<
   | 'selectedRepoHookContextKey'
   | 'selectedRepoIsGit'
   | 'setAdvancedOpen'
+  | 'setLoadedIssueCommand'
   | 'settings'
   | 'setupConfig'
   | 'setupDecision'

@@ -5,8 +5,7 @@ import {
   nextFollowingEnd,
   shouldShowJumpToLatest,
   NATIVE_CHAT_BOTTOM_THRESHOLD_PX,
-  NATIVE_CHAT_FOLLOW_REARM_PX,
-  readerGestureLeavesEnd
+  NATIVE_CHAT_FOLLOW_REARM_PX
 } from './native-chat-autoscroll'
 
 const atBottom = { scrollTop: 952, scrollHeight: 1000, clientHeight: 48 }
@@ -63,8 +62,7 @@ describe('nextFollowingEnd', () => {
     following: true,
     programmatic: false,
     geometry: parkedAbove(0),
-    previousDistanceFromEnd: 400,
-    settling: false
+    previousDistanceFromEnd: 400
   }
 
   it('follows when the reader reaches the end', () => {
@@ -78,8 +76,8 @@ describe('nextFollowingEnd', () => {
     expect(nextFollowingEnd({ ...following, programmatic: true, geometry: wellAway })).toBe(true)
   })
 
-  it('keeps following through unmarked passive layout offsets', () => {
-    expect(nextFollowingEnd({ ...following, geometry: wellAway })).toBe(true)
+  it('treats an unmarked offset away from the end as the reader leaving', () => {
+    expect(nextFollowingEnd({ ...following, geometry: wellAway })).toBe(false)
   })
 
   it.each([0, NATIVE_CHAT_FOLLOW_REARM_PX, 400])(
@@ -90,8 +88,7 @@ describe('nextFollowingEnd', () => {
           following: false,
           programmatic: true,
           geometry: parkedAbove(distance),
-          previousDistanceFromEnd: 400,
-          settling: false
+          previousDistanceFromEnd: 400
         })
       ).toBe(false)
     }
@@ -101,7 +98,7 @@ describe('nextFollowingEnd', () => {
   it('lets the reader park just inside the near-bottom band', () => {
     expect(NATIVE_CHAT_FOLLOW_REARM_PX).toBeLessThan(NATIVE_CHAT_BOTTOM_THRESHOLD_PX)
     const parked = parkedAbove(NATIVE_CHAT_BOTTOM_THRESHOLD_PX - 1)
-    expect(nextFollowingEnd({ ...following, following: false, geometry: parked })).toBe(false)
+    expect(nextFollowingEnd({ ...following, geometry: parked })).toBe(false)
     expect(isNearBottom(parked)).toBe(true)
     expect(shouldShowJumpToLatest(false, parked)).toBe(false)
   })
@@ -110,8 +107,7 @@ describe('nextFollowingEnd', () => {
     const detached = {
       following: false,
       programmatic: false,
-      previousDistanceFromEnd: 400,
-      settling: false
+      previousDistanceFromEnd: 400
     }
     expect(
       nextFollowingEnd({ ...detached, geometry: parkedAbove(NATIVE_CHAT_FOLLOW_REARM_PX) })
@@ -125,12 +121,7 @@ describe('nextFollowingEnd', () => {
   // move a pixel or two and are unmarked: read as the reader arriving, they
   // re-armed follow and the next frame rebased the view, cancelling the scroll.
   it('does not reattach a detached reader who is moving away from the end', () => {
-    const leaving = {
-      following: false,
-      programmatic: false,
-      previousDistanceFromEnd: 0,
-      settling: false
-    }
+    const leaving = { following: false, programmatic: false, previousDistanceFromEnd: 0 }
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(0.3) })).toBe(false)
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(2) })).toBe(false)
     // Arriving from above still reattaches, and standing still at the end does too.
@@ -138,18 +129,6 @@ describe('nextFollowingEnd', () => {
       nextFollowingEnd({ ...leaving, previousDistanceFromEnd: 52, geometry: parkedAbove(2) })
     ).toBe(true)
     expect(nextFollowingEnd({ ...leaving, geometry: parkedAbove(0) })).toBe(true)
-  })
-
-  it('does not reattach a jump still travelling when shrinking content clamps it onto the end', () => {
-    const clamped = {
-      following: false,
-      programmatic: false,
-      previousDistanceFromEnd: 35,
-      geometry: parkedAbove(0)
-    }
-    expect(nextFollowingEnd({ ...clamped, settling: true })).toBe(false)
-    // Anti-vacuous: the same offset reattaches a reader with no jump under way.
-    expect(nextFollowingEnd({ ...clamped, settling: false })).toBe(true)
   })
 
   it('keeps a following reader through a small move up inside the band', () => {
@@ -162,18 +141,4 @@ describe('nextFollowingEnd', () => {
   it('holds follow through rounding noise at the end', () => {
     expect(nextFollowingEnd({ ...following, geometry: parkedAbove(1.5) })).toBe(true)
   })
-})
-
-it('only detaches for gestures that can move away from the tail', () => {
-  expect(readerGestureLeavesEnd({ kind: 'wheel', deltaY: -10, zoom: false }, atBottom)).toBe(true)
-  expect(readerGestureLeavesEnd({ kind: 'wheel', deltaY: 10, zoom: false }, atBottom)).toBe(false)
-  expect(readerGestureLeavesEnd({ kind: 'wheel', deltaY: -10, zoom: true }, atBottom)).toBe(false)
-  expect(readerGestureLeavesEnd({ kind: 'key', key: 'Home' }, atBottom)).toBe(true)
-  expect(readerGestureLeavesEnd({ kind: 'key', key: 'End' }, atBottom)).toBe(false)
-  expect(readerGestureLeavesEnd({ kind: 'scrollbar-press' }, atBottom)).toBe(true)
-  expect(readerGestureLeavesEnd({ kind: 'touch-drag' }, parkedAbove(60))).toBe(true)
-  expect(readerGestureLeavesEnd({ kind: 'touch-drag' }, atBottom)).toBe(false)
-  expect(readerGestureLeavesEnd({ kind: 'wheel', deltaY: -10, zoom: false }, noOverflow)).toBe(
-    false
-  )
 })

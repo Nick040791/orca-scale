@@ -4,14 +4,10 @@ import { getProjectGroupSubtreeIds } from '../../../../shared/project-groups'
 import { getRepoExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import { catalogOwnsHost, getProjectGroupHostId } from './project-group-owner-routing'
 
-export type ProjectGroupRemovalProject = { id: string; hostId: ExecutionHostId }
-
 export type ProjectGroupRemovalTargets = {
   groupExists: boolean
   deletedGroupIds: Set<string>
   projectIds: string[]
-  // Why: ids repeat across hosts and membership is per row, so removal must target the exact member rows.
-  projects: ProjectGroupRemovalProject[]
 }
 
 export function selectProjectGroupRemovalTargets(
@@ -31,30 +27,25 @@ export function selectProjectGroupRemovalTargets(
     return {
       groupExists: false,
       deletedGroupIds: new Set(),
-      projectIds: [],
-      projects: []
+      projectIds: []
     }
   }
 
   const deletedGroupIds = getProjectGroupSubtreeIds(ownerGroups, groupId)
   const projectIds: string[] = []
-  const projects: ProjectGroupRemovalProject[] = []
   for (const repo of repos) {
-    const repoHostId = getRepoExecutionHostId(repo)
     if (
       repo.projectGroupId &&
       deletedGroupIds.has(repo.projectGroupId) &&
-      ownsRowHost(repoHostId)
+      ownsRowHost(getRepoExecutionHostId(repo))
     ) {
       projectIds.push(repo.id)
-      projects.push({ id: repo.id, hostId: repoHostId })
     }
   }
 
   return {
     groupExists: true,
     deletedGroupIds,
-    projectIds,
-    projects
+    projectIds
   }
 }

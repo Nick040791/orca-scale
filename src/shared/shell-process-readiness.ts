@@ -3,7 +3,6 @@ import { constants } from 'node:fs'
 import { access, readlink, realpath, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { LSOF_NONBLOCKING_ARGS } from './lsof-nonblocking-args'
 import { PS_MAX_BUFFER_BYTES } from './process-table-snapshot'
 
 const execFile = promisify(execFileCallback)
@@ -31,7 +30,7 @@ async function readExecutablePath(pid: number): Promise<string | null> {
   }
   const { stdout } = await execFile(
     '/usr/sbin/lsof',
-    [...LSOF_NONBLOCKING_ARGS, '-a', '-p', String(pid), '-d', 'txt', '-Fn'],
+    ['-a', '-p', String(pid), '-d', 'txt', '-Fn'],
     {
       encoding: 'utf8',
       timeout: PROCESS_READINESS_TIMEOUT_MS

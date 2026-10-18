@@ -6,10 +6,13 @@ import type { MountOptions } from './mounted-operation-module'
 import type { MountAdapter } from './recording-scenario'
 
 /**
- * The mount table one recording runs against: every registered domain module, merged.
+ * The mount table one recording runs against: every registered domain module, merged. Nothing is
+ * mounted here, because an adapter defined in this file would be pinned by `recorderSha256` on
+ * every golden rather than by `adapterSha256` on the goldens that mount it.
  *
  * Each module gets its own loader, carrying its own exposures. One recording mounts one adapter, so
- * a golden is only ever influenced by the exposures its own module declares.
+ * a golden is only ever influenced by the exposures its own module declares — which is what lets
+ * `adapterSha256` pin them instead of every golden's `recorderSha256`.
  */
 export function pilotMountAdapters(
   root: string,

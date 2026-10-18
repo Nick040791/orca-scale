@@ -10,7 +10,6 @@ import type { OrchestrationDb } from './orchestration-db'
 import type { OrcaSessionId } from '../../../../shared/orca-session-address'
 import type { DispatchContextRow, RemoteDispatchAttachmentRow } from '../types'
 import { potentiallyLiveRemoteAttachmentSql } from './federation/remote-attachment-liveness'
-import { DISPATCH_CONTEXT_COLUMN_LIST } from './row-column-lists'
 
 /**
  * Who is creating a dispatch row, for nesting-depth purposes.
@@ -148,12 +147,12 @@ function findActiveDispatchForCreator(
   }
   const row = this.db
     .prepare(
-      `SELECT ${DISPATCH_CONTEXT_COLUMN_LIST} FROM dispatch_contexts
+      `SELECT * FROM dispatch_contexts
        WHERE assignee_orca_session_id = ? AND status IN ('pending', 'dispatched')
        ORDER BY rowid DESC LIMIT 1`
     )
     .get(creator.orcaSessionId)
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The schema-pinned complete Dispatch projection returns one Dispatch row or undefined; the adapter exposes unknown.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: SELECT * over this table returns the row shape its schema and row type define, like every row cast in db/.
   return row as DispatchContextRow | undefined
 }
 

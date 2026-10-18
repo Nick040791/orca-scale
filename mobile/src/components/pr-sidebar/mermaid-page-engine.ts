@@ -22,7 +22,7 @@ export type PageMermaid = {
  * and a few files held outside it on purpose, and it is not the gate the shipped build rests on.
  *
  * What no type can check is that the bundle behaves like the package. The render check is that, in
- * both browser engines.
+ * both engines, against the native document's own bytes.
  */
 const _packageSatisfiesPageMermaid: (engine: Mermaid) => PageMermaid = (engine) => engine
 

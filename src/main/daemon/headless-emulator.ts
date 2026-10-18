@@ -10,8 +10,9 @@ import {
 import { advancePartialEscapeTail } from '../../shared/terminal-partial-escape-tail'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import { collectHeadlessOscLinkRanges } from './headless-osc-link-ranges'
-import { readTerminalModes, trackModifyOtherKeys } from './headless-emulator-modes'
+import { readTerminalModes } from './headless-emulator-modes'
 import { buildRehydrateSequences } from './terminal-mode-rehydrate-sequences'
+import { TerminalMouseModeMirror } from './terminal-mouse-mode-mirror'
 import { TerminalOscCwdTitleScanner } from './terminal-osc-cwd-title-scanner'
 import { buildFrameRestoreSnapshotFields } from './terminal-frame-restore-sequences'
 import { splitTerminalSnapshotAnsi } from './terminal-snapshot-ansi-buffers'
@@ -24,11 +25,6 @@ import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import type { TerminalCursorContext } from '../../shared/terminal-composer-draft'
 import { readTerminalCursorLineContext } from '../../shared/terminal-cursor-line-context'
-import {
-  readHeadlessTerminalRows,
-  readHeadlessTerminalLines,
-  type HeadlessTerminalRow
-} from './headless-terminal-rows'
 
 export type HeadlessEmulatorOptions = {
   cols: number
@@ -64,6 +60,7 @@ export class HeadlessEmulator {
   protected terminal: Terminal
   protected serializer: SerializeAddon
   private oscText: TerminalOscCwdTitleScanner
+  private mouseModes = new TerminalMouseModeMirror()
   private readonly pathFlavor?: 'posix' | 'win32'
   private readonly remotePosixFileUriAuthority: boolean
   private restoredOscLinks: TerminalOscLinkRange[] = []
@@ -96,7 +93,6 @@ export class HeadlessEmulator {
 
     this.serializer = new SerializeAddon()
     this.terminal.loadAddon(this.serializer)
-    trackModifyOtherKeys(this.terminal)
 
     // Why Unicode 11: must match the renderer's char-width measurement, else emoji rows mismeasure and the mirror accumulates cell-shifted tears.
     this.terminal.loadAddon(new Unicode11Addon())
@@ -192,6 +188,8 @@ export class HeadlessEmulator {
         if (forwardQueryReplies) {
           this.queryReplyForwardingDepth -= 1
         }
+        // Why: commit the mouse-mode mirror only after xterm has parsed the same bytes (snapshots combine both).
+        this.mouseModes.scan(data)
         this.partialEscapeTail = advancePartialEscapeTail(this.partialEscapeTail, data)
         resolve()
       })
@@ -224,6 +222,7 @@ export class HeadlessEmulator {
         this.queryReplyForwardingDepth -= 1
       }
     }
+    this.mouseModes.scan(data)
     this.partialEscapeTail = advancePartialEscapeTail(this.partialEscapeTail, data)
     return true
   }
@@ -306,19 +305,12 @@ export class HeadlessEmulator {
   }
 
   getVisibleLines(): string[] {
-    return readHeadlessTerminalLines(this.terminal)
-  }
-
-  getVisibleRows(): HeadlessTerminalRow[] {
-    return readHeadlessTerminalRows(this.terminal)
-  }
-
-  getBufferTailRows(limit: number): HeadlessTerminalRow[] {
-    return readHeadlessTerminalRows(this.terminal, limit)
-  }
-
-  get isSynchronizedOutput(): boolean {
-    return this.terminal.modes.synchronizedOutputMode
+    const buffer = this.terminal.buffer.active
+    const lines: string[] = []
+    for (let row = buffer.viewportY; row < buffer.viewportY + this.terminal.rows; row += 1) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+    }
+    return lines
   }
 
   getVisibleBufferRange(): { start: number; endExclusive: number; totalLength: number } {
@@ -336,7 +328,13 @@ export class HeadlessEmulator {
   }
 
   getBufferTailLines(limit: number): string[] {
-    return readHeadlessTerminalLines(this.terminal, limit)
+    const buffer = this.terminal.buffer.active
+    const start = Math.max(0, buffer.length - Math.max(0, Math.floor(limit)))
+    const lines: string[] = []
+    for (let row = start; row < buffer.length; row += 1) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+    }
+    return lines
   }
 
   getCwd(): string | null {
@@ -366,6 +364,6 @@ export class HeadlessEmulator {
   }
 
   private getModes(): TerminalModes {
-    return readTerminalModes(this.terminal)
+    return readTerminalModes(this.terminal, this.mouseModes)
   }
 }

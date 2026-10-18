@@ -12,13 +12,15 @@ const {
   statMock,
   watchMock,
   watchInWatcherProcessMock,
-  closeWatcherInWatcherProcessMock
+  closeWatcherInWatcherProcessMock,
+  getSshFilesystemProviderMock
 } = vi.hoisted(() => ({
   resolveAuthorizedPathMock: vi.fn(),
   statMock: vi.fn(),
   watchMock: vi.fn(),
   watchInWatcherProcessMock: vi.fn(),
-  closeWatcherInWatcherProcessMock: vi.fn()
+  closeWatcherInWatcherProcessMock: vi.fn(),
+  getSshFilesystemProviderMock: vi.fn()
 }))
 
 vi.mock('fs', async () => {
@@ -51,13 +53,18 @@ vi.mock('../ipc/filesystem-auth', async () => {
   }
 })
 
+vi.mock('../providers/ssh-filesystem-dispatch', () => ({
+  getSshFilesystemProvider: getSshFilesystemProviderMock,
+  onSshFilesystemProviderRegistered: () => () => undefined
+}))
+
 import {
   _getRuntimeFileWatcherReleaseCountForTests,
   _resetRuntimeFileWatcherLeasesForTests,
-  awaitRuntimeFileWatcherUnsubscribes
-} from './files/watch/file-watcher-leases'
-import { RuntimeFileCommands } from './orca-runtime-files'
-import { WINDOWS_RUNTIME_FILE_WATCH_CLOSE_DEADLINE_MS } from './files/watch/windows-file-watch'
+  awaitRuntimeFileWatcherUnsubscribes,
+  RuntimeFileCommands,
+  WINDOWS_RUNTIME_FILE_WATCH_CLOSE_DEADLINE_MS
+} from './orca-runtime-files'
 
 function createWindowsWatcher(close: () => void) {
   const watcher = new EventEmitter() as EventEmitter & { close: ReturnType<typeof vi.fn> }
@@ -101,6 +108,7 @@ describe('RuntimeFileCommands file watching', () => {
     watchMock.mockReset()
     watchInWatcherProcessMock.mockReset()
     closeWatcherInWatcherProcessMock.mockReset()
+    getSshFilesystemProviderMock.mockReset()
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: originalPlatform
@@ -533,5 +541,40 @@ describe('RuntimeFileCommands file watching', () => {
     resolveDispose()
     await drainPromise
     expect(drained).toBe(true)
+  })
+
+  it('forwards the abort signal into SSH-backed file explorer watches', async () => {
+    const watch = vi.fn(async () => () => {})
+    getSshFilesystemProviderMock.mockReturnValue({ watch })
+    const store = { getRepo: vi.fn(() => ({ connectionId: 'ssh-1' })) }
+    const commands = new RuntimeFileCommands({
+      getRuntimeId: () => 'runtime-1',
+      requireStore: () => store,
+      resolveWorktreeSelector: vi.fn(async () => ({
+        id: 'wt-1',
+        repoId: 'repo-1',
+        path: '/remote/repo'
+      })),
+      resolveRuntimeFileTarget: vi.fn(async () => ({
+        worktree: {
+          id: 'wt-1',
+          repoId: 'repo-1',
+          path: '/remote/repo'
+        },
+        executionHostId: 'ssh:ssh-1'
+      })),
+      resolveRuntimeGitTarget: vi.fn(),
+      openFile: vi.fn()
+    } as never)
+    const controller = new AbortController()
+    const onTerminalError = vi.fn()
+
+    await commands.watchFileExplorer('id:wt-1', vi.fn(), onTerminalError, controller.signal)
+
+    expect(watch).toHaveBeenCalledWith('/remote/repo', expect.any(Function), {
+      signal: controller.signal,
+      onTerminalError
+    })
+    expect(watchInWatcherProcessMock).not.toHaveBeenCalled()
   })
 })

@@ -1,10 +1,5 @@
 import type { AgentType } from './agent-status-types'
 import { findCatalogModel, getAgentSessionOptionCatalog } from './agent-session-option-catalog'
-import { OPENCODE_LAUNCH_OPTION_CATALOG } from './agent-session-option-catalog-opencode'
-import type {
-  AgentSessionOptionCatalog,
-  CatalogOptionApply
-} from './agent-session-option-catalog-types'
 import type { SessionOptionValue } from './native-chat-session-options'
 
 export type ResolvedSessionOptionLaunch = {
@@ -12,23 +7,12 @@ export type ResolvedSessionOptionLaunch = {
   appliedValues: Record<string, SessionOptionValue>
 }
 
-function isOverriddenByAgentArgs(apply: CatalogOptionApply, tokens: readonly string[]): boolean {
-  const kept = apply.removeAgentArgs?.(tokens)
-  return kept !== undefined && kept.length < tokens.length
-}
-
-export function getAgentSessionOptionLaunchCatalog(
-  agent: AgentType
-): AgentSessionOptionCatalog | null {
-  return agent === 'opencode' ? OPENCODE_LAUNCH_OPTION_CATALOG : getAgentSessionOptionCatalog(agent)
-}
-
 export function removeOverriddenAgentSessionArgs(
   agent: AgentType,
   values: Record<string, SessionOptionValue> | null | undefined,
   tokens: readonly string[]
 ): string[] {
-  const catalog = getAgentSessionOptionLaunchCatalog(agent)
+  const catalog = getAgentSessionOptionCatalog(agent)
   const modelId = typeof values?.model === 'string' ? values.model : null
   if (!catalog || !values || !modelId) {
     return [...tokens]
@@ -50,7 +34,7 @@ export function resolveAgentSessionOptionLaunch(
   trailingAgentArgs: readonly string[] = [],
   includeCatalogDefaults = true
 ): ResolvedSessionOptionLaunch {
-  const catalog = getAgentSessionOptionLaunchCatalog(agent)
+  const catalog = getAgentSessionOptionCatalog(agent)
   const modelId = typeof values?.model === 'string' ? values.model : null
   if (!catalog || !values || !modelId) {
     return { args: [], appliedValues: {} }
@@ -79,12 +63,13 @@ export function resolveAgentSessionOptionLaunch(
   const composedModelId = catalog.composeModelValue
     ? catalog.composeModelValue(modelId, modelValues)
     : modelId
-  const modelOverridden = isOverriddenByAgentArgs(catalog.modelApply, trailingAgentArgs)
+  const modelOverridden = catalog.modelApply.agentArgsOverride?.(trailingAgentArgs) === true
 
-  // Why: a repeated model flag can prevent the CLI from starting.
-  if (catalog.modelApply.launchArgs && !modelOverridden) {
+  if (catalog.modelApply.launchArgs) {
     args.push(...catalog.modelApply.launchArgs(composedModelId))
-    appliedValues.model = modelId
+    if (!modelOverridden) {
+      appliedValues.model = modelId
+    }
   }
   for (const option of modelOptions) {
     const value = modelValues[option.id]
@@ -97,16 +82,13 @@ export function resolveAgentSessionOptionLaunch(
       }
       continue
     }
-    // Why: options belong to the picked model and may be invalid for the user's model.
-    if (
-      !option.apply.launchArgs ||
-      modelOverridden ||
-      isOverriddenByAgentArgs(option.apply, trailingAgentArgs)
-    ) {
+    if (!option.apply.launchArgs) {
       continue
     }
     args.push(...option.apply.launchArgs(value))
-    appliedValues[option.id] = value
+    if (!modelOverridden && !option.apply.agentArgsOverride?.(trailingAgentArgs)) {
+      appliedValues[option.id] = value
+    }
   }
   return { args, appliedValues }
 }

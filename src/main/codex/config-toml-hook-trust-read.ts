@@ -1,5 +1,3 @@
-import { parse as parseToml } from 'smol-toml'
-import { isPlainObject } from '../agent-hooks/hooks-json-read'
 import type { CodexHookTrustState } from './config-toml-trust'
 import { normalizeCodexHookTrustLookupKey } from './codex-trust-identity'
 import { findAllHookTrustBlocks } from './config-toml-hook-trust-blocks'
@@ -29,44 +27,6 @@ export class CodexHookTrustEntryMap extends Map<string, CodexHookTrustState> {
 }
 
 export function readHookTrustContent(content: string): Map<string, CodexHookTrustState> {
-  const result = readHookTrustTables(content)
-  // Why: approvals written as dotted keys or inline tables have no [hooks.state."k"] header.
-  for (const [key, state] of readParsedHookTrust(content)) {
-    if (!result.has(key)) {
-      result.set(key, state)
-    }
-  }
-  return result
-}
-
-function readParsedHookTrust(content: string): [string, CodexHookTrustState][] {
-  let parsed: unknown
-  try {
-    parsed = parseToml(content)
-  } catch {
-    return []
-  }
-  const hooks = isPlainObject(parsed) ? parsed.hooks : undefined
-  const state = isPlainObject(hooks) ? hooks.state : undefined
-  if (!isPlainObject(state)) {
-    return []
-  }
-  return Object.entries(state).flatMap(([key, value]): [string, CodexHookTrustState][] =>
-    isPlainObject(value)
-      ? [
-          [
-            key,
-            {
-              trustedHash: typeof value.trusted_hash === 'string' ? value.trusted_hash : undefined,
-              enabled: typeof value.enabled === 'boolean' ? value.enabled : undefined
-            }
-          ]
-        ]
-      : []
-  )
-}
-
-function readHookTrustTables(content: string): CodexHookTrustEntryMap {
   const result = new CodexHookTrustEntryMap()
   const conflictingTrustedHashKeys = new Set<string>()
   for (const block of findAllHookTrustBlocks(content)) {
@@ -109,15 +69,11 @@ function readHookTrustBlockState(block: string): {
     const lineEnd = newlineIndex === -1 ? block.length : newlineIndex
     const line = block.slice(cursor, lineEnd).replace(/\r$/, '')
     if (isTomlStructuralLine(scanState)) {
-      // Why both forms: a literal-string hash must not read as "no approval".
-      const hashMatch =
-        /^[ \t]*trusted_hash[ \t]*=[ \t]*(?:"((?:[^"\\]|\\.)*)"|'([^'\r\n]*)')[ \t]*(?:#.*)?$/.exec(
-          line
-        )
+      const hashMatch = /^[ \t]*trusted_hash[ \t]*=[ \t]*"((?:[^"\\]|\\.)*)"[ \t]*(?:#.*)?$/.exec(
+        line
+      )
       if (hashMatch) {
-        trustedHashes.add(
-          hashMatch[1] !== undefined ? unescapeTomlBasicString(hashMatch[1]) : hashMatch[2]!
-        )
+        trustedHashes.add(unescapeTomlBasicString(hashMatch[1]!))
       }
       const enabledMatch = /^[ \t]*enabled[ \t]*=[ \t]*(true|false)[ \t]*(?:#.*)?$/.exec(line)
       if (enabledMatch) {

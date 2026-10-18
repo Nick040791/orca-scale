@@ -20,20 +20,7 @@
  * connected state, then the multiplexed stream is closed so recovery starts
  * with a live epoch, and only the resubscribe attempt fails.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// These transport fixtures never read abandoned-launch ownership from the app store.
-const appStore = vi.hoisted(() => ({
-  getState: vi.fn(() => {
-    throw new Error('These transport fixtures must not read app-store ownership')
-  })
-}))
-
-vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
-
-afterEach(() => {
-  expect(appStore.getState).not.toHaveBeenCalled()
-})
-
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -43,7 +30,6 @@ import {
   encodeTerminalStreamText
 } from '../../../../shared/terminal-stream-protocol'
 import type { PtyTransport } from './pty-transport-types'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
 
 type ResolvePaneOutcome = { handle: string } | { error: Error }
 
@@ -188,7 +174,7 @@ describe('remote runtime resubscribe failure: recovery routing', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.doUnmock('../../runtime/remote-runtime-terminal-multiplexer')
-    vi.doMock('@/runtime/web-runtime-session-snapshot', () => ({
+    vi.doMock('@/runtime/web-runtime-session', () => ({
       refreshWebRuntimeSessionTabsSnapshot: refreshSessionTabsSnapshot
     }))
     vi.clearAllMocks()
@@ -228,7 +214,14 @@ describe('remote runtime resubscribe failure: recovery routing', () => {
         return { unsubscribe: vi.fn(), sendBinary: subscriptionSendBinary }
       }
     )
-    stubRuntimeEnvironmentBridge({ call: runtimeCall, subscribe: runtimeSubscribe })
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          call: runtimeCall,
+          subscribe: runtimeSubscribe
+        }
+      }
+    })
   })
 
   it('re-resolves and adopts the replacement handle when a resubscribe fails stale', async () => {
@@ -343,7 +336,7 @@ describe('remote runtime resubscribe failure: recovery routing', () => {
 
   it('keeps an oversized-snapshot resubscribe failure informational', async () => {
     const { REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE } =
-      await import('../../runtime/remote-runtime-terminal-snapshot-state')
+      await import('../../runtime/remote-runtime-terminal-multiplexer')
     const onError = vi.fn()
     const onPtyExit = vi.fn()
     const transport = await attachLivePane({ onError, onPtyExit })

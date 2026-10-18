@@ -55,6 +55,12 @@ function screencastGrantCallers(closure) {
   })
 }
 
+describe('the grant token this census is written against', () => {
+  it('is the one the shell declares', () => {
+    expect(screencastGrantToken()).toBe('screencastBinary')
+  })
+})
+
 describeClosure(
   'the routes that mount the browser pane',
   () => {

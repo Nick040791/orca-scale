@@ -4,21 +4,23 @@ import { executeSkillInstallRequest } from '../skills/skill-install-request-serv
 import { executeSkillBundleInstallRequest } from '../skills/skill-bundle-install-request-service'
 import { SkillUploadSessionService } from '../skills/skill-upload-session-service'
 import { SKILL_UPLOAD_STAGING_ROOT_NAME } from '../skills/skill-upload-staging-ownership'
+import type { IPtyProvider } from '../providers/types'
 import type {
   SkillBundleInstallProgress,
   SkillBundleInstallRequest,
   SkillBundleInstallResult
 } from '../../shared/skill-bundle-install-contract'
-import type { SkillInstallRequest, SkillInstallResult } from '../../shared/skill-install-contract'
-import type { RuntimeSkillCommandHost } from './runtime-skill-command-contract'
+import { installSkillBundleOnSshHost } from '../skills/skill-bundle-ssh-relay-service'
+import { normalizeSshRelaySkillDestination } from '../skills/skill-ssh-relay-destination'
+import { installSkillOnSshHost } from '../skills/skill-ssh-relay-service'
+import type { SkillInstallRequest, SkillInstallResult } from './runtime-skill-types'
+import type { RuntimeSkillCommandHost } from './runtime-skill-command-surface'
 import {
   createSkillInstallAuthority,
   folderExecutionHostId,
-  isSkillSshDestination,
-  resolveSkillProviderRoots
+  resolveSkillProviderRoots,
+  resolveSkillSshTarget
 } from './runtime-skill-install-authority'
-
-export const SKILL_SSH_UNAVAILABLE = 'skill-install-ssh-relay-unavailable'
 
 export class RuntimeSkillInstallCommands {
   private skillUploadSessions: SkillUploadSessionService | null = null
@@ -46,13 +48,15 @@ export class RuntimeSkillInstallCommands {
     this.skillUploadSessions = null
     await sessions?.dispose()
   }
-  // Why: this process serves no SSH target; a managed host installs skills as a paired runtime.
-  protected async refuseSshDestination(
-    destination: SkillInstallRequest['destination']
-  ): Promise<void> {
-    if (await isSkillSshDestination(this.host, destination)) {
-      throw new Error(SKILL_SSH_UNAVAILABLE)
+  protected requireSsh(connectionId: string): IPtyProvider {
+    const provider = this.host.getSshProvider(connectionId)
+    if (!provider?.requestHostRpc) {
+      throw new Error('skill-install-ssh-relay-unavailable')
     }
+    return provider
+  }
+  protected sshTarget(destination: SkillInstallRequest['destination']) {
+    return resolveSkillSshTarget(this.host, destination, (id) => this.requireSsh(id))
   }
   protected roots(destination: Parameters<typeof resolveSkillProviderRoots>[1]) {
     return resolveSkillProviderRoots(this.host, destination)
@@ -67,7 +71,20 @@ export class RuntimeSkillInstallCommands {
     request: SkillInstallRequest,
     signal: AbortSignal
   ): Promise<SkillInstallResult> {
-    await this.refuseSshDestination(request.destination)
+    const target = await this.sshTarget(request.destination)
+    if (target) {
+      return installSkillOnSshHost({
+        provider: target.provider,
+        userDataPath: this.userDataPath(),
+        request: {
+          ...request,
+          destination: normalizeSshRelaySkillDestination(request.destination)
+        },
+        workspace: target.workspace,
+        requireHttps: this.host.isPackaged(),
+        signal
+      })
+    }
     await this.host.skillTransactionRecovery
     const origins = ['https://storage.googleapis.com']
     if (!this.host.isPackaged() && process.env.ORCA_SKILL_PACKAGE_DOWNLOAD_ORIGINS) {
@@ -135,7 +152,21 @@ export class RuntimeSkillInstallCommands {
       } catch {}
     }
     try {
-      await this.refuseSshDestination(request.destination)
+      const target = await this.sshTarget(request.destination)
+      if (target) {
+        return await installSkillBundleOnSshHost({
+          provider: target.provider,
+          userDataPath: this.userDataPath(),
+          request: {
+            ...request,
+            destination: normalizeSshRelaySkillDestination(request.destination)
+          },
+          workspace: target.workspace,
+          requireHttps: this.host.isPackaged(),
+          signal: controller.signal,
+          onProgress: report
+        })
+      }
       await this.host.skillTransactionRecovery
       const origins = ['https://storage.googleapis.com']
       if (!this.host.isPackaged() && process.env.ORCA_SKILL_PACKAGE_DOWNLOAD_ORIGINS) {

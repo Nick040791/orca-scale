@@ -13,7 +13,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { QuickLaunchAgentMenuItems } from './QuickLaunchButton'
 import TabBarCreateEntry from './TabBarCreateEntry'
 import { TabStripScrollIndicator } from './TabStripScrollIndicator'
-import { TabStripTooltipProvider } from './TabStripTooltipProvider'
 import { getTabStripScrollMaskClassName } from './tab-strip-scroll-metrics'
 import type { useTabStripOverflowNavigation } from './tab-strip-overflow-navigation'
 import type { useTabStripDragScrollHandlers } from './tab-strip-drag-scroll'
@@ -21,7 +20,7 @@ import type { TabBarProps } from './tab-bar-props'
 import type { TabBarRuntimeModel } from './use-tab-bar-runtime-model'
 import type { TabBarCreateMenuController } from './use-tab-bar-create-menu-controller'
 import type { TabBarItemProjection } from './use-tab-bar-item-projection'
-import type { TabBarItemActions } from './use-tab-bar-item-actions'
+import type { TabBarItem } from './tab-bar-item-model'
 import { renderTabBarItems } from './tab-bar-item-surface'
 import { TabBarStaticCreateMenu } from './tab-bar-static-create-menu'
 import ClientHostedBrowserTabRows from './ClientHostedBrowserTabRows'
@@ -37,8 +36,7 @@ export function renderTabBarSurface({
   tabStripNavigation,
   tabStripDragScroll,
   activeClientHostedBrowserRowId,
-  itemActions,
-  surfaceRef
+  togglePinned
 }: {
   props: TabBarProps
   runtime: TabBarRuntimeModel
@@ -47,8 +45,7 @@ export function renderTabBarSurface({
   tabStripNavigation: ReturnType<typeof useTabStripOverflowNavigation>
   tabStripDragScroll: ReturnType<typeof useTabStripDragScrollHandlers>
   activeClientHostedBrowserRowId: string | null
-  itemActions: TabBarItemActions
-  surfaceRef: (node: HTMLDivElement | null) => void
+  togglePinned: (item: TabBarItem) => void
 }): React.JSX.Element {
   const {
     worktreeId,
@@ -83,6 +80,7 @@ export function renderTabBarSurface({
     handleSelectCreateMenuOption,
     launchAgentFromNewTabEntry,
     runPendingNewTabMenuFocusAfterClose,
+    clearPendingNewTabMenuFocusOnUnmount,
     queueNewActiveTerminalFocusAfterNewTabMenuClose,
     queueTerminalTabFocusAfterNewTabMenuClose,
     queueFocusAfterNewTabMenuClose,
@@ -90,33 +88,32 @@ export function renderTabBarSurface({
   } = createMenu
   const { orderedItems, sortableIds, dropIndicatorByVisibleId } = itemProjection
   const clientHostedBrowserRows = props.clientHostedBrowserRows ?? EMPTY_CLIENT_HOSTED_ROWS
-  const {
-    tabStripRef,
-    tabStripOverflowState,
-    activeTabDockSide,
-    scrollTabStrip,
-    subscribeToStripResize
-  } = tabStripNavigation
+  const { tabStripRef, tabStripOverflowState, scrollTabStrip } = tabStripNavigation
   const includeTopTabBorder = tabStripChrome !== 'floating-panel'
   const renderedItems = renderTabBarItems({
     items: orderedItems,
     props,
     runtime,
-    actions: itemActions,
     dropIndicatorByVisibleId,
     includeTopTabBorder,
-    activeClientHostedBrowserRowId
+    activeClientHostedBrowserRowId,
+    togglePinned
   })
 
   return (
-    <div ref={surfaceRef} className="flex items-stretch h-full overflow-hidden flex-1 min-w-0">
+    <div
+      ref={clearPendingNewTabMenuFocusOnUnmount}
+      className="flex items-stretch h-full overflow-hidden flex-1 min-w-0"
+      // Why: preload routes native OS drops by this marker — only the tab strip opens files in the editor, not terminal panes.
+      data-native-file-drop-target="editor"
+    >
       {tabStripOverflowState.hasOverflow ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon-xs"
-              className="mx-0.5 my-auto h-6 w-5 @max-[260px]/tab-strip:hidden"
+              className="mx-0.5 my-auto h-6 w-5 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-35"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               aria-label={translate(
                 'auto.components.tab.bar.TabBar.7a9b4af2af',
@@ -147,32 +144,28 @@ export function renderTabBarSurface({
         >
           <div
             ref={tabStripRef}
-            data-active-tab-docked={activeTabDockSide ?? undefined}
             // Why: only `border-r` here — a strip-level `border-l` would render a heavier L-corner than the first tab's own `border-l`.
             className={[
               'terminal-tab-strip flex h-full min-w-0 max-w-full flex-1 items-stretch overflow-x-auto overflow-y-hidden border-r border-border/70',
-              getTabStripScrollMaskClassName(tabStripOverflowState, activeTabDockSide)
+              getTabStripScrollMaskClassName(tabStripOverflowState)
             ]
               .filter(Boolean)
               .join(' ')}
           >
-            <TabStripTooltipProvider>
-              {renderedItems}
-              {clientHostedBrowserRows.length > 0 ? (
-                <ClientHostedBrowserTabRows
-                  rows={clientHostedBrowserRows}
-                  worktreeId={worktreeId}
-                  groupId={resolvedGroupId}
-                  groupActiveTabId={props.groupActiveTabId ?? null}
-                  includeTopTabBorder={includeTopTabBorder}
-                />
-              ) : null}
-            </TabStripTooltipProvider>
+            {renderedItems}
+            {clientHostedBrowserRows.length > 0 ? (
+              <ClientHostedBrowserTabRows
+                rows={clientHostedBrowserRows}
+                worktreeId={worktreeId}
+                groupId={resolvedGroupId}
+                groupActiveTabId={props.groupActiveTabId ?? null}
+                includeTopTabBorder={includeTopTabBorder}
+              />
+            ) : null}
           </div>
           <TabStripScrollIndicator
-            hasOverflow={tabStripOverflowState.hasOverflow}
+            metrics={tabStripOverflowState}
             scrollContainerRef={tabStripRef}
-            subscribeToStripResize={subscribeToStripResize}
             disabled={tabStripDragScroll.isTabDragActive}
           />
         </div>
@@ -183,7 +176,7 @@ export function renderTabBarSurface({
             <Button
               variant="ghost"
               size="icon-xs"
-              className="mx-0.5 my-auto h-6 w-5 @max-[260px]/tab-strip:hidden"
+              className="mx-0.5 my-auto h-6 w-5 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-35"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               aria-label={translate(
                 'auto.components.tab.bar.TabBar.232e075b07',

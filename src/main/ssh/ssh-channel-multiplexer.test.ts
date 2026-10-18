@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { SshChannelMultiplexer, type MultiplexerTransport } from './ssh-channel-multiplexer'
-import { encodeFrame, MessageType, encodeKeepAliveFrame } from './remote-exec/remote-frame-protocol'
-import { HEADER_LENGTH } from '../../shared/relay-frame-decoder'
+import { encodeFrame, MessageType, HEADER_LENGTH, encodeKeepAliveFrame } from './relay-protocol'
 
 function createMockTransport(): MultiplexerTransport & {
   dataCallbacks: ((data: Buffer) => void)[]
@@ -160,12 +159,11 @@ describe('SshChannelMultiplexer', () => {
       vi.advanceTimersByTime(1_000)
 
       await expect(promise).rejects.toThrow('timed out')
-      const cancelFrame = transport.written.findLast((frame) => frame[0] === MessageType.Regular)
-      if (!cancelFrame) {
-        throw new Error('Missing RPC cancellation frame')
-      }
       const cancelPayload = JSON.parse(
-        cancelFrame.subarray(HEADER_LENGTH, HEADER_LENGTH + cancelFrame.readUInt32BE(9)).toString()
+        transport.written
+          .at(-1)!
+          .subarray(HEADER_LENGTH, HEADER_LENGTH + transport.written.at(-1)!.readUInt32BE(9))
+          .toString()
       )
       expect(cancelPayload).toMatchObject({
         method: 'rpc.cancel',
@@ -555,6 +553,12 @@ describe('SshChannelMultiplexer', () => {
 
       expect(disposeHandler).toHaveBeenCalledWith('connection_lost')
       expect(disposeHandler).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores notify after dispose', () => {
+      mux.dispose()
+      mux.notify('pty.data', { id: 'pty-1', data: 'x' })
+      // No writes should happen after the initial keepalive writes
     })
 
     it('reports isDisposed correctly', () => {

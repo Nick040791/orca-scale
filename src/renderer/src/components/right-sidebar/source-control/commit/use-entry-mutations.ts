@@ -1,6 +1,4 @@
 import { useCallback } from 'react'
-import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import {
   notifyEditorExternalFileChange,
   requestEditorSaveQuiesce
@@ -9,24 +7,24 @@ import { getConnectionId } from '@/lib/connection-context'
 import { basename } from '@/lib/path'
 import {
   bulkDiscardRuntimeGitPaths,
-  bulkUnstageRuntimeGitPaths,
   discardRuntimeGitPath,
   stageRuntimeGitPath,
-  unstageRuntimeGitPath
-} from '@/runtime/runtime-git-working-tree-client'
-import type { RuntimeGitContext } from '@/runtime/runtime-git-client-context'
+  unstageRuntimeGitPath,
+  type RuntimeGitContext
+} from '@/runtime/runtime-git-client'
+import { useAppStore } from '@/store'
 import {
   dismissSourceControlEntryFailureToast,
   showSourceControlEntryFailureToast
 } from './source-control-entry-failure-toast'
 
 export function useSourceControlEntryMutations({
-  activeRepoTarget,
+  activeRepoSettings,
   activeWorktreeId,
   worktreePath,
   refreshActiveGitStatusAfterMutation
 }: {
-  activeRepoTarget: RuntimeClientTarget | null
+  activeRepoSettings: RuntimeGitContext['settings']
   activeWorktreeId: string | null
   worktreePath: string | null
   refreshActiveGitStatusAfterMutation: () => Promise<void>
@@ -46,7 +44,7 @@ export function useSourceControlEntryMutations({
         await mutate(
           {
             // Why: route the mutation by the repo OWNER host, not the focused runtime.
-            target: requireGitOwnerTarget(activeRepoTarget),
+            settings: activeRepoSettings,
             worktreeId: activeWorktreeId,
             worktreePath,
             connectionId
@@ -73,7 +71,7 @@ export function useSourceControlEntryMutations({
       // Why: refreshing outside the try keeps a refresh failure from being reported as "Failed to stage"; the refresher reports its own.
       await refreshActiveGitStatusAfterMutation()
     },
-    [activeRepoTarget, worktreePath, activeWorktreeId, refreshActiveGitStatusAfterMutation]
+    [activeRepoSettings, worktreePath, activeWorktreeId, refreshActiveGitStatusAfterMutation]
   )
 
   const handleStage = useCallback(
@@ -82,14 +80,8 @@ export function useSourceControlEntryMutations({
   )
 
   const handleUnstage = useCallback(
-    (filePath: string, oldPath?: string): Promise<void> =>
-      runEntryMutation(
-        'unstage',
-        filePath,
-        oldPath
-          ? (context, path) => bulkUnstageRuntimeGitPaths(context, [path, oldPath])
-          : unstageRuntimeGitPath
-      ),
+    (filePath: string): Promise<void> =>
+      runEntryMutation('unstage', filePath, unstageRuntimeGitPath),
     [runEntryMutation]
   )
 
@@ -100,7 +92,7 @@ export function useSourceControlEntryMutations({
         return
       }
       const runtimeEnvironmentId =
-        activeRepoTarget?.kind === 'environment' ? activeRepoTarget.environmentId : null
+        useAppStore.getState().settings?.activeRuntimeEnvironmentId?.trim() || null
       // Why: quiesce pending editor autosaves first so a delayed save can't recreate the discarded edits after git restores the file.
       await requestEditorSaveQuiesce({
         worktreeId: activeWorktreeId,
@@ -112,7 +104,7 @@ export function useSourceControlEntryMutations({
       await discardRuntimeGitPath(
         {
           // Why: route the discard by the repo OWNER host, not the focused runtime.
-          target: requireGitOwnerTarget(activeRepoTarget),
+          settings: activeRepoSettings,
           worktreeId: activeWorktreeId,
           worktreePath,
           connectionId
@@ -126,7 +118,7 @@ export function useSourceControlEntryMutations({
         runtimeEnvironmentId
       })
     },
-    [activeRepoTarget, activeWorktreeId, worktreePath]
+    [activeRepoSettings, activeWorktreeId, worktreePath]
   )
 
   const discardMany = useCallback(
@@ -135,7 +127,7 @@ export function useSourceControlEntryMutations({
         return
       }
       const runtimeEnvironmentId =
-        activeRepoTarget?.kind === 'environment' ? activeRepoTarget.environmentId : null
+        useAppStore.getState().settings?.activeRuntimeEnvironmentId?.trim() || null
       // Why: quiesce matching editor autosaves first so a delayed save can't recreate edits after git mutates the files.
       await Promise.all(
         filePaths.map((relativePath) =>
@@ -151,7 +143,7 @@ export function useSourceControlEntryMutations({
       await bulkDiscardRuntimeGitPaths(
         {
           // Why: route the discard by the repo OWNER host, not the focused runtime.
-          target: requireGitOwnerTarget(activeRepoTarget),
+          settings: activeRepoSettings,
           worktreeId: activeWorktreeId,
           worktreePath,
           connectionId
@@ -167,7 +159,7 @@ export function useSourceControlEntryMutations({
         })
       }
     },
-    [activeRepoTarget, activeWorktreeId, worktreePath]
+    [activeRepoSettings, activeWorktreeId, worktreePath]
   )
 
   return { handleStage, handleUnstage, discardSingle, discardMany }

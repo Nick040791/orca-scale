@@ -8,7 +8,8 @@ const {
   getBitbucketRepoSlugMock,
   getGiteaRepoSlugMock,
   getHostedReviewForBranchMock,
-  getRepoSlugMock
+  getRepoSlugMock,
+  getSshGitProviderMock
 } = vi.hoisted(() => ({
   gitExecFileAsyncMock: vi.fn(),
   glabExecFileAsyncMock: vi.fn(),
@@ -17,7 +18,8 @@ const {
   getBitbucketRepoSlugMock: vi.fn(),
   getGiteaRepoSlugMock: vi.fn(),
   getHostedReviewForBranchMock: vi.fn(),
-  getRepoSlugMock: vi.fn()
+  getRepoSlugMock: vi.fn(),
+  getSshGitProviderMock: vi.fn()
 }))
 
 vi.mock('../git/runner', () => ({
@@ -51,6 +53,10 @@ vi.mock('../gitea/client', () => ({
   getGiteaPullRequest: vi.fn()
 }))
 
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: getSshGitProviderMock
+}))
+
 vi.mock('./hosted-review', () => ({
   getHostedReviewForBranch: getHostedReviewForBranchMock
 }))
@@ -69,7 +75,8 @@ function resetMocks(): void {
     getBitbucketRepoSlugMock,
     getGiteaRepoSlugMock,
     getHostedReviewForBranchMock,
-    getRepoSlugMock
+    getRepoSlugMock,
+    getSshGitProviderMock
   ]) {
     mock.mockReset()
   }

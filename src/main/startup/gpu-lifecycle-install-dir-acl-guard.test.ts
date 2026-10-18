@@ -32,7 +32,7 @@ vi.mock('@electron-toolkit/utils', () => ({
   electronApp: { setAppUserModelId: vi.fn() }
 }))
 
-import { grantsFrom } from './windows-install-dir-acl.test-fixture'
+import type { ProcessResult, ProcessSpec } from '../../shared/child-process/run-process'
 import {
   DEFAULT_GPU_CRASH_FALLBACK_THRESHOLD,
   DEFAULT_GPU_CRASH_FALLBACK_WINDOW_MS,
@@ -77,7 +77,7 @@ function recoveryOptions(userDataPath?: string): {
   }
 }
 
-/** The grant hangs until `finishRepair` — the in-flight window is when the GPU children die. */
+/** icacls hangs until `finishRepair` — the in-flight window is when the GPU children die. */
 function reportProbePoisoned(): { finishRepair: () => Promise<void> } {
   let release = (): void => undefined
   const walkingTheTree = new Promise<void>((resolve) => {
@@ -87,10 +87,16 @@ function reportProbePoisoned(): { finishRepair: () => Promise<void> } {
     { status: 'ok', matchesPoisonSignature: true },
     {
       ...recoveryOptions(),
-      grants: grantsFrom(async () => {
+      runProcessFn: (async () => {
         await walkingTheTree
-        return { ok: true, failedFileCount: 0 }
-      })
+        return {
+          code: 0,
+          signal: null,
+          stdout: 'Successfully processed 3200 files; Failed processing 0 files',
+          stderr: '',
+          timedOut: false
+        }
+      }) as unknown as (spec: ProcessSpec) => Promise<ProcessResult>
     }
   )
   return {
@@ -105,18 +111,20 @@ function reportProbePoisoned(): { finishRepair: () => Promise<void> } {
 
 /** A repair that settles, so `poison.stage` leaves 'pending' for a terminal verdict. */
 async function reportProbePoisonedWithSettledRepair(
-  granted: boolean,
+  exitCode: number,
   userDataPath?: string
 ): Promise<void> {
   startWindowsInstallDirAclRepairIfPoisoned(
     { status: 'ok', matchesPoisonSignature: true },
     {
       ...recoveryOptions(userDataPath),
-      grants: grantsFrom(async () =>
-        granted
-          ? { ok: true, failedFileCount: 0 }
-          : { ok: false, failedFileCount: 1, reason: 'access denied' }
-      )
+      runProcessFn: (async () => ({
+        code: exitCode,
+        signal: null,
+        stdout: 'Successfully processed 3200 files; Failed processing 0 files',
+        stderr: exitCode === 0 ? '' : 'access denied',
+        timedOut: false
+      })) as unknown as (spec: ProcessSpec) => Promise<ProcessResult>
     }
   )
   for (let i = 0; i < 200 && isInstallDirAclRepairPending(); i += 1) {
@@ -126,7 +134,7 @@ async function reportProbePoisonedWithSettledRepair(
 
 /**
  * The pre-window gate meeting a spent repair budget: the tree is still marked poisoned and
- * Orca has no repair left to try. The grant must never be reached, so it throws.
+ * Orca has no repair left to try. icacls must never be reached, so the runner throws.
  */
 async function gateFindsRepairBudgetSpent(): Promise<void> {
   const options = recoveryOptions()
@@ -144,9 +152,9 @@ async function gateFindsRepairBudgetSpent(): Promise<void> {
   writeInstallDirAclPoisonMarker(options.userDataPath, INSTALL_DIR, options.appVersion)
   const mode = await repairKnownPoisonedInstallDirBeforeWindow({
     ...options,
-    grants: grantsFrom(() => {
-      throw new Error('the spent budget must not grant')
-    })
+    runProcessFn: (() => {
+      throw new Error('the spent budget must not spawn icacls')
+    }) as never
   })
   expect(mode).toBe('marker-hit')
 }
@@ -234,8 +242,8 @@ describe('handleGpuChildCrash vs the install-dir ACL verdict', () => {
     expect(showMessageBox).not.toHaveBeenCalled()
   })
 
-  // The gate's 'repaired' is the grant's own claim, not a reading of the tree, and a grant
-  // that silently no-opped succeeds on a tree it left poisoned. The GPU children die in the
+  // The gate's 'repaired' is icacls's exit claim, not a reading of the tree, and an icacls
+  // that silently no-opped exits 0 on a tree it left poisoned. The GPU children die in the
   // interval before this launch's probe answers, so a claim that un-suspects the tree there
   // engages --in-process-gpu on a tree safe graphics cannot rescue — and a "keep it" answer
   // then pins a userConfirmed marker no later repair may clear.
@@ -243,7 +251,13 @@ describe('handleGpuChildCrash vs the install-dir ACL verdict', () => {
     writeInstallDirAclPoisonMarker(userData.path, INSTALL_DIR, '1.4.184')
     const mode = await repairKnownPoisonedInstallDirBeforeWindow({
       ...recoveryOptions(userData.path),
-      grants: grantsFrom(async () => ({ ok: true, failedFileCount: 0 }))
+      runProcessFn: (async () => ({
+        code: 0,
+        signal: null,
+        stdout: 'Successfully processed 3200 files; Failed processing 0 files',
+        stderr: '',
+        timedOut: false
+      })) as unknown as (spec: ProcessSpec) => Promise<ProcessResult>
     })
     expect(mode).toBe('repaired')
     noteWindowsInstallDirAclProbePending()
@@ -296,7 +310,7 @@ describe('handleGpuChildCrash vs the install-dir ACL verdict', () => {
   })
 
   it('still withdraws the marker once the verdict is terminal rather than a pending repair', async () => {
-    await reportProbePoisonedWithSettledRepair(false)
+    await reportProbePoisonedWithSettledRepair(1)
     await crashUpToThreshold()
     await handleGpuChildCrash('crashed', null, 600)
 
@@ -321,7 +335,7 @@ describe('handleGpuChildCrash vs the install-dir ACL verdict', () => {
   // spent no repair is coming on this launch or any later one, so pinning the tree as the
   // suspect forever denied safe graphics on EVERY launch for the life of that version — and
   // deleted the marker each time, so the machine also relaunched hardware accelerated. The
-  // victims are a standard-user install the grant can never fix and, via the probe's flag-blind
+  // victims are a standard-user install icacls can never fix and, via the probe's flag-blind
   // ACE match, healthy installs whose driver genuinely is broken.
   it('offers safe graphics on every launch once the ACL repair budget is spent', async () => {
     for (let launch = 1; launch <= 3; launch += 1) {
@@ -343,7 +357,7 @@ describe('handleGpuChildCrash vs the install-dir ACL verdict', () => {
   // Still withheld while the budget has an attempt left: the repair is the better answer,
   // and this is the launch a next one can be rescued on.
   it('still withholds while the repair has an attempt left to spend', async () => {
-    await reportProbePoisonedWithSettledRepair(false)
+    await reportProbePoisonedWithSettledRepair(1)
     await crashUpToThreshold()
     await handleGpuChildCrash('crashed', null, 600)
     expect(showMessageBox).not.toHaveBeenCalled()
@@ -408,7 +422,7 @@ describe('presentGpuFallbackRecoveredLaunchPrompt vs a marker retired since it w
   })
 
   it('stays silent once the install-DACL repair has cleared it', async () => {
-    await reportProbePoisonedWithSettledRepair(true, userData.path)
+    await reportProbePoisonedWithSettledRepair(0, userData.path)
     expect(readGpuFallbackMarker(userData.path)).toBeNull()
 
     await presentGpuFallbackRecoveredLaunchPrompt(window)
@@ -419,7 +433,7 @@ describe('presentGpuFallbackRecoveredLaunchPrompt vs a marker retired since it w
   // tree a live suspect, the window the prompt lands on is blank, and Keep is both defaultId
   // and cancelId — so asking invites a userConfirmed pin no later repair may clear.
   it('stays silent while the install DACL is still the suspect', async () => {
-    await reportProbePoisonedWithSettledRepair(false, userData.path)
+    await reportProbePoisonedWithSettledRepair(1, userData.path)
     expect(readGpuFallbackMarker(userData.path)).not.toBeNull()
 
     await presentGpuFallbackRecoveredLaunchPrompt(window)

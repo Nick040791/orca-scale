@@ -1,19 +1,12 @@
-import {
-  decodeLegacyQuickOpenInventory,
-  pruneLegacyInventoryCache
-} from './runtime-legacy-inventory-budget'
-import { quickOpenRecentCandidateSet } from '../../../shared/quick-open-recent-candidates'
 import type { RuntimeFileListResult } from '../../../shared/runtime-types'
 import {
   buildExcludePathPrefixes,
   shouldExcludeQuickOpenRelPath
 } from '../../../shared/quick-open-filter'
 import { QuickOpenPathRanker } from '../../../shared/quick-open-path-search'
-import { callRuntimeRpc } from './runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from './runtime-rpc-client'
 import { createRuntimeRpcAbortError } from './abortable-runtime-environment-call'
 import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
-import { MAX_TIMER_DELAY_MS } from '../../../shared/timer-delay'
 
 const CACHE_LIMIT = 8
 const CACHE_TTL_MS = 30_000
@@ -25,44 +18,9 @@ type CacheEntry = {
   controller: AbortController
   activeConsumers: number
   settled: boolean
-  retainedBytes: number
 }
 
 const inventoryCache = new Map<string, CacheEntry>()
-let expiryTimer: ReturnType<typeof setTimeout> | null = null
-let expiryTimerDeadline = Number.POSITIVE_INFINITY
-
-function scheduleInventoryExpiry(): void {
-  if (inventoryCache.size === 0) {
-    return
-  }
-  let deadline = Number.POSITIVE_INFINITY
-  for (const entry of inventoryCache.values()) {
-    if (entry.settled) {
-      deadline = Math.min(deadline, entry.expiresAt)
-    }
-  }
-  if (!Number.isFinite(deadline) || (expiryTimer !== null && deadline >= expiryTimerDeadline)) {
-    return
-  }
-  if (expiryTimer !== null) {
-    clearTimeout(expiryTimer)
-  }
-  const now = Date.now()
-  const delay = Math.min(MAX_TIMER_DELAY_MS, Math.max(0, deadline - now))
-  expiryTimerDeadline = now + delay
-  expiryTimer = setTimeout(() => {
-    expiryTimer = null
-    expiryTimerDeadline = Number.POSITIVE_INFINITY
-    const now = Date.now()
-    for (const [key, entry] of inventoryCache) {
-      if (entry.settled && entry.expiresAt <= now) {
-        inventoryCache.delete(key)
-      }
-    }
-    scheduleInventoryExpiry()
-  }, delay)
-}
 
 function cacheKey(
   target: EnvironmentTarget,
@@ -78,11 +36,6 @@ function cacheKey(
 }
 
 export function clearLegacyQuickOpenInventoryCacheForTests(): void {
-  if (expiryTimer !== null) {
-    clearTimeout(expiryTimer)
-    expiryTimer = null
-    expiryTimerDeadline = Number.POSITIVE_INFINITY
-  }
   inventoryCache.clear()
 }
 
@@ -99,14 +52,13 @@ async function loadLegacyQuickOpenInventory(
   target: EnvironmentTarget,
   worktreeSelector: string,
   worktreePath: string | null | undefined,
-  signal?: AbortSignal,
-  refreshSettled = false
+  signal?: AbortSignal
 ): Promise<RuntimeFileListResult> {
   const key = cacheKey(target, worktreeSelector, worktreePath)
   const now = Date.now()
   const expectedEnvironmentPairingRevision = getRuntimeEnvironmentRevision(target.environmentId)
   const cached = inventoryCache.get(key)
-  if (cached && cached.expiresAt > now && !(refreshSettled && cached.settled)) {
+  if (cached && cached.expiresAt > now) {
     inventoryCache.delete(key)
     inventoryCache.set(key, cached)
     return awaitLegacyInventoryLoad(cached, signal)
@@ -119,7 +71,7 @@ async function loadLegacyQuickOpenInventory(
     controller.abort()
   }
   // Share one inventory request; abort it only after every caller detaches.
-  const load = callRuntimeRpc<unknown>(
+  const load = callRuntimeRpc<RuntimeFileListResult>(
     target,
     'files.list',
     { worktree: worktreeSelector },
@@ -129,13 +81,9 @@ async function loadLegacyQuickOpenInventory(
       expectedEnvironmentPairingRevision
     }
   )
-    .then((value) => {
-      const { result, retainedBytes } = decodeLegacyQuickOpenInventory(value)
-      entry.retainedBytes = retainedBytes
-      pruneLegacyInventoryCache(inventoryCache, CACHE_LIMIT)
+    .then((result) => {
       entry.settled = true
       entry.expiresAt = Date.now() + CACHE_TTL_MS
-      scheduleInventoryExpiry()
       return result
     })
     .catch((error) => {
@@ -150,12 +98,16 @@ async function loadLegacyQuickOpenInventory(
     load,
     controller,
     activeConsumers: 0,
-    settled: false,
-    retainedBytes: 0
+    settled: false
   }
   inventoryCache.set(key, entry)
-  scheduleInventoryExpiry()
-  pruneLegacyInventoryCache(inventoryCache, CACHE_LIMIT)
+  while (inventoryCache.size > CACHE_LIMIT) {
+    const oldest = inventoryCache.keys().next().value as string | undefined
+    if (!oldest) {
+      break
+    }
+    inventoryCache.delete(oldest)
+  }
   return awaitLegacyInventoryLoad(entry, signal)
 }
 
@@ -239,33 +191,4 @@ export async function searchLegacyQuickOpenInventory(args: {
     files: matches.paths,
     truncated: result.truncated || matches.totalCount > args.limit
   }
-}
-
-export async function validateLegacyQuickOpenRecentCandidates(args: {
-  target: EnvironmentTarget
-  worktreeSelector: string
-  worktreePath: string | null | undefined
-  excludePaths: string[] | undefined
-  candidatePaths: string[]
-  signal?: AbortSignal
-}): Promise<string[]> {
-  const result = await loadLegacyQuickOpenInventory(
-    args.target,
-    args.worktreeSelector,
-    args.worktreePath,
-    args.signal,
-    true
-  )
-  if (result.truncated) {
-    throw new Error('Update the remote host to check recent files beyond its inventory limit.')
-  }
-  const candidates = quickOpenRecentCandidateSet(args.candidatePaths)
-  const excluded = buildExcludePathPrefixes(args.worktreePath ?? result.rootPath, args.excludePaths)
-  return result.files
-    .filter(
-      (entry) =>
-        candidates.has(entry.relativePath) &&
-        !shouldExcludeQuickOpenRelPath(entry.relativePath, excluded)
-    )
-    .map((entry) => entry.relativePath)
 }

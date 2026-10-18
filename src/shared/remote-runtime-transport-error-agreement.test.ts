@@ -16,7 +16,8 @@
  *
  * WHAT THIS GUARD CANNOT CATCH: a transient code whose message matches no fragment. The
  * message side has nothing to disagree with, so the pair looks consistent. `remote_runtime_busy`
- * was that case until STA-3479; its pairs are pinned recoverable below for that reason.
+ * is exactly that case today — its messages say "retry after…" but match no fragment, so it
+ * classifies fatal and this guard stays silent. Tracked as STA-3479; do not "fix" it here.
  */
 import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
@@ -35,9 +36,9 @@ import {
 } from './remote-runtime-connect-bound'
 import {
   invalidRemoteRuntimeResponseError,
+  parseAuthenticatedFrame,
+  parseReadyFrame,
   parseRemoteRuntimeRpcFrame,
-  remoteRuntimeAuthReplyError,
-  remoteRuntimeReadyError,
   remoteRuntimeTimeoutError,
   remoteRuntimeUnavailableError
 } from './remote-runtime-request-frames'
@@ -197,19 +198,16 @@ const REQUEST_TRANSPORT_ERRORS: TransportErrorPair[] = [
   },
   producedPair('remote-runtime-request-frames.ts:24', remoteRuntimeUnavailableError()),
   producedPair('remote-runtime-request-frames.ts:30', remoteRuntimeTimeoutError()),
-  producedPair('remoteRuntimeReadyError (invalid)', remoteRuntimeReadyError('invalid')),
-  producedPair('remoteRuntimeReadyError (unexpected)', remoteRuntimeReadyError('unexpected')),
+  producedPair('remote-runtime-request-frames.ts:46', parseReadyFrame('not-json')),
+  producedPair('remote-runtime-request-frames.ts:55', parseReadyFrame('{"type":"nope"}')),
+  producedPair('remote-runtime-request-frames.ts:67', parseAuthenticatedFrame('not-json')),
   producedPair(
-    'remoteRuntimeAuthReplyError (invalid)',
-    remoteRuntimeAuthReplyError({ kind: 'invalid' })
+    'remote-runtime-request-frames.ts:81 (rejected token)',
+    parseAuthenticatedFrame(JSON.stringify({ error: { code: 'unauthorized' } }))
   ),
   producedPair(
-    'remoteRuntimeAuthReplyError (rejected token)',
-    remoteRuntimeAuthReplyError({ kind: 'rejected', type: null, errorCode: 'unauthorized' })
-  ),
-  producedPair(
-    'remoteRuntimeAuthReplyError (unrecognized auth frame)',
-    remoteRuntimeAuthReplyError({ kind: 'rejected', type: 'e2ee_other', errorCode: null })
+    'remote-runtime-request-frames.ts:81 (unrecognized auth frame)',
+    parseAuthenticatedFrame(JSON.stringify({ type: 'e2ee_other' }))
   ),
   frameError('remote-runtime-request-frames.ts:91', 'not-json'),
   frameError('remote-runtime-request-frames.ts:103', JSON.stringify({ not: 'an envelope' })),
@@ -262,7 +260,11 @@ const SHARED_CONTROL_TRANSPORT_ERRORS: TransportErrorPair[] = [
   }
 ]
 
-/** Client-side admission caps: each frees as pending work settles, so the caller retries. */
+/**
+ * `remote_runtime_busy` is semantically transient but absent from `RECOVERABLE_CODES`, so it
+ * classifies fatal. It is listed here (not omitted) so the corpus stays complete; STA-3479
+ * covers the classification itself.
+ */
 const BUSY_TRANSPORT_ERRORS: TransportErrorPair[] = [
   {
     producer: 'remote-runtime-prepared-request-admission.ts:100',
@@ -503,11 +505,12 @@ describe('transport error code/message classification agreement', () => {
     expect(unbacked).toEqual([])
   })
 
-  it('classifies remote_runtime_busy recoverable with or without its code (STA-3479)', () => {
+  it('pins why the guard cannot see the remote_runtime_busy exception (STA-3479)', () => {
     for (const pair of BUSY_TRANSPORT_ERRORS) {
-      expect(isRecoverableRemoteRuntimeConnectionError(pair)).toBe(true)
-      // Electron IPC keeps only the message, so the fragment fallback must agree with the code.
-      expect(isRecoverableRemoteRuntimeConnectionError({ message: pair.message })).toBe(true)
+      // Fatal by code with a message that matches nothing: the two sides cannot disagree, so the
+      // differential above stays silent. Fixing the classification is STA-3479, not this file.
+      expect(isRecoverableRemoteRuntimeConnectionError(pair)).toBe(false)
+      expect(matchingRecoverableFragment(pair.message)).toBeNull()
     }
   })
 })

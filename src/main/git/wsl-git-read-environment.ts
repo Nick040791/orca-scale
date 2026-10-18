@@ -3,7 +3,6 @@ import {
   buildWslCapturedLoginShellCommand,
   buildWslExecArgs
 } from '../../shared/wsl-login-shell-command'
-import { resolveWslInteropSpawnCwd } from '../wsl-interop-spawn-directory'
 
 export type WslGitReadEnvironment = { gitPath: string; home: string; path: string }
 
@@ -93,8 +92,7 @@ function probeWslGitReadEnvironment(distro: string): Promise<ProbeOutcome> {
         encoding: 'utf8',
         maxBuffer: PROBE_MAX_BUFFER,
         timeout: PROBE_TIMEOUT_MS,
-        windowsHide: true,
-        cwd: resolveWslInteropSpawnCwd()
+        windowsHide: true
       },
       (error, stdout) => {
         if (error) {

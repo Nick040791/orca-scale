@@ -4,7 +4,7 @@ import { toWebTerminalSurfaceTabId } from '../../src/shared/terminal-surface-id'
 import {
   applyWebSessionTabsSnapshot,
   applyWebSessionTabsSnapshots
-} from '../../src/renderer/src/runtime/web-session-tabs-sync/snapshot-api'
+} from '../../src/renderer/src/runtime/web-session-tabs-sync'
 import {
   makeState,
   makeSnapshot,

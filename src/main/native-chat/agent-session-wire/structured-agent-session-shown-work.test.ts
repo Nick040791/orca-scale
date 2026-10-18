@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { structuredAgentSessionShownStatus } from './structured-agent-session-shown-work'
-import { childRecord, submission } from './structured-agent-session-restart-resume-test-harness'
+import { submission } from './structured-agent-session-restart-resume-test-harness'
 
 describe('whether a session shows as working', () => {
   // The status feed scopes unanswered sends to the lease fence; a stale one would otherwise offer a
@@ -16,14 +16,7 @@ describe('whether a session shows as working', () => {
     expect(
       structuredAgentSessionShownStatus(
         journal,
-        [
-          childRecord({
-            id: 'watch',
-            kind: 'monitor',
-            description: 'Watch CI',
-            state: 'monitoring'
-          })
-        ],
+        [{ id: 'watch', kind: 'monitor', description: 'Watch CI', state: 'working' }],
         1
       ).state
     ).not.toBe('done')

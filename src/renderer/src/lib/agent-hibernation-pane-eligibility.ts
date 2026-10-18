@@ -5,7 +5,6 @@ import type { TerminalLayoutSnapshot, TerminalTab } from '../../../shared/termin
 import { parseRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
 import { lastInputBlocksHibernation } from './agent-hibernation-input-guard'
 import { isLiveResumeAnchorForCompletedAgent } from './live-resume-anchor-record'
-import { agentTurnEndedUncleanly } from '../../../shared/agent-main-agent-verdict'
 import type { AgentHibernationPlannerSnapshot } from './agent-hibernation-planner-snapshot'
 
 export type EligiblePane = {
@@ -90,7 +89,7 @@ export function getEligiblePane(args: {
   )
   if (
     entry.state !== 'done' ||
-    agentTurnEndedUncleanly(entry) ||
+    entry.interrupted === true ||
     Boolean(entry.subagents?.length) ||
     hasUnsettledOrUnknownDispatch(entry) ||
     (sleepingRecord && !hasOnlyLiveResumeAnchor)

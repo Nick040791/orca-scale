@@ -1,19 +1,18 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as NodeProcess from 'node:process'
 import type { Repo } from '../shared/repo-types'
 import type { Store } from './persistence'
 
-const { spawnProcessMock, listRepoWorktreesMock } = vi.hoisted(() => ({
-  spawnProcessMock: vi.fn(),
+const { execFileMock, listRepoWorktreesMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(),
   listRepoWorktreesMock: vi.fn()
 }))
 
-vi.mock('./worker-thread-child-process/worker-thread-child-process', () => ({
-  spawnProcessOnWorkerThread: spawnProcessMock
+vi.mock('node:child_process', () => ({
+  execFile: execFileMock
 }))
 
 vi.mock('node:process', async () => {
@@ -32,10 +31,13 @@ vi.mock('./repo-worktrees', () => ({
   listRepoWorktrees: listRepoWorktreesMock
 }))
 
-vi.mock('./workspace-space-scan-worker-client', async () => {
-  const { scanLocalWorkspaceSpaceWorktree } = await import('./workspace-space-local-scan')
-  return { scanLocalWorkspaceSpaceWorktreeViaWorker: scanLocalWorkspaceSpaceWorktree }
-})
+vi.mock('./providers/ssh-filesystem-dispatch', () => ({
+  getSshFilesystemProvider: vi.fn()
+}))
+
+vi.mock('./providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: vi.fn()
+}))
 
 import { analyzeWorkspaceSpace } from './workspace-space-analysis'
 
@@ -51,7 +53,7 @@ describe('analyzeWorkspaceSpace local du timeout', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'orca-space-du-timeout-'))
-    spawnProcessMock.mockReset()
+    execFileMock.mockReset()
     listRepoWorktreesMock.mockReset()
   })
 
@@ -85,10 +87,7 @@ describe('analyzeWorkspaceSpace local du timeout', () => {
       }
     ])
     const killMock = vi.fn()
-    spawnProcessMock.mockImplementation(() => {
-      const child = new EventEmitter()
-      return Object.assign(child, { stdout: new EventEmitter(), kill: killMock })
-    })
+    execFileMock.mockImplementation(() => ({ kill: killMock }))
 
     vi.useFakeTimers()
     let settled = false
@@ -98,10 +97,12 @@ describe('analyzeWorkspaceSpace local du timeout', () => {
     })
 
     await vi.waitFor(() =>
-      expect(spawnProcessMock).toHaveBeenCalledWith({
-        program: 'du',
-        args: ['-k', '-d', '1', repoPath]
-      })
+      expect(execFileMock).toHaveBeenCalledWith(
+        'du',
+        ['-k', '-d', '1', repoPath],
+        expect.any(Object),
+        expect.any(Function)
+      )
     )
     await vi.advanceTimersByTimeAsync(120_000)
 
@@ -136,24 +137,28 @@ describe('analyzeWorkspaceSpace local du timeout', () => {
     const completions: (() => void)[] = []
     let active = 0
     let peak = 0
-    spawnProcessMock.mockImplementation((spec: { args: string[] }) => {
-      const rootPath = spec.args.at(-1)!
-      const child = new EventEmitter()
-      const stdout = new EventEmitter()
-      active += 1
-      peak = Math.max(peak, active)
-      completions.push(() => {
-        active -= 1
-        stdout.emit('data', Buffer.from(`1\t${rootPath}\n`))
-        child.emit('close', 0)
-      })
-      return Object.assign(child, { stdout, kill: vi.fn() })
-    })
+    execFileMock.mockImplementation(
+      (
+        _file: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string) => void
+      ) => {
+        const rootPath = args.at(-1)!
+        active += 1
+        peak = Math.max(peak, active)
+        completions.push(() => {
+          active -= 1
+          callback(null, `1\t${rootPath}\n`)
+        })
+        return { kill: vi.fn() }
+      }
+    )
 
     const scan = analyzeWorkspaceSpace(createStore(repos))
-    await vi.waitFor(() => expect(spawnProcessMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(1))
     completions.shift()?.()
-    await vi.waitFor(() => expect(spawnProcessMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(2))
     completions.shift()?.()
 
     await expect(scan).resolves.toMatchObject({ scannedWorktreeCount: 2 })

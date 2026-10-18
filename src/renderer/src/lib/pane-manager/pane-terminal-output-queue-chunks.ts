@@ -1,5 +1,4 @@
 import { flattenRetainedSlice } from '@/lib/flatten-retained-slice'
-import { resolveSynchronizedOutputSafeSplit } from '../../../../shared/terminal-synchronized-output-scan'
 import type {
   QueueEntry,
   QueuedWrite,
@@ -91,13 +90,7 @@ export function takeQueuedChunk(entry: QueueEntry, limit: number): QueuedWrite |
       continue
     }
 
-    // Why not a blind offset: cutting inside an open DEC 2026 frame strands the
-    // closing \x1b[?2026l in the residual, and xterm stops repainting — the pane holds
-    // its last frame — until a later drain delivers it or its 1000ms timeout fires.
-    // Always >= 1 here: `remaining > 0` gates the loop and the helper never
-    // returns 0 for a positive limit, so the loop cannot stall.
-    const splitAt = resolveSynchronizedOutputSafeSplit(chunk.data, remaining)
-    const prefix = chunk.data.slice(0, splitAt)
+    const prefix = chunk.data.slice(0, remaining)
     if (dataParts) {
       dataParts.push(prefix)
     } else if (dataLength === 0) {
@@ -107,7 +100,7 @@ export function takeQueuedChunk(entry: QueueEntry, limit: number): QueuedWrite |
       data = ''
     }
     dataLength += prefix.length
-    const residual = chunk.data.slice(splitAt)
+    const residual = chunk.data.slice(remaining)
     // Geometric flattening bounds retained parents while keeping total copy work linear.
     const flatten = residual.length * 2 <= chunk.retainedChars
     entry.chunks[entry.chunkIndex] = {
@@ -115,7 +108,7 @@ export function takeQueuedChunk(entry: QueueEntry, limit: number): QueuedWrite |
       data: flatten ? flattenRetainedSlice(residual) : residual,
       retainedChars: flatten ? residual.length : chunk.retainedChars
     }
-    entry.queuedChars -= prefix.length
+    entry.queuedChars -= remaining
     remaining = 0
   }
 

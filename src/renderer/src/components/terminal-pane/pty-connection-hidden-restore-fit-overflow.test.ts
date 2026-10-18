@@ -134,14 +134,14 @@ function createDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('connectPanePty', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
     mockStoreState = createInitialStoreState(() => mockStoreState)
-    await installTerminalTestGlobals()
+    installTerminalTestGlobals()
   })
 
   afterEach(async () => {

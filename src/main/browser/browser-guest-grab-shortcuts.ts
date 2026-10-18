@@ -1,5 +1,4 @@
 import { keybindingMatchesAction, type KeybindingOverrides } from '../../shared/keybindings'
-import { isAgentInjectingInput } from './agent-input-injection'
 import type { ResolveRenderer } from './browser-guest-renderer-target'
 
 // Why: a focused guest never surfaces Cmd/Ctrl+C to the renderer; forward only when it wouldn't do a normal copy (no editable focus, no selection).
@@ -12,10 +11,6 @@ export function setupGrabShortcutForwarding(args: {
 }): () => void {
   const { browserTabId, guest, resolveRenderer, hasActiveGrabOp, getKeybindings } = args
   const handler = (event: Electron.Event, input: Electron.Input): void => {
-    // Why: agent-injected keys must not run Orca shortcuts or grab actions (#20595).
-    if (isAgentInjectingInput(guest)) {
-      return
-    }
     if (input.type !== 'keyDown') {
       return
     }
@@ -39,8 +34,6 @@ export function setupGrabShortcutForwarding(args: {
     }
 
     if (
-      // Why: the renderer toggles the picker per message, so a held chord would flicker it.
-      input.isAutoRepeat ||
       !keybindingMatchesAction('browser.grabElement', input, process.platform, getKeybindings?.())
     ) {
       return
@@ -73,7 +66,7 @@ export function setupGrabShortcutForwarding(args: {
         if (!renderer) {
           return
         }
-        renderer.send('browser:grabModeToggle', browserTabId, 'copy')
+        renderer.send('browser:grabModeToggle', browserTabId)
       })
       .catch(() => {
         // Why: shortcut forwarding is best-effort — guest teardown or a transient executeJavaScript failure must not break normal copy.

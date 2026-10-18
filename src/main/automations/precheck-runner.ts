@@ -2,10 +2,9 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import type { ClientChannel } from 'ssh2'
 import type { AutomationPrecheck, AutomationPrecheckResult } from '../../shared/automations-types'
 import { MAX_AUTOMATION_PRECHECK_OUTPUT_CHARS } from '../../shared/automation-precheck'
-import { getSshConnectionManager } from '../ssh/ssh-target-registry'
+import { getSshConnectionManager } from '../ipc/ssh'
 import { shellEscape } from '../ssh/ssh-connection-utils'
 import { admitSelfInitiatedTreeKill } from '../own-chromium-tree-kill-guard'
-import { errorMessage } from '../../shared/error-message'
 
 type AutomationPrecheckExecutionTarget =
   | {
@@ -267,7 +266,11 @@ async function runSshPrecheck(
     const channel = await connection.exec(remoteCommand)
     return await runSshChannelPrecheck({ precheck, channel, startedAt })
   } catch (error) {
-    return failedPrecheckResult(precheck, startedAt, errorMessage(error))
+    return failedPrecheckResult(
+      precheck,
+      startedAt,
+      error instanceof Error ? error.message : String(error)
+    )
   }
 }
 

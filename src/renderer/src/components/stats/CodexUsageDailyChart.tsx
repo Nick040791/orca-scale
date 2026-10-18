@@ -48,7 +48,7 @@ export function CodexUsageDailyChart({ daily }: CodexUsageDailyChartProps): Reac
             {
               key: 'input',
               label: translate('auto.components.stats.CodexUsageDailyChart.99a91d3143', 'Input'),
-              value: Math.max(0, entry.inputTokens - entry.cachedInputTokens),
+              value: entry.inputTokens,
               className: 'bg-sky-500/80'
             },
             {

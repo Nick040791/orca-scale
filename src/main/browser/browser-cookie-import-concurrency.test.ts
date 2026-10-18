@@ -241,7 +241,8 @@ describe('two concurrent imports into one partition', () => {
     const fileB = writeSource('new-b', '.b.example')
 
     const first = importCookiesFromFile(fileA, 'persist:concurrency-test')
-    await vi.waitFor(() => expect(events).toContain('set:new-a'))
+    // Let the first import reach its write and block there.
+    await new Promise((resolve) => setTimeout(resolve, 5))
     const second = importCookiesFromFile(fileB, 'persist:concurrency-test')
     await new Promise((resolve) => setTimeout(resolve, 20))
 

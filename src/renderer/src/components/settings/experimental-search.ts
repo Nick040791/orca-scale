@@ -5,7 +5,6 @@ import { translateSearchKeyword } from './settings-search-keywords'
 import { getNewWorktreeCardStyleSearchEntry } from './new-worktree-card-style-search-entry'
 import { getNativeChatExperimentalSearchEntry } from './native-chat-experimental-search-entry'
 import { getEphemeralVmsSearchEntry } from './ephemeral-vms-search'
-import { getWslHostsExperimentalSearchEntry } from './wsl-hosts-experimental-search'
 
 export const getExperimentalPaneSearchEntries = createLocalizedCatalog(
   (): SettingsSearchEntry[] => [
@@ -181,11 +180,7 @@ export const getExperimentalPaneSearchEntries = createLocalizedCatalog(
       ]
     },
     getNewWorktreeCardStyleSearchEntry(),
-    getEphemeralVmsSearchEntry(),
-    // Why: only a Windows desktop shows this toggle, so only there may search find it.
-    ...(typeof window !== 'undefined' && window.api?.runtimeEnvironments?.wslHosts
-      ? [getWslHostsExperimentalSearchEntry()]
-      : [])
+    getEphemeralVmsSearchEntry()
   ]
 )
 

@@ -194,7 +194,7 @@ describe('AgentHookServer ingestRemote', () => {
     )
   })
 
-  it('preserves active pane status when a nested remote hook reports another agent', () => {
+  it('preserves active pane identity when a nested remote hook reports another agent', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     try {
@@ -234,15 +234,17 @@ describe('AgentHookServer ingestRemote', () => {
         expect.objectContaining({
           paneKey: PANE,
           state: 'working',
-          prompt: 'parent codex',
+          prompt: 'nested claude',
           agentType: 'codex',
-          receivedAt: 1_000
+          toolName: 'Read',
+          toolInput: '00-review-context.md',
+          receivedAt: 1_100
         })
       ])
       expect(listener).toHaveBeenLastCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({
-            prompt: 'parent codex',
+            prompt: 'nested claude',
             agentType: 'codex'
           })
         })
@@ -561,6 +563,20 @@ describe('AgentHookServer ingestRemote', () => {
     )
     expect(listener).not.toHaveBeenCalled()
     expect(server.getStatusSnapshot()).toEqual([])
+  })
+
+  it('rejects empty connectionId', () => {
+    const server = new AgentHookServer()
+    const payload = parseAgentStatusPayload(
+      JSON.stringify({ state: 'working', prompt: 'p', agentType: 'claude' })
+    )
+    if (!payload) {
+      throw new Error('parseAgentStatusPayload returned null for a known-good fixture')
+    }
+    const listener = vi.fn()
+    server.setListener(listener)
+    server.ingestRemote({ paneKey: PANE, tabId: 'tab-1', worktreeId: 'wt-1', payload }, '')
+    expect(listener).not.toHaveBeenCalled()
   })
 
   it('rejects whitespace-only connectionId', () => {

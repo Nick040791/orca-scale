@@ -58,7 +58,7 @@ export function useFileExplorerMoveDrop({
           const operationGuard = captureFileExplorerOperationGuard(activeWorktreeId, operationOwner)
           const operationRoute = operationGuard.route
           const fileContext = {
-            target: operationRoute.target,
+            settings: operationRoute.settings,
             worktreeId: activeWorktreeId,
             worktreePath,
             connectionId: operationRoute.connectionId,

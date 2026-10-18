@@ -28,14 +28,11 @@ import {
 import { getDirectWorkItemDraftContent } from '@/lib/launch-work-item-direct-draft'
 import {
   resolveDirectPrStartPoint,
-  resolveDirectLaunchOwnerRow,
   resolveDirectSetupDecision
 } from '@/lib/launch-work-item-direct-preflight'
 import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-types'
-import {
-  refineLocalLaunchPlatform,
-  resolveRepoExecutionHostPlatform
-} from '@/lib/execution-host-facts'
+import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { beginDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
@@ -43,8 +40,6 @@ import {
   planAgentSessionLaunch,
   type AgentSessionLaunchPlan
 } from '@/lib/agent-session-launch-plan'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
-import { ensureDetectedAgentsForRepo } from '@/lib/agent-detection-target-inventory'
 
 /**
  * "Use" flow: create the workspace, activate it, launch the default agent,
@@ -70,14 +65,16 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     agentArgs
   } = args
   const store = useAppStore.getState()
-  const owner = resolveDirectLaunchOwnerRow(store.repos, repoId)
-  if (!owner) {
+  const repo = store.repos.find((r) => r.id === repoId)
+  if (!repo) {
     openModalFallback()
     return false
   }
-  const { repo, executionHostId: repoOwnerHostId, target: repoOwnerTarget } = owner
 
   const settings = store.settings
+  // Why: preflight (PR base + hooks probe) must run on the repo's owner host so it
+  // matches the owner-routed createWorktree below, not the focused runtime.
+  const repoOwnerSettings = getSettingsForRepoRuntimeOwner(store, repoId)
   const promptDelivery = args.promptDelivery ?? 'draft'
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
@@ -93,14 +90,14 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   const repoProjectRuntime = repoConnectionId
     ? undefined
     : getLocalRepoProjectExecutionRuntimeContext(store, repoId, CLIENT_PLATFORM)
-  // Why: the agent runs on the repo's execution host, so its OS decides quoting, not this client's (#27971).
-  const repoLaunchFact = resolveRepoExecutionHostPlatform(store, repo, () => repoProjectRuntime)
-  if (repoLaunchFact.kind === 'withheld') {
-    toast.error(repoLaunchFact.reason)
-    return false
-  }
-  const repoLaunchHost = refineLocalLaunchPlatform(repoLaunchFact, args.launchPlatform)
-  const shell = repoLaunchHost.platform === 'win32' ? 'powershell' : 'posix'
+  const preflightLaunchPlatform =
+    args.launchPlatform ??
+    resolveSourceControlLaunchPlatform({
+      connectionId: repoConnectionId,
+      worktreePath: repo.path,
+      projectRuntime: repoProjectRuntime
+    })
+  const shell = preflightLaunchPlatform === 'win32' ? 'powershell' : 'posix'
   const agentArgsPlan = planAgentCliArgsSuffix(agentArgs, shell)
   if (!agentArgsPlan.ok) {
     // Why: direct launches may create a worktree before the agent startup plan
@@ -110,20 +107,19 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   }
   // Why: agent detection shells out and can be cold/slow. Start it now, but
   // don't let it serialize setup-policy resolution or git worktree creation.
-  const detectedAgentsPromise = agentOverride ? null : ensureDetectedAgentsForRepo(store, repo)
+  const detectedAgentsPromise = agentOverride
+    ? null
+    : repoConnectionId
+      ? store.ensureRemoteDetectedAgents(repoConnectionId)
+      : store.ensureDetectedAgents()
 
-  const setupResolution = await resolveDirectSetupDecision(repoId, repo, repoOwnerHostId)
+  const setupResolution = await resolveDirectSetupDecision(repoId, repo, repoOwnerSettings)
   if (setupResolution.kind === 'needs-modal') {
     openModalFallback()
     return false
   }
 
-  const trustDecision = await ensureHooksConfirmed(
-    useAppStore.getState(),
-    repoId,
-    'setup',
-    repoOwnerHostId
-  )
+  const trustDecision = await ensureHooksConfirmed(useAppStore.getState(), repoId, 'setup')
   const finalSetupDecision: SetupDecision =
     trustDecision === 'skip' ? 'skip' : setupResolution.decision
 
@@ -150,7 +146,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     try {
       // Why: direct "Use PR" launches bypass the Start-from picker, so they
       // must still resolve the PR head before `git worktree add`.
-      const result = await resolveDirectPrStartPoint(repoId, itemNumber, repoOwnerTarget, item)
+      const result = await resolveDirectPrStartPoint(repoId, itemNumber, repoOwnerSettings, item)
       resolvedBaseBranch = result.baseBranch
       resolvedPushTarget = result.pushTarget
       resolvedBranchNameOverride = result.branchNameOverride
@@ -198,8 +194,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       undefined,
       undefined,
       undefined,
-      resolvedCompareBaseRef,
-      { executionHostId: repoOwnerHostId }
+      resolvedCompareBaseRef
     )
     worktreeId = result.worktree.id
     worktreePath = result.worktree.path
@@ -212,17 +207,14 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       agentOverride,
       agentArgs,
       repoConnectionId,
-      repoHost: repo,
       detectedAgentsPromise,
       latestStore,
       settings,
       draftContent,
       promptDelivery,
       launchPlatform: args.launchPlatform,
-      repoLaunchHost,
       repoProjectRuntime,
-      planLaunch: planAgentSessionLaunch,
-      requestId: newAgentLaunchRequestId()
+      planLaunch: planAgentSessionLaunch
     })
     if (launchPreparation.unavailable) {
       activateAndRevealWorktree(worktreeId, {
@@ -248,19 +240,19 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         defaultTabs: result.defaultTabs,
         ...(launchPreparation.structuredLaunch
           ? { providesInitialSurface: true }
-          : buildDirectWorkItemStartupOpts(effectiveAgent, startupPlan, launchSource))
+          : buildDirectWorkItemStartupOpts(
+              effectiveAgent,
+              startupPlan,
+              launchSource,
+              promptDelivery === 'draft' ? draftContent : undefined
+            ))
       })
       return activationHolder.value !== false
     }
     const structuredResult = beginDirectWorkItemStructuredLaunch({
       plan,
       primaryTabId: null,
-      beforeOpen: revealWorkspace,
-      declinedTerminal: {
-        ...(agentArgs !== undefined ? { agentArgs } : {}),
-        ...(args.launchPlatform ? { launchPlatform: args.launchPlatform } : {}),
-        ...(launchSource ? { launchSource } : {})
-      }
+      beforeOpen: revealWorkspace
     })
     if (!structuredResult.structuredLaunch) {
       revealWorkspace()

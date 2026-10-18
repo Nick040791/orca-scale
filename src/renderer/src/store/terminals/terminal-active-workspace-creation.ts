@@ -29,8 +29,7 @@ export function createActiveWorkspaceTerminalActions(
         ? worktreeRoute.route.runtimeEnvironmentId
         : getRuntimeEnvironmentIdForWorktree(state, worktreeId)
       if (runtimeEnvironmentId) {
-        const { createWebRuntimeSessionTerminal } =
-          await import('@/runtime/web-runtime-terminal-creation')
+        const { createWebRuntimeSessionTerminal } = await import('@/runtime/web-runtime-session')
         await createWebRuntimeSessionTerminal({
           worktreeId,
           environmentId: runtimeEnvironmentId,

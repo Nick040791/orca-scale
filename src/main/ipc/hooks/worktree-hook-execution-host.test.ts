@@ -10,7 +10,13 @@ const mocks = vi.hoisted(() => ({
   localRead: vi.fn(),
   localWrite: vi.fn(),
   localFileRead: vi.fn(),
-  localStat: vi.fn()
+  localStat: vi.fn(),
+  remoteRead: vi.fn(),
+  remoteWrite: vi.fn(),
+  remoteStat: vi.fn(),
+  remoteMkdir: vi.fn(),
+  provider: vi.fn(),
+  ignored: vi.fn()
 }))
 vi.mock('electron', () => ({
   ipcMain: {
@@ -27,15 +33,16 @@ vi.mock('../../hooks', () => ({
 }))
 vi.mock('../../issue-command-file', () => ({
   readIssueCommand: mocks.localRead,
-  writeIssueCommand: mocks.localWrite
+  writeIssueCommand: mocks.localWrite,
+  isIssueCommandIgnoredByGit: mocks.ignored
 }))
 vi.mock('../../project-runtime-git-options', () => ({
   getLocalProjectWorktreeGitOptions: () => ({})
 }))
-vi.mock('node:fs/promises', () => ({
-  readFile: mocks.localFileRead,
-  stat: mocks.localStat
+vi.mock('../../providers/ssh-filesystem-dispatch', () => ({
+  getSshFilesystemProvider: mocks.provider
 }))
+vi.mock('node:fs/promises', () => ({ readFile: mocks.localFileRead, stat: mocks.localStat }))
 vi.mock('../../../shared/setup-script-imports', () => ({
   inspectSetupScriptImportCandidates: async (
     read: (path: string) => Promise<unknown>,
@@ -60,11 +67,22 @@ import { registerWorktreeHookInspectionHandler } from './register-worktree-hook-
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.handlers.clear()
+  mocks.remoteRead.mockResolvedValue({ content: 'remote command', isBinary: false })
+  mocks.remoteWrite.mockResolvedValue(undefined)
+  mocks.remoteMkdir.mockResolvedValue(undefined)
+  mocks.remoteStat.mockResolvedValue({ type: 'file' })
+  mocks.ignored.mockResolvedValue(true)
   mocks.localRead.mockResolvedValue({ localContent: 'wrong host' })
   mocks.localWrite.mockResolvedValue(undefined)
   mocks.localFileRead.mockResolvedValue('wrong host')
   mocks.localStat.mockResolvedValue({ isDirectory: () => false })
   mocks.hasHooks.mockReturnValue(false)
+  mocks.provider.mockReturnValue({
+    readFile: mocks.remoteRead,
+    writeFile: mocks.remoteWrite,
+    createDir: mocks.remoteMkdir,
+    stat: mocks.remoteStat
+  })
 })
 
 const owners = [
@@ -124,23 +142,29 @@ function makeRepo(fields: Pick<Repo, 'connectionId' | 'executionHostId'>): Repo 
   )
 }
 
-const localCalls = [
-  mocks.hasHooks,
-  mocks.localRead,
-  mocks.localWrite,
-  mocks.localFileRead,
-  mocks.localStat,
-  mocks.effectiveHooks
-]
-
-// Why: this process serves no SSH filesystem, so an SSH owner is neither read remotely nor locally.
 function expectRoute(target: string | null): void {
+  const localCalls = [
+    mocks.hasHooks,
+    mocks.localRead,
+    mocks.localWrite,
+    mocks.localFileRead,
+    mocks.localStat,
+    mocks.effectiveHooks
+  ]
   if (target) {
+    expect(mocks.provider).toHaveBeenCalledWith(target)
+    for (const [connectionId] of mocks.provider.mock.calls) {
+      expect(connectionId).toBe(target)
+    }
     for (const method of localCalls) {
       expect(method).not.toHaveBeenCalled()
     }
   } else {
+    expect(mocks.provider).not.toHaveBeenCalled()
     expect(localCalls.some((method) => method.mock.calls.length > 0)).toBe(true)
+    expect(mocks.remoteRead).not.toHaveBeenCalled()
+    expect(mocks.remoteWrite).not.toHaveBeenCalled()
+    expect(mocks.remoteStat).not.toHaveBeenCalled()
   }
 }
 
@@ -148,17 +172,19 @@ describe.each(owners)('desktop hooks: $label', ({ fields, target }) => {
   it.each(channels)('routes %s to the stored owner', async (channel) => {
     const repo = makeRepo(fields)
     register(repo)
-    const result = Promise.resolve(
-      mocks.handlers.get(channel)!(null, {
-        repoId: repo.id,
-        hostId: getRepoExecutionHostId(repo),
-        content: 'save'
-      })
-    )
-    await (channel === 'hooks:writeIssueCommand' && target
-      ? expect(result).rejects.toThrow('Remote filesystem unavailable')
-      : result)
+    await mocks.handlers.get(channel)!(null, {
+      repoId: repo.id,
+      hostId: getRepoExecutionHostId(repo),
+      content: 'save'
+    })
     expectRoute(target)
+    if (channel === 'hooks:writeIssueCommand' && target) {
+      expect(mocks.ignored).toHaveBeenCalledWith(repo.path, target)
+      expect(mocks.remoteWrite).toHaveBeenCalledWith(
+        '/remote/fixture/.orca/issue-command',
+        'save\n'
+      )
+    }
   })
 })
 
@@ -184,6 +210,13 @@ describe.each(owners)('runtime hooks: $label', ({ fields, target }) => {
         await issue.write(repo.id, 'save')
       }
       expectRoute(target)
+      if (method === 'write' && target) {
+        expect(mocks.ignored).toHaveBeenCalledWith(repo.path, target)
+        expect(mocks.remoteWrite).toHaveBeenCalledWith(
+          '/remote/fixture/.orca/issue-command',
+          'save\n'
+        )
+      }
     }
   )
 })
@@ -191,6 +224,7 @@ describe.each(owners)('runtime hooks: $label', ({ fields, target }) => {
 it('refuses an unreachable canonical SSH write without touching local files', async () => {
   const repo = makeRepo({ executionHostId: 'ssh:host-a' })
   register(repo)
+  mocks.provider.mockReturnValue(null)
   await expect(
     mocks.handlers.get('hooks:writeIssueCommand')!(null, {
       repoId: repo.id,
@@ -209,6 +243,7 @@ it.each(channels)('keeps folder repositories out of %s', async (channel) => {
     hostId: 'ssh:host-a',
     content: 'save'
   })
+  expect(mocks.provider).not.toHaveBeenCalled()
   expect(mocks.hasHooks).not.toHaveBeenCalled()
   expect(mocks.localRead).not.toHaveBeenCalled()
   expect(mocks.localWrite).not.toHaveBeenCalled()

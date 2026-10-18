@@ -23,7 +23,7 @@ import {
 } from '../../../shared/foreground-wrapper-agent'
 import { isShellProcess } from '../../../shared/shell-process-detection'
 import { resolveFallbackForegroundProcess } from './foreground-fallback-process'
-import { parsePtySessionId } from '../../../shared/pty-session-id-format'
+import { parsePtySessionId } from '../pty-session-id'
 import {
   ptyProcessNameIsSpawnFile,
   createPtyForegroundResolver,

@@ -115,13 +115,6 @@ export function WorkspaceSpaceStatusBadge({
       </Badge>
     )
   }
-  if (decisionDetails?.canOpenWorkspace === false) {
-    return (
-      <Badge variant="outline">
-        {translate('workspaceSpace.status.notManaged', 'Not managed')}
-      </Badge>
-    )
-  }
   return (
     <Badge
       variant="outline"

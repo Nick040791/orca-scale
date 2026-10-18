@@ -9,10 +9,6 @@ import {
   type AgentStatusEntry
 } from '../../../../shared/agent-status-types'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
-import {
-  applyAgentPaneActivityFlags,
-  type AgentPaneActivityFlags
-} from '@/lib/agent-pane-activity-flags'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/terminal-tab-types'
 
 // Why: a terminal tab is a container of panes, exactly like a worktree card is
@@ -21,8 +17,15 @@ import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/ter
 // skip the card's retained-done promotion — see resolveTerminalTabActivityStatus).
 export type TerminalTabActivityStatus = WorktreeStatus
 
-// Per-tab live-hook flags, folded by the same applyAgentPaneActivityFlags as the worktree card.
-type TerminalTabActivityFlags = AgentPaneActivityFlags & {
+// Per-tab live-hook flags, mirroring applyLiveAgentState in
+// worktree-agent-activity-summary.ts. blocked/waiting collapse to permission,
+// matching every other status surface in the app.
+type TerminalTabActivityFlags = {
+  hasPermission: boolean
+  hasLiveWorking: boolean
+  hasLiveMonitoring: boolean
+  hasInterrupted: boolean
+  hasLiveDone: boolean
   paneIds: Set<string>
   /** Panes whose row went stale; suppress generated permission labels only. */
   stalePaneIds: Set<string>
@@ -81,7 +84,20 @@ function getTerminalTabActivityFlags(
 
     const flags = getOrCreateTerminalTabActivityFlags(flagsByTabId, identity.tabId)
     flags.paneIds.add(identity.paneId)
-    applyAgentPaneActivityFlags(flags, entry)
+    if (entry.state === 'blocked' || entry.state === 'waiting') {
+      flags.hasPermission = true
+    } else if (entry.state === 'working') {
+      if (entry.workingMode === 'monitoring') {
+        flags.hasLiveMonitoring = true
+      } else {
+        flags.hasLiveWorking = true
+      }
+    } else if (entry.interrupted === true) {
+      // Interrupted is encoded as done, so it must be checked first.
+      flags.hasInterrupted = true
+    } else if (entry.state === 'done') {
+      flags.hasLiveDone = true
+    }
   }
 
   flagsCache = { agentStatusByPaneKey, agentStatusEpoch, flagsByTabId }
@@ -98,9 +114,7 @@ function getOrCreateTerminalTabActivityFlags(
       hasPermission: false,
       hasLiveWorking: false,
       hasLiveMonitoring: false,
-      hasFailed: false,
       hasInterrupted: false,
-      hasUnconfirmed: false,
       hasLiveDone: false,
       paneIds: new Set(),
       stalePaneIds: new Set()
@@ -164,9 +178,7 @@ export function resolveTerminalTabActivityStatus({
     hasPermission: flags?.hasPermission ?? false,
     hasLiveWorking: flags?.hasLiveWorking ?? false,
     hasLiveMonitoring: flags?.hasLiveMonitoring ?? false,
-    hasFailed: flags?.hasFailed ?? false,
     hasInterrupted: flags?.hasInterrupted ?? false,
-    hasUnconfirmed: flags?.hasUnconfirmed ?? false,
     hasLiveDone: flags?.hasLiveDone ?? false,
     // Why: retained/orchestration promotions are worktree-aggregate concerns;
     // a tab reflects its own live panes and title only.
@@ -187,9 +199,7 @@ export type TerminalTabAttentionBadge =
   | 'working'
   | 'monitoring'
   | 'permission'
-  | 'failed'
   | 'interrupted'
-  | 'unconfirmed'
   | 'unread'
   | 'done'
 
@@ -219,8 +229,8 @@ export function resolveTerminalTabAttentionBadge({
   if (status === 'done') {
     return 'done'
   }
-  if (status === 'failed' || status === 'interrupted' || status === 'unconfirmed') {
-    return status
+  if (status === 'interrupted') {
+    return 'interrupted'
   }
   return null
 }
@@ -228,22 +238,12 @@ export function resolveTerminalTabAttentionBadge({
 /** Map a container activity status onto AgentStateDot's vocabulary (no unread — that's a bell). */
 export function terminalTabActivityToAgentDotState(
   status: TerminalTabActivityStatus
-):
-  | 'working'
-  | 'monitoring'
-  | 'permission'
-  | 'failed'
-  | 'interrupted'
-  | 'unconfirmed'
-  | 'done'
-  | null {
+): 'working' | 'monitoring' | 'permission' | 'interrupted' | 'done' | null {
   switch (status) {
     case 'working':
     case 'monitoring':
     case 'permission':
-    case 'failed':
     case 'interrupted':
-    case 'unconfirmed':
     case 'done':
       return status
     case 'active':

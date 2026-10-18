@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
 import type { Repo } from '../../../../shared/repo-types'
 import { reconcileFetchedRepos, reuseEqualRecordMap } from './repo-identity-reconcile'
 
@@ -118,6 +119,8 @@ describe('reconcileFetchedRepos', () => {
 
     expect(result).toBe(previous)
     expect(result.every((repo, index) => repo === previous[index])).toBe(true)
+    const source = fs.readFileSync(new URL('./repo-identity-reconcile.ts', import.meta.url), 'utf8')
+    expect(source).not.toMatch(/previous\.find|next\.find|findIndex/)
   })
 })
 

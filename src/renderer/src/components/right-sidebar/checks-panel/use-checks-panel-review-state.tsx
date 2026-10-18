@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store'
 import { prChecksCacheSuffix, prCommentsCacheSuffix } from '@/store/github/cache-identity'
-import { getGitHubRepoCacheKey } from '../../../../../shared/github/github-cache-key'
+import { getGitHubRepoCacheKey } from '@/store/slices/github-cache-key'
 import {
   buildChecksPanelEligibilityGitFingerprint,
   readChecksPanelGitStatusSnapshot,
@@ -10,6 +10,10 @@ import {
 import { resolveHostedReviewCreationProvider } from '../../../../../shared/hosted-review-creation-providers'
 import { localizedHostedReviewCopy } from '@/i18n/hosted-review-localized-copy'
 import { resolveChecksPanelReviewLookup } from '../checks-panel-review-lookup-authority'
+import {
+  getChecksPanelForegroundReviewEvidenceKey,
+  resolveChecksPanelReviewEvidenceProvider
+} from '../checks-panel-pr-refresh-request'
 import {
   computeChecksPanelConfirmedReadiness,
   isChecksPanelHardErrorCleared,
@@ -28,7 +32,7 @@ import {
   resolveSourceControlAiForOperation,
   resolveSourceControlAiPrCreationDefaults
 } from '../../../../../shared/source-control-ai'
-import { getRuntimeGitScope } from '@/runtime/runtime-git-client-context'
+import { getRuntimeGitScope } from '@/runtime/runtime-git-client'
 import type { ChecksPanelReviewStateInput } from './review-state-dependencies'
 
 export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
@@ -53,7 +57,6 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
     linkedPR,
     linkedReviewNumber,
     localExecutionScope,
-    ownerTarget,
     panelContextKey,
     pr,
     prCacheKey,
@@ -61,6 +64,7 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
     prCachedHasPR,
     prGenerationRecords,
     prNumber,
+    refreshContextKey,
     remoteStatusInvalidation,
     repo,
     repoConnectionId,
@@ -204,6 +208,32 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
     eligibilityReview: hostedReviewCreation?.review ?? null
   })
   const checksPanelReviewLookup = checksPanelReviewLookupResult.state
+  const hasUnrenderedReviewEvidence =
+    checksPanelReviewLookup === 'positive_unresolved' ||
+    (checksPanelReviewLookup !== 'found' &&
+      hostedReviewCreation?.blockedReason === 'existing_review')
+  const unrenderedReviewEvidenceIdentity =
+    linkedReviewNumber ??
+    hostedReview?.number ??
+    hostedReviewCreation?.review?.number ??
+    checksPanelReviewLookupResult.openReviewUrl ??
+    'unknown'
+  const unrenderedReviewEvidenceProvider = resolveChecksPanelReviewEvidenceProvider({
+    linkedGitHubPR: linkedPR,
+    linkedGitLabMR,
+    linkedBitbucketPR,
+    linkedAzureDevOpsPR,
+    linkedGiteaPR,
+    eligibilityProvider: hostedReviewCreation?.provider,
+    cachedProvider: hostedReview?.provider
+  })
+  const foregroundReviewEvidenceKey = getChecksPanelForegroundReviewEvidenceKey({
+    refreshContextKey,
+    reviewEvidenceIdentity: unrenderedReviewEvidenceIdentity,
+    reviewEvidenceProvider: unrenderedReviewEvidenceProvider,
+    hasUnrenderedReviewEvidence,
+    isGitHubReviewContext
+  })
   // Confirmed readiness from the last eligibility snapshot, not live canCreate (which would be circular and flap during transient failures).
   const hardErrorObservedAt =
     isGitHubReviewContext && hardRefreshError && hardRefreshError.contextKey === panelContextKey
@@ -264,7 +294,7 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
           context.connectionId,
           undefined,
           {
-            runtimeTarget: context.runtimeTarget
+            runtimeTargetSettings: context.runtimeTargetSettings
           }
         )
       } catch (error) {
@@ -278,7 +308,7 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
       return DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS
     }
     const hostKey = getCommitMessageModelDiscoveryHostKeyForScope(
-      getRuntimeGitScope(ownerTarget ?? { kind: 'local' }, repo?.connectionId)
+      getRuntimeGitScope(settings, repo?.connectionId)
     )
     const resolved = resolveSourceControlAiForOperation({
       settings,
@@ -294,7 +324,7 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
           repo,
           prCreationProductDefaults: DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS
         })
-  }, [ownerTarget, repo, settings])
+  }, [repo, settings])
   const sourceControlAiActionsVisible = useMemo(
     () => (settings ? resolveSourceControlAiEnabled({ settings, repo }) : false),
     [repo, settings]
@@ -327,6 +357,10 @@ export function useChecksPanelReviewState(model: ChecksPanelReviewStateInput) {
     prCachedHasPRForContext,
     checksPanelReviewLookupResult,
     checksPanelReviewLookup,
+    hasUnrenderedReviewEvidence,
+    unrenderedReviewEvidenceIdentity,
+    unrenderedReviewEvidenceProvider,
+    foregroundReviewEvidenceKey,
     hardErrorObservedAt,
     confirmedReadinessInput,
     confirmedReadiness,

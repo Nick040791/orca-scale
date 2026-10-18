@@ -128,7 +128,7 @@ describe('resolveSkillProviderDestinations', () => {
       resolveSkillProviderDestinations({
         scope: 'global',
         homeDirectory: HOME,
-        detectedProviders: ['aider', 'ante', 'not-an-agent']
+        detectedProviders: ['opencode', 'goose', 'not-an-agent']
       })
     ).toEqual([])
   })

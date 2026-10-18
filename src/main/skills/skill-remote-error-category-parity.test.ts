@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { IPtyProvider } from '../providers/pty-provider-contract'
 import {
   SkillInstallFailureCategorySchema,
   type SkillInstallFailure
@@ -7,12 +8,13 @@ import type { SkillInstallRequest } from '../../shared/skill-install-contract'
 
 const mocks = vi.hoisted(() => ({ callRuntimeEnvironment: vi.fn() }))
 
-vi.mock('../ipc/runtime-environments/runtime-environment-transport-routing', () => ({
+vi.mock('../ipc/runtime-environment-transport-routing', () => ({
   callRuntimeEnvironment: mocks.callRuntimeEnvironment
 }))
 
 import { skillInstallFailureFromError } from './skill-install-operation-error'
 import { installSkillOnRemoteRuntime } from './skill-remote-install-service'
+import { installSkillOnSshHost } from './skill-ssh-relay-service'
 
 const request: SkillInstallRequest = {
   operationId: 'operation-1',
@@ -48,12 +50,12 @@ async function capturedFailure(promise: Promise<unknown>): Promise<SkillInstallF
   }
 }
 
-describe('remote skill failure category', () => {
+describe('remote skill failure category parity', () => {
   beforeEach(() => {
     mocks.callRuntimeEnvironment.mockReset()
   })
 
-  it.each(failures)('preserves $category from a paired runtime', async (failure) => {
+  it.each(failures)('preserves $category across paired runtime and SSH', async (failure) => {
     mocks.callRuntimeEnvironment.mockResolvedValue({
       id: 'rpc-1',
       ok: false,
@@ -70,6 +72,21 @@ describe('remote skill failure category', () => {
       })
     )
 
-    expect(paired).toEqual(failure)
+    const requestHostRpc = vi.fn(async (method: string) => {
+      if (method === 'relay.status') {
+        return { capabilities: ['skills.install.v1'] }
+      }
+      throw Object.assign(new Error(failure.code), { code: -32000, data: failure })
+    })
+    const ssh = await capturedFailure(
+      installSkillOnSshHost({
+        provider: { requestHostRpc } as unknown as IPtyProvider,
+        userDataPath: '/state',
+        request,
+        requireHttps: true
+      })
+    )
+
+    expect({ paired, ssh }).toEqual({ paired: failure, ssh: failure })
   })
 })

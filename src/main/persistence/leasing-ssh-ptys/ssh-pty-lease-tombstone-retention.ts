@@ -61,7 +61,7 @@ function boundRelayPtyIds(
  * outright — every one of those behaves identically on an absent row. The one reader that can still
  * observe it is `isRestorablePtyBinding`, and only through a binding whose pty id matches, which is
  * exactly what the reachability test rules out. A `pendingKill` is an undelivered stop, so those
- * rows stay for a relay-era build to replay.
+ * rows stay until the replay retires them.
  *
  * The reachability test is not redundant with the scrub: a lease freezes its `tabId`, so a pane
  * broken out into a new tab leaves a binding the scrub's tab-qualified match no longer reaches.

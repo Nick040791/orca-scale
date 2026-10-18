@@ -23,6 +23,7 @@ export type GitHubClientMocks = {
   noteRateLimitSpendMock: Mock
   ghRepoExecOptionsMock: Mock<typeof ghRepoExecOptions>
   githubRepoContextMock: Mock<typeof githubRepoContext>
+  getSshGitProviderMock: Mock
   readLocalGitConfigSignatureMock: Mock
   acquireMock: Mock
   releaseMock: Mock
@@ -61,6 +62,7 @@ export function createGitHubClientMocks(): GitHubClientMocks {
         ...localGitOptions
       })
     ),
+    getSshGitProviderMock: vi.fn(),
     readLocalGitConfigSignatureMock: vi.fn(),
     acquireMock: vi.fn(),
     releaseMock: vi.fn()
@@ -129,22 +131,21 @@ export function gitRunnerModuleMock(mocks: GitHubClientMocks): GitRunnerModuleMo
   }
 }
 
-export type LocalGitObjectQuarantineModuleMock = {
-  createLocalGitObjectQuarantine: () => {
-    run: <T>(command: (env: undefined) => Promise<T>) => Promise<T>
-  }
+export type SshGitDispatchModuleMock = {
+  getSshGitProviderGeneration: Mock
+  getSshGitProvider: Mock
+  SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE: string
 }
 
-// Why: client tests script git calls in order; the scratch object store adds a common-dir read.
-export function localGitObjectQuarantineModuleMock(): LocalGitObjectQuarantineModuleMock {
+export function sshGitDispatchModuleMock(mocks: GitHubClientMocks): SshGitDispatchModuleMock {
   return {
-    createLocalGitObjectQuarantine: () => ({ run: (command) => command(undefined) })
+    getSshGitProviderGeneration: vi.fn(() => 0),
+    getSshGitProvider: mocks.getSshGitProviderMock,
+    SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE: 'Remote connection dropped.'
   }
 }
 
-export type LocalGitConfigSignatureModuleMock = {
-  readLocalGitConfigSignature: Mock
-}
+export type LocalGitConfigSignatureModuleMock = { readLocalGitConfigSignature: Mock }
 
 export function localGitConfigSignatureModuleMock(
   mocks: GitHubClientMocks

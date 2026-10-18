@@ -10,9 +10,7 @@ import { publishDocPreviewFailure } from './doc-preview-failure-notice'
 import { getDocPreviewGrant } from './doc-preview-grant-registry'
 
 /** Must run before `app.whenReady()`; Electron freezes the privileged scheme table at ready. */
-export function registerDocPreviewSchemePrivileges(
-  additionalSchemes: Electron.CustomScheme[] = []
-): void {
+export function registerDocPreviewSchemePrivileges(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: DOC_PREVIEW_SCHEME,
@@ -23,8 +21,7 @@ export function registerDocPreviewSchemePrivileges(
         corsEnabled: true,
         stream: true
       }
-    },
-    ...additionalSchemes
+    }
   ])
 }
 
@@ -97,12 +94,7 @@ export async function handleDocPreviewRequest(request: Request): Promise<Respons
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     })
   }
-  const bytes = outcome.bytes
-  const body =
-    bytes.buffer instanceof ArrayBuffer
-      ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-      : new Uint8Array(bytes)
-  return new Response(body, {
+  return new Response(new Uint8Array(outcome.bytes), {
     status: 200,
     headers: {
       'Content-Type': outcome.contentType,

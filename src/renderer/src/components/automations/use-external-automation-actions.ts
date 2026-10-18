@@ -1,12 +1,16 @@
+import { useCallback } from 'react'
 import { toast } from 'sonner'
 import type {
   AutomationRun,
   ExternalAutomationAction,
   ExternalAutomationJob,
-  ExternalAutomationManager
+  ExternalAutomationManager,
+  ExternalAutomationRun
 } from '../../../../shared/automations-types'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
+import type { FetchExternalAutomationRuns } from './ExternalAutomationRunTable'
+import { isMissingExternalRunsApiError } from './external-automation-display'
 import {
   externalAutomationActionKey,
   externalAutomationJobKey
@@ -22,6 +26,7 @@ export function useExternalAutomationActions({
 }: AutomationsPageActionContext) {
   const {
     setExternalActionKey,
+    setSelectedExternalRunPage,
     setSelectedAutomationRunPageId,
     setExternalDeleteTarget,
     externalDeleteTarget,
@@ -31,6 +36,7 @@ export function useExternalAutomationActions({
     setActivePaneTab
   } = local
   const { scopedExternal } = list
+  const fetchScopedExternalRuns = scopedExternal.fetchRuns
 
   const runExternalAction = async (
     scope: ExternalAutomationScope,
@@ -88,6 +94,30 @@ export function useExternalAutomationActions({
     }
   }
 
+  const fetchExternalAutomationRuns = useCallback<FetchExternalAutomationRuns>(
+    async ({ scope, job, page, pageSize }) => {
+      try {
+        const result = await fetchScopedExternalRuns(scope, job, page, pageSize)
+        return { runs: [...result.runs], totalCount: result.totalCount }
+      } catch (error) {
+        if (isMissingExternalRunsApiError(error)) {
+          return {
+            runs: job.runs.slice(page * pageSize, page * pageSize + pageSize),
+            totalCount: job.runCount
+          }
+        }
+        throw error
+      }
+    },
+    [fetchScopedExternalRuns]
+  )
+  const openExternalRunPage = (
+    manager: ExternalAutomationManager,
+    job: ExternalAutomationJob,
+    run: ExternalAutomationRun
+  ): void => {
+    setSelectedExternalRunPage({ manager, job, run })
+  }
   const openAutomationRunPage = (run: AutomationRun): void => {
     setSelectedAutomationRunPageId(run.id)
   }
@@ -114,6 +144,8 @@ export function useExternalAutomationActions({
 
   return {
     runExternalAction,
+    fetchExternalAutomationRuns,
+    openExternalRunPage,
     openAutomationRunPage,
     requestExternalAction,
     confirmDeleteExternalAutomation

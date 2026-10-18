@@ -7,20 +7,17 @@ export type {
 export type {
   ActivityBarPosition,
   ClosedEditorTabSnapshot,
-  EditorViewMode,
-  MarkdownViewMode,
-  OpenFile
-} from './editor/types/open-file'
-
-export type {
-  BranchCompareSnapshot,
   CombinedDiffSkippedConflict,
   CommitCompareSnapshot,
   ConflictReviewEntry,
   ConflictReviewState,
   DiffSource,
-  OpenConflictMetadata
-} from '../../../../shared/editor-tab-view-types'
+  EditorViewMode,
+  MarkdownViewMode,
+  OpenConflictMetadata,
+  OpenFile,
+  BranchCompareSnapshot
+} from './editor/types/open-file'
 
 export type { EditorSlice } from './editor/types/editor-slice'
 

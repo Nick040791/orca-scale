@@ -1,47 +1,33 @@
 import type { AppState } from '@/store/types'
-import { sshConnectFailureText } from '@/ssh/ssh-host-server-status-copy'
 import { getConnectionIdFromState } from '@/lib/connection-context'
-import {
-  resolveWorktreeHostConnection,
-  type WorktreeHostConnection
-} from '@/lib/worktree-host-connection-phase'
+import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import {
   selectRuntimeAwareSshError,
+  selectRuntimeAwareSshStatus,
   selectRuntimeAwareSshTargetLabel,
   selectRuntimeAwareSshTargetRemoved
 } from '@/store/slices/runtime-environment-ssh'
+import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
 
 export type TerminalPaneHostState = {
   nativeChatTranscriptIsLocalReadable: boolean
   sshReconnectEnvironmentId: string | null
   /** The failure detail behind the status; the overlay shows only a canned sentence without it. */
   sshReconnectError: string | null
-  sshReconnectStatus: WorktreeHostConnection['publishedStatus']
+  sshReconnectStatus: ReturnType<typeof selectRuntimeAwareSshStatus>
   sshReconnectTargetId: string | null
   sshReconnectTargetLabel: string
   sshReconnectTargetRemoved: boolean
-}
-
-/** An unserved local host's translated reason; main's error stays the English twin. */
-function reconnectErrorText(
-  state: AppState,
-  environmentId: string | null,
-  targetId: string,
-  error: string | null
-): string | null {
-  if (error === null || environmentId !== null) {
-    return error
-  }
-  return sshConnectFailureText(state.sshConnectionStates.get(targetId), error)
 }
 
 function computeTerminalPaneHostState(state: AppState, worktreeId: string): TerminalPaneHostState {
   const connectionId = getConnectionIdFromState(state, worktreeId)
   const nativeChatTranscriptIsLocalReadableResult =
     isNativeChatTranscriptLocalReadable(connectionId)
-  const host = resolveWorktreeHostConnection(state, worktreeId, connectionId)
-  if (!host.targetId) {
+  const sshReconnectTargetId =
+    connectionId && !isRuntimeOwnedSshTargetId(connectionId) ? connectionId : null
+  if (!sshReconnectTargetId) {
     return {
       nativeChatTranscriptIsLocalReadable: nativeChatTranscriptIsLocalReadableResult,
       sshReconnectEnvironmentId: null,
@@ -52,17 +38,20 @@ function computeTerminalPaneHostState(state: AppState, worktreeId: string): Term
       sshReconnectTargetRemoved: false
     }
   }
-  const { targetId: sshReconnectTargetId, environmentId: sshReconnectEnvironmentId } = host
+  const sshReconnectEnvironmentId = getExplicitRuntimeEnvironmentIdForWorktree(state, worktreeId)
   return {
     nativeChatTranscriptIsLocalReadable: nativeChatTranscriptIsLocalReadableResult,
     sshReconnectEnvironmentId,
-    sshReconnectError: reconnectErrorText(
+    sshReconnectError: selectRuntimeAwareSshError(
       state,
       sshReconnectEnvironmentId,
-      sshReconnectTargetId,
-      selectRuntimeAwareSshError(state, sshReconnectEnvironmentId, sshReconnectTargetId)
+      sshReconnectTargetId
     ),
-    sshReconnectStatus: host.publishedStatus,
+    sshReconnectStatus: selectRuntimeAwareSshStatus(
+      state,
+      sshReconnectEnvironmentId,
+      sshReconnectTargetId
+    ),
     sshReconnectTargetId,
     sshReconnectTargetLabel: selectRuntimeAwareSshTargetLabel(
       state,

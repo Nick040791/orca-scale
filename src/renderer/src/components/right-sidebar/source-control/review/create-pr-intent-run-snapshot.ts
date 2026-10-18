@@ -1,5 +1,4 @@
-import { bulkStageRuntimeGitPaths } from '@/runtime/runtime-git-working-tree-client'
-import { operationGitContext } from '../listing/operation-target'
+import { bulkStageRuntimeGitPaths } from '@/runtime/runtime-git-client'
 import type { GitStatusEntry } from '../../../../../../shared/git-status-types'
 import {
   createPrIntentGitStatusMatchesToken,
@@ -80,7 +79,7 @@ export function createCreatePrIntentRunSnapshot({
     }
     setIsExecutingBulk(true)
     try {
-      await bulkStageRuntimeGitPaths(operationGitContext(operationTarget), stagePaths)
+      await bulkStageRuntimeGitPaths(operationTarget, stagePaths)
     } finally {
       setIsExecutingBulk(false)
     }

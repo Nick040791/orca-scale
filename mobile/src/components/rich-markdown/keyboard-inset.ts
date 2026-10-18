@@ -18,8 +18,10 @@ function reportKeyboardInset(
 /**
  * Reports how much of the viewport the keyboard covers, while there is a source that knows.
  *
- * The page passes no source, because its screen measures the same viewport with the same formula
- * and a second report would lift its layout twice.
+ * Inside the WebView that is `visualViewport`, because native `Keyboard` events under-report a
+ * WebView's covered area and the host's bar has to clear it. A host with no source — a page, whose
+ * screen measures the same viewport with the same formula — is told nothing, rather than lifting
+ * its own layout twice.
  */
 export function startKeyboardInset(scope: RichMarkdownEditorScope) {
   const source = scope.keyboardInsetSource()

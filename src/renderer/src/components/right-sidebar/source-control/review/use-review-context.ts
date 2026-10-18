@@ -2,7 +2,7 @@ import type { SourceControlPanelState } from '../panel/use-panel-state'
 import { useSourceControlBaseRefs } from '../sync/use-base-refs'
 import { useSourceControlBranchCompare } from '../sync/use-branch-compare'
 import { useSourceControlCreatePrIntentTarget } from './use-create-pr-intent-target'
-import { useSourceControlReviewPushTarget } from './use-review-push-target'
+import { useSourceControlHostedReviewPolling } from './use-hosted-review-polling'
 import { useSourceControlHostedReviewProviderHint } from './use-hosted-review-provider-hint'
 import { useSourceControlHostedReviewState } from './use-hosted-review-state'
 import { useSourceControlLinkedReviews } from './use-linked-reviews'
@@ -20,12 +20,15 @@ export function useSourceControlReviewContext(panelState: SourceControlPanelStat
     activeRepoConnectionId,
     activeRepoExecutionHostId,
     activeRepoId,
-    activeRepoTarget,
+    activeRepoRuntimeEnvironmentId,
+    activeRepoSettings,
     activeWorktree,
     activeWorktreeId,
     branchName,
     createPrIntentCurrentTargetRef,
+    enqueueGitHubPRRefresh,
     ensureHostedReviewPushTarget,
+    fetchHostedReviewForBranch,
     hostedReviewCacheKey,
     hostedReviewEntry,
     hostedReviewEntryData,
@@ -57,6 +60,7 @@ export function useSourceControlReviewContext(panelState: SourceControlPanelStat
     activeRepoConnectionId,
     activeRepoExecutionHostId,
     activeRepoId,
+    activeRepoRuntimeEnvironmentId,
     activeRepoWorktreeBaseRef: activeRepo?.worktreeBaseRef,
     activeWorktreeBaseRef: activeWorktree?.baseRef,
     hostedReview,
@@ -67,7 +71,7 @@ export function useSourceControlReviewContext(panelState: SourceControlPanelStat
   })
   const { compareBaseRef, effectiveBaseRef } = baseRefs
   const branchCompare = useSourceControlBranchCompare({
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     worktreePath,
     compareBaseRef,
@@ -79,7 +83,7 @@ export function useSourceControlReviewContext(panelState: SourceControlPanelStat
   })
   const createPrIntentTarget = useSourceControlCreatePrIntentTarget({
     activeRepoId,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     branchName,
     createPrIntentCurrentTargetRef,
@@ -125,13 +129,23 @@ export function useSourceControlReviewContext(panelState: SourceControlPanelStat
     linkedGitLabMR,
     linkedGiteaPR
   })
-  useSourceControlReviewPushTarget({
+  useSourceControlHostedReviewPolling({
+    activeRepo,
     activeWorktree,
     activeWorktreeId,
+    branchName,
+    enqueueGitHubPRRefresh,
     ensureHostedReviewPushTarget,
+    fallbackGitHubPRNumber,
+    fetchHostedReviewForBranch,
     hasResolvableReviewPushTargetLink,
     isBranchVisible,
-    isFolder
+    isFolder,
+    linkedAzureDevOpsPR,
+    linkedBitbucketPR,
+    linkedGitHubPR,
+    linkedGitLabMR,
+    linkedGiteaPR
   })
   const suppressedGitHubPRState = resolveSourceControlSuppressedGitHubPRState({
     worktree: activeWorktree ?? null,

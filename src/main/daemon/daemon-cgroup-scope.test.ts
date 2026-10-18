@@ -71,44 +71,33 @@ afterEach(() => {
 
 describe('isDurableDaemonScopeSupported', () => {
   it('is false on non-Linux platforms regardless of environment', () => {
-    expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: '/run/user/1000' },
-        platform: 'darwin'
-      })
-    ).toBe(false)
-    expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: '/run/user/1000' },
-        platform: 'win32'
-      })
-    ).toBe(false)
+    expect(isDurableDaemonScopeSupported({ XDG_RUNTIME_DIR: '/run/user/1000' }, 'darwin')).toBe(
+      false
+    )
+    expect(isDurableDaemonScopeSupported({ XDG_RUNTIME_DIR: '/run/user/1000' }, 'win32')).toBe(
+      false
+    )
   })
 
   it('is false when not booted under systemd, even with a reachable bus and a working binary', () => {
     const perUidDir = fakeRuntimeDirWithBus()
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: perUidDir },
-        platform: 'linux',
-        canonicalRuntimeDir: perUidDir,
-        systemdBootPath: '/definitely/not/systemd-boot',
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: perUidDir },
+        'linux',
+        perUidDir,
+        '/definitely/not/systemd-boot',
+        () => ({ code: 0, timedOut: false })
+      )
     ).toBe(false)
   })
 
   it('is false when there is no runtime dir to resolve at all', () => {
     expect(
-      isDurableDaemonScopeSupported({
-        env: {},
-        platform: 'linux',
-        canonicalRuntimeDir: null,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported({}, 'linux', null, fakeSystemdBootPath(), () => ({
+        code: 0,
+        timedOut: false
+      }))
     ).toBe(false)
   })
 
@@ -118,14 +107,13 @@ describe('isDurableDaemonScopeSupported', () => {
     // Neither fixture has a `bus` socket written — the probe must fail closed regardless of
     // which path it looks at first.
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: envDir },
-        platform: 'linux',
-        canonicalRuntimeDir: canonical,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: envDir },
+        'linux',
+        canonical,
+        fakeSystemdBootPath(),
+        () => ({ code: 0, timedOut: false })
+      )
     ).toBe(false)
   })
 
@@ -133,24 +121,22 @@ describe('isDurableDaemonScopeSupported', () => {
     const perUidDir = fakeRuntimeDirWithBus()
     const bootPath = fakeSystemdBootPath()
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: perUidDir },
-        platform: 'linux',
-        canonicalRuntimeDir: perUidDir,
-        systemdBootPath: bootPath,
-        runVersionProbe: () => ({ code: 1, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: perUidDir },
+        'linux',
+        perUidDir,
+        bootPath,
+        () => ({ code: 1, timedOut: false })
+      )
     ).toBe(false)
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: perUidDir },
-        platform: 'linux',
-        canonicalRuntimeDir: perUidDir,
-        systemdBootPath: bootPath,
-        runVersionProbe: () => ({ code: null, timedOut: true }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: perUidDir },
+        'linux',
+        perUidDir,
+        bootPath,
+        () => ({ code: null, timedOut: true })
+      )
     ).toBe(false)
   })
 
@@ -162,28 +148,26 @@ describe('isDurableDaemonScopeSupported', () => {
     const hardenedOverrideDir = fakeRuntimeDirWithoutBus()
     const realPerUidDir = fakeRuntimeDirWithBus()
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: hardenedOverrideDir },
-        platform: 'linux',
-        canonicalRuntimeDir: realPerUidDir,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: hardenedOverrideDir },
+        'linux',
+        realPerUidDir,
+        fakeSystemdBootPath(),
+        () => ({ code: 0, timedOut: false })
+      )
     ).toBe(true)
   })
 
   it('is true when the caller env XDG_RUNTIME_DIR already points at the correct, reachable per-UID bus', () => {
     const perUidDir = fakeRuntimeDirWithBus()
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: perUidDir },
-        platform: 'linux',
-        canonicalRuntimeDir: perUidDir,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: perUidDir },
+        'linux',
+        perUidDir,
+        fakeSystemdBootPath(),
+        () => ({ code: 0, timedOut: false })
+      )
     ).toBe(true)
   })
 
@@ -193,14 +177,13 @@ describe('isDurableDaemonScopeSupported', () => {
     const canonicalWithoutBus = fakeRuntimeDirWithoutBus()
     const envDirWithBus = fakeRuntimeDirWithBus()
     expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: envDirWithBus },
-        platform: 'linux',
-        canonicalRuntimeDir: canonicalWithoutBus,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      isDurableDaemonScopeSupported(
+        { XDG_RUNTIME_DIR: envDirWithBus },
+        'linux',
+        canonicalWithoutBus,
+        fakeSystemdBootPath(),
+        () => ({ code: 0, timedOut: false })
+      )
     ).toBe(true)
   })
 })
@@ -390,89 +373,31 @@ describe('legacy daemon scope migration', () => {
   it('migrates only a proven legacy scope and fails closed when systemd rejects it', () => {
     const runtimeDir = fakeRuntimeDirWithBus()
     const runMigration = vi.fn(() => ({ code: 0, timedOut: false }))
-    const migrated = migrateLegacyDaemonScope(321, 'new-nonce', {
-      env: { XDG_RUNTIME_DIR: runtimeDir },
-      platform: 'linux',
-      canonicalRuntimeDir: runtimeDir,
-      readProcesses: () => ({ unit: 'app-orca-1420296.scope', pids: [321, 400] }),
-      systemdBootPath: fakeSystemdBootPath(),
-      runVersionProbe: () => ({ code: 0, timedOut: false }),
-      runMigration: runMigration,
-      outlivesCaller: () => true
-    })
+    const migrated = migrateLegacyDaemonScope(
+      321,
+      'new-nonce',
+      { XDG_RUNTIME_DIR: runtimeDir },
+      'linux',
+      runtimeDir,
+      () => ({ unit: 'app-orca-1420296.scope', pids: [321, 400] }),
+      fakeSystemdBootPath(),
+      () => ({ code: 0, timedOut: false }),
+      runMigration
+    )
     expect(migrated).toBe(true)
     expect(runMigration).toHaveBeenCalledOnce()
     expect(
-      migrateLegacyDaemonScope(321, 'new-nonce', {
-        env: { XDG_RUNTIME_DIR: runtimeDir },
-        platform: 'linux',
-        canonicalRuntimeDir: runtimeDir,
-        readProcesses: () => ({ unit: 'app-orca-1420296.scope', pids: [321, 400] }),
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        runMigration: () => ({ code: 1, timedOut: false }),
-        outlivesCaller: () => true
-      })
+      migrateLegacyDaemonScope(
+        321,
+        'new-nonce',
+        { XDG_RUNTIME_DIR: runtimeDir },
+        'linux',
+        runtimeDir,
+        () => ({ unit: 'app-orca-1420296.scope', pids: [321, 400] }),
+        fakeSystemdBootPath(),
+        () => ({ code: 0, timedOut: false }),
+        () => ({ code: 1, timedOut: false })
+      )
     ).toBe(false)
-  })
-})
-
-describe('durable scope launch environment and lifetime (#25580, #24201)', () => {
-  it("drops Chromium's disabled: bus marker so systemd-run reaches the user manager", () => {
-    const perUidDir = fakeRuntimeDirWithBus()
-    const result = buildDurableDaemonScopeCommand(
-      '/usr/bin/node',
-      [],
-      'n',
-      { PATH: '/bin', DBUS_SESSION_BUS_ADDRESS: 'disabled:' },
-      perUidDir
-    )
-    expect(result.env).not.toHaveProperty('DBUS_SESSION_BUS_ADDRESS')
-    expect(result.env.XDG_RUNTIME_DIR).toBe(perUidDir)
-  })
-
-  it('keeps a real session bus address', () => {
-    const result = buildDurableDaemonScopeCommand(
-      '/usr/bin/node',
-      [],
-      'n',
-      { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' },
-      null
-    )
-    expect(result.env.DBUS_SESSION_BUS_ADDRESS).toBe('unix:path=/run/user/1000/bus')
-  })
-
-  it('refuses the scope when the user manager would not outlive the caller', () => {
-    const perUidDir = fakeRuntimeDirWithBus()
-    const versionProbe = vi.fn(() => ({ code: 0, timedOut: false }))
-    expect(
-      isDurableDaemonScopeSupported({
-        env: { XDG_RUNTIME_DIR: perUidDir },
-        platform: 'linux',
-        canonicalRuntimeDir: perUidDir,
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: versionProbe,
-        outlivesCaller: () => false
-      })
-    ).toBe(false)
-    expect(versionProbe).not.toHaveBeenCalled()
-  })
-
-  it('never migrates an adopted daemon into a manager that dies at logout', () => {
-    const runtimeDir = fakeRuntimeDirWithBus()
-    const runMigration = vi.fn(() => ({ code: 0, timedOut: false }))
-    expect(
-      migrateLegacyDaemonScope(321, 'new-nonce', {
-        env: { XDG_RUNTIME_DIR: runtimeDir },
-        platform: 'linux',
-        canonicalRuntimeDir: runtimeDir,
-        readProcesses: () => ({ unit: 'app-orca-1.scope', pids: [321] }),
-        systemdBootPath: fakeSystemdBootPath(),
-        runVersionProbe: () => ({ code: 0, timedOut: false }),
-        runMigration: runMigration,
-        outlivesCaller: () => false
-      })
-    ).toBe(false)
-    expect(runMigration).not.toHaveBeenCalled()
   })
 })

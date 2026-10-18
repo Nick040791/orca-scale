@@ -1,4 +1,3 @@
-import type { WorkspaceAttachmentMutation } from '../../../shared/workspace-attachment-mutation'
 import { randomUUID } from 'node:crypto'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -15,10 +14,6 @@ import { scheduleSave } from './write-scheduling'
 import { mergeWorktreeMetaForWrite } from './worktree-meta-write-normalization'
 
 type MetadataRuntime = Pick<StoreRuntimeState, 'state'>
-type WorktreeMetaState = Pick<
-  PersistedState,
-  'worktreeMeta' | 'worktreeMetaByIdentity' | 'worktreeIdentityAliases'
->
 
 /** Storage rows changed together by host-qualified metadata writes. */
 export const WORKTREE_METADATA_DOMAINS = [
@@ -28,7 +23,7 @@ export const WORKTREE_METADATA_DOMAINS = [
 ] as const
 
 /** Select one readable row without discarding competing alias candidates. */
-function resolveAliasIdentityKey(state: WorktreeMetaState, alias: string): string | undefined {
+function resolveAliasIdentityKey(state: PersistedState, alias: string): string | undefined {
   const identityKeys = state.worktreeIdentityAliases?.[alias] ?? []
   if (identityKeys.length === 0) {
     return undefined
@@ -184,7 +179,7 @@ export function getWorktreeMetaForHost(
 
 /** Read-only host projection used by listings that must include canonical-only rows. */
 export function getAllWorktreeMetaForHost(
-  runtime: { state: WorktreeMetaState },
+  runtime: MetadataRuntime,
   executionHostId: ExecutionHostId
 ): Record<string, WorktreeMeta> {
   const state = runtime.state
@@ -215,7 +210,7 @@ export function setWorktreeMetaForHost(
   scheduling: WriteSchedulingOperations,
   worktreeId: string,
   executionHostId: ExecutionHostId,
-  meta: Partial<WorktreeMeta> & WorkspaceAttachmentMutation
+  meta: Partial<WorktreeMeta>
 ): WorktreeMeta {
   const state = runtime.state
   migrateLegacyWorktreeMetadata(state, worktreeId, executionHostId)

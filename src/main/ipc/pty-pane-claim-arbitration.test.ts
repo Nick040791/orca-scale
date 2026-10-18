@@ -3,10 +3,12 @@ import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
-import { registerPtyHandlers } from './pty/register-handlers'
-import { clearProviderPtyState } from './pty/provider/state-cleanup'
-import { setLocalPtyProvider } from './pty/provider/registry'
-import { isCurrentPtyExit } from './pty/provider/ownership-state'
+import {
+  registerPtyHandlers,
+  clearProviderPtyState,
+  setLocalPtyProvider,
+  isCurrentPtyExit
+} from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -157,7 +159,7 @@ describe('registerPtyHandlers', () => {
       leafId,
       ptyId: expect.any(String),
       incarnationId: expect.any(String),
-      mayCreate: false,
+      hostAdmittedMembership: true,
       origin: 'spawn'
     })
   })
@@ -517,7 +519,7 @@ describe('registerPtyHandlers', () => {
       leafId,
       ptyId: 'pty-shared',
       startupCwd: '/tmp',
-      mayCreate: false,
+      hostAdmittedMembership: true,
       origin: 'spawn'
     })
   })

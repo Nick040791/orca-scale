@@ -8,10 +8,6 @@ import { writeSkillInstallReceipt } from './skill-install-provenance'
 
 const temporaryDirectories: string[] = []
 
-async function nameIsFree() {
-  return { status: 'ok' as const, value: null }
-}
-
 async function createSource(): Promise<{ root: string; source: string }> {
   const root = await mkdtemp(join(tmpdir(), 'orca-skill-share-preparation-'))
   temporaryDirectories.push(root)
@@ -78,7 +74,7 @@ describe('SkillSharePreparationService', () => {
     })
     const service = new SkillSharePreparationService(
       join(root, 'preparations'),
-      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { publishVersion: vi.fn(), createShare: vi.fn() },
       { installStateDirectory: stateDirectory, platform: 'win32' }
     )
 
@@ -117,7 +113,7 @@ describe('SkillSharePreparationService', () => {
     })
     const service = new SkillSharePreparationService(
       join(root, 'preparations'),
-      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { publishVersion: vi.fn(), createShare: vi.fn() },
       { installStateDirectory: stateDirectory, platform: 'win32' }
     )
 
@@ -137,7 +133,7 @@ describe('SkillSharePreparationService', () => {
       })
     const service = new SkillSharePreparationService(
       preparationRoot,
-      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { publishVersion: vi.fn(), createShare: vi.fn() },
       { initializeRoot }
     )
 
@@ -156,7 +152,6 @@ describe('SkillSharePreparationService', () => {
     await mkdir(join(preparationRoot, 'abandoned'), { recursive: true })
     await writeFile(join(preparationRoot, 'abandoned', 'package.tar.gz'), 'private bytes')
     const service = new SkillSharePreparationService(preparationRoot, {
-      findOwnedPackageId: nameIsFree,
       publishVersion: vi.fn(),
       createShare: vi.fn()
     })
@@ -169,7 +164,6 @@ describe('SkillSharePreparationService', () => {
   it('enforces the preparation cap while archives are still being created', async () => {
     const { root, source } = await createSource()
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
-      findOwnedPackageId: nameIsFree,
       publishVersion: vi.fn(),
       createShare: vi.fn()
     })
@@ -199,7 +193,6 @@ describe('SkillSharePreparationService', () => {
         value: { id: 'share_retry', url: 'https://share.test/skills/share/share_retry' }
       })
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
-      findOwnedPackageId: nameIsFree,
       publishVersion,
       createShare
     })
@@ -241,7 +234,6 @@ describe('SkillSharePreparationService', () => {
         value: { id: 'share_retry', url: 'https://share.test/skills/share/share_retry' }
       })
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
-      findOwnedPackageId: nameIsFree,
       publishVersion,
       createShare
     })

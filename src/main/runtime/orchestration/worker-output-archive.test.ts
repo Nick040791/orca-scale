@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../orca-runtime'
+import * as sshFilesystemDispatch from '../../providers/ssh-filesystem-dispatch'
 import * as workerTranscriptRead from './worker-transcript-read'
 import { captureWorkerOutputArchive, summarizeWorkerOutputArchive } from './worker-output-archive'
 
@@ -33,15 +34,18 @@ function codexMessage(id: string, text: string): string {
 describe('worker output archive WSL routing', () => {
   let directory: string
   let transcriptPath: string
+  let sshProviderLookup: { mockRestore: () => void }
   let transcriptReadSpy: { mockRestore: () => void } | undefined
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'orca-worker-archive-'))
     transcriptPath = join(directory, 'session.jsonl')
     await writeFile(transcriptPath, `${codexMessage('wsl', 'WSL archive output')}\n`)
+    sshProviderLookup = vi.spyOn(sshFilesystemDispatch, 'getSshFilesystemProvider')
   })
 
   afterEach(async () => {
+    sshProviderLookup.mockRestore()
     transcriptReadSpy?.mockRestore()
     await rm(directory, { recursive: true, force: true })
   })
@@ -97,9 +101,9 @@ describe('worker output archive WSL routing', () => {
       sessionId: 'wsl-session',
       transcriptPath: guestTranscriptPath,
       wslDistro: 'Ubuntu',
-      limit: expect.any(Number)
+      limit: expect.any(Number),
+      filesystemProvider: undefined
     })
-    expect(runtime.readTerminal).not.toHaveBeenCalled()
     expect(result).toMatchObject({
       kind: 'transcript_pin',
       status: 'captured',
@@ -107,9 +111,11 @@ describe('worker output archive WSL routing', () => {
         messages: [{ id: 'wsl', blocks: [{ type: 'text', text: 'WSL archive output' }] }]
       }
     })
+    expect(sshProviderLookup).not.toHaveBeenCalled()
   })
 
-  it('does not resolve an SSH transcript locally', async () => {
+  it('does not resolve an SSH transcript locally when its provider is unavailable', async () => {
+    vi.mocked(sshFilesystemDispatch.getSshFilesystemProvider).mockReturnValue(undefined)
     transcriptReadSpy = vi.spyOn(workerTranscriptRead, 'readWorkerTranscript')
     const runtime = {
       getExactWorkerProviderSession: vi.fn(() => ({
@@ -138,17 +144,14 @@ describe('worker output archive WSL routing', () => {
       attachedAtMs: Date.now() - 1
     })
 
+    expect(sshFilesystemDispatch.getSshFilesystemProvider).toHaveBeenCalledWith('ssh:remote-host')
     expect(workerTranscriptRead.readWorkerTranscript).not.toHaveBeenCalled()
     expect(result).toMatchObject({
       kind: 'terminal_tail',
       status: 'captured',
       content: {
         lines: ['remote worker terminal fallback'],
-        fallbackReason: 'remote_capability_unavailable',
-        warnings: expect.arrayContaining([
-          'The terminal read did not identify an authoritative screen; available terminal output was preserved.',
-          'Terminal wrap information was unavailable; capability masking used complete lines.'
-        ])
+        fallbackReason: 'remote_capability_unavailable'
       }
     })
   })

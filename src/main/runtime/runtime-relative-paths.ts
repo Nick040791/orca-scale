@@ -2,21 +2,15 @@ import { posix, win32 } from 'node:path'
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 
 export function joinWorktreeRelativePath(rootPath: string, relativePath: string): string {
-  const normalizedRelativePath = isWindowsAbsolutePathLike(rootPath)
-    ? relativePath.replace(/\\/g, '/')
-    : relativePath
+  const normalizedRelativePath = relativePath.replace(/\\/g, '/')
   if (isWindowsAbsolutePathLike(rootPath)) {
     return win32.join(rootPath.replace(/\//g, '\\'), ...normalizedRelativePath.split('/'))
   }
   return posix.join(rootPath, ...normalizedRelativePath.split('/'))
 }
 
-export function normalizeRuntimeRelativePath(relativePath: string, rootPath?: string): string {
-  const path =
-    rootPath !== undefined && !isWindowsAbsolutePathLike(rootPath)
-      ? relativePath
-      : relativePath.replace(/\\/g, '/')
-  const normalized = path.replace(/\/+$/, '')
+export function normalizeRuntimeRelativePath(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/, '')
   if (normalized === '') {
     return ''
   }

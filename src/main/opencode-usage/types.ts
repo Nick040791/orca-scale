@@ -12,7 +12,6 @@ export type OpenCodeUsageLocationBreakdown = {
   eventCount: number
   inputTokens: number
   cachedInputTokens: number
-  cacheWriteInputTokens?: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number
@@ -26,7 +25,6 @@ export type OpenCodeUsageModelBreakdown = {
   eventCount: number
   inputTokens: number
   cachedInputTokens: number
-  cacheWriteInputTokens?: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number
@@ -41,7 +39,6 @@ export type OpenCodeUsageLocationModelBreakdown = {
   eventCount: number
   inputTokens: number
   cachedInputTokens: number
-  cacheWriteInputTokens?: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number
@@ -61,7 +58,6 @@ export type OpenCodeUsageSession = {
   eventCount: number
   totalInputTokens: number
   totalCachedInputTokens: number
-  cacheWriteInputTokens?: number
   totalOutputTokens: number
   totalReasoningOutputTokens: number
   totalTokens: number
@@ -81,7 +77,6 @@ export type OpenCodeUsageDailyAggregate = {
   eventCount: number
   inputTokens: number
   cachedInputTokens: number
-  cacheWriteInputTokens?: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number
@@ -122,7 +117,6 @@ export type OpenCodeUsageParsedEvent = {
   estimatedCostUsd: number | null
   inputTokens: number
   cachedInputTokens: number
-  cacheWriteInputTokens?: number
   outputTokens: number
   reasoningOutputTokens: number
   totalTokens: number

@@ -32,7 +32,6 @@ import {
   FAKE_AGENT_WINDOWS_SHELL
 } from './helpers/fake-agent-command-override'
 import { FAKE_AGENT_PASTE_END_SCANNER_SOURCE } from './helpers/fake-agent-paste-end-scanner'
-import { FAKE_CODEX_LAUNCH_PROBES_SOURCE } from './helpers/fake-codex-launch-probes'
 
 const PROVIDER_SESSION_ID = 'e2e-legacy-orchestration-worker'
 const fakeCliDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-legacy-worker-'))
@@ -90,7 +89,10 @@ async function emitAuthorityHook(hookEventName) {
     })
   }
 }
-${FAKE_CODEX_LAUNCH_PROBES_SOURCE}
+if (process.argv.slice(2).includes('app-server')) {
+  process.stderr.write("error: unrecognized subcommand 'app-server'\\n")
+  process.exit(2)
+}
 appendLedger('ORCA_E2E_SPAWN_LEDGER', { event: 'spawn', argv: process.argv.slice(2) })
 process.stdout.write('\\u001b]0;Codex Ready\\u0007OpenAI Codex\\nmodel: e2e\\ndirectory: e2e\\n')
 const sessionStartHook = emitAuthorityHook('SessionStart')
@@ -326,7 +328,7 @@ function assertDispatchRemainsCurrent(
     const authority = db
       .prepare(
         `SELECT dc.status AS dispatch_status, dc.assignee_handle, dc.assignee_pane_key,
-                dc.process_incarnation, dc.contract_version,
+                dc.process_incarnation, dc.contract_version, dc.capability_hash,
                 wd.state AS worker_state, wd.worktree_id, wd.agent_terminal_handle
          FROM dispatch_contexts dc
          INNER JOIN worker_dispatches wd ON wd.dispatch_id = dc.id
@@ -339,6 +341,7 @@ function assertDispatchRemainsCurrent(
       assignee_pane_key: input.paneKey,
       process_incarnation: input.processIncarnation,
       contract_version: CURRENT_CONTRACT_VERSION,
+      capability_hash: expect.any(String),
       worker_state: 'ready',
       worktree_id: input.worktreeId,
       agent_terminal_handle: input.terminalHandle

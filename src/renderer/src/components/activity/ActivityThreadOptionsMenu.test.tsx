@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
-import { ActivityThreadOptionsMenu } from './activity-thread-controls'
+import { ActivityThreadOptionsMenu } from './ActivityPrototypePage'
 import type { ActivityGroupBy } from './activity-thread-types'
 import { makeRepo } from './ActivityPrototypePage-test-fixtures'
 
@@ -48,13 +48,7 @@ describe('ActivityThreadOptionsMenu', () => {
   let root: Root
 
   beforeEach(() => {
-    useAppStore.setState({
-      agentsVisibleHostIds: null,
-      agentsFilterRepoIds: [],
-      agentsHideWorkspacesFromOtherDevices: false,
-      agentsHideAutomationGeneratedWorkspaces: false,
-      agentsHideCliCreatedWorkspaces: false
-    })
+    useAppStore.setState({ agentsVisibleHostIds: null, agentsFilterRepoIds: [] })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -74,80 +68,10 @@ describe('ActivityThreadOptionsMenu', () => {
     })
 
     const trigger = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Thread list options (1 filter active)"]'
+      'button[aria-label="Thread list options, filters active"]'
     )
     expect(trigger).not.toBeNull()
-    expect(trigger?.querySelector('[data-options-filter-count]')?.textContent).toBe('1')
-  })
-
-  it('counts every active activity filter in the badge', async () => {
-    useAppStore.setState({
-      agentsVisibleHostIds: ['local'],
-      agentsFilterRepoIds: ['repo-1'],
-      agentsHideWorkspacesFromOtherDevices: true,
-      agentsHideAutomationGeneratedWorkspaces: true,
-      agentsHideCliCreatedWorkspaces: true
-    })
-
-    await act(async () => {
-      root.render(
-        <TooltipProvider>
-          <ActivityThreadOptionsMenu
-            compactMode={false}
-            hasUnreadThreads={false}
-            onCompactModeChange={vi.fn()}
-            unreadOnly
-            onUnreadOnlyChange={vi.fn()}
-          />
-        </TooltipProvider>
-      )
-    })
-
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Thread list options (6 filters active)"]'
-    )
-    expect(trigger?.querySelector('[data-options-filter-count]')?.textContent).toBe('6')
-  })
-
-  it('persists the workspace-origin toggles separately from the workspace-nav filters', async () => {
-    const originalState = useAppStore.getState()
-    const persist = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal('api', { ui: { set: persist } })
-    useAppStore.setState({
-      runtimeEnvironmentCatalogHydrated: true,
-      runtimeEnvironments: [],
-      agentsHideCliCreatedWorkspaces: false,
-      hideCliCreatedWorkspaces: false
-    })
-    try {
-      await act(async () => root.render(<Harness />))
-      const trigger = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Thread list options"]'
-      )
-      await act(async () => {
-        trigger?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
-      })
-      const labels = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')
-      ).map((item) => item.textContent)
-      expect(labels).toContain('Hide automation-created')
-      // Without paired runtimes there is no other-client provenance to filter on.
-      expect(labels).not.toContain('Hide other-client agents')
-
-      const cliItem = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')
-      ).find((item) => item.textContent === 'Hide CLI-created')
-      await act(async () => {
-        cliItem?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
-      })
-
-      expect(useAppStore.getState().agentsHideCliCreatedWorkspaces).toBe(true)
-      expect(useAppStore.getState().hideCliCreatedWorkspaces).toBe(false)
-      expect(persist).toHaveBeenCalledWith({ agentsHideCliCreatedWorkspaces: true })
-    } finally {
-      act(() => useAppStore.setState(originalState))
-      vi.unstubAllGlobals()
-    }
+    expect(trigger?.querySelector('[data-scope-filter-dot]')).not.toBeNull()
   })
 
   it('opens without recursively updating composed Radix trigger refs', async () => {
@@ -184,7 +108,7 @@ describe('ActivityThreadOptionsMenu', () => {
       try {
         await act(async () => root.render(<Harness />))
         const trigger = container.querySelector<HTMLButtonElement>(
-          'button[aria-label="Thread list options (1 filter active)"]'
+          'button[aria-label="Thread list options, filters active"]'
         )
         expect(trigger).not.toBeNull()
         await act(async () => {
@@ -204,7 +128,7 @@ describe('ActivityThreadOptionsMenu', () => {
         expect(useAppStore.getState().filterRepoIds).toEqual(['workspace-nav-filter'])
         expect(persist).toHaveBeenCalledWith({ agentsVisibleHostIds: null })
         expect(persist).toHaveBeenCalledWith({ agentsFilterRepoIds: [] })
-        expect(container.querySelector('[data-options-filter-count]')).toBeNull()
+        expect(container.querySelector('[data-scope-filter-dot]')).toBeNull()
       } finally {
         act(() => useAppStore.setState(originalState))
         vi.unstubAllGlobals()

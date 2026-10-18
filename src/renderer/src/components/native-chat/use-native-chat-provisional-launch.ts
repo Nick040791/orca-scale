@@ -1,14 +1,12 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
+  getStructuredAgentSessionLaunchLifecycle,
   getStructuredAgentSessionLaunchResumes,
-  relaunchFailedStructuredAgentSessionForMessage,
   retryStructuredAgentSessionLaunch,
-  useStructuredAgentSessionLaunchFailure,
-  useStructuredAgentSessionLaunchLifecycle
+  useStructuredAgentSessionLaunchFailureReason,
+  useStructuredAgentSessionLaunchLifecycle,
+  useStructuredAgentSessionLaunchSelection
 } from '@/lib/structured-agent-session-launch'
-import { getStructuredAgentSessionLaunchSelection } from '@/lib/structured-agent-session-launch-options'
-import { subscribeStructuredAgentLaunchStatus } from '@/lib/structured-agent-session-launch-registry'
-import { relaunchFailedStructuredAgentSessionWithMessage } from '@/lib/structured-agent-session-launch-message'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 
 /** A chat this view launched: a new conversation, or one resumed from history. */
@@ -24,62 +22,42 @@ export type StructuredAgentSessionLaunchView = {
 
 const NO_HELD_OPTIONS: Readonly<Record<string, string>> = {}
 
-function useLaunchView(
+type LatchedLaunch = {
+  kind: StructuredAgentSessionLaunchView['kind']
+  seed: Readonly<Record<string, string>> | undefined
+}
+
+/** The launch this view started, latched: its record is deleted on publish, and a reopened chat
+ *  runs its own options. The seed follows the launch while it lives (a retry or accepted pick). */
+function useLatchedLaunchView(
   sessionId: string,
   worktreeId: string | null | undefined,
   launching: boolean
 ): StructuredAgentSessionLaunchView | undefined {
-  const owner = useMemo(() => {
-    let snapshot = getStructuredAgentSessionLaunchSelection(sessionId)
-    const read = () => {
-      const current = getStructuredAgentSessionLaunchSelection(sessionId)
-      if (current) {
-        snapshot = current
-      } else if (snapshot && snapshot.held !== NO_HELD_OPTIONS) {
-        snapshot = { seed: snapshot.seed, held: NO_HELD_OPTIONS }
-      }
-      return snapshot
-    }
-    return {
-      read,
-      subscribe: (notify: () => void) =>
-        subscribeStructuredAgentLaunchStatus(() => {
-          // Capture accepted picks even when retirement happens before React renders.
-          read()
-          notify()
-        })
-    }
-  }, [sessionId])
-  const selection = useSyncExternalStore(owner.subscribe, owner.read, () => null)
-  const [intent, setIntent] = useState<{
-    sessionId: string
-    kind: StructuredAgentSessionLaunchView['kind'] | null
-  }>(() => ({
-    sessionId,
-    kind: launching ? (getStructuredAgentSessionLaunchResumes(sessionId) ? 'resume' : 'new') : null
-  }))
-  if (intent.sessionId !== sessionId) {
-    setIntent({
-      sessionId,
-      kind: launching
-        ? getStructuredAgentSessionLaunchResumes(sessionId)
-          ? 'resume'
-          : 'new'
-        : null
-    })
+  const selection = useStructuredAgentSessionLaunchSelection(sessionId)
+  const [latched, setLatched] = useState<LatchedLaunch | null>(() =>
+    launching
+      ? {
+          kind: getStructuredAgentSessionLaunchResumes(sessionId) ? 'resume' : 'new',
+          seed: selection?.seed
+        }
+      : null
+  )
+  if (latched && selection && selection.seed !== latched.seed) {
+    setLatched({ kind: latched.kind, seed: selection.seed })
   }
   const held = selection?.held ?? NO_HELD_OPTIONS
   return useMemo(
     () =>
-      intent.kind
+      latched
         ? {
-            kind: intent.kind,
-            ...(selection?.seed ? { seedOptions: selection.seed } : {}),
+            kind: latched.kind,
+            ...(latched.seed ? { seedOptions: latched.seed } : {}),
             heldOptions: held,
             ...(worktreeId ? { worktree: toRuntimeWorktreeSelector(worktreeId) } : {})
           }
         : undefined,
-    [held, intent.kind, selection?.seed, worktreeId]
+    [held, latched, worktreeId]
   )
 }
 
@@ -88,39 +66,34 @@ export function useNativeChatProvisionalLaunch(
   sessionId: string
 ) {
   const lifecycle = useStructuredAgentSessionLaunchLifecycle(worktreeId ?? '', sessionId)
-  const failure = useStructuredAgentSessionLaunchFailure(worktreeId ?? '', sessionId)
-  const launch = useLaunchView(sessionId, worktreeId, lifecycle !== null)
+  const failureReason = useStructuredAgentSessionLaunchFailureReason(worktreeId ?? '', sessionId)
+  const launch = useLatchedLaunchView(sessionId, worktreeId, lifecycle !== null)
   const retry = useCallback(() => {
     if (worktreeId) {
       retryStructuredAgentSessionLaunch(worktreeId, sessionId)
     }
   }, [sessionId, worktreeId])
-  // While the chat starts it takes no send, so Send stays off and the text stays in the box.
-  const starting = lifecycle === 'pending' || lifecycle === 'visibility-unknown'
-  const sendThroughLaunch = useCallback(
-    (text: string, withImages: boolean, send: () => boolean | 'queued'): boolean | 'queued' => {
-      if (starting) {
-        return false
+  // A send into a start that never published relaunches it; the queued message goes out on publish.
+  const sendThroughRelaunch = useCallback(
+    (send: () => boolean): boolean => {
+      const accepted = send()
+      if (
+        accepted &&
+        worktreeId &&
+        getStructuredAgentSessionLaunchLifecycle(worktreeId, sessionId) === 'failed'
+      ) {
+        retryStructuredAgentSessionLaunch(worktreeId, sessionId)
       }
-      if (lifecycle !== 'failed' || !worktreeId) {
-        return send()
-      }
-      // A failed start restarts, and a text message goes as the restart's first message.
-      if (!withImages && text.trim()) {
-        return relaunchFailedStructuredAgentSessionWithMessage(worktreeId, sessionId, text) !== null
-      }
-      relaunchFailedStructuredAgentSessionForMessage(worktreeId, sessionId)
-      return false
+      return accepted
     },
-    [lifecycle, sessionId, starting, worktreeId]
+    [sessionId, worktreeId]
   )
   return {
     lifecycle,
     launch,
-    failure,
+    failureReason,
     retry,
-    starting,
-    sendThroughLaunch,
+    sendThroughRelaunch,
     transportEnabled: lifecycle === null || lifecycle === 'published'
   }
 }

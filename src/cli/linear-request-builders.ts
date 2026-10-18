@@ -1,4 +1,5 @@
-import { readCommandBody } from './command-body-input'
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import type {
   LinearIssueInclude,
   LinearIssueListRequest,
@@ -16,7 +17,8 @@ import {
   getOptionalNonNegativeIntegerFlag,
   getOptionalStringFlag,
   getRepeatedStringFlag,
-  getRequiredStringFlag
+  getRequiredStringFlag,
+  getRequiredStringFlagAllowingEmpty
 } from './flags'
 import { RuntimeClientError } from './runtime-client'
 
@@ -235,10 +237,39 @@ export async function readLinearBody(
   cwd: string,
   options: { required: boolean }
 ): Promise<string | undefined> {
-  return readCommandBody(flags, cwd, {
-    ...options,
-    maximumCharacters: LINEAR_WRITE_BODY_CAP,
-    tooLargeCode: 'linear_body_too_large',
-    label: 'Linear body'
-  })
+  const hasBody = flags.has('body')
+  const hasBodyFile = flags.has('body-file')
+  if (hasBody && hasBodyFile) {
+    throw new RuntimeClientError('invalid_argument', 'Use either --body or --body-file, not both')
+  }
+  if (!hasBody && !hasBodyFile) {
+    if (options.required) {
+      throw new RuntimeClientError('invalid_argument', 'Missing --body or --body-file')
+    }
+    return undefined
+  }
+  const body = hasBody
+    ? getRequiredStringFlagAllowingEmpty(flags, 'body')
+    : await readLinearBodyFile(getRequiredStringFlag(flags, 'body-file'), cwd)
+  if (body.length > LINEAR_WRITE_BODY_CAP) {
+    throw new RuntimeClientError(
+      'linear_body_too_large',
+      `Linear body must be at most ${LINEAR_WRITE_BODY_CAP} characters`
+    )
+  }
+  return body
+}
+
+async function readLinearBodyFile(path: string, cwd: string): Promise<string> {
+  if (path !== '-') {
+    return await readFile(isAbsolute(path) ? path : join(cwd, path), 'utf8')
+  }
+  if (process.stdin.isTTY) {
+    throw new RuntimeClientError('invalid_argument', 'stdin body requested but stdin is a TTY')
+  }
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }

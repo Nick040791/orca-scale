@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { importExternalPathsToRuntime } from './runtime-file-import-client'
+import { importExternalPathsToRuntime } from './runtime-file-client'
 import {
   clearRuntimeCompatibilityCacheForTests,
   markRuntimeEnvironmentCompatible
@@ -36,7 +36,7 @@ const uploadExternalFileToRuntime = vi.fn<(args: Record<string, unknown>) => unk
 const importExternalPaths = vi.fn()
 
 const nestedSshContext = {
-  target: { kind: 'environment' as const, environmentId: ENVIRONMENT_ID },
+  settings: { activeRuntimeEnvironmentId: ENVIRONMENT_ID },
   worktreeId: 'wt-nested-ssh',
   worktreePath: '/ssh/repo',
   connectionId: 'hub-ssh-1',
@@ -46,7 +46,7 @@ const nestedSshContext = {
 }
 
 const hubLocalContext = {
-  target: { kind: 'environment' as const, environmentId: ENVIRONMENT_ID },
+  settings: { activeRuntimeEnvironmentId: ENVIRONMENT_ID },
   worktreeId: 'wt-hub-local',
   worktreePath: '/hub/repo',
   expectedExecutionHostId: 'local' as const

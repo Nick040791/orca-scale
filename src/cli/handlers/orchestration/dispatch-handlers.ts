@@ -6,7 +6,6 @@ import { orchestrationMigrationData } from '../../../shared/orchestration-rpc-co
 import { callOrchestrationMutation } from './mutation-request'
 import { isDevCliInvocation } from './runtime-compatibility'
 import { resolveCoordinatorTerminalHandle } from './terminal-identity'
-import { injectedSessionAddress } from '../../../shared/agent-session-caller-env'
 
 export const ORCHESTRATION_DISPATCH_HANDLER: Record<string, CommandHandler> = {
   'orchestration dispatch': async ({ flags, client, cwd, json }) => {
@@ -43,12 +42,9 @@ export const ORCHESTRATION_DISPATCH_HANDLER: Record<string, CommandHandler> = {
 export const ORCHESTRATION_DISPATCH_INSPECTION_HANDLERS: Record<string, CommandHandler> = {
   'orchestration dispatch-show': async ({ flags, client, cwd, json }) => {
     const showPreamble = flags.has('preamble') ? true : undefined
-    // Why: a preview must embed the same real coordinator handle as an actual dispatch. Its --from
-    // only fills preview text and names no caller, so it passes through unfenced.
+    // Why: a preview must embed the same real coordinator handle as an actual dispatch.
     const from = showPreamble
-      ? (getOptionalStringFlag(flags, 'from') ??
-        injectedSessionAddress() ??
-        (await resolveCoordinatorTerminalHandle(flags, cwd, client)))
+      ? await resolveCoordinatorTerminalHandle(flags, cwd, client)
       : undefined
     const result = await client.call<{
       dispatch: { id: string; task_id: string; status: string } | null

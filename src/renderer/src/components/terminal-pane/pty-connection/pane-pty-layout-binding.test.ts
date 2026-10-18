@@ -23,6 +23,16 @@ describe('shouldIgnoreStalePanePtyLayoutBinding', () => {
     ).toBe(false)
   })
 
+  it('rejects a stale callback after the pane already adopted the replacement', () => {
+    expect(
+      shouldIgnoreStalePanePtyLayoutBinding({
+        existingPtyId: 'pty-new',
+        nextPtyId: 'pty-old',
+        tabPtyId: 'pty-new'
+      })
+    ).toBe(true)
+  })
+
   it('allows a callback while the tab still owns the callback PTY', () => {
     expect(
       shouldIgnoreStalePanePtyLayoutBinding({

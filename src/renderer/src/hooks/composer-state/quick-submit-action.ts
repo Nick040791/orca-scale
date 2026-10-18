@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
-import type { QuickSubmitOptions } from './quick-creation-request'
 import { findPendingLinkedWorkItemCreationId } from '@/lib/pending-worktree-creation'
 import { useAppStore } from '@/store'
 import { getWorkspaceSeedName } from '@/lib/new-workspace'
@@ -67,7 +66,7 @@ export function useQuickSubmitAction(input: QuickSubmitActionInput) {
   } = input
 
   const submitQuick = useCallback(
-    async (requestedAgent: TuiAgent | null, options?: QuickSubmitOptions): Promise<void> => {
+    async (requestedAgent: TuiAgent | null): Promise<void> => {
       if (isProjectGroupTarget) {
         await submitFolderTarget(requestedAgent)
         return
@@ -145,7 +144,7 @@ export function useQuickSubmitAction(input: QuickSubmitActionInput) {
           workspaceNameSeed,
           workspaceRunContext,
           repoId,
-          options
+          selectedRepo
         )
       } catch (error) {
         if (isSubmissionCancelled()) {

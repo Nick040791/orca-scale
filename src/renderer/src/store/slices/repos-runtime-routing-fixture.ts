@@ -40,7 +40,8 @@ export const reposList: Mock = vi.fn()
 export const reposAdd: Mock = vi.fn()
 export const reposPickFolder: Mock = vi.fn()
 export const reposClone: Mock = vi.fn()
-export const reposRemoveForHost: Mock = vi.fn()
+export const reposCloneRemote: Mock = vi.fn()
+export const reposRemove: Mock = vi.fn()
 export const reposUpdate: Mock = vi.fn()
 export const reposReorder: Mock = vi.fn()
 export const reposReorderForHost: Mock = vi.fn()
@@ -57,7 +58,6 @@ export const orcaProfileFindProjectProfiles: Mock = vi.fn()
 export const uiSet: Mock = vi.fn()
 export const ephemeralVmListRuntimes: Mock = vi.fn()
 export const ephemeralVmCleanup: Mock = vi.fn()
-export const runtimeEnvironmentsList: Mock = vi.fn()
 
 // Registers the per-test reset + window stub. Call once inside the suite's module scope.
 export function installReposRuntimeRoutingHarness(): void {
@@ -71,7 +71,8 @@ export function installReposRuntimeRoutingHarness(): void {
     reposAdd.mockReset()
     reposPickFolder.mockReset()
     reposClone.mockReset()
-    reposRemoveForHost.mockReset()
+    reposCloneRemote.mockReset()
+    reposRemove.mockReset()
     reposUpdate.mockReset()
     reposReorder.mockReset()
     reposReorderForHost.mockReset()
@@ -89,7 +90,6 @@ export function installReposRuntimeRoutingHarness(): void {
     uiSet.mockResolvedValue(undefined)
     ephemeralVmListRuntimes.mockReset().mockResolvedValue([])
     ephemeralVmCleanup.mockReset()
-    runtimeEnvironmentsList.mockReset().mockResolvedValue([])
     runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
       return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
     })
@@ -99,8 +99,9 @@ export function installReposRuntimeRoutingHarness(): void {
           list: reposList,
           add: reposAdd,
           clone: reposClone,
+          cloneRemote: reposCloneRemote,
           pickFolder: reposPickFolder,
-          removeForHost: reposRemoveForHost,
+          remove: reposRemove,
           update: reposUpdate,
           reorder: reposReorder,
           reorderForHost: reposReorderForHost
@@ -119,10 +120,7 @@ export function installReposRuntimeRoutingHarness(): void {
           findProjectProfiles: orcaProfileFindProjectProfiles
         },
         pty: { kill: ptyKill },
-        runtimeEnvironments: {
-          call: runtimeEnvironmentTransportCall,
-          list: runtimeEnvironmentsList
-        },
+        runtimeEnvironments: { call: runtimeEnvironmentTransportCall },
         ephemeralVm: {
           listRuntimes: ephemeralVmListRuntimes,
           cleanup: ephemeralVmCleanup

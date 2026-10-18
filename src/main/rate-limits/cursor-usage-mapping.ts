@@ -100,7 +100,11 @@ function windowMinutesFor(startMs: number | null, endMs: number | null): number 
   return Math.max(1, Math.round((endMs - startMs) / 60_000))
 }
 
-// On-demand's raw allowance avoids rounding in its reported percentage.
+/**
+ * Percent consumed for one pool. `used / limit` wins over the sibling percentage
+ * fields: the raw pair is internally consistent, while the percentages are
+ * pre-rounded for the dashboard's own copy and disagree with it on real accounts.
+ */
 function poolPercent(
   pool: CursorPool | null | undefined,
   percentField: keyof CursorPool
@@ -149,10 +153,7 @@ export function mapCursorUsageSummary(summary: CursorUsageSummary): CursorUsageM
     buckets.push({ name: CURSOR_ON_DEMAND_BUCKET_NAME, ...toWindow(onDemandPercent) })
   }
 
-  // The raw base allowance can report 100% while the actual plan still has capacity.
-  const planPercent = planEnabled
-    ? (finiteNumber(plan?.totalPercentUsed) ?? poolPercent(plan, 'totalPercentUsed'))
-    : null
+  const planPercent = planEnabled ? poolPercent(plan, 'totalPercentUsed') : null
   const membership = summary.membershipType
   return {
     monthly: planPercent === null ? null : toWindow(planPercent),

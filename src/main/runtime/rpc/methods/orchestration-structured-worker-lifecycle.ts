@@ -14,12 +14,11 @@ import type { OrchestrationDb } from '../../orchestration/db'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
 import {
   buildStructuredJournalArchive,
-  captureRetiredLineageArchive,
   type WorkerStructuredJournalArchive
 } from '../../orchestration/structured-worker-journal-archive'
 import {
-  readStructuredLineageJournalPage,
-  type StructuredLineageJournalPage
+  readStructuredJournalPage,
+  type StructuredJournalPage
 } from '../../orchestration/structured-worker-journal-page'
 import {
   createWorkerOutputSourceIdentity,
@@ -36,23 +35,17 @@ import {
 } from '../../../../shared/structured-agent-session-projection'
 import {
   observeStructuredWorker,
-  requireRunningStructuredWorker,
   resolveStructuredWorkerIdentity,
   structuredWorkerAgent,
   structuredWorkerTerminalState,
   type StructuredWorkerObservation
 } from '../../structured-worker-authority'
-import { structuredWorkerOwned } from '../../structured-worker-custody'
 import type { StructuredWorkerIdentity } from '../../structured-worker-identity'
 import type { WorkerTerminalReleaseState } from '../../orchestration/worker-terminal-ownership'
 import { releaseStructuredWorkerSession } from './orchestration-structured-worker-session'
 import { closeStructuredAgentSessionChild } from '../../structured-agent-session-close'
-import {
-  chatAssigneeJournal,
-  type StructuredJournalSource
-} from './orchestration-chat-assignee-journal'
 
-export { observeStructuredWorker, structuredWorkerOwned, type StructuredWorkerObservation }
+export { observeStructuredWorker, type StructuredWorkerObservation }
 
 /** The structured worker behind a dispatch, or null when a PTY worker owns it. */
 export function resolveStructuredWorkerForDispatch(
@@ -73,15 +66,11 @@ export type StructuredWorkerStopOutcome = {
 }
 
 /**
- * Stopping a structured worker: closing the session running it now.
+ * Stopping a structured worker.
  *
  * `host.close` returns void and keeps a failed close indexed for retry, so the only settlement
  * evidence is the observation AFTER it: a session the host no longer holds and whose lease is no
  * longer live is proven gone. Anything else is retained rather than settled.
- *
- * Re-resolved after each close: a `/clear` the close queued behind can commit first and hand the
- * worker to a successor, which is then closed too. A running session that cannot be verified is
- * not closed, and the outcome says no close was attempted.
  */
 export async function stopStructuredWorker(
   identity: StructuredWorkerIdentity,
@@ -91,38 +80,16 @@ export async function stopStructuredWorker(
     'forgetStructuredSessionMail' | 'retireStructuredAgentSessionTabFromSnapshot'
   >
 ): Promise<StructuredWorkerStopOutcome> {
-  const closed = new Set<string>()
-  // Any close this stop issued, so a later session's failure cannot erase an earlier close.
-  let closeAttempted = false
-  for (;;) {
-    let sessionId: string
-    try {
-      sessionId = requireRunningStructuredWorker(identity).sessionId
-    } catch (error) {
-      // Why returned, not thrown: worker-stop already marked the Dispatch stopping, and only an
-      // outcome lets it record the stop as unknown instead of stranding it there.
-      const reason = error instanceof Error ? error.message : String(error)
-      return { stopped: false, closeAttempted, reason }
-    }
-    if (closed.has(sessionId)) {
-      return { stopped: true, closeAttempted }
-    }
-    closed.add(sessionId)
-    const outcome = await closeStructuredAgentSessionChild(sessionId, {
-      ...(runtime ? { runtime } : {}),
-      // Between the close and the proof, never after: an unsettled close returns early, and a
-      // surviving redrive subscription keeps nudging a session no dispatch owns.
-      afterClose: () => releaseStructuredWorkerSession(dispatchId, runtime, identity.sessionId)
-    })
-    closeAttempted ||= outcome.closeAttempted
-    if (!outcome.stopped) {
-      return { ...outcome, closeAttempted }
-    }
-  }
+  return closeStructuredAgentSessionChild(identity.sessionId, {
+    ...(runtime ? { runtime } : {}),
+    // Between the close and the proof, never after: an unsettled close returns early, and a
+    // surviving hold keeps the provider child un-evictable for the life of the app.
+    afterClose: () => releaseStructuredWorkerSession(dispatchId, runtime)
+  })
 }
 
 /** The structured half of `worker-read`, or null when a PTY worker owns the dispatch. */
-export async function readStructuredWorkerOutput(args: {
+export function readStructuredWorkerOutput(args: {
   db: OrchestrationDb
   dispatchId: string
   workerState: string
@@ -131,12 +98,9 @@ export async function readStructuredWorkerOutput(args: {
   source?: 'auto' | 'transcript' | 'terminal'
   cursor?: string | number
   limit?: number
-}): Promise<OrchestrationWorkerReadTranscriptResult | null> {
+}): OrchestrationWorkerReadTranscriptResult | null {
   const identity = resolveStructuredWorkerForDispatch(args.db, args.dispatchId)
-  const journal = identity
-    ? { source: identity, agent: structuredWorkerAgent(identity) }
-    : chatAssigneeJournal(args.db, args.dispatchId)
-  if (!journal) {
+  if (!identity) {
     return null
   }
   if (args.source === 'terminal') {
@@ -148,28 +112,27 @@ export async function readStructuredWorkerOutput(args: {
     )
   }
   return readStructuredWorkerJournal({
-    identity: journal.source,
+    identity,
     dispatchId: args.dispatchId,
     workerState: args.workerState,
     liveness: args.liveness,
-    agent: journal.agent,
+    agent: structuredWorkerAgent(identity),
     ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
     ...(args.limit === undefined ? {} : { limit: args.limit })
   })
 }
 
 /** Journal page in the shape `worker-read --source transcript` already serves. */
-export async function readStructuredWorkerJournal(args: {
-  identity: StructuredJournalSource
+export function readStructuredWorkerJournal(args: {
+  identity: StructuredWorkerIdentity
   dispatchId: string
   workerState: string
   liveness: StructuredWorkerObservation['status']
   agent: AgentType
   cursor?: string | number
   limit?: number
-}): Promise<OrchestrationWorkerReadTranscriptResult> {
-  const running = requireRunningStructuredWorker(args.identity)
-  const page = await readStructuredLineageJournalPage(running.lineage)
+}): OrchestrationWorkerReadTranscriptResult {
+  const page = readStructuredJournalPage(args.identity.sessionId)
   if (!page) {
     throw new OrchestrationError(
       'transcript_required',
@@ -230,45 +193,31 @@ export async function readStructuredWorkerJournal(args: {
  * The oldest item stays in the anchor as the window-slide detector: a slide shifts every index.
  */
 function structuredJournalPrefixIdentity(args: {
-  identity: StructuredJournalSource
-  page: StructuredLineageJournalPage
+  identity: StructuredWorkerIdentity
+  page: StructuredJournalPage
   position: number
 }): string {
-  // Item ids are per session, and a `/clear` copies drafts into its successor: a later session's
-  // items are keyed by session too. The root's stay bare, so a cursor taken before any clear holds.
-  const itemKey = (index: number): string => {
-    const itemId = args.page.items[index]?.itemId ?? ''
-    const sessionId = args.page.sessionIds[index]
-    return sessionId === undefined || sessionId === args.identity.sessionId
-      ? itemId
-      : `${sessionId}/${itemId}`
-  }
   // Items that project to a message, in message order. `projectStructuredItemsToNativeChat` keeps
   // order and drops the rest, and `boundWorkerTranscriptMessages` returns a PREFIX of that, so
   // message index i is item i here for every index a cursor can name.
-  const projected = args.page.items.flatMap((item, index) =>
-    projectStructuredItemToNativeChat(item) === null ? [] : [{ index, revision: item.revision }]
+  const projected = args.page.items.filter(
+    (item) => projectStructuredItemToNativeChat(item) !== null
   )
   return createWorkerOutputSourceIdentity([
     'structured-journal',
     args.identity.processIncarnation,
     args.identity.paneKey,
-    args.page.items.length > 0 ? itemKey(0) : '',
-    ...projected
-      .slice(0, args.position)
-      .flatMap(({ index, revision }) => [itemKey(index), String(revision)])
+    args.page.items[0]?.itemId ?? '',
+    ...projected.slice(0, args.position).flatMap((item) => [item.itemId, String(item.revision)])
   ])
 }
 
 /** Freezes the journal before the session is closed, so a released worker is still readable. */
-export async function captureStructuredWorkerArchive(
+export function captureStructuredWorkerArchive(
   identity: StructuredWorkerIdentity,
   agent: AgentType
-): Promise<WorkerStructuredJournalArchive> {
-  const running = requireRunningStructuredWorker(identity)
-  // Opens a conversation at rest or one the idle sweep closed, so a resting worker's journal is
-  // still preserved. The whole lineage: a `/clear` must not drop the worker's earlier output.
-  const page = await readStructuredLineageJournalPage(running.lineage)
+): WorkerStructuredJournalArchive {
+  const page = readStructuredJournalPage(identity.sessionId)
   if (page) {
     return buildStructuredJournalArchive({
       agent,
@@ -283,20 +232,28 @@ export async function captureStructuredWorkerArchive(
   // the worker's chat tab is a routine user action that does exactly that, so throwing there wedges
   // release on evidence that can never come and leaves `worker-abandon` as the only exit.
   //
-  // Only a worker this runtime no longer owns qualifies — released with its chat tab gone. An owned
-  // one, running or at rest, keeps its journal, and so does one we could not look at.
-  if (structuredWorkerOwned(running) !== false) {
+  // `exited` is the only verdict that qualifies: it needs a released lease WITH death evidence.
+  // `unverifiable` — no host installed, a lease handed to a TUI owner — means we could not look,
+  // and retaining is still right.
+  if (observeStructuredWorker(identity).status !== 'exited') {
     throw new OrchestrationError(
       'archive_failed',
       'Output could not be preserved for this structured worker; the session was retained.'
     )
   }
-  // A retired lineage's unreadable sessions are gone for good; earlier ones may not be.
-  return captureRetiredLineageArchive({
+  const empty = buildStructuredJournalArchive({
     agent,
     processIncarnation: identity.processIncarnation,
-    lineage: running.lineage
+    items: [],
+    hasOlder: false
   })
+  return {
+    ...empty,
+    warnings: [
+      ...empty.warnings,
+      'The structured session was already closed, so its journal could not be preserved.'
+    ]
+  }
 }
 
 export function readArchivedStructuredJournal(args: {

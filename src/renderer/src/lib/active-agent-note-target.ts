@@ -1,15 +1,15 @@
 import type { RuntimeTerminalListResult } from '../../../shared/runtime-types'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../shared/agent-status-types'
 import type { AppState } from '@/store/types'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner-state'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
+import {
+  getSettingsForWorktreeRuntimeOwner,
+  type WorktreeRuntimeOwnerState
+} from '@/lib/worktree-runtime-owner'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
@@ -18,7 +18,7 @@ import {
   isExplicitAgentStatusFresh,
   resolveTitleActivityLabel
 } from '@/lib/pane-agent-evidence'
-import { resolveRuntimePaneTitleForLeaf } from '../../../shared/runtime-pane-title-leaf-id'
+import { resolveRuntimePaneTitleForLeaf } from './runtime-pane-title-leaf-id'
 
 const ACTIVE_AGENT_PROBE_RPC_TIMEOUT_MS = 3000
 const ACTIVE_AGENT_TERMINAL_LIST_LIMIT = 200
@@ -49,12 +49,13 @@ export type ActiveTerminalNoteTargetState = {
   >
   runtimePaneTitlesByTabId?: Record<string, Record<number, string> | undefined>
   agentStatusByPaneKey?: Record<string, AgentStatusEntry | undefined>
+  settings: Parameters<typeof getActiveRuntimeTarget>[0]
 } & Pick<WorktreeRuntimeOwnerState, 'repos' | 'worktreesByRepo'>
 
 type ActiveAgentRuntimeProbeDescriptor = {
   key: string
   worktreeId: string
-  runtimeTarget: RuntimeClientTarget
+  runtimeTarget: ReturnType<typeof getActiveRuntimeTarget>
   noteTarget: ActiveTerminalNoteTarget
 }
 
@@ -121,8 +122,8 @@ export function getActiveAgentRuntimeProbeDescriptor(
   }
   // Route by the worktree's owner host so the probe targets the host that runs
   // this worktree's agent terminal, not the focused runtime.
-  const runtimeTarget = runtimeTargetForOwnerEnvironment(
-    getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+  const runtimeTarget = getActiveRuntimeTarget(
+    getSettingsForWorktreeRuntimeOwner(state, worktreeId)
   )
   const runtimeKey =
     runtimeTarget.kind === 'environment' ? `env:${runtimeTarget.environmentId}` : 'local'
@@ -158,7 +159,7 @@ export async function probeActiveAgentNoteTarget({
 }
 
 export async function findActiveRuntimeTerminal(
-  runtimeTarget: RuntimeClientTarget,
+  runtimeTarget: ReturnType<typeof getActiveRuntimeTarget>,
   worktreeId: string,
   noteTarget: ActiveTerminalNoteTarget,
   timeoutMs: number

@@ -41,7 +41,6 @@ export type AgentCompletionIdentityScope = {
   hasUnconsumedStampedTail: () => boolean
   hasConsumedIdentity: (identity: string) => boolean
   clearOriginStampedTail: () => void
-  clearProcessExitCompletion: () => void
   clearStampedTail: () => void
   dispose: (isLive: boolean) => void
 }
@@ -176,11 +175,6 @@ export function createAgentCompletionIdentityScope(
         ) {
           lastCompletionByPane.delete(paneKey)
         }
-      }
-    },
-    clearProcessExitCompletion: () => {
-      if (lastCompletionByPane.get(paneKey)?.source === 'process-exit') {
-        lastCompletionByPane.delete(paneKey)
       }
     },
     clearStampedTail: () => {

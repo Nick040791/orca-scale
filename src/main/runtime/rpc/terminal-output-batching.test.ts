@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
@@ -348,11 +347,7 @@ describe('terminal output batching', () => {
       expect(runtime.sendTerminal).toHaveBeenCalledWith(
         'terminal-1',
         { text: 'ls\r', enter: false, interrupt: false },
-        {
-          inputKind: 'driving',
-          reserveWrite: expect.any(Function),
-          afterWrite: expect.any(Function)
-        }
+        { reserveWrite: expect.any(Function), afterWrite: expect.any(Function) }
       )
     )
     expect(beginMobileInputFloor).toHaveBeenCalledWith('pty-1', 'mobile-1')

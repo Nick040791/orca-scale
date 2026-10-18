@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   linearListIssues,
   linearSearchIssues,
-  linearSearchIssuesForTarget,
   linearSelectWorkspace,
-  linearStatus,
-  linearStatusForTarget
+  linearStatus
 } from './runtime-linear-client'
 import {
   linearCreateIssue,
@@ -108,23 +106,22 @@ describe('runtime linear client', () => {
     })
     linearCreateProjectLocal.mockResolvedValue({ ok: true, project: { id: 'project-1' } })
 
-    await expect(linearStatus({ kind: 'local' })).resolves.toEqual({
+    await expect(linearStatus({ activeRuntimeEnvironmentId: null })).resolves.toEqual({
       connected: false,
       viewer: null
     })
-    await expect(linearSearchIssues({ kind: 'local' }, 'bug', 10)).resolves.toEqual([
-      { id: 'issue-1' }
-    ])
-    await expect(linearListIssues({ kind: 'local' }, 'all', 72, 'workspace-1')).resolves.toEqual({
-      items: [{ id: 'issue-2' }],
-      hasMore: true
-    })
+    await expect(
+      linearSearchIssues({ activeRuntimeEnvironmentId: null }, 'bug', 10)
+    ).resolves.toEqual([{ id: 'issue-1' }])
+    await expect(
+      linearListIssues({ activeRuntimeEnvironmentId: null }, 'all', 72, 'workspace-1')
+    ).resolves.toEqual({ items: [{ id: 'issue-2' }], hasMore: true })
     await linearCreateSubIssue(
-      { kind: 'local' },
+      { activeRuntimeEnvironmentId: null },
       { parentIssueId: 'issue-1', teamId: 'team-1', title: 'Child task' }
     )
     await linearCreateProject(
-      { kind: 'local' },
+      { activeRuntimeEnvironmentId: null },
       { name: 'Roadmap', teamIds: ['team-1'], workspaceId: 'workspace-1' }
     )
 
@@ -155,19 +152,23 @@ describe('runtime linear client', () => {
   it('wraps legacy local Linear issue list arrays as collection results', async () => {
     linearListIssuesLocal.mockResolvedValue([{ id: 'legacy-issue' }])
 
-    await expect(linearListIssues({ kind: 'local' }, 'assigned', 20)).resolves.toEqual({
-      items: [{ id: 'legacy-issue' }]
-    })
+    await expect(
+      linearListIssues({ activeRuntimeEnvironmentId: null }, 'assigned', 20)
+    ).resolves.toEqual({ items: [{ id: 'legacy-issue' }] })
   })
 
   it('rejects oversized local Linear search queries before IPC', async () => {
     await expect(
-      linearSearchIssues({ kind: 'local' }, 'secret-token-value'.repeat(1024), 10)
+      linearSearchIssues(
+        { activeRuntimeEnvironmentId: null },
+        'secret-token-value'.repeat(1024),
+        10
+      )
     ).resolves.toEqual([])
 
-    await expect(linearListProjects({ kind: 'local' }, 'x'.repeat(9 * 1024), 10)).resolves.toEqual({
-      items: []
-    })
+    await expect(
+      linearListProjects({ activeRuntimeEnvironmentId: null }, 'x'.repeat(9 * 1024), 10)
+    ).resolves.toEqual({ items: [] })
 
     expect(linearSearchIssuesLocal).not.toHaveBeenCalled()
     expect(linearListProjectsLocal).not.toHaveBeenCalled()
@@ -178,7 +179,7 @@ describe('runtime linear client', () => {
     delete (window.api.linear as { listProjects?: unknown }).listProjects
 
     await expect(
-      linearListProjects({ kind: 'local' }, 'roadmap', 10, 'workspace-1')
+      linearListProjects({ activeRuntimeEnvironmentId: null }, 'roadmap', 10, 'workspace-1')
     ).resolves.toEqual({ items: [] })
   })
 
@@ -191,25 +192,47 @@ describe('runtime linear client', () => {
     linearListCustomViewIssuesLocal.mockResolvedValueOnce({ items: [{ id: 'issue-2' }] })
     linearListCustomViewProjectsLocal.mockResolvedValueOnce({ items: [{ id: 'project-2' }] })
 
-    await linearListProjects({ kind: 'local' }, 'roadmap', 10, 'workspace-1', {
+    await linearListProjects({ activeRuntimeEnvironmentId: null }, 'roadmap', 10, 'workspace-1', {
       force: true
     })
-    await linearGetProject({ kind: 'local' }, 'project-1', 'workspace-1', {
+    await linearGetProject({ activeRuntimeEnvironmentId: null }, 'project-1', 'workspace-1', {
       force: true
     })
-    await linearListProjectIssues({ kind: 'local' }, 'project-1', 10, 'workspace-1', {
-      force: true
-    })
-    await linearListCustomViews({ kind: 'local' }, 'project', 10, 'workspace-1', { force: true })
-    await linearGetCustomView({ kind: 'local' }, 'view-1', 'project', 'workspace-1', {
-      force: true
-    })
-    await linearListCustomViewIssues({ kind: 'local' }, 'view-1', 10, 'workspace-1', {
-      force: true
-    })
-    await linearListCustomViewProjects({ kind: 'local' }, 'view-2', 10, 'workspace-1', {
-      force: true
-    })
+    await linearListProjectIssues(
+      { activeRuntimeEnvironmentId: null },
+      'project-1',
+      10,
+      'workspace-1',
+      { force: true }
+    )
+    await linearListCustomViews(
+      { activeRuntimeEnvironmentId: null },
+      'project',
+      10,
+      'workspace-1',
+      { force: true }
+    )
+    await linearGetCustomView(
+      { activeRuntimeEnvironmentId: null },
+      'view-1',
+      'project',
+      'workspace-1',
+      { force: true }
+    )
+    await linearListCustomViewIssues(
+      { activeRuntimeEnvironmentId: null },
+      'view-1',
+      10,
+      'workspace-1',
+      { force: true }
+    )
+    await linearListCustomViewProjects(
+      { activeRuntimeEnvironmentId: null },
+      'view-2',
+      10,
+      'workspace-1',
+      { force: true }
+    )
 
     expect(linearListProjectsLocal).toHaveBeenCalledWith({
       query: 'roadmap',
@@ -276,10 +299,10 @@ describe('runtime linear client', () => {
         _meta: { runtimeId: 'runtime-1' }
       })
 
-    await linearStatus({ kind: 'environment', environmentId: 'env-1' })
-    await linearSearchIssues({ kind: 'environment', environmentId: 'env-1' }, 'bug', 10, 'all')
+    await linearStatus({ activeRuntimeEnvironmentId: 'env-1' })
+    await linearSearchIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'bug', 10, 'all')
     await expect(
-      linearListIssues({ kind: 'environment', environmentId: 'env-1' }, 'all', 72, 'workspace-1')
+      linearListIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'all', 72, 'workspace-1')
     ).resolves.toEqual({ items: [{ id: 'issue-2' }], hasMore: true })
 
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
@@ -305,30 +328,6 @@ describe('runtime linear client', () => {
     expect(linearListIssuesLocal).not.toHaveBeenCalled()
   })
 
-  it('routes explicit search targets with the same workspace and query bounds as legacy callers', async () => {
-    runtimeEnvironmentCall.mockImplementation((args: RuntimeEnvironmentCallRequest) =>
-      Promise.resolve({
-        id: 'rpc-result',
-        ok: true,
-        result: args.method === 'linear.status' ? { connected: true, viewer: null } : [],
-        _meta: { runtimeId: 'runtime-1' }
-      })
-    )
-    const target = { kind: 'environment', environmentId: 'source-owner' } as const
-    await expect(linearStatusForTarget(target)).resolves.toEqual({ connected: true, viewer: null })
-    await linearSearchIssuesForTarget(target, 'bug', 12, 'workspace-a')
-    await linearSearchIssuesForTarget(target, 'secret-token-value'.repeat(1024), 12)
-    expect(runtimeEnvironmentCall).toHaveBeenCalledTimes(2)
-    expect(runtimeEnvironmentCall).toHaveBeenLastCalledWith({
-      selector: 'source-owner',
-      method: 'linear.searchIssues',
-      params: { query: 'bug', limit: 12, workspaceId: 'workspace-a' },
-      timeoutMs: 30_000
-    })
-    expect(linearStatusLocal).not.toHaveBeenCalled()
-    expect(linearSearchIssuesLocal).not.toHaveBeenCalled()
-  })
-
   it('wraps legacy remote Linear issue list arrays as collection results', async () => {
     runtimeEnvironmentCall.mockResolvedValueOnce({
       id: 'rpc-list',
@@ -338,7 +337,7 @@ describe('runtime linear client', () => {
     })
 
     await expect(
-      linearListIssues({ kind: 'environment', environmentId: 'env-1' }, 'assigned', 20)
+      linearListIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'assigned', 20)
     ).resolves.toEqual({ items: [{ id: 'legacy-issue' }] })
 
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
@@ -367,7 +366,7 @@ describe('runtime linear client', () => {
     )
 
     await expect(
-      linearListIssues({ kind: 'environment', environmentId: 'env-1' }, 'all', 20, 'workspace-1', {
+      linearListIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'all', 20, 'workspace-1', {
         stateIds: ['state-1'],
         priorities: [],
         assignee: null,
@@ -391,7 +390,7 @@ describe('runtime linear client', () => {
     })
 
     await expect(
-      linearListIssues({ kind: 'environment', environmentId: 'env-1' }, 'all', 20, 'workspace-1', {
+      linearListIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'all', 20, 'workspace-1', {
         stateIds: [],
         priorities: [2],
         assignee: null,
@@ -426,7 +425,7 @@ describe('runtime linear client', () => {
     })
 
     await expect(
-      linearListIssues({ kind: 'environment', environmentId: 'env-1' }, 'assigned', 20)
+      linearListIssues({ activeRuntimeEnvironmentId: 'env-1' }, 'assigned', 20)
     ).resolves.toEqual({ items: [] })
   })
 
@@ -488,17 +487,17 @@ describe('runtime linear client', () => {
       })
 
     await linearCreateIssue(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       { teamId: 'team-1', title: 'Fix bug', workspaceId: 'workspace-1' }
     )
     await linearUpdateIssue(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'issue-1',
       { estimate: 5, priority: 2 },
       'workspace-1'
     )
     await linearCreateSubIssue(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       {
         parentIssueId: 'issue-1',
         teamId: 'team-1',
@@ -507,15 +506,10 @@ describe('runtime linear client', () => {
         projectId: 'project-1'
       }
     )
-    await linearListTeams({ kind: 'environment', environmentId: 'env-1' }, 'all')
-    await linearListProjects(
-      { kind: 'environment', environmentId: 'env-1' },
-      'roadmap',
-      10,
-      'workspace-1'
-    )
+    await linearListTeams({ activeRuntimeEnvironmentId: 'env-1' }, 'all')
+    await linearListProjects({ activeRuntimeEnvironmentId: 'env-1' }, 'roadmap', 10, 'workspace-1')
     await linearCreateProject(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       {
         name: 'Roadmap',
         description: 'Summary',
@@ -524,7 +518,7 @@ describe('runtime linear client', () => {
         priority: 2
       }
     )
-    await linearSelectWorkspace({ kind: 'environment', environmentId: 'env-1' }, 'workspace-1')
+    await linearSelectWorkspace({ activeRuntimeEnvironmentId: 'env-1' }, 'workspace-1')
 
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
       selector: 'env-1',
@@ -625,44 +619,39 @@ describe('runtime linear client', () => {
         _meta: { runtimeId: 'runtime-1' }
       })
 
-    await linearGetProject(
-      { kind: 'environment', environmentId: 'env-1' },
-      'project-1',
-      'workspace-1',
-      {
-        force: true
-      }
-    )
+    await linearGetProject({ activeRuntimeEnvironmentId: 'env-1' }, 'project-1', 'workspace-1', {
+      force: true
+    })
     await linearListProjectIssues(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'project-1',
       10,
       'workspace-1',
       { force: true }
     )
     await linearListCustomViews(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'project',
       10,
       'workspace-1',
       { force: true }
     )
     await linearGetCustomView(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'view-1',
       'project',
       'workspace-1',
       { force: true }
     )
     await linearListCustomViewIssues(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'view-1',
       10,
       'workspace-1',
       { force: true }
     )
     await linearListCustomViewProjects(
-      { kind: 'environment', environmentId: 'env-1' },
+      { activeRuntimeEnvironmentId: 'env-1' },
       'view-2',
       10,
       'workspace-1',

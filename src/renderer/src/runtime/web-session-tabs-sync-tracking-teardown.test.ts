@@ -5,11 +5,11 @@ import type { BrowserPage, BrowserWorkspace } from '../../../shared/browser-work
 import type { Tab } from '../../../shared/tab-types'
 import {
   _getWebSessionTabsTrackingCountsForTest,
-  clearWebSessionTabsTrackingForEnvironment
-} from './web-session-tabs-sync/tracking-lifecycle'
-import { applyFreshWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
-import { resolveHostSessionTabIdForWebSessionTab } from './web-session-tabs-sync/tracking-mappings'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+  applyFreshWebSessionTabsSnapshot,
+  clearWebSessionTabsTrackingForEnvironment,
+  resolveHostSessionTabIdForWebSessionTab,
+  type WebSessionTabsSyncState
+} from './web-session-tabs-sync'
 import {
   ENV,
   HOST_SURFACE_ID,

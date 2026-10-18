@@ -1,8 +1,7 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
 import { vi } from 'vitest'
 import { createEditorModelRegistry } from '@/lib/editor-model-registry'
-import { createEditorTabsStore } from '@/store/slices/editor-slice-test-harness'
-import { makeWorktree, TEST_REPO } from '@/store/slices/worktrees-slice-test-fixtures'
+import { createTestStore, makeWorktree, TEST_REPO } from '@/store/slices/store-test-helpers'
 import { createStoreSessionMockApi } from '@/store/slices/store-session-test-harness'
 import type { OpenFile } from '@/store/slices/editor'
 import { attachClosedEditorTabCleanup } from './closed-editor-tab-controller'
@@ -23,16 +22,8 @@ export function createModelLifetimeFixture(register = true) {
   const api = createStoreSessionMockApi()
   Reflect.set(globalThis, 'window', domWindow)
   Reflect.set(domWindow, 'api', api)
-  const store = createEditorTabsStore()
+  const store = createTestStore()
   store.setState({
-    settings: null,
-    detectedWorktreesByRepo: {},
-    activeWorkspaceExecutionHostId: null,
-    restoredRuntimeHostIdByWorkspaceSessionKey: {},
-    runtimeEnvironments: [],
-    runtimeEnvironmentCatalogHydrated: false,
-    removedRuntimeEnvironmentIds: new Set(),
-    recentlyClosedTabKindsByWorktree: {},
     repos: [{ ...TEST_REPO, id: 'model-fixture', path: '/fixture/workspace' }],
     worktreesByRepo: {
       'model-fixture': [

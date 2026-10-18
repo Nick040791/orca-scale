@@ -82,10 +82,7 @@ export function registerAgentStatusListeners(args: {
         }
       }
       const store = useAppStore.getState()
-      if (
-        data.statusUnavailable !== true &&
-        store.agentStatusByPaneKey[data.paneKey]?.state === 'done'
-      ) {
+      if (store.agentStatusByPaneKey[data.paneKey]?.state === 'done') {
         return
       }
       store.removeAgentStatus(data.paneKey)

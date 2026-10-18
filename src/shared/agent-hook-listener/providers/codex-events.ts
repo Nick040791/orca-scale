@@ -26,7 +26,7 @@ import { extractToolFields, isNewTurnEvent } from '../provider-event-routing'
 import { readString } from '../tool-input-preview'
 import {
   codexMainAgentStatusForPayload,
-  codexLeadOutcomeForEvent,
+  codexOutcomeRestatedByStop,
   getOrCreateCodexSubagentRoster,
   getOrCreateCodexSubagentTranscriptState,
   hasCodexTranscriptSubagents,
@@ -150,20 +150,6 @@ export function normalizeCodexEvent(
     return normalizeCodexSubagentLifecycleEvent(state, eventName, paneKey, hookPayload)
   }
 
-  const sessionId = readString(hookPayload, 'session_id')
-  const currentSessionId = state.lastStatusByPaneKey.get(paneKey)?.providerSession?.id
-  // Ephemeral side chats share the pane but must not replace its recorded main turn.
-  if (
-    hookPayload.transcript_path === null &&
-    !readString(hookPayload, 'agent_id') &&
-    state.codexSubagentTranscriptByPaneKey.get(paneKey)?.parent.filePath &&
-    sessionId &&
-    currentSessionId &&
-    sessionId !== currentSessionId
-  ) {
-    return null
-  }
-
   // Why: Codex's request_user_input (0.145+) is auto-allowed, so it fires PreToolUse while blocked on a human answer; map to waiting like grok's ask_user_question.
   const isUserInputPreTool =
     eventName === 'PreToolUse' &&
@@ -176,7 +162,7 @@ export function normalizeCodexEvent(
       ? 'working'
       : eventName === 'PermissionRequest' || isUserInputPreTool
         ? 'waiting'
-        : eventName === 'Stop' || eventName === 'Interrupt'
+        : eventName === 'Stop'
           ? 'done'
           : null
   if (!stateName) {
@@ -208,12 +194,6 @@ export function normalizeCodexEvent(
       getOrCreateCodexSubagentRoster(state, paneKey),
       transcriptPath
     )
-  }
-  if (!agentId && (eventName === 'UserPromptSubmit' || eventName === 'SessionStart')) {
-    const transcript = state.codexSubagentTranscriptByPaneKey.get(paneKey)
-    if (transcript) {
-      transcript.rootTurn.interrupted = false
-    }
   }
   if (agentId) {
     // Why: reconcile the child rollout reviewer before classifying its approval, including after relay restart.
@@ -253,7 +233,7 @@ export function normalizeCodexEvent(
   const previousLead = state.codexLeadStateByPaneKey.get(paneKey)
   const record = setCodexMainAgentTurnState(state, paneKey, {
     state: ownedState,
-    ...codexLeadOutcomeForEvent(eventName, previousLead, ownedState),
+    ...codexOutcomeRestatedByStop(previousLead, ownedState),
     model:
       normalizeOptionalField(hookPayload['model'], AGENT_MODEL_MAX_LENGTH) ??
       (eventName === 'SessionStart' ? undefined : previousLead?.model)

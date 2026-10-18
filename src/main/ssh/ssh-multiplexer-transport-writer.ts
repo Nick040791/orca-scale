@@ -1,6 +1,13 @@
-import { HEADER_LENGTH, MAX_MESSAGE_SIZE } from '../../shared/relay-frame-decoder'
+import { HEADER_LENGTH, MAX_MESSAGE_SIZE } from './relay-protocol'
 import { SshMultiplexerWriterLaneScheduler } from './ssh-multiplexer-writer-lane-scheduler'
-import type { WriteAmbiguityReason, WriteRefusalReason } from '../../shared/pty-write-settlement'
+import {
+  WRITE_ACCEPTED,
+  writeRefused,
+  writeUnverifiable,
+  type WriteAmbiguityReason,
+  type WriteRefusalReason,
+  type WriteSettlement
+} from '../../shared/pty-write-settlement'
 
 /** All the socket itself can prove: it took the buffer, or the attempt failed. */
 export type MultiplexerTransportWriteResult = { ok: true } | { ok: false; error: Error }
@@ -24,6 +31,16 @@ const ACCEPTED: MultiplexerWriteSettlement = { outcome: 'accepted' }
 
 function transportRefusal(reason: WriteRefusalReason, error: Error): MultiplexerWriteSettlement {
   return { outcome: 'refused', reason, error }
+}
+
+/** Drops the transport error so callers carry exactly the fields `WriteSettlement` declares. */
+export function toWriteSettlement(result: MultiplexerWriteSettlement): WriteSettlement {
+  if (result.outcome === 'accepted') {
+    return WRITE_ACCEPTED
+  }
+  return result.outcome === 'refused'
+    ? writeRefused(result.reason)
+    : writeUnverifiable(result.reason, result.bytesHandedToTransport)
 }
 
 export type MultiplexerTransport = {

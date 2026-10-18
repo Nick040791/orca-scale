@@ -29,8 +29,11 @@ vi.mock('child_process', () => ({
   execFileSync: vi.fn()
 }))
 
-import { resetWindowsSecurityLoadForTests } from './windows-security-addon'
-import { __resetSecureFileHardenedPathsForTests, hardenExistingSecureFile } from './secure-file'
+import {
+  __resetSecureFileHardenedPathsForTests,
+  __resetSecureFileWindowsUserSidForTests,
+  hardenExistingSecureFile
+} from './secure-file'
 
 describe('secure-file coarse-ctime mode drift', () => {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
@@ -58,7 +61,7 @@ describe('secure-file coarse-ctime mode drift', () => {
         state.fileMode = mode & 0o777
       }
     })
-    resetWindowsSecurityLoadForTests()
+    __resetSecureFileWindowsUserSidForTests()
     __resetSecureFileHardenedPathsForTests()
   })
 
@@ -66,7 +69,7 @@ describe('secure-file coarse-ctime mode drift', () => {
     chmodSyncMock.mockReset()
     existsSyncMock.mockReset()
     statSyncMock.mockReset()
-    resetWindowsSecurityLoadForTests()
+    __resetSecureFileWindowsUserSidForTests()
     __resetSecureFileHardenedPathsForTests()
     if (originalPlatform) {
       Object.defineProperty(process, 'platform', originalPlatform)

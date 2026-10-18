@@ -9,8 +9,8 @@ import {
   getLocalProjectGitExecOptions,
   getLocalProjectWorktreeGitOptions
 } from '../project-runtime-git-options'
-import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
-import type { ProjectRuntimeResolutionStore } from '../local-project-runtime-resolution'
+import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
+import type { Store } from '../persistence'
 import { resolveRuntimeGitLabForkMrBase } from './runtime-gitlab-fork-mr-base'
 import { resolveRuntimeGitLabIssueSourceRemote } from './runtime-gitlab-issue-source-remote'
 
@@ -28,10 +28,7 @@ type RuntimeGitLabWorktreeBaseResult =
 
 export async function resolveRuntimeGitLabWorktreeBase(
   args: RuntimeGitLabWorktreeBaseArgs,
-  deps: {
-    store: ProjectRuntimeResolutionStore | null
-    resolveRepo: (selector: string) => Promise<Repo>
-  }
+  deps: { store: Store | null; resolveRepo: (selector: string) => Promise<Repo> }
 ): Promise<RuntimeGitLabWorktreeBaseResult> {
   if (!deps.store) {
     throw new Error('runtime_unavailable')
@@ -45,12 +42,16 @@ export async function resolveRuntimeGitLabWorktreeBase(
   if (isFolderRepo(repo)) {
     return { error: 'Folder mode does not support creating worktrees.' }
   }
-  if (repo.connectionId) {
-    throw new SshHostNotServedError(repo.connectionId)
-  }
-  const localGitExecOptions = getLocalProjectGitExecOptions(deps.store, repo)
-  const localWorktreeGitOptions = getLocalProjectWorktreeGitOptions(deps.store, repo)
-  const gitExec = (gitArgs: string[]) => gitExecFileAsync(gitArgs, localGitExecOptions)
+  const sshGitProvider = repo.connectionId ? requireSshGitProvider(repo.connectionId) : null
+  const localGitExecOptions = sshGitProvider
+    ? undefined
+    : getLocalProjectGitExecOptions(deps.store, repo)
+  const localWorktreeGitOptions = sshGitProvider
+    ? {}
+    : getLocalProjectWorktreeGitOptions(deps.store, repo)
+  const gitExec = sshGitProvider
+    ? (gitArgs: string[]) => sshGitProvider.exec(gitArgs, repo.path)
+    : (gitArgs: string[]) => gitExecFileAsync(gitArgs, localGitExecOptions ?? { cwd: repo.path })
   let sourceBranch = args.sourceBranch?.trim() ?? ''
   let targetBranch = args.targetBranch?.trim() ?? ''
   let isCrossRepository = args.isCrossRepository === true
@@ -60,17 +61,18 @@ export async function resolveRuntimeGitLabWorktreeBase(
       discoveryRemote = await resolveRuntimeGitLabIssueSourceRemote(
         repo.path,
         repo.issueSourcePreference,
+        repo.connectionId ?? null,
         localWorktreeGitOptions
       )
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Could not resolve git remote.' }
     }
-    const knownHosts = await getGlabKnownHosts(null, localWorktreeGitOptions)
+    const knownHosts = await getGlabKnownHosts(repo.connectionId ?? null, localWorktreeGitOptions)
     const projectRef = await getProjectRefForRemote(
       repo.path,
       discoveryRemote,
       knownHosts,
-      null,
+      repo.connectionId ?? null,
       localWorktreeGitOptions
     )
     if (!projectRef) {
@@ -81,7 +83,7 @@ export async function resolveRuntimeGitLabWorktreeBase(
       projectRef,
       args.mrIid,
       'mr',
-      null,
+      repo.connectionId ?? null,
       localWorktreeGitOptions
     )
     if (!item || item.type !== 'mr') {
@@ -101,6 +103,7 @@ export async function resolveRuntimeGitLabWorktreeBase(
     remote = await resolveRuntimeGitLabIssueSourceRemote(
       repo.path,
       repo.issueSourcePreference,
+      repo.connectionId ?? null,
       localWorktreeGitOptions
     )
   } catch (error) {
@@ -108,7 +111,9 @@ export async function resolveRuntimeGitLabWorktreeBase(
   }
   const compareBaseRef = targetBranch ? `refs/remotes/${remote}/${targetBranch}` : undefined
   const fetchRemoteTrackingRef = async (branch: string, ref: string): Promise<void> => {
-    await gitExec(['fetch', remote, `+refs/heads/${branch}:${ref}`])
+    await (sshGitProvider
+      ? sshGitProvider.fetchRemoteTrackingRef(repo.path, remote, branch, ref)
+      : gitExec(['fetch', remote, `+refs/heads/${branch}:${ref}`]))
   }
   const fetchCompareBaseRef = (): Promise<boolean> =>
     fetchCompareBaseRefWithLocalFallback({
@@ -121,6 +126,7 @@ export async function resolveRuntimeGitLabWorktreeBase(
   if (isCrossRepository) {
     return resolveRuntimeGitLabForkMrBase({
       repo,
+      sshGitProvider,
       remote,
       mrIid: args.mrIid,
       localGitExecOptions,

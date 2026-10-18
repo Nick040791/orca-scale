@@ -14,15 +14,12 @@ import { dirname, join, posix as pathPosix } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { SFTPWrapper } from 'ssh2'
 import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
-import { isDefinitiveAbsence } from '../../shared/definitive-filesystem-absence'
 import {
-  buildWindowsAgentHookCurlPostCommand,
   createManagedCommandMatcher,
   getSharedManagedScriptPath,
   wrapPosixHookCommand,
   writeManagedScript
 } from '../agent-hooks/installer-utils'
-import { wrapWindowsBatchHookCommand } from '../agent-hooks/windows-direct-cmd-hook-command'
 import { refreshManagedScriptIfPresent } from '../agent-hooks/managed-hook-script-refresh'
 import {
   readTextFileRemote,
@@ -31,9 +28,7 @@ import {
 } from '../agent-hooks/installer-utils-remote'
 import {
   buildPosixHookPayloadCapture,
-  buildPosixHookSpoolLines,
-  buildWindowsHookEnvironmentGuardLines,
-  buildWindowsHookStdinDrainEpilogue
+  buildPosixHookSpoolLines
 } from '../agent-hooks/hook-stdin-contract'
 import {
   applyManagedKimiHooks,
@@ -53,48 +48,31 @@ function getConfigPath(): string {
   return join(getKimiHome(), 'config.toml')
 }
 
-// Kimi runs hooks with asyncio.create_subprocess_shell: cmd.exe on Windows, sh
-// elsewhere (it needs Git Bash only for its Shell tool). SSH remotes keep the .sh.
-const POSIX_SCRIPT_FILE_NAME = 'kimi-hook.sh'
-const WINDOWS_SCRIPT_FILE_NAME = 'kimi-hook.cmd'
+// Always a POSIX `.sh` script: Kimi runs hook commands through its shell, which
+// is Git Bash even on Windows (see the CLI README / KIMI_SHELL_PATH), so a
+// single curl-based script body works on every platform.
+const MANAGED_SCRIPT_FILE_NAME = 'kimi-hook.sh'
 
 // Ownership test for every managed-block path: status, install, remove and the
-// bounded orphan recovery all agree on what counts as an Orca-written hook. It
-// matches every extension of the stem, so a pre-fix Windows `.sh` entry is replaced.
-const isManagedKimiCommand = createManagedCommandMatcher(POSIX_SCRIPT_FILE_NAME)
+// bounded orphan recovery all agree on what counts as an Orca-written hook.
+const isManagedKimiCommand = createManagedCommandMatcher(MANAGED_SCRIPT_FILE_NAME)
 
 function getManagedScriptPath(): string {
-  return getSharedManagedScriptPath(
-    process.platform === 'win32' ? WINDOWS_SCRIPT_FILE_NAME : POSIX_SCRIPT_FILE_NAME
-  )
+  return getSharedManagedScriptPath(MANAGED_SCRIPT_FILE_NAME)
 }
 
-export function getManagedCommand(scriptPath: string): string {
-  // Why the direct form's forward slashes are load-bearing: ownership matches the still-escaped
-  // TOML literal, where a backslash path reads as `agent-hooks\\kimi-hook.cmd` and never matches.
-  return process.platform === 'win32'
-    ? wrapWindowsBatchHookCommand(scriptPath)
-    : wrapPosixHookCommand(scriptPath)
+function getManagedCommand(scriptPath: string): string {
+  // Forward slashes so Kimi's Git Bash shell accepts the path on Windows.
+  const posixPath = process.platform === 'win32' ? scriptPath.replaceAll('\\', '/') : scriptPath
+  return wrapPosixHookCommand(posixPath)
 }
 
 function getManagedScript(target: 'local' | 'posix' = 'local'): string {
-  if (target === 'local' && process.platform === 'win32') {
-    return [
-      '@echo off',
-      'setlocal',
-      // Why: the endpoint file holds this install's live port/token; sourcing it lets a surviving PTY reach the current server (see claude/hook-service.ts).
-      'if defined ORCA_AGENT_HOOK_ENDPOINT if exist "%ORCA_AGENT_HOOK_ENDPOINT%" call "%ORCA_AGENT_HOOK_ENDPOINT%" 2>nul',
-      ...buildWindowsHookEnvironmentGuardLines(),
-      buildWindowsAgentHookCurlPostCommand('kimi'),
-      'exit /b 0',
-      ...buildWindowsHookStdinDrainEpilogue(),
-      ''
-    ].join('\r\n')
-  }
-  return [
-    '#!/bin/sh',
-    ...buildPosixHookPayloadCapture(),
-    ...buildPosixHookSpoolLines('kimi'),
+  // Why (#11549 class): on Windows this .sh runs under Git Bash but the caller is a
+  // Windows process that can abandon the pipe, so the missing-env guard must run before
+  // the capture owns stdin. POSIX callers close stdin (#8110), so posix keeps capture-first.
+  const windowsLocal = target === 'local' && process.platform === 'win32'
+  const endpointRefreshAndGuard = [
     // Why: refresh PORT/TOKEN/ENV/VERSION from the current Orca install so a PTY
     // that survived an Orca restart still reaches the live listener. See
     // claude/hook-service.ts for the full rationale.
@@ -102,9 +80,25 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
     '  . "$ORCA_AGENT_HOOK_ENDPOINT" 2>/dev/null || :',
     'fi',
     'if [ -z "$ORCA_AGENT_HOOK_PORT" ] || [ -z "$ORCA_AGENT_HOOK_TOKEN" ] || [ -z "$ORCA_PANE_KEY" ]; then',
-    '  spool_hook_event',
+    // Why: the windows-local ordering runs this guard before stdin is read and before
+    // spool_hook_event is defined, so only the payload-first ordering may spool here.
+    ...(windowsLocal ? [] : ['  spool_hook_event']),
     '  exit 0',
-    'fi',
+    'fi'
+  ]
+  return [
+    '#!/bin/sh',
+    ...(windowsLocal
+      ? [
+          ...endpointRefreshAndGuard,
+          ...buildPosixHookPayloadCapture(),
+          ...buildPosixHookSpoolLines('kimi')
+        ]
+      : [
+          ...buildPosixHookPayloadCapture(),
+          ...buildPosixHookSpoolLines('kimi'),
+          ...endpointRefreshAndGuard
+        ]),
     // Why: worktreeId embeds a filesystem path, so hand-building JSON in POSIX
     // shell is not safe once a path contains quotes or newlines. Post the raw
     // hook payload plus metadata as form fields and let the receiver parse it.
@@ -155,14 +149,7 @@ function writeConfigToml(configPath: string, text: string): void {
     } catch {
       // Fall through to the atomic write path.
     }
-    try {
-      mode = statSync(configPath).mode & 0o777
-    } catch (error) {
-      // Why: file was deleted between the existsSync check and here — nothing to preserve.
-      if (!isDefinitiveAbsence(error)) {
-        throw error
-      }
-    }
+    mode = statSync(configPath).mode & 0o777
   }
   const tmpPath = join(dir, `.${Date.now()}-${randomUUID()}.tmp`)
   try {
@@ -241,14 +228,15 @@ export class KimiHookService {
   }
 
   // Why: install Orca's managed Kimi hooks on a remote box over SFTP, mirroring
-  // the local install. POSIX-only by design: remote hosts run hooks through sh.
+  // the local install. POSIX-only by design (Kimi's shell is sh/Git Bash); the
+  // managed script body is already platform-independent.
   async installRemote(sftp: SFTPWrapper, remoteHome: string): Promise<AgentHookInstallStatus> {
     const remoteConfigPath = pathPosix.join(remoteHome, '.kimi-code', 'config.toml')
     const remoteScriptPath = pathPosix.join(
       remoteHome,
       '.orca',
       'agent-hooks',
-      POSIX_SCRIPT_FILE_NAME
+      MANAGED_SCRIPT_FILE_NAME
     )
     try {
       // null (file absent) → start from an empty config; Kimi creates it lazily.

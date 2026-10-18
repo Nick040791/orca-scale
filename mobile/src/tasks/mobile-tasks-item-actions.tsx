@@ -44,10 +44,7 @@ export function renderMobileTasksItemActions(model: ConnectionPresentationModel)
         style={styles.actionRow}
         disabled={creatingKey === actionItem.key}
         onPress={() => {
-          // Jira, like Linear, is not repo-scoped, so the target repo has to be asked for
-          // rather than defaulted to the first one.
-          const needsRepoChoice = actionItem.provider === 'linear' || actionItem.provider === 'jira'
-          if (needsRepoChoice && workspaceRepos.length > 1) {
+          if (actionItem.provider === 'linear' && workspaceRepos.length > 1) {
             setWorkspaceRepoPickerItem(actionItem)
             return
           }

@@ -40,6 +40,9 @@ function allowedQualities(
   if (token.isSingleLatinCharacter) {
     qualities = qualities.filter((quality) => SHORT_TOKEN_QUALITIES.has(quality))
   }
+  if (token.isIdentifierLike) {
+    qualities = qualities.filter((quality) => quality !== 'typo')
+  }
   return qualities
 }
 
@@ -151,12 +154,7 @@ function matchTypo(
   token: PaletteQueryToken,
   qualities: readonly PaletteMatchQuality[]
 ): PaletteFieldMatch | null {
-  if (
-    token.isIdentifierLike ||
-    !qualities.includes('typo') ||
-    !token.isLetterOnly ||
-    !isPaletteTypoCandidate(token.text)
-  ) {
+  if (!qualities.includes('typo') || !token.isLetterOnly || !isPaletteTypoCandidate(token.text)) {
     return null
   }
   for (const word of field.words) {

@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import type { AgentStatusEntry } from '../../../src/shared/agent-status-types'
 import { parseAskFromStatus, resolveNativeChatAsk } from '../../../src/shared/native-chat-ask'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
-import { resolveNativeChatTranscriptAgent } from '../../../src/shared/native-chat-agent-support'
 import { detectAgentPermission, parseApprovalFromStatus } from './mobile-native-chat-permission'
 import { parseAgentQuestion } from './mobile-native-chat-question'
 
@@ -24,20 +23,17 @@ export function useMobileNativeChatPrompts(args: {
 }): MobileNativeChatPrompts {
   const { enabled, status, messages, transcriptLoading } = args
   const blocked = status?.state === 'waiting' || status?.state === 'blocked'
-  const openCode = resolveNativeChatTranscriptAgent(status?.agentType) === 'opencode'
   // Both permission paths sit inside the paused gate: an approval envelope can
   // outlive its answer (the host keeps it sticky), so only a waiting/blocked
   // agent may surface it — never a working or done one (STA-3144).
   const permission =
     blocked && status
-      ? openCode
-        ? parseApprovalFromStatus(status.interactivePrompt, status.agentType)
-        : (detectAgentPermission({
-            state: status.state,
-            lastAssistantMessage: status.lastAssistantMessage,
-            toolName: status.toolName,
-            toolInput: status.toolInput
-          }) ?? parseApprovalFromStatus(status.interactivePrompt, status.agentType))
+      ? (detectAgentPermission({
+          state: status.state,
+          lastAssistantMessage: status.lastAssistantMessage,
+          toolName: status.toolName,
+          toolInput: status.toolInput
+        }) ?? parseApprovalFromStatus(status.interactivePrompt))
       : null
   const question =
     blocked && status && !permission ? parseAgentQuestion(status.lastAssistantMessage ?? '') : null
@@ -58,9 +54,8 @@ export function useMobileNativeChatPrompts(args: {
   const detectedAsk = askFromStatus ?? askFromMessages
 
   return {
-    // Why: a heuristic card read from the same waiting status would answer the Ask's dialog.
-    permission: askFromStatus ? null : permission,
-    question: askFromStatus ? null : question,
+    permission,
+    question,
     detectedAsk: enabled ? detectedAsk : null,
     // Only the status payload needs the paused gate the approval envelope uses:
     // it outlives its answer, so a working/done agent must not surface one. The

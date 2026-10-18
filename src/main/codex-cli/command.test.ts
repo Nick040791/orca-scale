@@ -1,7 +1,7 @@
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
-import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   getVersionManagerBinPaths,
   withCliRuntimeOnPath,
@@ -9,12 +9,6 @@ import {
   resolveCliCommands,
   resolveCodexCommand
 } from './command'
-
-function makeCommandFixture(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
-  onTestFinished(() => rmSync(root, { recursive: true, force: true }))
-  return root
-}
 
 function makeExecutable(path: string): void {
   mkdirSync(dirname(path), { recursive: true })
@@ -39,7 +33,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('prefers Codex already present on PATH', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const pathDir = join(root, 'bin')
     const commandPath = join(pathDir, 'codex')
     makeExecutable(commandPath)
@@ -52,7 +46,7 @@ describe('resolveCodexCommand', () => {
   it.skipIf(process.platform === 'win32')(
     'skips non-runnable PATH entries and keeps scanning',
     () => {
-      const root = makeCommandFixture('orca-codex-command-')
+      const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
       const badDir = join(root, 'bad-bin')
       const goodDir = join(root, 'good-bin')
       const badCommandPath = join(badDir, 'codex')
@@ -71,7 +65,7 @@ describe('resolveCodexCommand', () => {
   )
 
   it('skips PATH directories named like the command', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const badDir = join(root, 'bad-bin')
     const goodDir = join(root, 'good-bin')
     mkdirSync(join(badDir, 'codex'), { recursive: true })
@@ -88,7 +82,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('falls back to the newest nvm-installed Codex when PATH misses it', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const v22Path = join(root, '.nvm', 'versions', 'node', 'v22.14.0', 'bin', 'codex')
     const v24Path = join(root, '.nvm', 'versions', 'node', 'v24.13.0', 'bin', 'codex')
     makeExecutable(v22Path)
@@ -98,7 +92,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in pnpm global bin on macOS', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const pnpmPath = join(root, 'Library', 'pnpm', 'codex')
     makeExecutable(pnpmPath)
 
@@ -106,7 +100,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in pnpm global bin on Linux', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const pnpmPath = join(root, '.local', 'share', 'pnpm', 'codex')
     makeExecutable(pnpmPath)
 
@@ -114,7 +108,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in pnpm global bin on Windows', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const pnpmPath = join(root, 'AppData', 'Local', 'pnpm', 'codex.cmd')
     makeExecutable(pnpmPath)
 
@@ -122,7 +116,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in yarn global bin on macOS', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const yarnPath = join(root, '.yarn', 'bin', 'codex')
     makeExecutable(yarnPath)
 
@@ -130,7 +124,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in yarn global bin on Windows', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const yarnPath = join(root, 'AppData', 'Local', 'Yarn', 'bin', 'codex.cmd')
     makeExecutable(yarnPath)
 
@@ -138,7 +132,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in bun global bin', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const bunPath = join(root, '.bun', 'bin', 'codex')
     makeExecutable(bunPath)
 
@@ -146,7 +140,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in bun global bin on Windows', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const bunPath = join(root, '.bun', 'bin', 'codex.exe')
     makeExecutable(bunPath)
 
@@ -154,7 +148,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('finds Codex in mise shims directory', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
     const misePath = join(root, '.local', 'share', 'mise', 'shims', 'codex')
     makeExecutable(misePath)
 
@@ -162,7 +156,7 @@ describe('resolveCodexCommand', () => {
   })
 
   it('returns the bare command when no filesystem candidate exists', () => {
-    const root = makeCommandFixture('orca-codex-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-command-'))
 
     expect(resolveCodexCommand({ platform: 'linux', pathEnv: '', homePath: root })).toBe('codex')
   })
@@ -175,7 +169,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('prefers claude already present on PATH', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const pathDir = join(root, 'bin')
     const commandPath = join(pathDir, 'claude')
     makeExecutable(commandPath)
@@ -186,7 +180,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('falls back to the newest nvm-installed claude when PATH misses it', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const v22Path = join(root, '.nvm', 'versions', 'node', 'v22.14.0', 'bin', 'claude')
     const v24Path = join(root, '.nvm', 'versions', 'node', 'v24.13.0', 'bin', 'claude')
     makeExecutable(v22Path)
@@ -196,7 +190,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('finds claude in pnpm global bin on macOS', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const pnpmPath = join(root, 'Library', 'pnpm', 'claude')
     makeExecutable(pnpmPath)
 
@@ -204,7 +198,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('finds claude in yarn global bin', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const yarnPath = join(root, '.yarn', 'bin', 'claude')
     makeExecutable(yarnPath)
 
@@ -212,7 +206,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('finds claude in bun global bin', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const bunPath = join(root, '.bun', 'bin', 'claude')
     makeExecutable(bunPath)
 
@@ -220,7 +214,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('finds native Windows claude.exe in user-local bin', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
     const nativePath = join(root, '.local', 'bin', 'claude.exe')
     makeExecutable(nativePath)
 
@@ -230,7 +224,7 @@ describe('resolveClaudeCommand', () => {
   })
 
   it('returns the bare command when no filesystem candidate exists', () => {
-    const root = makeCommandFixture('orca-claude-command-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-claude-command-'))
 
     expect(resolveClaudeCommand({ platform: 'linux', pathEnv: '', homePath: root })).toBe('claude')
   })
@@ -243,7 +237,7 @@ describe('resolveCliCommands', () => {
   })
 
   it('resolves a batch from PATH and install directories', () => {
-    const root = makeCommandFixture('orca-cli-commands-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-cli-commands-'))
     const pathDir = join(root, 'bin')
     const pathClaude = join(pathDir, 'claude')
     const nvmCodex = join(root, '.nvm', 'versions', 'node', 'v24.13.0', 'bin', 'codex')
@@ -265,7 +259,7 @@ describe('resolveCliCommands', () => {
   })
 
   it('deduplicates command names in the returned map', () => {
-    const root = makeCommandFixture('orca-cli-commands-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-cli-commands-'))
     const pathDir = join(root, 'bin')
     const pathClaude = join(pathDir, 'claude')
     makeExecutable(pathClaude)
@@ -283,7 +277,7 @@ describe('resolveCliCommands', () => {
 
 describe('getVersionManagerBinPaths', () => {
   it('includes volta, asdf, fnm, mise, pnpm, yarn, and bun directories', () => {
-    const root = makeCommandFixture('orca-vm-paths-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-vm-paths-'))
     const paths = getVersionManagerBinPaths({ platform: 'darwin', pathEnv: '', homePath: root })
 
     expect(paths).toContain(join(root, '.volta', 'bin'))
@@ -296,7 +290,7 @@ describe('getVersionManagerBinPaths', () => {
   })
 
   it('includes nvm bin dir when node versions exist', () => {
-    const root = makeCommandFixture('orca-vm-paths-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-vm-paths-'))
     const nodeBin = join(root, '.nvm', 'versions', 'node', 'v22.14.0', 'bin', 'node')
     makeExecutable(nodeBin)
 
@@ -305,7 +299,7 @@ describe('getVersionManagerBinPaths', () => {
   })
 
   it('uses platform-specific pnpm path on Linux', () => {
-    const root = makeCommandFixture('orca-vm-paths-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-vm-paths-'))
     const paths = getVersionManagerBinPaths({ platform: 'linux', pathEnv: '', homePath: root })
 
     expect(paths).toContain(join(root, '.local', 'share', 'pnpm'))
@@ -313,7 +307,7 @@ describe('getVersionManagerBinPaths', () => {
   })
 
   it('includes Windows user-local bin for native CLI installers', () => {
-    const root = makeCommandFixture('orca-vm-paths-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-vm-paths-'))
     const paths = getVersionManagerBinPaths({ platform: 'win32', pathEnv: '', homePath: root })
 
     expect(paths).toContain(join(root, '.local', 'bin'))
@@ -323,7 +317,7 @@ describe('getVersionManagerBinPaths', () => {
 
 describe('withCliRuntimeOnPath', () => {
   it('pairs a version-manager CLI with its sibling node (stablyai/orca#10932)', () => {
-    const root = makeCommandFixture('orca-pair-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-pair-'))
     const v20 = join(root, '.nvm', 'versions', 'node', 'v20.11.0', 'bin')
     const v22 = join(root, '.nvm', 'versions', 'node', 'v22.9.0', 'bin')
     makeExecutable(join(v20, 'node'))
@@ -341,7 +335,7 @@ describe('withCliRuntimeOnPath', () => {
   })
 
   it('leaves PATH untouched for a CLI whose directory ships no node', () => {
-    const root = makeCommandFixture('orca-pair-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-pair-'))
     const brew = join(root, 'opt', 'homebrew', 'bin')
     makeExecutable(join(brew, 'codex'))
     const env = { PATH: '/usr/bin' }
@@ -355,7 +349,7 @@ describe('withCliRuntimeOnPath', () => {
   })
 
   it('is a no-op when the runtime directory already leads PATH', () => {
-    const root = makeCommandFixture('orca-pair-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-pair-'))
     const v20 = join(root, '.nvm', 'versions', 'node', 'v20.11.0', 'bin')
     makeExecutable(join(v20, 'node'))
     makeExecutable(join(v20, 'codex'))
@@ -365,7 +359,7 @@ describe('withCliRuntimeOnPath', () => {
   })
 
   it('reads the Windows path key the child will actually use, whatever its casing', () => {
-    const root = makeCommandFixture('orca-pair-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-pair-'))
     const v20 = join(root, '.nvm', 'versions', 'node', 'v20.11.0', 'bin')
     makeExecutable(join(v20, 'node.exe'))
     makeExecutable(join(v20, 'codex.cmd'))
@@ -380,7 +374,7 @@ describe('withCliRuntimeOnPath', () => {
   })
 
   it('writes the Windows Path key without leaving a differently-cased twin', () => {
-    const root = makeCommandFixture('orca-pair-')
+    const root = mkdtempSync(join(tmpdir(), 'orca-pair-'))
     const v20 = join(root, '.nvm', 'versions', 'node', 'v20.11.0', 'bin')
     makeExecutable(join(v20, 'node.exe'))
     makeExecutable(join(v20, 'codex.cmd'))

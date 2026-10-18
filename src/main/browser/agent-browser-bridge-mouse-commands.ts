@@ -36,9 +36,8 @@ export abstract class AgentBrowserBridgeMouseCommands extends AgentBrowserBridge
         const buttons = cdpPointerButtonMask(cdpButton)
         const cdpModifiers = cdpMouseModifierMask(modifiers)
         const lease = acquireElectronDebugger(wc)
-        let releaseFocusGuard = (): void => {}
         try {
-          releaseFocusGuard = await this.focusPageForPress(wc, target.webContentsId)
+          wc.focus()
           const point =
             cdpButton === 'left'
               ? // Why: DOM activation can't carry Cmd/Ctrl/Alt/Shift, so modifier clicks use the adjusted point and let CDP dispatch the event.
@@ -76,7 +75,6 @@ export abstract class AgentBrowserBridgeMouseCommands extends AgentBrowserBridge
             }
           }
         } finally {
-          releaseFocusGuard()
           lease.release()
         }
       },

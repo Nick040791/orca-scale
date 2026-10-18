@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { readAgentLaunchSupport, type AgentLaunchSupport } from './agent-launch-request'
+import {
+  AGENT_LAUNCH_REPLAY_REQUIRED_RUNTIME_CAPABILITY,
+  AGENT_LAUNCH_RUNTIME_CAPABILITY
+} from '../../../src/shared/protocol-version'
+import type { AgentLaunchSupport } from './agent-launch-worktree-create'
 import type { RpcClient } from '../transport/rpc-client'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
 import { readMobileRuntimeHostPlatform } from '../transport/mobile-runtime-host-platform'
@@ -55,7 +59,10 @@ export async function readNewWorktreeRuntimeCapabilities(
       const advertisedIdempotency = result.worktreeCreateIdempotency
       return {
         tasksSupported: capabilities.includes(MOBILE_TASKS_CAPABILITY),
-        agentLaunch: readAgentLaunchSupport(capabilities),
+        // Unsupported stays plain `false`, the same shape `worktreeCreateIdempotency` uses.
+        agentLaunch: capabilities.includes(AGENT_LAUNCH_RUNTIME_CAPABILITY)
+          ? { replay: capabilities.includes(AGENT_LAUNCH_REPLAY_REQUIRED_RUNTIME_CAPABILITY) }
+          : false,
         worktreeCreateIdempotency: supportsIdempotency
           ? advertisedIdempotency === undefined
             ? { dedupeTtlMs: WORKTREE_CREATE_DEDUPE_TTL_LEGACY_HOST_MS }

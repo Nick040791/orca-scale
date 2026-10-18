@@ -1,5 +1,5 @@
-import { expect, vi } from 'vitest'
 import type {
+  AgentJournalItemIdentity,
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
 } from '../../shared/agent-session-journal-types'
@@ -9,12 +9,9 @@ import type {
   CodexAppServerLaunch,
   openCodexAppServerConnection
 } from './codex-app-server-connection'
-import { CodexAppServerUnsupportedError } from './codex-app-server-session'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
-import { codexTurnLifecycleFake } from './codex-turn-lifecycle-fake'
 import type { CodexStructuredSessionAdapterDeps } from './codex-structured-session-state'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 export const CODEX_TEST_THREAD_ID = 'thread-abc'
 
@@ -33,15 +30,10 @@ type FakeConnection = Omit<CodexAppServerConnection, 'closed'> & {
   calls: { method: string; params?: Record<string, unknown> }[]
 }
 
-export type LateSettlement = Parameters<
-  NonNullable<CodexStructuredSessionAdapterDeps['onDispatchSettledLate']>
->[0]
-
-/** A Codex with no `turn/steer`, unless the test routes one. */
-export const refuseUnroutedSteer: CodexTestRoute = () => {
-  throw new CodexAppServerUnsupportedError(
-    'codex app-server does not support turn/steer: method not found'
-  )
+export type LateSettlement = {
+  sessionId: string
+  clientMessageId: string
+  providerIdentity: AgentJournalItemIdentity
 }
 
 /** A `codex app-server` whose turn traffic the test drives by hand. */
@@ -51,7 +43,7 @@ export function fakeCodexAppServer(routes: Record<string, CodexTestRoute> = {}):
   routes: Record<string, CodexTestRoute>
 } {
   const connections: FakeConnection[] = []
-  const openConnection: typeof openCodexAppServerConnection = async (launch, handlers = {}) => {
+  const openConnection = (async (launch, handlers = {}) => {
     const connection: FakeConnection = {
       launch,
       handlers,
@@ -60,8 +52,7 @@ export function fakeCodexAppServer(routes: Record<string, CodexTestRoute> = {}):
       closed: false,
       request: async (method, params) => {
         connection.calls.push({ method, params })
-        const route = routes[method] ?? (method === 'turn/steer' ? refuseUnroutedSteer : undefined)
-        return route?.(params) ?? {}
+        return routes[method]?.(params) ?? {}
       },
       notify: () => {},
       respond: () => {},
@@ -73,7 +64,7 @@ export function fakeCodexAppServer(routes: Record<string, CodexTestRoute> = {}):
     }
     connections.push(connection)
     return connection
-  }
+  }) as typeof openCodexAppServerConnection
   routes['thread/start'] ??= () => ({
     thread: { id: CODEX_TEST_THREAD_ID, path: '/rollouts/abc.jsonl' }
   })
@@ -94,7 +85,7 @@ export async function acquiredCodexAdapter(input: {
   codex: ReturnType<typeof fakeCodexAppServer>
   settlements: LateSettlement[]
   sink?: StructuredAgentSessionEventSink
-  requestTimeoutMs?: number
+  captureTurnProcesses?: CodexStructuredSessionAdapterDeps['captureTurnProcesses']
 }): Promise<CodexStructuredSessionAdapter> {
   const adapter = new CodexStructuredSessionAdapter({
     resolveLaunch: async () => ({
@@ -106,16 +97,16 @@ export async function acquiredCodexAdapter(input: {
     }),
     openConnection: input.codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
+    captureTurnProcesses: input.captureTurnProcesses ?? (async () => null),
     now: () => 1_700_000_000_500,
-    onDispatchSettledLate: (settlement) => input.settlements.push(settlement),
-    ...(input.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: input.requestTimeoutMs })
+    onDispatchSettledLate: (settlement) => input.settlements.push(settlement)
   })
   const identity: AgentSessionJournalIdentity = {
     sessionId: 'session-1',
     workspaceId: 'ws-1',
     hostId: 'host-1',
     agent: 'codex',
-    providerHandle: codexProviderHandle(CODEX_TEST_THREAD_ID)
+    providerHandle: { kind: 'codex', threadId: CODEX_TEST_THREAD_ID }
   }
   await adapter.acquire({
     identity,
@@ -142,53 +133,9 @@ export function echoUserMessage(
   })
 }
 
-export function startTurn(connection: Pick<FakeConnection, 'handlers'>, turnId: string): void {
+export function startTurn(connection: FakeConnection, turnId: string): void {
   connection.handlers.onNotification?.('turn/started', {
     threadId: CODEX_TEST_THREAD_ID,
     turn: { id: turnId }
   })
-}
-
-/** Runs `open` once `count` sends reached Codex, which opens a turn only after it answers. */
-export async function openAfterTurnStarts(
-  connection: Pick<FakeConnection, 'calls'>,
-  count: number,
-  open: () => void
-): Promise<void> {
-  await vi.waitFor(() =>
-    expect(connection.calls.filter((call) => call.method === 'turn/start')).toHaveLength(count)
-  )
-  open()
-}
-
-/** An acquired adapter over a fake Codex that keeps Codex's own turn bookkeeping. */
-export async function codexTurnLifecycleRig(
-  options: { requestTimeoutMs?: number; legacyStartAnswers?: boolean } = {}
-) {
-  const { legacyStartAnswers, ...adapterOptions } = options
-  const codex = fakeCodexAppServer()
-  const notify = (method: string, params: unknown): void =>
-    codex.connections.at(-1)?.handlers.onNotification?.(method, params)
-  const turns = codexTurnLifecycleFake(CODEX_TEST_THREAD_ID, () => notify, { legacyStartAnswers })
-  Object.assign(codex.routes, turns.routes)
-  const settlements: LateSettlement[] = []
-  const adapter = await acquiredCodexAdapter({ codex, settlements, ...adapterOptions })
-  const send = (clientMessageId: string) =>
-    adapter.dispatch({
-      sessionId: 'session-1',
-      clientMessageId,
-      body: CODEX_TEST_USER_MESSAGE,
-      fence: 7
-    })
-  const interrupts = () =>
-    codex.connections[0]!.calls.filter((call) => call.method === 'turn/interrupt')
-  return { codex, turns, adapter, send, settlements, notify, interrupts }
-}
-
-/** The promise's value, or `held` when it has not settled `withinMs` after every earlier task. */
-export function settledWithin<T>(promise: Promise<T>, withinMs = 50): Promise<T | 'held'> {
-  return Promise.race([
-    promise,
-    new Promise<'held'>((resolve) => setTimeout(() => resolve('held'), withinMs))
-  ])
 }

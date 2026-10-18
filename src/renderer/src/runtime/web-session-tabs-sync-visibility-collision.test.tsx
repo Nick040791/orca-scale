@@ -6,11 +6,12 @@ import { makePaneKey } from '../../../shared/stable-pane-id'
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-types'
 import { resetStaleDocumentVisibilityForTesting } from '@/components/terminal-pane/stale-document-visibility'
-import type * as WebRuntimeTerminalCreationModule from './web-runtime-terminal-creation'
+import type * as WorktreeRuntimeOwnerModule from '@/lib/worktree-runtime-owner'
+import type * as WebRuntimeSessionModule from './web-runtime-session'
 
 const mocks = vi.hoisted(() => ({
   createTerminal: vi.fn(),
-  ownerEnvironmentIdForWorkspace: vi.fn(),
+  getExplicitRuntimeEnvironmentIdForWorktree: vi.fn(),
   recoverSnapshot: vi.fn(),
   runtimeSessionMirrorEnvironmentKey: vi.fn()
 }))
@@ -22,17 +23,20 @@ vi.mock('./use-runtime-session-mirror-environment-key', () => ({
   })
 }))
 
-vi.mock('./web-session-tabs-sync/mirrored-workspace-owner', () => ({
-  mirroredRuntimeEnvironmentIdForWorkspace: (state: unknown, workspaceId: string | null) =>
-    workspaceId ? (mocks.ownerEnvironmentIdForWorkspace(state, workspaceId) ?? null) : null
-}))
+vi.mock('@/lib/worktree-runtime-owner', async (importOriginal) => {
+  const actual = await importOriginal<typeof WorktreeRuntimeOwnerModule>()
+  return {
+    ...actual,
+    getExplicitRuntimeEnvironmentIdForWorktree: mocks.getExplicitRuntimeEnvironmentIdForWorktree
+  }
+})
 
 vi.mock('./web-session-terminal-orphan-recovery', () => ({
   recoverWebSessionTerminalOrphansBeforeApply: mocks.recoverSnapshot
 }))
 
-vi.mock('./web-runtime-terminal-creation', async (importOriginal) => {
-  const actual = await importOriginal<typeof WebRuntimeTerminalCreationModule>()
+vi.mock('./web-runtime-session', async (importOriginal) => {
+  const actual = await importOriginal<typeof WebRuntimeSessionModule>()
   return { ...actual, createWebRuntimeSessionTerminal: mocks.createTerminal }
 })
 
@@ -45,10 +49,10 @@ import { subscribeAcceptedWebSessionTerminalHandle } from './web-session-termina
 import {
   _getWebSessionTabsReceiptTrackingCountsForTest,
   _getWebSessionTabsTrackingCountsForTest,
-  resetWebSessionTabsSnapshotFreshnessForTests
-} from './web-session-tabs-sync/tracking-lifecycle'
-import { useWebSessionTabsSync } from './web-session-tabs-sync/use-web-session-tabs-sync'
-import { WEB_SESSION_TABS_VISIBILITY_RESUME_STAGGER_MS } from './web-session-tabs-sync/state'
+  resetWebSessionTabsSnapshotFreshnessForTests,
+  useWebSessionTabsSync,
+  WEB_SESSION_TABS_VISIBILITY_RESUME_STAGGER_MS
+} from './web-session-tabs-sync'
 import { WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_MS } from './window-visibility-subscription-parking'
 
 const ENV_A = 'env-a'
@@ -246,7 +250,7 @@ describe('useWebSessionTabsSync visibility collision recovery', () => {
     runtimeSubscribe.mockClear()
     mocks.createTerminal.mockReset().mockResolvedValue(undefined)
     mocks.recoverSnapshot.mockReset().mockImplementation(async (_state, snapshot) => snapshot)
-    mocks.ownerEnvironmentIdForWorkspace.mockReset().mockReturnValue(ENV_A)
+    mocks.getExplicitRuntimeEnvironmentIdForWorktree.mockReset().mockReturnValue(ENV_A)
     mocks.runtimeSessionMirrorEnvironmentKey.mockReset().mockReturnValue(MIRROR_KEY)
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -268,7 +272,7 @@ describe('useWebSessionTabsSync visibility collision recovery', () => {
   })
 
   it('resumes the active host before lexicographically earlier global mirrors', async () => {
-    mocks.ownerEnvironmentIdForWorkspace.mockReturnValue(ENV_B)
+    mocks.getExplicitRuntimeEnvironmentIdForWorktree.mockReturnValue(ENV_B)
     const hook = renderHook(() => useWebSessionTabsSync())
     await act(settle)
 

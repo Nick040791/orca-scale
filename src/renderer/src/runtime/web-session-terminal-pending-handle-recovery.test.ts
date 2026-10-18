@@ -4,8 +4,7 @@ import {
   clearWebSessionTerminalOrphanRecoveryForTests,
   recoverWebSessionTerminalOrphansBeforeApply
 } from './web-session-terminal-orphan-recovery'
-import type { TerminalOrphanRecoveryState } from './web-session-terminal-orphan-recovery-surface'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
+import type { TerminalOrphanRecoveryState } from './web-session-terminal-orphan-recovery'
 
 const ENVIRONMENT_ID = 'remote-runtime'
 const WORKTREE_ID = 'repo::/worktree'
@@ -482,7 +481,7 @@ describe('web session pending terminal handle recovery', () => {
         { call: call as never }
       )
     ).resolves.toMatchObject({
-      tabs: [expect.objectContaining({ status: 'pending-handle', terminal: null })]
+      tabs: [expect.objectContaining({ status: 'ready', terminal: TERMINAL_HANDLE })]
     })
   })
 
@@ -728,7 +727,7 @@ describe('web session pending terminal handle recovery', () => {
                 : { adopted: true, topologyRevision: 1, snapshot: readySnapshot }
           }
     )
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeCall } } })
 
     await expect(
       recoverWebSessionTerminalOrphansBeforeApply(

@@ -1,21 +1,18 @@
-import { parseExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
+import { parseExecutionHostId } from '../../../shared/execution-host'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { AppState } from '@/store/types'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { findFolderWorkspaceOwner } from './folder-workspace-runtime-owner'
 import {
   assertWorktreeOperationGenerationSnapshotCurrent,
   captureWorktreeOperationGenerationSnapshot,
   type WorktreeOperationGenerationSnapshot
 } from './worktree-operation-generation'
 import {
-  getFloatingWorkspaceOperationRoute,
+  resolveExplicitWorktreeOperationRouteResult,
   resolveWorktreeOperationRoute,
+  settingsForWorktreeOperationRoute,
   type WorktreeOperationRoute
 } from './worktree-operation-route'
-import { resolveExplicitWorktreeOperationRouteResult } from './worktree-operation-catalog-route'
 
 export type EditorFileOperationProvenance = {
   generation: WorktreeOperationGenerationSnapshot
@@ -26,8 +23,6 @@ export type EditorFileOperationProvenance = {
 type EditorOwnerState = Pick<
   AppState,
   | 'settings'
-  | 'activeWorktreeId'
-  | 'activeWorkspaceExecutionHostId'
   | 'repos'
   | 'worktreesByRepo'
   | 'detectedWorktreesByRepo'
@@ -58,19 +53,20 @@ export function captureEditorFileOperationProvenance(
       : 'legacy'
   const hintedRuntimeEnvironmentId = ownerHint?.trim() || null
   const route =
-    getFloatingWorkspaceOperationRoute(worktreeId) ??
-    (explicitResolution.kind === 'resolved'
-      ? explicitResolution.route
-      : explicitResolution.kind === 'ambiguous'
-        ? null
-        : ownerHintProvided && worktreeIsPublished
-          ? {
-              executionHostId: hintedRuntimeEnvironmentId
-                ? (`runtime:${encodeURIComponent(hintedRuntimeEnvironmentId)}` as const)
-                : ('local' as const),
-              runtimeEnvironmentId: hintedRuntimeEnvironmentId
-            }
-          : resolveEditorOwnerRoute(state, worktreeId))
+    worktreeId === FLOATING_TERMINAL_WORKTREE_ID
+      ? { executionHostId: 'local' as const, runtimeEnvironmentId: null }
+      : explicitResolution.kind === 'resolved'
+        ? explicitResolution.route
+        : explicitResolution.kind === 'ambiguous'
+          ? null
+          : ownerHintProvided && worktreeIsPublished
+            ? {
+                executionHostId: hintedRuntimeEnvironmentId
+                  ? (`runtime:${encodeURIComponent(hintedRuntimeEnvironmentId)}` as const)
+                  : ('local' as const),
+                runtimeEnvironmentId: hintedRuntimeEnvironmentId
+              }
+            : resolveWorktreeOperationRoute(state, worktreeId)
   if (!route || (ownerHintProvided && (ownerHint?.trim() || null) !== route.runtimeEnvironmentId)) {
     throw new Error(OWNER_CHANGED_MESSAGE)
   }
@@ -80,29 +76,6 @@ export function captureEditorFileOperationProvenance(
     ownershipProjection,
     ...(expectedSshConnectionGeneration === undefined ? {} : { expectedSshConnectionGeneration })
   }
-}
-
-function resolveEditorOwnerRoute(
-  state: EditorOwnerState,
-  worktreeId: string,
-  capturedHostId?: ExecutionHostId | null
-): WorktreeOperationRoute | null {
-  // Workspace focus cannot replace a file's catalog owner.
-  const ownerState = { ...state, activeWorktreeId: null, activeWorkspaceExecutionHostId: null }
-  const route = resolveWorktreeOperationRoute(ownerState, worktreeId)
-  const scope = parseWorkspaceKey(worktreeId)
-  const hostId =
-    capturedHostId ??
-    (state.activeWorktreeId === worktreeId ? state.activeWorkspaceExecutionHostId : null)
-  if (route || scope?.type !== 'folder' || !hostId) {
-    return route
-  }
-  // Same-id folders may use a host qualifier only when the catalog confirms that owner.
-  const folder = findFolderWorkspaceOwner(ownerState, scope.folderWorkspaceId, hostId)
-  const qualifiedRoute = folder
-    ? resolveWorktreeOperationRoute({ ...ownerState, folderWorkspaces: [folder] }, worktreeId)
-    : null
-  return qualifiedRoute?.executionHostId === hostId ? qualifiedRoute : null
 }
 
 export function assertEditorFileOperationCurrent(
@@ -129,9 +102,8 @@ function resolveCurrentEditorRoute(
   worktreeId: string,
   provenance: EditorFileOperationProvenance
 ): WorktreeOperationRoute | null {
-  const floatingRoute = getFloatingWorkspaceOperationRoute(worktreeId)
-  if (floatingRoute) {
-    return floatingRoute
+  if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+    return { executionHostId: 'local', runtimeEnvironmentId: null }
   }
   const explicitResolution = resolveExplicitWorktreeOperationRouteResult(state, worktreeId)
   if (explicitResolution.kind === 'resolved') {
@@ -143,7 +115,7 @@ function resolveCurrentEditorRoute(
   // Why: ordinary folder workspaces have no published worktree row, so re-resolve their live
   // folder owner after preserving the explicit-owner fail-closed contract above (#10251).
   if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
-    return resolveEditorOwnerRoute(state, worktreeId, provenance.generation.route.executionHostId)
+    return resolveWorktreeOperationRoute(state, worktreeId)
   }
   return isWorktreePublished(state, worktreeId) ? provenance.generation.route : null
 }
@@ -169,7 +141,7 @@ export function getEditorFileOperationContext(
   },
   worktreePath: string | null
 ): {
-  target: RuntimeClientTarget
+  settings: AppState['settings']
   worktreeId: string
   worktreePath: string | null
   connectionId?: string
@@ -214,7 +186,7 @@ export function getEditorFileOperationContext(
     throw new Error(OWNER_CHANGED_MESSAGE)
   }
   return {
-    target: runtimeTargetForOwnerEnvironment(route.runtimeEnvironmentId),
+    settings: settingsForWorktreeOperationRoute(state.settings, route),
     worktreeId: file.worktreeId,
     worktreePath: resolvedWorktreePath,
     expectedExecutionHostId: host.kind === 'ssh' ? host.id : 'local',

@@ -94,8 +94,7 @@ export type ClaudeControlSurface = {
   interrupt: (
     options?: ClaudeControlOptions & { cancelQueued?: boolean }
   ) => Promise<SDKControlInterruptResponse | undefined>
-  /** True only when the CLI confirms it withdrew that message before it ran. */
-  cancelAsyncMessage: (uuid: string, options?: ClaudeControlOptions) => Promise<boolean>
+  cancelAsyncMessage: (uuid: string, options?: ClaudeControlOptions) => Promise<void>
   setModel: (model: string | undefined, options?: ClaudeControlOptions) => Promise<void>
   setPermissionMode: (mode: PermissionMode, options?: ClaudeControlOptions) => Promise<void>
   applyFlagSettings: (
@@ -132,9 +131,9 @@ export function createClaudeControlSurface(query: Query): ClaudeControlSurface {
       const cancel = claudeQueryAsyncCanceller(query)
       return cancel
         ? runClaudeControl('cancel_async_message', () => cancel(uuid), options?.timeoutMs).then(
-            (cancelled) => cancelled === true
+            () => {}
           )
-        : Promise.resolve(false)
+        : Promise.resolve()
     },
     setModel: (model, options) =>
       runClaudeControl('set_model', () => query.setModel(model), options?.timeoutMs).then(() => {}),

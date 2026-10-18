@@ -18,6 +18,7 @@ export function buildWindowApi(args: {
   getSnapshot?: () => Promise<AgentStatusSetData[]>
   getMigrationUnsupportedSnapshot?: () => Promise<MigrationUnsupportedPtyEntry[]>
   drop?: (paneKey: string) => void
+  remoteWorkspace?: Record<string, unknown>
   runtime?: Record<string, unknown>
   ssh?: Record<string, unknown>
   ui?: Record<string, unknown>
@@ -50,9 +51,6 @@ export function buildWindowApi(args: {
         onActivateWorktree: () => () => {},
         onCreateTerminal: () => () => {},
         onRequestTerminalCreate: () => () => {},
-        onPublishAgentLaunchTab: () => () => {},
-        onRevealTerminalPane: () => () => {},
-        onAgentLaunchPaneVerdict: () => () => {},
         onRequestTerminalTabMount: () => () => {},
         replyTerminalCreate: () => {},
         onSplitTerminal: () => () => {},
@@ -71,7 +69,6 @@ export function buildWindowApi(args: {
         onNewBrowserTab: () => () => {},
         onNewMarkdownTab: () => () => {},
         onRequestTabCreate: () => () => {},
-        onRequestRemoteCliBrowserScope: () => () => {},
         replyTabCreate: () => {},
         onRequestTabClose: () => () => {},
         replyTabClose: () => {},
@@ -144,7 +141,8 @@ export function buildWindowApi(args: {
           ? { getMigrationUnsupportedSnapshot: args.getMigrationUnsupportedSnapshot }
           : {}),
         drop: args.drop ?? vi.fn()
-      }
+      },
+      remoteWorkspace: args.remoteWorkspace
     }
   }
 }

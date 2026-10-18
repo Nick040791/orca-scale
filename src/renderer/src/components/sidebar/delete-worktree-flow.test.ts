@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => {
         displayName: string
         isMainWorktree: boolean
         hostId?: ExecutionHostId
-        removalError?: string
       }
     >(),
     repos: [] as { id: string; displayName: string; connectionId?: string }[],
@@ -105,7 +104,6 @@ function setWorktrees(
     displayName?: string
     isMainWorktree?: boolean
     hostId?: ExecutionHostId
-    removalError?: string
   }[]
 ): void {
   mocks.state.worktreeMap = new Map(
@@ -118,8 +116,7 @@ function setWorktrees(
         path: worktree.path ?? `/workspaces/${worktree.id}`,
         displayName: worktree.displayName ?? worktree.id,
         isMainWorktree: worktree.isMainWorktree ?? false,
-        ...(worktree.hostId ? { hostId: worktree.hostId } : {}),
-        ...(worktree.removalError ? { removalError: worktree.removalError } : {})
+        ...(worktree.hostId ? { hostId: worktree.hostId } : {})
       }
     ])
   )
@@ -171,29 +168,6 @@ describe('delete worktree flow', () => {
       worktreeId: 'wt-1',
       worktreeDeleteIdentities: [{ id: 'wt-1', instanceId: 'wt-1-instance' }]
     })
-  })
-
-  it('clears stale delete errors for a mixed batch before its dialog opens', () => {
-    setWorktrees([{ id: 'wt-failed', removalError: 'Operation not permitted' }, { id: 'wt-dirty' }])
-    mocks.state.deleteStateByWorktreeId['wt-failed'] = {
-      isDeleting: false,
-      error: 'Request timed out',
-      canForceDelete: false
-    }
-    mocks.state.deleteStateByWorktreeId['wt-dirty'] = {
-      isDeleting: false,
-      error: 'Worktree has uncommitted changes',
-      canForceDelete: true
-    }
-
-    expect(runWorktreeBatchDelete(['wt-failed', 'wt-dirty'])).toBe(true)
-
-    expect(mocks.state.openModal).toHaveBeenCalledWith(
-      'delete-worktree',
-      expect.objectContaining({ worktreeIds: ['wt-failed', 'wt-dirty'] })
-    )
-    // The failed row's own error still shows in the dialog: it comes from the row.
-    expect(mocks.state.deleteStateByWorktreeId).toEqual({})
   })
 
   it('treats duplicate selected ids as one delete target', () => {
@@ -256,15 +230,9 @@ describe('delete worktree flow', () => {
   })
 
   it('revalidates each queued instance immediately before execution', async () => {
-    // Same-repo deletes queue on a host that does not serialize their branch cleanup itself.
     setWorktrees([
-      {
-        id: 'wt-1',
-        instanceId: 'instance-1',
-        path: '/workspaces/first-longer',
-        hostId: 'ssh:builder'
-      },
-      { id: 'wt-2', instanceId: 'instance-2', path: '/workspaces/second', hostId: 'ssh:builder' }
+      { id: 'wt-1', instanceId: 'instance-1', path: '/workspaces/first-longer' },
+      { id: 'wt-2', instanceId: 'instance-2', path: '/workspaces/second' }
     ])
     const targets = Array.from(mocks.state.worktreeMap.values())
     let finishFirst!: (result: { ok: true }) => void
@@ -275,7 +243,7 @@ describe('delete worktree flow', () => {
     const deletion = runWorktreeDeletesInParallel(targets)
     await vi.waitFor(() =>
       expect(mocks.state.removeWorktree).toHaveBeenCalledWith(
-        { id: 'wt-1', executionHostId: 'ssh:builder' },
+        { id: 'wt-1', executionHostId: null },
         false,
         {
           suppressPreservedBranchToast: true
@@ -283,24 +251,14 @@ describe('delete worktree flow', () => {
       )
     )
     setWorktrees([
-      {
-        id: 'wt-1',
-        instanceId: 'instance-1',
-        path: '/workspaces/first-longer',
-        hostId: 'ssh:builder'
-      },
-      {
-        id: 'wt-2',
-        instanceId: 'replacement-instance',
-        path: '/workspaces/second',
-        hostId: 'ssh:builder'
-      }
+      { id: 'wt-1', instanceId: 'instance-1', path: '/workspaces/first-longer' },
+      { id: 'wt-2', instanceId: 'replacement-instance', path: '/workspaces/second' }
     ])
     finishFirst({ ok: true })
 
-    await expect(deletion).resolves.toEqual([{ id: 'wt-1', executionHostId: 'ssh:builder' }])
+    await expect(deletion).resolves.toEqual([{ id: 'wt-1', executionHostId: null }])
     expect(mocks.state.removeWorktree).not.toHaveBeenCalledWith(
-      { id: 'wt-2', executionHostId: 'ssh:builder' },
+      { id: 'wt-2', executionHostId: null },
       false,
       {
         suppressPreservedBranchToast: true

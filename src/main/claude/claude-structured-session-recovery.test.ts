@@ -9,16 +9,10 @@ import {
   adapterFor,
   fakeClaude,
   identityFor,
+  invokeCanUseTool,
   PROVIDER_SESSION_ID,
-  tick,
-  claudeStartupSettled,
-  claudeOpened
+  tick
 } from './claude-structured-session-test-support'
-import { invokeCanUseTool } from './claude-can-use-tool-test-support'
-import {
-  claudeProviderHandle,
-  claudeProviderHandleLeafUuid
-} from '../../shared/agent-session-provider-handle-encoding'
 
 describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
   it('shares concurrent close finalization and emits lifecycle once', async () => {
@@ -101,16 +95,13 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
     ).sessions.get('session-1')
     const disposeTranslator = vi.spyOn(session!.translator!, 'dispose')
 
-    // The handle follows the proven close as bookkeeping; its callback's failure is reported.
-    await expect(adapter.closeSession('session-1')).resolves.toBe(true)
-    await vi.waitFor(() =>
-      expect(events.filter((event) => event.type === 'handle')).toHaveLength(1)
-    )
+    await expect(adapter.closeSession('session-1')).rejects.toBe(callbackError)
+    expect(events.filter((event) => event.type === 'handle')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'ended')).toHaveLength(1)
     expect(disposeTranslator).toHaveBeenCalledOnce()
   })
 
-  it('does not keep a dead child indexed over a failed resume-point write', async () => {
+  it('retains a closed session until its durable cursor persistence succeeds', async () => {
     const claude = fakeClaude()
     const persistenceError = new Error('store unavailable')
     const persistHandle = vi
@@ -120,11 +111,10 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
     const adapter = adapterFor(claude, {}, [], [], undefined, persistHandle)
     await adapter.acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9' })
 
-    // The exit is proven, so the close ends the session; the write after it is bookkeeping.
+    await expect(adapter.closeSession('session-1')).rejects.toBe(persistenceError)
+    expect(persistHandle).toHaveBeenCalledTimes(1)
     await expect(adapter.closeSession('session-1')).resolves.toBe(true)
-    await vi.waitFor(() => expect(persistHandle).toHaveBeenCalledOnce())
-    await expect(adapter.closeSession('session-1')).resolves.toBe(true)
-    expect(persistHandle).toHaveBeenCalledOnce()
+    expect(persistHandle).toHaveBeenCalledTimes(2)
   })
 
   it('persists the last completed turn message before graceful close', async () => {
@@ -151,7 +141,6 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
 
     await adapter.closeSession('session-1')
 
-    await vi.waitFor(() => expect(persistedHandles).toHaveLength(1))
     expect(persistedHandles).toEqual([
       {
         sessionId: 'session-1',
@@ -160,9 +149,7 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
         fence: 7
       }
     ])
-    // Written after the close already ended the session: its end comes first.
-    expect(events.at(-2)).toMatchObject({ type: 'ended', cause: 'requested-close' })
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-2)).toEqual({
       type: 'handle',
       sessionId: 'session-1',
       providerSessionId: PROVIDER_SESSION_ID,
@@ -302,9 +289,9 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
     let durableLeafUuid: string | null = null
     const resolveLaunch = vi.fn(async ({ identity }) => {
       if (
-        !identity.providerHandle ||
-        identity.providerHandle.nativeId !== PROVIDER_SESSION_ID ||
-        claudeProviderHandleLeafUuid(identity.providerHandle) !== durableLeafUuid
+        identity.providerHandle.kind !== 'claude' ||
+        identity.providerHandle.sessionId !== PROVIDER_SESSION_ID ||
+        identity.providerHandle.leafUuid !== durableLeafUuid
       ) {
         throw new Error('claude durable resume identity changed before spawn')
       }
@@ -351,7 +338,7 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
       spawnToken: 'spawn-9',
       events: journalSink
     })
-    await claudeStartupSettled(adapter, 'session-1')
+    await adapter.drainStartup('session-1')
     const first = claude.connections[0]
     const oldPrompt = invokeCanUseTool(first, 'Bash', 'permission-retained', 'tool-retained')
     const oldSession = (
@@ -388,16 +375,19 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
     expect(oldPrompt.settled()).toBe(false)
     expect(events.filter((event) => event.type === 'ended')).toEqual([])
 
-    await adapter.acquire({
+    const replacement = await adapter.acquire({
       identity: {
         ...identityFor(),
-        providerHandle: claudeProviderHandle(PROVIDER_SESSION_ID, 'observed-retained-leaf')
+        providerHandle: {
+          kind: 'claude',
+          sessionId: PROVIDER_SESSION_ID,
+          leafUuid: 'observed-retained-leaf'
+        }
       },
       fence: 8,
       spawnToken: 'spawn-10',
       events: journalSink
     })
-    const replacement = await claudeOpened(adapter, 'session-1')
 
     expect(disposeTranslator).toHaveBeenCalledOnce()
     expect(settlePrompt).toHaveBeenCalledOnce()
@@ -414,9 +404,12 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
     expect(resolveLaunch).toHaveBeenNthCalledWith(2, {
       identity: {
         ...identityFor(),
-        providerHandle: claudeProviderHandle(PROVIDER_SESSION_ID, 'observed-retained-leaf')
-      },
-      spawnToken: expect.any(String)
+        providerHandle: {
+          kind: 'claude',
+          sessionId: PROVIDER_SESSION_ID,
+          leafUuid: 'observed-retained-leaf'
+        }
+      }
     })
     expect(oldPrompt.settled()).toBe(true)
     expect(events.filter((event) => event.type === 'ended')).toEqual([
@@ -424,7 +417,6 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
         type: 'ended',
         sessionId: 'session-1',
         reason: 'crashed before replacement',
-        failure: { kind: 'providerExited' },
         cause: 'unexpected-exit',
         fence: 7,
         acquisitionGeneration: firstAcquisition.acquisitionGeneration,
@@ -432,7 +424,11 @@ describe('ClaudeStructuredSessionAdapter close and exit recovery', () => {
       }
     ])
     expect(replacement.link).toMatchObject({
-      handle: claudeProviderHandle(PROVIDER_SESSION_ID, 'observed-retained-leaf'),
+      handle: {
+        provider: 'claude',
+        sessionId: PROVIDER_SESSION_ID,
+        leafUuid: 'observed-retained-leaf'
+      },
       origin: 'resumed',
       mintedAtFence: 8
     })

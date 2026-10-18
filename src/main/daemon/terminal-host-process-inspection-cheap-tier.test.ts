@@ -1,16 +1,3 @@
-import type * as FsPromises from 'node:fs/promises'
-import type { Session } from './session'
-import type * as DarwinTerminalNames from '../../shared/darwin-terminal-names'
-import type * as FullReader from '../../shared/process-table-snapshot-reader'
-import {
-  createProcessTablePsFixture,
-  type PsFixtureRow
-} from '../../shared/process-table-ps-test-fixture'
-import type * as CheapReader from '../../shared/cheap-process-table-snapshot-reader'
-import type * as TrackerModule from './pty-subprocess/foreground-process-tracker'
-import type * as Inspection from './terminal-host-process-inspection'
-import type { TerminalHostInspectionTier } from './terminal-host-process-inspection'
-import type * as AnchorModule from './terminal-host-steady-state-anchor'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Two seams because the two tiers spawn differently: the full evidence reader still forks
@@ -20,27 +7,17 @@ const { execFileMock, runProcessMock } = vi.hoisted(() => ({
   runProcessMock: vi.fn()
 }))
 vi.mock('node:child_process', () => ({ execFile: execFileMock }))
-vi.mock('@orca/process-host', () => ({ runProcess: runProcessMock }))
+vi.mock('../../shared/child-process/run-process', () => ({ runProcess: runProcessMock }))
 
-// Inject /dev data without bypassing the production translator.
-vi.mock('../../shared/darwin-terminal-names', async (importOriginal) => {
-  const original = await importOriginal<typeof DarwinTerminalNames>()
-  return {
-    nameDarwinTerminals: (stdout: string, _deps: unknown, signal?: AbortSignal) =>
-      psFixture.nameTerminals(original.nameDarwinTerminals, stdout, signal)
-  }
-})
-
-vi.mock('node:fs/promises', async (importOriginal) => ({
-  ...(await importOriginal<typeof FsPromises>()),
-  readFile: async (path: string) => readProcStatMock(path)
-}))
-
-let cheapReader: typeof CheapReader
-let fullReader: typeof FullReader
-let trackerModule: typeof TrackerModule
-let inspection: typeof Inspection
-let anchorModule: typeof AnchorModule
+import { resetCheapProcessTableSnapshotForTests } from '../../shared/cheap-process-table-snapshot-reader'
+import { resetProcessTableSnapshotForTests } from '../../shared/process-table-snapshot-reader'
+import { createPtyForegroundProcessTracker } from './pty-subprocess/foreground-process-tracker'
+import {
+  inspectTerminalHostProcess,
+  type TerminalHostInspectionTier
+} from './terminal-host-process-inspection'
+import { getSteadyStateAnchor } from './terminal-host-steady-state-anchor'
+import type { Session } from './session'
 
 const SHELL_PID = 4242
 const AGENT_PID = 4300
@@ -49,99 +26,60 @@ const START_AGENT = 'Thu Sep  3 16:02:05 2026'
 
 type Table = { agent: 'claude' | 'stopped' | 'gone' | 'replaced'; children?: number }
 
-const forks = { full: 0, cheap: 0 }
-let table: Table = { agent: 'claude' }
-
-function processRows(): PsFixtureRow[] {
+/** One host table rendered in both column sets, so each fork answers by the args it asked for. */
+function renderTable(table: Table): { full: string; cheap: string } {
   const shellTpgid = table.agent === 'claude' || table.agent === 'replaced' ? AGENT_PID : SHELL_PID
-  const rows: PsFixtureRow[] = [
+  const shellStat = shellTpgid === SHELL_PID ? 'Ss+' : 'Ss'
+  const rows: { cheap: string; full: string }[] = [
     {
-      pid: SHELL_PID,
-      ppid: 1,
-      pgid: SHELL_PID,
-      tpgid: shellTpgid,
-      stat: shellTpgid === SHELL_PID ? 'Ss+' : 'Ss',
-      terminalMinor: 4,
-      startTime: START_SHELL,
-      startTicks: 1_000,
-      command: '-zsh'
+      cheap: `${SHELL_PID} 1 ${SHELL_PID} ${shellTpgid} ${shellStat} ${START_SHELL}`,
+      full: `${SHELL_PID} 1 ${SHELL_PID} ${shellTpgid} ${shellStat} ttys004 ${START_SHELL} -zsh`
     },
     {
-      pid: 9000,
-      ppid: 1,
-      pgid: 9000,
-      tpgid: 9000,
-      stat: 'Ss+',
-      terminalMinor: 9,
-      startTime: 'Thu Sep  3 12:00:00 2026',
-      startTicks: 500,
-      command: '-zsh'
+      cheap: `9000 1 9000 9000 Ss+ Thu Sep  3 12:00:00 2026`,
+      full: `9000 1 9000 9000 Ss+ ttys009 Thu Sep  3 12:00:00 2026 -zsh`
     }
   ]
   if (table.agent !== 'gone') {
+    const stat = table.agent === 'stopped' ? 'T' : 'S+'
+    const start = table.agent === 'replaced' ? 'Thu Sep  3 16:30:00 2026' : START_AGENT
     rows.push({
-      pid: AGENT_PID,
-      ppid: SHELL_PID,
-      pgid: AGENT_PID,
-      tpgid: shellTpgid,
-      stat: table.agent === 'stopped' ? 'T' : 'S+',
-      terminalMinor: 4,
-      startTime: table.agent === 'replaced' ? 'Thu Sep  3 16:30:00 2026' : START_AGENT,
-      startTicks: table.agent === 'replaced' ? 2_000 : 1_400,
-      command: 'node /usr/local/bin/claude'
+      cheap: `${AGENT_PID} ${SHELL_PID} ${AGENT_PID} ${shellTpgid} ${stat} ${start}`,
+      full: `${AGENT_PID} ${SHELL_PID} ${AGENT_PID} ${shellTpgid} ${stat} ttys004 ${start} node /usr/local/bin/claude`
     })
     for (let i = 0; i < (table.children ?? 0); i += 1) {
+      const pid = AGENT_PID + 10 + i
       rows.push({
-        pid: AGENT_PID + 10 + i,
-        ppid: AGENT_PID,
-        pgid: AGENT_PID,
-        tpgid: shellTpgid,
-        stat: 'S+',
-        terminalMinor: 4,
-        startTime: `Thu Sep  3 16:05:0${i} 2026`,
-        startTicks: 1_500 + i,
-        command: 'rg --files'
+        cheap: `${pid} ${AGENT_PID} ${AGENT_PID} ${shellTpgid} S+ Thu Sep  3 16:05:0${i} 2026`,
+        full: `${pid} ${AGENT_PID} ${AGENT_PID} ${shellTpgid} S+ ttys004 Thu Sep  3 16:05:0${i} 2026 rg --files`
       })
     }
   }
-  return rows
+  return {
+    full: `${rows.map((r) => r.full).join('\n')}\n`,
+    cheap: `${rows.map((r) => r.cheap).join('\n')}\n`
+  }
 }
-const psFixture = createProcessTablePsFixture(processRows)
-const readProcStatMock = vi.fn((path: string) => psFixture.readProcStat(path))
+
+const forks = { full: 0, cheap: 0 }
+let table: Table = { agent: 'claude' }
 
 function installPs(): void {
-  execFileMock.mockImplementation(
-    (
-      cmd: string,
-      args: string[],
-      _opts: unknown,
-      callback: (err: unknown, r: { stdout: string; stderr: string }) => void
-    ) => {
-      expect(cmd).toBe('ps')
-      expect(args).toEqual(
-        process.platform === 'darwin'
-          ? ['-axo', 'pid=,ppid=,pgid=,tpgid=,stat=,tdev=,lstart=,command=']
-          : ['-axo', 'pid=,ppid=,pgid=,tpgid=,stat=,tty=,etimes=,command=']
-      )
-      forks.full += 1
-      callback(null, {
-        stdout: psFixture.render(args[1]),
-        stderr: ''
-      })
-    }
-  )
-  runProcessMock.mockImplementation(async (spec: { program: string; args: readonly string[] }) => {
-    expect(spec.program).toBe('ps')
-    expect(spec.args).toEqual(
-      process.platform === 'darwin'
-        ? ['-axo', 'pid=,ppid=,pgid=,tpgid=,stat=,lstart=']
-        : ['-axo', 'pid=,ppid=,pgid=,tpgid=,stat=']
-    )
+  execFileMock.mockImplementation((_cmd: string, args: string[], _opts: unknown, cb: unknown) => {
+    expect(args[1]).toContain('command=')
+    forks.full += 1
+    ;(cb as (err: unknown, r: { stdout: string; stderr: string }) => void)(null, {
+      stdout: renderTable(table).full,
+      stderr: ''
+    })
+  })
+  runProcessMock.mockImplementation(async (spec: { args: readonly string[] }) => {
+    expect(spec.args[1]).not.toContain('command=')
     forks.cheap += 1
     return {
       code: 0,
       signal: null,
-      stdout: psFixture.render(spec.args[1]),
+      stdout: renderTable(table).cheap,
       stderr: '',
       timedOut: false
     }
@@ -150,7 +88,7 @@ function installPs(): void {
 
 function createSession(processName: () => string): Session {
   let dead = false
-  const tracker = trackerModule.createPtyForegroundProcessTracker({
+  const tracker = createPtyForegroundProcessTracker({
     process: {
       pid: SHELL_PID,
       get process() {
@@ -182,10 +120,10 @@ async function inspect(
   options: { steadyState?: boolean; expectedIncarnationId?: string } = {}
 ): Promise<{
   tier: TerminalHostInspectionTier
-  result: Awaited<ReturnType<typeof inspection.inspectTerminalHostProcess>>
+  result: Awaited<ReturnType<typeof inspectTerminalHostProcess>>
 }> {
   let tier: TerminalHostInspectionTier = 'full'
-  const result = await inspection.inspectTerminalHostProcess({
+  const result = await inspectTerminalHostProcess({
     sessionId: 'wt-1:pane-1',
     session,
     ...options,
@@ -209,27 +147,19 @@ async function advance(ms: number): Promise<void> {
   vi.setSystemTime(Date.now() + ms)
 }
 
-describe.each(['darwin', 'linux'])('daemon cheap-tier process inspection (%s)', (hostPlatform) => {
+describe('daemon cheap-tier process inspection', () => {
   let platform: PropertyDescriptor | undefined
 
-  beforeEach(async () => {
+  beforeEach(() => {
     execFileMock.mockReset()
-    readProcStatMock.mockClear()
     runProcessMock.mockReset()
+    resetProcessTableSnapshotForTests()
+    resetCheapProcessTableSnapshotForTests()
     forks.full = 0
     forks.cheap = 0
     table = { agent: 'claude' }
     platform = Object.getOwnPropertyDescriptor(process, 'platform')
-    Object.defineProperty(process, 'platform', { configurable: true, value: hostPlatform })
-    // Column constants are chosen at import time, so each host needs a fresh module graph.
-    vi.resetModules()
-    fullReader = await import('../../shared/process-table-snapshot-reader')
-    fullReader.resetProcessTableSnapshotForTests()
-    cheapReader = await import('../../shared/cheap-process-table-snapshot-reader')
-    cheapReader.resetCheapProcessTableSnapshotForTests()
-    trackerModule = await import('./pty-subprocess/foreground-process-tracker')
-    inspection = await import('./terminal-host-process-inspection')
-    anchorModule = await import('./terminal-host-steady-state-anchor')
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(1_000_000)
     installPs()
@@ -240,13 +170,6 @@ describe.each(['darwin', 'linux'])('daemon cheap-tier process inspection (%s)', 
     if (platform) {
       Object.defineProperty(process, 'platform', platform)
     }
-    if (hostPlatform === 'darwin') {
-      expect(readProcStatMock).not.toHaveBeenCalled()
-    }
-    // Production catches read errors; assert each path resolved against the fixture at read time.
-    for (const [index, result] of readProcStatMock.mock.results.entries()) {
-      expect(result.type, readProcStatMock.mock.calls[index][0]).toBe('return')
-    }
   })
 
   /** Bring a session to a recognized anchor the way production does: one full cadence tick. */
@@ -256,11 +179,7 @@ describe.each(['darwin', 'linux'])('daemon cheap-tier process inspection (%s)', 
     await settle()
     expect(first.tier).toBe('full')
     expect(first.result.foregroundProcess).toBe('claude')
-    expect(first.result.foregroundProcessEvidence).toMatchObject({
-      verdict: 'live',
-      processName: 'claude'
-    })
-    expect(anchorModule.getSteadyStateAnchor(session)?.agentName).toBe('claude')
+    expect(getSteadyStateAnchor(session)?.agentName).toBe('claude')
     return session
   }
 
@@ -290,9 +209,6 @@ describe.each(['darwin', 'linux'])('daemon cheap-tier process inspection (%s)', 
     }
     expect(forks.cheap).toBe(4)
     expect(forks.full).toBe(fullBefore)
-    if (hostPlatform === 'linux') {
-      expect(readProcStatMock).toHaveBeenCalled()
-    }
   })
 
   it('a request without steadyState (old client, remote client, restore path) always gets the full capture with evidence', async () => {
@@ -370,7 +286,7 @@ describe.each(['darwin', 'linux'])('daemon cheap-tier process inspection (%s)', 
     table = { agent: 'gone' }
     await advance(2_000)
     await inspect(session, { steadyState: true })
-    expect(anchorModule.getSteadyStateAnchor(session)).toBeNull()
+    expect(getSteadyStateAnchor(session)).toBeNull()
     // Back with a new agent, but the pane must re-anchor via a FULL capture first.
     table = { agent: 'claude' }
     await advance(2_000)

@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from './dispatcher'
 import { TERMINAL_METHODS } from './methods/terminal'
@@ -242,15 +241,11 @@ describe('terminal multiplex RPC', () => {
       )!
     )
     await vi.waitFor(() =>
-      expect(runtime.sendTerminal).toHaveBeenCalledWith(
-        'terminal-1',
-        {
-          text: 'still interactive\r',
-          enter: false,
-          interrupt: false
-        },
-        { inputKind: 'driving' }
-      )
+      expect(runtime.sendTerminal).toHaveBeenCalledWith('terminal-1', {
+        text: 'still interactive\r',
+        enter: false,
+        interrupt: false
+      })
     )
 
     handlers.get(16)?.(
@@ -439,15 +434,11 @@ describe('terminal multiplex RPC', () => {
       )!
     )
     await vi.waitFor(() =>
-      expect(runtime.sendTerminal).toHaveBeenCalledWith(
-        'terminal-8',
-        {
-          text: 'remote-still-interactive\r',
-          enter: false,
-          interrupt: false
-        },
-        { inputKind: 'driving' }
-      )
+      expect(runtime.sendTerminal).toHaveBeenCalledWith('terminal-8', {
+        text: 'remote-still-interactive\r',
+        enter: false,
+        interrupt: false
+      })
     )
 
     const frameCountBeforeAck = binaryFrames.length

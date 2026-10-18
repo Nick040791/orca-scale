@@ -1,7 +1,6 @@
 import type { ParsedTaskQuery } from '../../../shared/task-query'
 import type { GitHubAssignableUser } from '../../../shared/github/pull-request-types'
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
-import { parseGitHubIssueOrPRLink } from '../../../shared/github/links'
 import {
   recomputeTaskPageGitHubItemSoftHide,
   shouldSoftHideTaskPageGitHubWorkItem
@@ -99,13 +98,7 @@ export function getRegistryMergedTaskPageGitHubWorkItem(
 
   // Why: after confirm, pending is cleared but search may still lag — hold the
   // last confirmed whole-field values until a matching adopt or newer pending.
-  const lastState = getLastConfirmedClientValue(
-    sourceScope,
-    item.repoId,
-    item.id,
-    'state',
-    parseGitHubIssueOrPRLink(item.url)?.slug ?? null
-  )
+  const lastState = getLastConfirmedClientValue(sourceScope, item.repoId, item.id, 'state')
   if (typeof lastState === 'string') {
     merged = { ...merged, state: lastState as GitHubWorkItem['state'] }
   }

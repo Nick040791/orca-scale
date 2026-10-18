@@ -6,7 +6,6 @@ import {
   RpcClientReconnectSchedule,
   RPC_RECONNECT_ATTEMPT_LIMIT
 } from './rpc-client-reconnect-schedule'
-import { buildDirectRpcWireRequest, type RpcRequestFrame } from './rpc-envelope-fields'
 import { RpcClientRequestTracker } from './rpc-client-request-tracker'
 import { RpcClientSocketCloseController } from './rpc-client-socket-close-controller'
 import { RpcClientSocketFactory } from './rpc-client-socket-factory'
@@ -60,14 +59,16 @@ export class DirectRpcClient implements RpcClient {
     })
     this.streams = new RpcClientStreamRegistry({
       nextId: () => this.nextId(),
+      deviceToken,
       getState: () => this.connectionState.get(),
-      sendFrame: (frame) => this.sendFrame(frame)
+      sendEncrypted: (request) => this.sendEncrypted(request)
     })
     this.requests = new RpcClientRequestTracker({
       nextId: () => this.nextId(),
+      deviceToken,
       getState: () => this.connectionState.get(),
       waitForConnected: (timeoutMs) => this.waitForConnected(timeoutMs),
-      sendFrame: (frame) => this.sendFrame(frame)
+      sendEncrypted: (request) => this.sendEncrypted(request)
     })
     this.liveness = new RpcSessionLivenessWatchdog({
       transport: 'direct',
@@ -284,10 +285,9 @@ export class DirectRpcClient implements RpcClient {
     this.requests.rejectAll(reason, { deliveryUnknown: true })
   }
 
-  // The one place a direct request gains its credential and its caller's envelope.
-  private sendFrame(frame: RpcRequestFrame): boolean {
+  private sendEncrypted(request: unknown): boolean {
     if (this.socketSession) {
-      return this.socketSession.sendEncrypted(buildDirectRpcWireRequest(frame, this.deviceToken))
+      return this.socketSession.sendEncrypted(request)
     }
     console.log('[net] sendEncrypted FAILED — channel not ready', {
       hasWs: false,
@@ -301,8 +301,9 @@ export class DirectRpcClient implements RpcClient {
     if (this.getState() !== 'connected') {
       return false
     }
-    return this.sendFrame({
+    return this.sendEncrypted({
       id: `${LIVENESS_REQUEST_ID_PREFIX}${this.nextId()}`,
+      deviceToken: this.deviceToken,
       method: 'status.get'
     })
   }

@@ -1,27 +1,21 @@
-import type { LocalFileAccess } from '../../../../shared/local-file-access'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { readRuntimeFilePreview } from '@/runtime/runtime-file-read-client'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
+import { readRuntimeFilePreview } from '@/runtime/runtime-file-client'
 
 export function readLocalImagePreview(
   absolutePath: string,
   connectionId?: string | null,
-  runtimeContext?: Omit<RuntimeFileOperationArgs, 'connectionId'> & {
-    connectionId?: string | null
-  },
-  access?: LocalFileAccess
+  runtimeContext?: Omit<RuntimeFileOperationArgs, 'connectionId'> & { connectionId?: string | null }
 ) {
   try {
     if (!runtimeContext) {
       return window.api.fs.readFile({
         filePath: absolutePath,
-        connectionId: connectionId ?? undefined,
-        ...(access && !connectionId ? { access } : {})
+        connectionId: connectionId ?? undefined
       })
     }
     return readRuntimeFilePreview(
       { ...runtimeContext, connectionId: runtimeContext.connectionId ?? connectionId ?? undefined },
-      absolutePath,
-      access
+      absolutePath
     )
   } catch (error) {
     return Promise.reject(error)

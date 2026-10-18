@@ -37,12 +37,12 @@ const items: ActivityBarItem[] = [
 ]
 
 describe('getVisibleRightSidebarActivityItems', () => {
-  it('shows ports only for workspaces on an SSH host', () => {
+  it('shows ports only for SSH repos', () => {
     expect(
       getVisibleRightSidebarActivityItems(items, {
         isFolder: false,
         isFolderWorkspace: false,
-        hasSshHost: false
+        isSshRepo: false
       }).map((item) => item.id)
     ).toEqual(['explorer', 'source-control', 'plugin:orca-samples.my-plugin/dashboard'])
 
@@ -50,7 +50,7 @@ describe('getVisibleRightSidebarActivityItems', () => {
       getVisibleRightSidebarActivityItems(items, {
         isFolder: false,
         isFolderWorkspace: false,
-        hasSshHost: true
+        isSshRepo: true
       }).map((item) => item.id)
     ).toEqual(['explorer', 'source-control', 'ports', 'plugin:orca-samples.my-plugin/dashboard'])
   })
@@ -60,7 +60,7 @@ describe('getVisibleRightSidebarActivityItems', () => {
       getVisibleRightSidebarActivityItems(items, {
         isFolder: true,
         isFolderWorkspace: true,
-        hasSshHost: true
+        isSshRepo: true
       }).map((item) => item.id)
     ).toEqual([
       'explorer',
@@ -74,7 +74,7 @@ describe('getVisibleRightSidebarActivityItems', () => {
       getVisibleRightSidebarActivityItems(items, {
         isFolder: true,
         isFolderWorkspace: false,
-        hasSshHost: true
+        isSshRepo: true
       }).map((item) => item.id)
     ).toEqual(['explorer', 'ports', 'plugin:orca-samples.my-plugin/dashboard'])
   })

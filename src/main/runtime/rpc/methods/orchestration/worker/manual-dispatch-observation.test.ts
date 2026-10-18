@@ -74,7 +74,8 @@ describe('manual Dispatch observation', () => {
     expect(db.getDispatchContextById(result.dispatch.id)).toMatchObject({
       assignee_handle: 'term_worker',
       assignee_pane_key: workerPaneKey,
-      process_incarnation: 'runtime_test:term_worker:1'
+      process_incarnation: 'runtime_test:term_worker:1',
+      capability_hash: expect.any(String)
     })
 
     const workerShowMethod = eraseRpcMethods(ORCHESTRATION_METHODS).find(
@@ -88,7 +89,7 @@ describe('manual Dispatch observation', () => {
         runtime
       })
     ).resolves.toMatchObject({
-      worker: { state: 'unsupervised', stage: 'context_only' },
+      worker: { state: 'unsupervised', stage: 'injected' },
       observation: { status: 'live', exactWorker: true }
     })
   })
@@ -125,6 +126,11 @@ describe('manual Dispatch observation', () => {
       'launch-hash',
       'runtime_test:term_worker:1'
     )
+    db.mintDispatchCapability({
+      dispatchId: dispatch.id,
+      paneKey: 'tab_worker:leaf_worker',
+      processIncarnation: 'runtime_test:term_worker:1'
+    })
     const context = { runtime }
     const call = async (name: string, params: Record<string, unknown>) => {
       const method = eraseRpcMethods(ORCHESTRATION_METHODS).find(
@@ -174,7 +180,7 @@ describe('manual Dispatch observation', () => {
       dispatch: dispatch.id
     })) as { projection: { liveness: { verdict: string } } | null }
     expect(workerShow).toMatchObject({
-      worker: { state: 'unsupervised', stage: 'context_only', agentTerminalHandle: 'term_worker' },
+      worker: { state: 'unsupervised', stage: 'injected', agentTerminalHandle: 'term_worker' },
       observation: { status: 'live', exactWorker: true }
     })
     // Why: worker-show published only PTY liveness, so it read `live` for a dispatch that

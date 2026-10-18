@@ -8,18 +8,15 @@
 // run are learned from the roster's executions, and a later revision of the
 // row picks them up when they arrive.
 
-import type {
-  AgentJournalProducerLinkage,
-  AgentJournalRowAttribution
-} from '../../shared/agent-session-journal-types'
+import type { AgentJournalProducerLinkage } from '../../shared/agent-session-journal-types'
 import type { CodexSubagentExecutions } from './codex-subagent-executions'
 
-/** Who produced a row one thread wrote within one of that thread's turns (null outside any),
- *  and which turn the row belongs to. Every Codex write site resolves through this. */
-export type CodexRowAttribution = (
+/** Linkage for a row one thread produced, within one of that thread's turns
+ *  (null outside any). Every Codex write site resolves through this. */
+export type CodexRowLinkage = (
   threadId: string,
   turnId: string | null
-) => AgentJournalRowAttribution
+) => AgentJournalProducerLinkage
 
 export class CodexSubagentLinkage {
   constructor(
@@ -29,7 +26,7 @@ export class CodexSubagentLinkage {
     }
   ) {}
 
-  linkageFor = (threadId: string, turnId: string | null): AgentJournalProducerLinkage => {
+  linkageFor: CodexRowLinkage = (threadId, turnId) => {
     const primary = this.deps.primaryThreadId()
     // An unknown primary means the session's thread is still opening, and no
     // turn has run that could have spawned a child.

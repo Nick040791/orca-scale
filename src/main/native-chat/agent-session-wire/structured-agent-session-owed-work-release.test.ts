@@ -1,26 +1,22 @@
-// The idle sweep must never stop a provider child that still owes the user work.
+// Switching away from a chat starts the release clock, and the clock must never stop a provider
+// child that still owes the user work.
 //
 // A Claude chat is published before its CLI answers initialize, and a message sent in that window
-// is accepted and stays queued until it does; the delivery loop hands it over once startup lands.
-// The idle sweep ticks meanwhile. Inside the idle window it must leave that queued message and the
-// starting child alone, and every journal publish — the handover included — starts the window
-// again; only a chat quiet for the whole window loses its agent. And a lead whose turn has settled
-// can leave subagents, commands and monitors running inside the child; stopping it then ends them
-// silently.
+// is held until it does; evicting then refuses a message the user already sent. And a lead whose
+// turn has settled can leave subagents, commands and monitors running inside the child; evicting
+// then ends them silently.
 
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
-import { AgentHookServer, _internals } from '../../agent-hooks/server'
 import { ClaudeStructuredSessionAdapter } from '../../claude/claude-structured-session-adapter'
 import {
   fakeClaude,
   PROVIDER_SESSION_ID
 } from '../../claude/claude-structured-session-test-support'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { structuredClaudeLifecycleEvent } from '../../runtime/structured-claude-runtime-adapter'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
@@ -31,13 +27,10 @@ import {
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
 
 const CALLER = { callerKey: 'client-1' }
-const SWEEP_MS = 5
-const IDLE_MS = 1_000
+const SURFACE = 'desktop-chat:1'
+const GRACE_MS = 5
 
 let root: string
 let store: AgentSessionRecordStore
@@ -46,16 +39,12 @@ let adapter: ClaudeStructuredSessionAdapter
 let claude: ReturnType<typeof fakeClaude>
 let landInit: () => void
 let lifecycle: Promise<void>[]
-let clock: number
-const server = new AgentHookServer()
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-owed-work-release-'))
-  _internals.resetCachesForTests()
   resetHostTestOperationIds()
   claude = fakeClaude()
   lifecycle = []
-  clock = NOW
   const initLanded = new Promise<void>((resolve) => {
     landInit = resolve
   })
@@ -76,10 +65,8 @@ beforeEach(async () => {
         lifecycle.push(host.handleAdapterEvent(mapped))
       }
     },
-    // As the runtime wires it: an admitted prompt's outcome reaches the journal out of band.
+    // As the runtime wires it: a held prompt's outcome reaches the journal out of band.
     onDispatchSettledLate: (settlement) => void host.settleLateDispatch(settlement),
-    onChildWorkEvidence: (sessionId, evidence) =>
-      host.publishChildWorkEvidence(sessionId, evidence),
     // Initialize answers only when the test says so.
     openConnection: async (launch, handlers) => {
       const connection = await claude.openConnection(launch, handlers)
@@ -93,25 +80,15 @@ beforeEach(async () => {
     readProcessStartTime: async () => 1_700_000_000_000,
     now: () => NOW
   })
-  store = await openTestAgentSessionRecordStore(root)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   host = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     adapter: Object.assign(adapter, { supportsCreate: () => true }),
-    journalDatabase: openTestJournalHostDatabase(root),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
-    idleSweep: { intervalMs: SWEEP_MS, idleMs: IDLE_MS },
-    now: () => clock,
-    // The host's status row and child records, as the runtime wires them.
-    statusSink: {
-      publish: (summary, subject) => server.ingestStructuredStatus(summary, subject),
-      forget: (subject) => server.dropStructuredStatus(subject),
-      publishChildWork: (subject, evidence, provider) =>
-        server.ingestStructuredChildWork(subject, evidence, provider),
-      readChildWork: (subject) => server.getStructuredChildWorkViews(subject)
-    }
+    releaseGraceMs: GRACE_MS,
+    now: () => NOW
   })
 })
 
@@ -134,6 +111,7 @@ async function attachStarting(): Promise<void> {
     })
   )
   expect(created).toMatchObject({ ok: true })
+  await host.hold(SESSION, SURFACE)
 }
 
 async function send(text: string, dispatchState = 'pending'): Promise<string> {
@@ -155,96 +133,70 @@ async function send(text: string, dispatchState = 'pending'): Promise<string> {
   return sent.ok ? sent.value.clientMessageId : ''
 }
 
-async function dispatchState(clientMessageId: string): Promise<string | undefined> {
-  return (await host.journalSnapshot(SESSION)).submissions.find(
-    (entry) => entry.clientMessageId === clientMessageId
-  )?.dispatchState
+function dispatchState(clientMessageId: string): string | undefined {
+  return host
+    .journalSnapshot(SESSION)
+    .submissions.find((entry) => entry.clientMessageId === clientMessageId)?.dispatchState
 }
 
-/** The delivery loop hands a message over on its own serialized steps; this yields to them
- *  without moving the host clock. */
-async function untilSent(connection: { sent: unknown[] }): Promise<void> {
-  for (let turn = 0; turn < 2000 && connection.sent.length === 0; turn += 1) {
-    await new Promise((resolve) => setImmediate(resolve))
-  }
+/** Long enough for several grace windows to elapse, so "not evicted" means the clock declined. */
+function waitOutSeveralGraceWindows(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, GRACE_MS * 20))
 }
 
-/** Long enough for many sweep ticks, so "not stopped" means the sweep declined. */
-function waitOutSeveralSweeps(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, SWEEP_MS * 20))
-}
-
-describe('a Claude chat whose CLI is still starting', () => {
-  it('holds a message until startup lands, and keeps the agent inside the idle window meanwhile', async () => {
+describe('a chat left while its Claude CLI is still starting', () => {
+  it('keeps the session for a message it is holding, and delivers it once startup lands', async () => {
     await attachStarting()
-    const sent = await send('sent while starting')
+    const held = await send('sent while starting')
 
-    // Held, never written, while initialize is unanswered.
-    expect(claude.connections[0].sent).toEqual([])
-    expect(await dispatchState(sent)).toBe('pending')
-    clock += IDLE_MS - 1
-    await waitOutSeveralSweeps()
+    host.release(SESSION, SURFACE)
+    await waitOutSeveralGraceWindows()
 
-    expect(claude.connections[0].sent).toEqual([])
-    expect(await dispatchState(sent)).toBe('pending')
     expect(host.hasSession(SESSION)).toBe(true)
     expect(claude.connections[0].closeCount).toBe(0)
+    expect(dispatchState(held)).toBe('pending')
 
     landInit()
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    await untilSent(claude.connections[0])
+    await adapter.drainStartup(SESSION)
+
     expect(claude.connections[0].sent).toEqual([expect.objectContaining({ type: 'user' })])
-    await vi.waitFor(async () => expect(await dispatchState(sent)).toBe('accepted'))
-    expect(host.hasSession(SESSION)).toBe(true)
+    await vi.waitFor(() => expect(dispatchState(held)).toBe('accepted'))
   })
 
-  it('gives a message held while starting a full idle window after startup lands to open its turn', async () => {
+  it('gives the message it wrote at startup a full grace to open its turn', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await attachStarting()
+    const held = await send('sent while starting')
     const connection = claude.connections[0]
     // Claude echoes a prompt only when it starts that turn, which a loaded machine delays.
     connection.send = async (message) => {
       connection.sent.push(message)
     }
-    const held = await send('sent while starting')
-    expect(connection.sent).toEqual([])
-    expect(await dispatchState(held)).toBe('pending')
-    clock += IDLE_MS - 1
-    await waitOutSeveralSweeps()
-    expect(connection.sent).toEqual([])
-    expect(await dispatchState(held)).toBe('pending')
+    host.release(SESSION, SURFACE)
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 3 - 1)
     expect(host.hasSession(SESSION)).toBe(true)
 
-    // Startup lands just before the window closes and the message is handed over; the agent stays
-    // while its message waits.
+    // Startup lands just before the clock's next tick.
     landInit()
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
+    await adapter.drainStartup(SESSION)
     await Promise.all(lifecycle)
-    await untilSent(connection)
     expect(connection.sent).toEqual([expect.objectContaining({ type: 'user' })])
-    clock += IDLE_MS - 1
-    await waitOutSeveralSweeps()
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1)
 
     expect(host.hasSession(SESSION)).toBe(true)
     expect(connection.closeCount).toBe(0)
     connection.handlers.onMessage?.(connection.sent[0])
     await host.flushStreamedEvents(SESSION)
-    await waitOutSeveralSweeps()
+    await vi.advanceTimersByTimeAsync(GRACE_MS * 3)
     expect(host.hasSession(SESSION)).toBe(true)
-    expect(await dispatchState(held)).toBe('accepted')
+    expect(dispatchState(held)).toBe('accepted')
   })
 
-  it('stops the agent and closes the conversation once its turn has finished and it idled', async () => {
+  it('is released after the grace once its turn has finished', async () => {
     await attachStarting()
     landInit()
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    const answered = await send('answered')
-    await vi.waitFor(async () => expect(await dispatchState(answered)).toBe('accepted'))
+    await adapter.drainStartup(SESSION)
+    await send('answered', 'accepted')
     claude.connections[0].handlers.onMessage?.({
       type: 'result',
       subtype: 'success',
@@ -254,25 +206,25 @@ describe('a Claude chat whose CLI is still starting', () => {
       result: 'done'
     })
     await host.flushStreamedEvents(SESSION)
-    expect((await host.journalSnapshot(SESSION)).submissions).toHaveLength(1)
+    expect(host.journalSnapshot(SESSION).submissions).toHaveLength(1)
 
-    clock += IDLE_MS
+    host.release(SESSION, SURFACE)
 
     await vi.waitFor(() => expect(host.hasSession(SESSION)).toBe(false))
     expect(claude.connections[0].closeCount).toBe(1)
   })
 
-  it('stops a start that stayed quiet for the whole window when it owes nothing', async () => {
+  it('is released after the grace when it owes nothing', async () => {
     await attachStarting()
 
-    clock += IDLE_MS
+    host.release(SESSION, SURFACE)
 
     await vi.waitFor(() => expect(host.hasSession(SESSION)).toBe(false))
     expect(claude.connections[0].closeCount).toBe(1)
   })
 })
 
-describe('a chat whose settled lead still has background work running', () => {
+describe('a chat left while its settled lead still has background work running', () => {
   function frame(message: Record<string, unknown>): void {
     claude.connections[0].handlers.onMessage?.({ session_id: PROVIDER_SESSION_ID, ...message })
   }
@@ -280,11 +232,8 @@ describe('a chat whose settled lead still has background work running', () => {
   async function settleTurnLeavingTask(taskType: string): Promise<void> {
     await attachStarting()
     landInit()
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    const fanOut = await send('fan out')
-    await vi.waitFor(async () => expect(await dispatchState(fanOut)).toBe('accepted'))
+    await adapter.drainStartup(SESSION)
+    await send('fan out', 'accepted')
     frame({
       type: 'system',
       subtype: 'task_started',
@@ -295,9 +244,8 @@ describe('a chat whose settled lead still has background work running', () => {
     })
     frame({ type: 'result', subtype: 'success', uuid: 'result-1', is_error: false, result: 'ok' })
     await host.flushStreamedEvents(SESSION)
-    const page = await host.history({ sessionId: SESSION, direction: 'tail' })
-    expect(page.ok ? page.page.backgroundTasks?.children : null).toEqual([
-      expect.objectContaining({ providerId: 'task-1', membership: 'live' })
+    expect(adapter.backgroundTaskState(SESSION)?.tasks).toEqual([
+      expect.objectContaining({ id: 'task-1' })
     ])
   }
 
@@ -305,11 +253,11 @@ describe('a chat whose settled lead still has background work running', () => {
     ['a subagent', 'local_agent'],
     ['a background command', 'local_bash'],
     ['a monitor', 'monitor']
-  ])('keeps the agent while %s runs, then stops it once that settles', async (_, type) => {
+  ])('keeps the session while %s runs, then releases it once that settles', async (_, type) => {
     await settleTurnLeavingTask(type)
 
-    clock += IDLE_MS
-    await waitOutSeveralSweeps()
+    host.release(SESSION, SURFACE)
+    await waitOutSeveralGraceWindows()
 
     expect(host.hasSession(SESSION)).toBe(true)
     expect(claude.connections[0].closeCount).toBe(0)
@@ -324,7 +272,6 @@ describe('a chat whose settled lead still has background work running', () => {
     // A finished background task can wake the lead; that turn is owed too until it settles.
     frame({ type: 'result', subtype: 'success', uuid: 'result-2', is_error: false, result: 'ok' })
     await host.flushStreamedEvents(SESSION)
-    clock += IDLE_MS
 
     await vi.waitFor(() => expect(host.hasSession(SESSION)).toBe(false))
     expect(claude.connections[0].closeCount).toBe(1)

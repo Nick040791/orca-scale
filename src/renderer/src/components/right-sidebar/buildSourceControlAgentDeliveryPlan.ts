@@ -1,25 +1,28 @@
-import { checkSourceControlAgentActionLaunch } from '@/lib/source-control-agent-action-launch-check'
+import { planSourceControlAgentActionLaunch } from '@/lib/source-control-agent-action-plan'
 import { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { SourceControlAgentActionDeliveryPlanState } from './SourceControlAgentActionDialogForm'
 import { buildSourceControlAgentConnectionErrorPlan } from './source-control-agent-action-dialog-support'
+import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
 
 type BuildSourceControlAgentDeliveryPlanArgs = {
   selectedAgent: TuiAgent | null
   commandInput: string
   agentArgs?: string | undefined
+  promptDelivery: 'auto-submit' | 'draft' | 'submit-after-ready'
   detectedAgents: TuiAgent[]
   connectionUnavailable: boolean
   launchPlatform?: NodeJS.Platform
-  /** Why: SSH remotes run the plain `orca` shim, so the check builds the command they would. */
+  /** Why: keep the previewed command label in sync with the real remote launch,
+   * which omits the Linux-only `orca-ide` rename for SSH hosts. */
   isRemote?: boolean
 }
 
-/** The dialog's check before it starts an agent: an error the user can fix, else nothing to show. */
 export function buildSourceControlAgentDeliveryPlan({
   selectedAgent,
   commandInput,
   agentArgs,
+  promptDelivery,
   detectedAgents,
   connectionUnavailable,
   launchPlatform,
@@ -29,10 +32,19 @@ export function buildSourceControlAgentDeliveryPlan({
     return buildSourceControlAgentConnectionErrorPlan()
   }
   const settings = useAppStore.getState().settings
-  const result = checkSourceControlAgentActionLaunch({
+  const result = planSourceControlAgentActionLaunch({
     agent: selectedAgent,
     commandInput,
     agentArgs,
+    sessionOptions: selectedAgent
+      ? resolveInitialNativeChatSessionOptions(settings, {
+          agent: selectedAgent,
+          promptDelivery,
+          launchDraftText: commandInput.trim(),
+          nativeChatTranscriptIsLocalReadable: !isRemote
+        })
+      : undefined,
+    promptDelivery,
     detectedAgents,
     disabledAgents: settings?.disabledTuiAgents,
     cmdOverrides: settings?.agentCmdOverrides,
@@ -40,5 +52,13 @@ export function buildSourceControlAgentDeliveryPlan({
     platform: launchPlatform,
     isRemote
   })
-  return result.ok ? { status: 'idle' } : { status: 'error', error: result.error }
+  if (!result.ok) {
+    return { status: 'error', error: result.error }
+  }
+  return {
+    status: 'success',
+    summary: result.summary,
+    commandLabel: result.commandLabel,
+    caveat: result.caveat
+  }
 }

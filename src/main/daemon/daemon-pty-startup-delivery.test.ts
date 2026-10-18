@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import * as localPtyUtils from '../providers/local-pty-utils'
 import {
@@ -18,17 +18,12 @@ describe('DaemonPtyAdapter startup delivery', () => {
   let dir: string
   let lastSubprocess: ReturnType<typeof createMockSubprocess>
   let lastSpawnOpts: Parameters<SpawnSubprocess>[0] | null
-  let nextShellPath: string | undefined
 
   beforeEach(async () => {
     lastSpawnOpts = null
-    nextShellPath = undefined
     harness = await startDaemonAdapterHarness((opts) => {
       lastSpawnOpts = opts
-      lastSubprocess = Object.assign(
-        createMockSubprocess(),
-        nextShellPath ? { shellPath: nextShellPath } : {}
-      )
+      lastSubprocess = createMockSubprocess()
       return lastSubprocess
     })
     adapter = harness.adapter
@@ -57,7 +52,7 @@ describe('DaemonPtyAdapter startup delivery', () => {
       await vi.advanceTimersByTimeAsync(299)
       expect(lastSubprocess.write).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
-      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith('codex\r')
+      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith('codex\n')
       expect(lastSpawnOpts).not.toEqual(
         expect.objectContaining({ startupCommandDelivery: 'shell-ready' })
       )
@@ -73,26 +68,21 @@ describe('DaemonPtyAdapter startup delivery', () => {
       const missingShell = join(dir, 'missing-fish')
       const fallbackName = basename(localPtyUtils.resolveUnixShellPath(missingShell))
       context.skip(!['bash', 'zsh'].includes(fallbackName), 'Requires a Bash/zsh fallback')
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-      try {
-        await adapter.spawn({
-          cols: 80,
-          rows: 24,
-          command: 'codex',
-          env: { SHELL: source === 'environment' ? missingShell : '/bin/sh' },
-          ...(source === 'override' ? { shellOverride: missingShell } : {})
-        })
-        await vi.advanceTimersByTimeAsync(350)
-      } finally {
-        vi.useRealTimers()
-      }
+      await adapter.spawn({
+        cols: 80,
+        rows: 24,
+        command: 'codex',
+        env: { SHELL: source === 'environment' ? missingShell : '/bin/sh' },
+        ...(source === 'override' ? { shellOverride: missingShell } : {})
+      })
+      await new Promise((resolve) => setTimeout(resolve, 350))
       expect(lastSubprocess.write).not.toHaveBeenCalled()
       expect(lastSpawnOpts).toEqual(
         expect.objectContaining({ startupCommandDelivery: 'shell-ready' })
       )
       lastSubprocess._simulateData('\x1b]777;orca-shell-ready\x07\r\nuser@host $ ')
       await waitFor(() => vi.mocked(lastSubprocess.write).mock.calls.length > 0)
-      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith('codex\r')
+      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith('codex\n')
     }
   )
 
@@ -101,13 +91,9 @@ describe('DaemonPtyAdapter startup delivery', () => {
     { command: 'codex', startupCommandDelivery: 'fast' as const },
     { command: "codex 'linked issue context'", startupCommandDelivery: 'shell-ready' as const }
   ])('waits past 300ms and submits once after readiness: %j', async (startup) => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      await adapter.spawn({ cols: 80, rows: 24, ...startup, env: { SHELL: '/bin/zsh' } })
-      await vi.advanceTimersByTimeAsync(350)
-    } finally {
-      vi.useRealTimers()
-    }
+    await adapter.spawn({ cols: 80, rows: 24, ...startup, env: { SHELL: '/bin/zsh' } })
+
+    await new Promise((resolve) => setTimeout(resolve, 350))
     expect(lastSubprocess.write).not.toHaveBeenCalled()
     expect(lastSpawnOpts).toEqual(
       expect.objectContaining({ startupCommandDelivery: 'shell-ready' })
@@ -116,30 +102,6 @@ describe('DaemonPtyAdapter startup delivery', () => {
     lastSubprocess._simulateData('\r\nuser@host $ ')
 
     await waitFor(() => vi.mocked(lastSubprocess.write).mock.calls.length > 0)
-    expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith(`${startup.command}\r`)
-  })
-
-  itOnPosix('types only the short line that sources a staged launch line', async () => {
-    const stagingDir = join(dir, 'tmp')
-    mkdirSync(stagingDir)
-    vi.stubEnv('TMPDIR', stagingDir)
-    nextShellPath = '/bin/zsh'
-    try {
-      const command = `claude '${'x'.repeat(600)}'`
-      await adapter.spawn({
-        cols: 80,
-        rows: 24,
-        command,
-        env: { SHELL: '/bin/zsh' }
-      })
-      lastSubprocess._simulateData('\x1b]777;orca-shell-ready\x07\r\nuser@host $ ')
-      await waitFor(() => vi.mocked(lastSubprocess.write).mock.calls.length > 0)
-      const [script] = readdirSync(stagingDir)
-      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith(
-        `. '${join(stagingDir, script)}'\r`
-      )
-    } finally {
-      vi.unstubAllEnvs()
-    }
+    expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith(`${startup.command}\n`)
   })
 })

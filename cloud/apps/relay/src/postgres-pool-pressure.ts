@@ -21,14 +21,6 @@ const POOL_CONNECT_TIMEOUT_MESSAGES = [
 // pg raises this whenever a socket ends early, during the handshake and mid
 // statement alike, so only the acquire boundary can tell the two apart.
 const CONNECTION_TERMINATED_MESSAGE = 'Connection terminated unexpectedly'
-// The socket to Postgres (or its proxy) failed before a client existed, e.g. a Cloud SQL restart.
-const ACQUIRE_SOCKET_ERRNOS = new Set([
-  'EPIPE',
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'ETIMEDOUT',
-  'EHOSTUNREACH'
-])
 
 // Membership is tracked beside the error rather than on it: an error object may
 // be frozen, and a mutated one would leak the marker into logs.
@@ -42,7 +34,7 @@ function errorCode(error: unknown): string {
   return String((error as { code?: unknown } | null)?.code)
 }
 
-export function isPostgresPoolAcquireFailure(error: unknown): boolean {
+function isPostgresPoolAcquireFailure(error: unknown): boolean {
   return typeof error === 'object' && error !== null && poolAcquireFailures.has(error)
 }
 
@@ -57,10 +49,9 @@ export function isPostgresPoolConnectTimeout(error: unknown): boolean {
 // outcome is unknown is not safe.
 export function isPostgresPoolConnectFailure(error: unknown): boolean {
   if (isPostgresPoolConnectTimeout(error)) return true
-  if (!isPostgresPoolAcquireFailure(error)) return false
   return (
-    errorMessage(error).includes(CONNECTION_TERMINATED_MESSAGE) ||
-    ACQUIRE_SOCKET_ERRNOS.has(errorCode(error))
+    errorMessage(error).includes(CONNECTION_TERMINATED_MESSAGE) &&
+    isPostgresPoolAcquireFailure(error)
   )
 }
 
@@ -73,100 +64,31 @@ const emptyCounts = (): PostgresPoolPressureCounts => ({
   databasePoolWaitMsMax: 0
 })
 
-// `priority` work skips the general queue and takes the next connection any
-// caller releases, so a burst of general work cannot make it wait its turn.
-export type PostgresPoolLane = 'general' | 'priority'
-
-type GeneralLaneWaiter = {
-  grant: (releaseSlot: () => void) => void
-  timer: ReturnType<typeof setTimeout> | undefined
-}
-
 export class PostgresPoolPressure {
   private readonly waiters = new Map<symbol, number>()
   private waitersMax = 0
   private waitMsMax = 0
   private lastConsumed = emptyCounts()
-  // General work queues here, not in pg-pool, so pg-pool's own queue holds only
-  // priority callers. Holding a connection back instead would cost general
-  // throughput: one of 16 is the margin an asia-east2 drain release runs on.
-  private readonly generalCapacity: number
-  private generalInUse = 0
-  private readonly generalQueue: GeneralLaneWaiter[] = []
 
   constructor(
     private readonly pool: pg.Pool,
     private readonly now: () => number = Date.now
-  ) {
-    this.generalCapacity = pool.options?.max ?? Infinity
-  }
+  ) {}
 
-  async connect(lane: PostgresPoolLane = 'general'): Promise<pg.PoolClient> {
+  async connect(): Promise<pg.PoolClient> {
+    const waitingBefore = this.pool.waitingCount
+    const connection = this.pool.connect()
+    if (this.pool.waitingCount <= waitingBefore) return await markedAcquire(connection)
+
+    const waiter = Symbol()
     const startedAt = this.now()
-    let waiter: symbol | undefined
-    const markWaiting = (): void => {
-      if (waiter) return
-      waiter = Symbol()
-      this.waiters.set(waiter, startedAt)
-      this.waitersMax = Math.max(this.waitersMax, this.waiters.size)
-    }
+    this.waiters.set(waiter, startedAt)
+    this.waitersMax = Math.max(this.waitersMax, this.waiters.size)
     try {
-      const slot = lane === 'priority' ? () => {} : this.takeGeneralSlot(markWaiting)
-      // Awaited only when queued: a free slot dials in this same turn.
-      const releaseSlot = typeof slot === 'function' ? slot : await slot
-      try {
-        const waitingBefore = this.pool.waitingCount
-        const connection = this.pool.connect()
-        if (this.pool.waitingCount > waitingBefore) markWaiting()
-        return await markedAcquire(connection, releaseSlot)
-      } catch (error) {
-        releaseSlot()
-        throw error
-      }
+      return await markedAcquire(connection)
     } finally {
-      if (waiter) {
-        this.waitMsMax = Math.max(this.waitMsMax, this.now() - startedAt)
-        this.waiters.delete(waiter)
-      }
-    }
-  }
-
-  // FIFO, bounded by the pool's own acquire timeout so a queued caller fails
-  // exactly as it would have inside pg-pool, and every classifier still matches.
-  private takeGeneralSlot(markWaiting: () => void): (() => void) | Promise<() => void> {
-    if (this.generalInUse < this.generalCapacity && this.generalQueue.length === 0) {
-      this.generalInUse++
-      return this.generalSlotRelease()
-    }
-    markWaiting()
-    return new Promise((resolve, reject) => {
-      const queued: GeneralLaneWaiter = { grant: resolve, timer: undefined }
-      const timeoutMs = this.pool.options?.connectionTimeoutMillis ?? 0
-      if (timeoutMs > 0) {
-        queued.timer = setTimeout(() => {
-          const index = this.generalQueue.indexOf(queued)
-          if (index >= 0) this.generalQueue.splice(index, 1)
-          reject(new Error(POOL_CONNECT_TIMEOUT_MESSAGES[0]))
-        }, timeoutMs)
-        queued.timer.unref?.()
-      }
-      this.generalQueue.push(queued)
-    })
-  }
-
-  private generalSlotRelease(): () => void {
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      const next = this.generalQueue.shift()
-      if (!next) {
-        this.generalInUse--
-        return
-      }
-      // The slot passes straight to the next caller, so generalInUse is unchanged.
-      clearTimeout(next.timer)
-      next.grant(this.generalSlotRelease())
+      this.waitMsMax = Math.max(this.waitMsMax, this.now() - startedAt)
+      this.waiters.delete(waiter)
     }
   }
 
@@ -197,12 +119,6 @@ export class PostgresPoolPressure {
     }
   }
 
-  // Instantaneous, unlike peekCounts, which holds the last interval's maxima.
-  oldestWaitMs(): number {
-    if (this.waiters.size === 0) return 0
-    return Math.max(0, this.now() - Math.min(...this.waiters.values()))
-  }
-
   private readCounts(): PostgresPoolPressureCounts {
     const now = this.now()
     const oldestWaitMs =
@@ -218,10 +134,7 @@ export class PostgresPoolPressure {
   }
 }
 
-async function markedAcquire(
-  connection: Promise<pg.PoolClient>,
-  onRelease: () => void
-): Promise<pg.PoolClient> {
+async function markedAcquire(connection: Promise<pg.PoolClient>): Promise<pg.PoolClient> {
   let client: pg.PoolClient
   try {
     client = await connection
@@ -229,7 +142,7 @@ async function markedAcquire(
     if (typeof error === 'object' && error !== null) poolAcquireFailures.add(error)
     throw error
   }
-  return guardCheckedOutClient(client, onRelease)
+  return guardCheckedOutClient(client)
 }
 
 // pg-pool strips its own `error` listener when it hands a client out
@@ -240,7 +153,7 @@ async function markedAcquire(
 // process. `pool.on('error')` cannot cover this: pg-pool routes there only from
 // the idle listener. Every relay checkout awaits this function, so it is the
 // one seam that sees them all.
-function guardCheckedOutClient(client: pg.PoolClient, onRelease: () => void): pg.PoolClient {
+function guardCheckedOutClient(client: pg.PoolClient): pg.PoolClient {
   let failure: Error | undefined
   const onError = (error: Error) => {
     failure ??= error
@@ -258,11 +171,7 @@ function guardCheckedOutClient(client: pg.PoolClient, onRelease: () => void): pg
     client.removeListener('error', onError)
     // Passing the error makes pg-pool destroy the client instead of returning a
     // dead connection to the pool for the next caller to trip over.
-    try {
-      release(releaseError ?? failure)
-    } finally {
-      onRelease()
-    }
+    release(releaseError ?? failure)
   }
   return client
 }

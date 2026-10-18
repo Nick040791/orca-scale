@@ -2,8 +2,6 @@ import { lstatSync } from 'node:fs'
 import { lstat, opendir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { blake3 } from '@noble/hashes/blake3'
-import { bytesToHex } from '@noble/hashes/utils'
 import { resolveAbsoluteDirOverride } from './absolute-dir-override'
 import {
   GrokSessionPathLookupQueue,
@@ -20,7 +18,7 @@ export {
 export const GROK_CHAT_HISTORY_FILE = 'chat_history.jsonl'
 // Why: Grok URL-encodes the cwd for the sessions group directory. When that
 // encoded name exceeds 255 bytes it switches to a slug+hash layout.
-const GROK_ENCODED_CWD_DIR_MAX_BYTES = 255
+export const GROK_ENCODED_CWD_DIR_MAX_BYTES = 255
 export const GROK_SESSION_ID_MAX_LENGTH = 128
 // Why: session discovery runs in hook/main hot paths; one corrupt or enormous
 // sessions root must not cause unbounded candidate probes.
@@ -54,17 +52,15 @@ export function resolveGrokSessionsDir(
   return join(resolveGrokHomeDir(env, homeDir), 'sessions')
 }
 
-/** Return the CLI's encoded cwd or long-path slug and BLAKE3 group component. */
+/** Return Grok's safe cwd-group component, or null for slug/invalid layouts. */
 export function grokEncodedCwdDirName(cwd: string): string | null {
-  if (!cwd.trim()) {
+  const trimmed = cwd.trim()
+  if (!trimmed) {
     return null
   }
   let encoded: string
   try {
-    encoded = encodeURIComponent(cwd).replace(
-      /[!'()*]/g,
-      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-    )
+    encoded = encodeURIComponent(trimmed)
   } catch {
     return null
   }
@@ -72,16 +68,7 @@ export function grokEncodedCwdDirName(cwd: string): string | null {
   if (encoded === '.' || encoded === '..' || encoded.includes('/') || encoded.includes('\\')) {
     return null
   }
-  if (Buffer.byteLength(encoded, 'utf8') <= GROK_ENCODED_CWD_DIR_MAX_BYTES) {
-    return encoded
-  }
-  const slug = basename(cwd)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-  const hash = bytesToHex(blake3(Buffer.from(cwd, 'utf8'))).slice(0, 16)
-  return `${slug || 'workspace'}-${hash}`
+  return Buffer.byteLength(encoded, 'utf8') <= GROK_ENCODED_CWD_DIR_MAX_BYTES ? encoded : null
 }
 
 /** Fast-path candidates when both session id and cwd are known. */
@@ -94,8 +81,8 @@ export function buildGrokChatHistoryPathCandidates(args: {
   if (!isSafeGrokSessionId(sessionId)) {
     return []
   }
-  const cwd = args.cwd
-  if (!cwd?.trim()) {
+  const cwd = args.cwd?.trim()
+  if (!cwd) {
     return []
   }
   const encoded = grokEncodedCwdDirName(cwd)
@@ -127,20 +114,6 @@ export function resolveGrokChatHistoryPathSync(args: {
     sessionsDir
   })) {
     if (isSafeChatHistoryFileSync(sessionsDir, candidate)) {
-      return candidate
-    }
-  }
-  return null
-}
-
-/** Async exact-cwd lookup for host-owned workspace paths before the bounded ID scan. */
-export async function findGrokChatHistoryByCwd(args: {
-  sessionId: string
-  cwd: string
-  sessionsDir: string
-}): Promise<string | null> {
-  for (const candidate of buildGrokChatHistoryPathCandidates(args)) {
-    if (await isSafeChatHistoryFile(args.sessionsDir, candidate)) {
       return candidate
     }
   }
@@ -308,4 +281,14 @@ async function isSafeChatHistoryFile(sessionsDir: string, candidate: string): Pr
   } catch {
     return false
   }
+}
+
+/** True when path looks like a Grok chat history under a safe session id. */
+export function isGrokChatHistoryPath(path: string, sessionId: string): boolean {
+  const trimmedId = sessionId.trim()
+  return (
+    isSafeGrokSessionId(trimmedId) &&
+    basename(path) === GROK_CHAT_HISTORY_FILE &&
+    basename(dirname(path)) === trimmedId
+  )
 }

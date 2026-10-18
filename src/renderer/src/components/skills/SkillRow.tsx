@@ -53,7 +53,6 @@ export function SkillRow({
   onSelectionChange,
   onShare,
   onDelete,
-  onReveal,
   onFocus,
   onKeyDown
 }: {
@@ -76,7 +75,6 @@ export function SkillRow({
   onSelectionChange: (selected: boolean, range: boolean) => void
   onShare: () => void
   onDelete: () => void
-  onReveal: () => void
   onFocus: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
 }): React.JSX.Element {
@@ -86,6 +84,15 @@ export function SkillRow({
   const rangeRef = useRef(false)
   const selectionBlocked = selectionMode && !selectable
   const showReason = selectionBlocked && disabledReason !== null
+
+  const revealSkill = async (): Promise<void> => {
+    const result = await window.api.shell.openInFileManager(skill.skillFilePath)
+    if (!result.ok) {
+      toast.error(
+        translate('auto.components.skills.SkillsPage.995fde8337', 'Could not reveal skill file')
+      )
+    }
+  }
 
   const copyPath = async (): Promise<void> => {
     await window.api.ui.writeClipboardText(skill.skillFilePath)
@@ -110,7 +117,7 @@ export function SkillRow({
       key: 'reveal',
       label: translate('auto.components.skills.SkillsPage.dc4c3328ee', 'Reveal file'),
       icon: <FolderOpen />,
-      onSelect: onReveal
+      onSelect: () => void revealSkill()
     },
     {
       key: 'copy-path',

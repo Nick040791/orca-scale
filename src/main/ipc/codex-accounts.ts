@@ -2,7 +2,6 @@ import { ipcMain } from 'electron'
 import type { CodexAccountAddTarget, CodexAccountService } from '../codex-accounts/service'
 import type { CodexAccountSelectionTarget } from '../codex-accounts/runtime-selection'
 import { broadcastCodexPendingLoginUrl } from './codex-pending-login-url-broadcast'
-import { openAccountSignInLink } from './account-sign-in-link-opener'
 import { listRecordedCodexPaneLanes } from '../codex/codex-pane-account-registry'
 import { forgetStaleCodexPanes, listStaleCodexPanes } from '../codex/codex-stale-pane-accounts'
 import type { GlobalSettings } from '../../shared/global-settings-types'
@@ -18,7 +17,8 @@ export function registerCodexAccountHandlers(
     }
     return listStaleCodexPanes({
       ptyIds: args.ptyIds.filter((ptyId): ptyId is string => typeof ptyId === 'string'),
-      settings
+      settings,
+      activeHostHomeRoute: codexAccounts.runtimeHomeService.getSelectedHostCodexHomeRoute()
     })
   })
   ipcMain.handle('codexAccounts:listRecordedPaneLanes', (_event, args: { ptyIds?: unknown }) => {
@@ -44,7 +44,6 @@ export function registerCodexAccountHandlers(
   // Why: Settings can open after the login already printed its link, so the
   // renderer reads the current value on mount and this only carries changes.
   codexAccounts.onPendingLoginUrlChanged(broadcastCodexPendingLoginUrl)
-  codexAccounts.setWslLoginUrlOpener((url) => openAccountSignInLink('codex', url))
   ipcMain.handle(
     'codexAccounts:reauthenticate',
     (_event, args: { accountId: string; activateIfSelectionWasEmpty?: boolean }) =>

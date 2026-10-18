@@ -14,7 +14,6 @@ export function importUnitTimingReports(reports) {
       report.runId,
       report.runAttempt,
       report.nodeVersion,
-      report.bunVersion,
       report.shard.count
     ])
   const indices = new Set()
@@ -27,9 +26,7 @@ export function importUnitTimingReports(reports) {
       !report.sourceSha ||
       provenance(report) !== provenance(first)
     ) {
-      throw new Error(
-        'Unit timing reports must come from one successful source/run/runtime version'
-      )
+      throw new Error('Unit timing reports must come from one successful source/run/Node version')
     }
     const { index, count } = report.shard
     if (!Number.isInteger(index) || index < 1 || index > count || indices.has(index)) {
@@ -51,7 +48,6 @@ export function importUnitTimingReports(reports) {
     runAttempt: first.runAttempt,
     sourceSha: first.sourceSha,
     nodeVersion: first.nodeVersion,
-    ...(first.bunVersion ? { bunVersion: first.bunVersion } : {}),
     metric: first.metric,
     // Per-module measurements already include setup, imports and environment startup.
     overheadMs: 0,

@@ -11,6 +11,7 @@ import {
 const testState = vi.hoisted(() => ({
   appState: null as unknown as NoteSendAppState,
   callRuntimeRpc: vi.fn(),
+  getActiveRuntimeTarget: vi.fn(() => ({ kind: 'local' })),
   RuntimeRpcCallError: class RuntimeRpcCallError extends Error {
     readonly code: string
     readonly response: unknown
@@ -33,8 +34,9 @@ vi.mock('@/store', () => ({
   )
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: testState.callRuntimeRpc }))
-vi.mock('@/runtime/runtime-rpc-result', () => ({
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: testState.callRuntimeRpc,
+  getActiveRuntimeTarget: testState.getActiveRuntimeTarget,
   RuntimeRpcCallError: testState.RuntimeRpcCallError
 }))
 
@@ -42,6 +44,8 @@ describe('active agent note send', () => {
   beforeEach(() => {
     testState.appState = createNoteSendAppState()
     testState.callRuntimeRpc.mockReset()
+    testState.getActiveRuntimeTarget.mockClear()
+    testState.getActiveRuntimeTarget.mockReturnValue({ kind: 'local' })
   })
 
   it('sends notes only after the active terminal is verified as an idle agent', async () => {
@@ -125,6 +129,65 @@ describe('active agent note send', () => {
       },
       { timeoutMs: 15000 }
     )
+  })
+
+  it('maps active-focused guarded paste permission refusal to permission', async () => {
+    testState.callRuntimeRpc.mockImplementation(async (_target, method, params) => {
+      if (method === 'terminal.list') {
+        return {
+          terminals: [
+            {
+              handle: 'term-1',
+              worktreeId: 'wt-1',
+              worktreePath: '/repo',
+              branch: 'main',
+              tabId: 'tab-1',
+              leafId: LEAF_ID,
+              title: 'Codex',
+              connected: true,
+              writable: true,
+              lastOutputAt: 1,
+              preview: ''
+            }
+          ],
+          totalCount: 1,
+          truncated: false
+        }
+      }
+      if (method === 'terminal.agentStatus') {
+        return { agentStatus: { handle: 'term-1', isRunningAgent: true, status: 'idle' } }
+      }
+      if (method === 'terminal.wait') {
+        return {
+          wait: {
+            handle: 'term-1',
+            condition: 'tui-idle',
+            satisfied: true,
+            status: 'running',
+            exitCode: null
+          }
+        }
+      }
+      if (method === 'terminal.send') {
+        expect(params).toMatchObject({
+          terminal: 'term-1',
+          requireAgentStatus: 'sendable'
+        })
+        return {
+          send: {
+            handle: 'term-1',
+            accepted: false,
+            bytesWritten: 0,
+            refusedReason: 'permission'
+          }
+        }
+      }
+      throw new Error(`unexpected method ${method}`)
+    })
+
+    await expect(
+      sendNotesToActiveAgentSession({ worktreeId: 'wt-1', prompt: 'notes' })
+    ).resolves.toEqual({ status: 'permission', code: 'terminal-send-permission' })
   })
 
   it('keeps active-focused sends compatible when an older runtime lacks agentStatus', async () => {

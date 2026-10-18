@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { imagePasteWritesFollowedByText } from './image-paste-following-text'
+import {
+  IMAGE_PASTE_FOLLOWING_TEXT_SEPARATOR,
+  imagePasteWritesFollowedByText
+} from './image-paste-following-text'
 
 const IMAGE_A = '\x1b[200~/tmp/orca-paste-a.png\x1b[201~'
 const IMAGE_B = '\x1b[200~/tmp/orca-paste-b.png\x1b[201~'
@@ -7,6 +10,7 @@ const IMAGE_B = '\x1b[200~/tmp/orca-paste-b.png\x1b[201~'
 describe('imagePasteWritesFollowedByText', () => {
   it('separates an attachment path from following prompt text by a single space', () => {
     expect(imagePasteWritesFollowedByText([IMAGE_A], true)).toEqual([`${IMAGE_A} `])
+    expect(IMAGE_PASTE_FOLLOWING_TEXT_SEPARATOR).toBe(' ')
   })
 
   it('keeps an attachment-only send as the framed path with no trailing separator', () => {

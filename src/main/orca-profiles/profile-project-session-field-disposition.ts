@@ -66,10 +66,7 @@ export const WORKSPACE_SESSION_FIELD_DISPOSITION = {
   },
   openFilesByWorktree: { onRepoRemoval: 'prunedByOwnerKey', onTransfer: 'copiedByBespokeRule' },
   activeFileIdByWorktree: { onRepoRemoval: 'prunedByOwnerKey', onTransfer: 'copiedByOwnerKey' },
-  markdownFrontmatterVisible: {
-    onRepoRemoval: 'prunedByBespokeRule',
-    onTransfer: 'copiedByBespokeRule'
-  },
+  markdownFrontmatterVisible: { onRepoRemoval: 'notRepoScoped', onTransfer: 'notTransferred' },
   browserTabsByWorktree: {
     onRepoRemoval: 'prunedByBespokeRule',
     onTransfer: 'copiedByBespokeRule'
@@ -131,9 +128,9 @@ export const WORKSPACE_SESSION_FIELD_DISPOSITION = {
     onRepoRemoval: 'prunedByBespokeRule',
     onTransfer: 'copiedByBespokeRule'
   },
-  // Owner-scoped after all, just not by this path: removing a workspace's session rows prunes these
-  // by the record's worktreeId. A project moved to another profile leaves them in the source profile
-  // until its next load, whose deregistered-repo sweep takes them.
+  // Residue: keyed by tab id and pruned by neither path, like remoteSessionIdsByTabId. Bounded
+  // anyway -- every write and every pull merge runs it through the TTL and cap in
+  // shared/closed-terminal-tab-tombstones.ts, and a resolved host retires its own entries.
   closedTerminalTabTombstonesByTabId: {
     onRepoRemoval: 'notRepoScoped',
     onTransfer: 'notTransferred'

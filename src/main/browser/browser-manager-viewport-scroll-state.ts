@@ -1,15 +1,5 @@
 import { webContents } from 'electron'
-import type {
-  BrowserViewportOverride,
-  BrowserViewportScrollState
-} from '../../shared/browser-workspace-types'
-
-type ViewportPresetState = {
-  guestWebContentsId: number
-  requested: BrowserViewportOverride | null
-  /** The preset's device metrics Chromium accepted for this guest; null when none stands. */
-  applied: BrowserViewportOverride | null
-}
+import type { BrowserViewportScrollState } from '../../shared/browser-workspace-types'
 
 /**
  * Renderer routing plus the host-side viewport-preset geometry the wheel path needs to decide
@@ -17,9 +7,12 @@ type ViewportPresetState = {
  */
 export abstract class BrowserManagerViewportScrollState {
   protected readonly rendererWebContentsIdByTabId = new Map<string, number>()
-  // Why both: host-side wheel panning follows the requested preset, while the tab's identity follows
-  // the one Chromium actually applied. Replacement guests must not inherit a retired guest's preset.
-  protected readonly viewportPresetByTabId = new Map<string, ViewportPresetState>()
+  // Why: host-side wheel panning follows the requested local viewport on the owning guest;
+  // replacement guests must not inherit a retired guest's state.
+  protected readonly viewportPresetActiveByTabId = new Map<
+    string,
+    { guestWebContentsId: number; active: boolean }
+  >()
   protected readonly viewportScrollStateByTabId = new Map<string, BrowserViewportScrollState>()
 
   setViewportScrollState(
@@ -72,17 +65,6 @@ export abstract class BrowserManagerViewportScrollState {
       canScrollAxis(deltaX, state.scrollLeft, state.maxScrollLeft) ||
       canScrollAxis(deltaY, state.scrollTop, state.maxScrollTop)
     )
-  }
-
-  protected recordAppliedViewportOverride(
-    browserTabId: string,
-    guestWebContentsId: number,
-    applied: BrowserViewportOverride | null
-  ): void {
-    const preset = this.viewportPresetByTabId.get(browserTabId)
-    if (preset?.guestWebContentsId === guestWebContentsId) {
-      this.viewportPresetByTabId.set(browserTabId, { ...preset, applied })
-    }
   }
 
   protected resolveRendererForBrowserTab(browserTabId: string): Electron.WebContents | null {

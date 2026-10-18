@@ -4,7 +4,6 @@ import { Input } from '../ui/input'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { parseAgentDefaultEnvDraft, stringifyAgentDefaultEnvDraft } from './agent-default-env-draft'
-import { useAgentLaunchFieldWrite } from './use-agent-launch-field-write'
 
 export function AgentCommandOverrideInput({
   defaultCmd,
@@ -13,21 +12,17 @@ export function AgentCommandOverrideInput({
 }: {
   defaultCmd: string
   cmdOverride: string | undefined
-  onSaveOverride: (value: string) => void | Promise<void>
+  onSaveOverride: (value: string) => void
 }): React.JSX.Element {
   const draftSeed = cmdOverride ?? defaultCmd
   const [cmdDraft, setCmdDraft] = useState(draftSeed)
-  const { pending, write } = useAgentLaunchFieldWrite()
   const commitCmd = (): void => {
     const trimmed = cmdDraft.trim()
     if (!trimmed || trimmed === defaultCmd) {
-      write(
-        '',
-        () => onSaveOverride(''),
-        () => setCmdDraft(defaultCmd)
-      )
+      onSaveOverride('')
+      setCmdDraft(defaultCmd)
     } else {
-      write(trimmed, () => onSaveOverride(trimmed))
+      onSaveOverride(trimmed)
     }
   }
 
@@ -39,7 +34,6 @@ export function AgentCommandOverrideInput({
       <div className="flex items-center gap-2">
         <Input
           value={cmdDraft}
-          readOnly={pending}
           onChange={(event) => setCmdDraft(event.target.value)}
           onBlur={commitCmd}
           onKeyDown={(event) => {
@@ -62,11 +56,8 @@ export function AgentCommandOverrideInput({
             variant="ghost"
             size="xs"
             onClick={() => {
-              write(
-                '',
-                () => onSaveOverride(''),
-                () => setCmdDraft(defaultCmd)
-              )
+              onSaveOverride('')
+              setCmdDraft(defaultCmd)
             }}
             className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
           >
@@ -85,14 +76,10 @@ export function AgentDefaultArgsInput({
 }: {
   defaultArgs: string
   argsOverride: string
-  onSaveArgs: (value: string) => void | Promise<void>
+  onSaveArgs: (value: string) => void
 }): React.JSX.Element {
   const [argsDraft, setArgsDraft] = useState(argsOverride)
-  const { pending, write } = useAgentLaunchFieldWrite()
-  const commitArgs = (): void => {
-    const value = argsDraft.trim()
-    write(value, () => onSaveArgs(value))
-  }
+  const commitArgs = (): void => onSaveArgs(argsDraft.trim())
 
   return (
     <div className="flex flex-col gap-1">
@@ -102,7 +89,6 @@ export function AgentDefaultArgsInput({
       <div className="flex items-center gap-2">
         <Input
           value={argsDraft}
-          readOnly={pending}
           onChange={(event) => setArgsDraft(event.target.value)}
           onBlur={commitArgs}
           onKeyDown={(event) => {
@@ -128,11 +114,8 @@ export function AgentDefaultArgsInput({
             variant="ghost"
             size="xs"
             onClick={() => {
-              write(
-                defaultArgs,
-                () => onSaveArgs(defaultArgs),
-                () => setArgsDraft(defaultArgs)
-              )
+              onSaveArgs(defaultArgs)
+              setArgsDraft(defaultArgs)
             }}
             className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
           >

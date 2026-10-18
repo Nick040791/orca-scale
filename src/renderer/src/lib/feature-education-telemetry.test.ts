@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  getSetupGuideStepSection,
   persistEmittedSetupGuideStepId,
   readEmittedSetupGuideStepIds,
   trackContextualTourOutcome,
@@ -97,6 +98,8 @@ describe('feature education telemetry helpers', () => {
       total_steps: 8,
       setup_guide_visible: true
     })
+    expect(getSetupGuideStepSection('browser')).toBe('parallel-work')
+    expect(getSetupGuideStepSection('notifications')).toBe('setup')
   })
 
   it('persists emitted setup guide step ids locally without raw payload data', () => {

@@ -1,4 +1,3 @@
-import { forgeOwnerHostIdForWorkspace } from '@/runtime/forge-credential-target'
 import React, { useCallback } from 'react'
 import { toast } from 'sonner'
 import { refreshHostedReviewCard } from '@/store/slices/hosted-review-card-refresh'
@@ -26,7 +25,6 @@ function hasGitHubCheckHandle(check: PRCheckDetail): boolean {
 export function useChecksPanelCheckAndReviewActions(model: ChecksPanelCheckAndReviewActionsInput) {
   const {
     activeReview,
-    activeWorktree,
     activeWorktreeId,
     asyncResultKeyRef,
     branch,
@@ -48,6 +46,7 @@ export function useChecksPanelCheckAndReviewActions(model: ChecksPanelCheckAndRe
     pr,
     prCacheKey,
     repo,
+    settings,
     setChecks,
     setChecksLoading,
     setComments,
@@ -96,7 +95,7 @@ export function useChecksPanelCheckAndReviewActions(model: ChecksPanelCheckAndRe
               ? await loadGitLabJobLogDetails({
                   repoPath: repo.path,
                   repoId: repo.id,
-                  repoOwnerExecutionHostId: forgeOwnerHostIdForWorkspace(repo, activeWorktree),
+                  settings,
                   check,
                   projectRef: gitLabProjectRefRef.current
                 })
@@ -114,8 +113,8 @@ export function useChecksPanelCheckAndReviewActions(model: ChecksPanelCheckAndRe
             if (details) {
               checkRunDetailsByCheckKey[getCheckDetailsPromptKey(check, index)] = details
             }
-          } catch {
-            console.warn('[ChecksPanel] failed to load check details for AI fix prompt')
+          } catch (error) {
+            console.warn('[ChecksPanel] failed to load check details for AI fix prompt', error)
           }
         })
       )
@@ -157,7 +156,7 @@ export function useChecksPanelCheckAndReviewActions(model: ChecksPanelCheckAndRe
     isFixingChecksWithAI,
     pr?.prRepo,
     repo,
-    activeWorktree,
+    settings,
     sourceControlAiActionsVisible,
     stateRequestKey,
     setIsFixingChecksWithAI,

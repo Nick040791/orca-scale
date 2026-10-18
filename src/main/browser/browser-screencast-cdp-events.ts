@@ -88,9 +88,7 @@ export function createBrowserScreencastMessageHandler(
     }
 
     try {
-      const decoded = Buffer.from(data, 'base64')
-      const image =
-        decoded.buffer.byteLength === decoded.byteLength ? decoded : new Uint8Array(decoded)
+      const image = new Uint8Array(Buffer.from(data, 'base64'))
       // Why: image dimension parsing happens for every live frame; share the
       // result between stale-frame rejection and metadata enrichment.
       const imageSize = readBrowserScreencastImageSize(image, options.format)

@@ -6,7 +6,7 @@ const { runProcessMock, readFileMock } = vi.hoisted(() => ({
   readFileMock: vi.fn()
 }))
 
-vi.mock('@orca/process-host', () => ({
+vi.mock('../../shared/child-process/run-process', () => ({
   runProcess: runProcessMock
 }))
 

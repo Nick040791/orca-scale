@@ -1,8 +1,7 @@
 import React from 'react'
-import MermaidBlock, { type RenderedMermaidDiagram } from '@/components/editor/MermaidBlock'
-import { useAppStore } from '@/store'
-import { useDocumentDarkTheme } from '@/hooks/use-document-dark-theme'
+import MermaidBlock from '@/components/editor/MermaidBlock'
 import { cn } from '@/lib/utils'
+import { useAppStore } from '@/store'
 
 // Why: comment markdown components are module-level constants without access to
 // the live theme, so this wrapper resolves dark mode from the app store (same
@@ -11,36 +10,19 @@ import { cn } from '@/lib/utils'
 // foreignObject labels disappear on some platforms.
 export default function CommentMermaidBlock({
   content,
-  className,
-  pendingContent,
-  renderEnabled = true
+  className
 }: {
   content: string
   className?: string
-  pendingContent?: React.ReactNode
-  renderEnabled?: boolean
 }): React.JSX.Element {
-  const isDark = useDocumentDarkTheme()
-  const openModal = useAppStore((s) => s.openModal)
-  const expand = (diagram: RenderedMermaidDiagram): void => openModal('diagram-viewer', diagram)
-
-  if (pendingContent === undefined) {
-    return (
-      <div className={cn(className)}>
-        <MermaidBlock content={content} isDark={isDark} htmlLabels={false} onExpand={expand} />
-      </div>
-    )
-  }
+  const settings = useAppStore((s) => s.settings)
+  const isDark =
+    settings?.theme === 'dark' ||
+    (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
   return (
-    <MermaidBlock
-      content={content}
-      isDark={isDark}
-      htmlLabels={false}
-      className={className}
-      pendingContent={pendingContent}
-      renderEnabled={renderEnabled}
-      onExpand={expand}
-    />
+    <div className={cn(className)}>
+      <MermaidBlock content={content} isDark={isDark} htmlLabels={false} />
+    </div>
   )
 }

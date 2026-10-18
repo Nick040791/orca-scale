@@ -22,44 +22,41 @@ const cacheTimerMocks = vi.hoisted(() => ({
 let worktreeCardProperties: WorktreeCardProperty[] = ['status', 'ports']
 let settings: Partial<GlobalSettings> | null = { compactWorktreeCards: true }
 
-vi.mock('@/store', () => {
-  const getState = () => ({
-    browserTabsByWorktree: {},
-    agentActivityDisplayMode: undefined,
-    createBrowserTab: vi.fn(),
-    deleteStateByWorktreeId: {},
-    fetchHostedReviewForBranch,
-    fetchIssue,
-    fetchLinearIssue,
-    gitConflictOperationByWorktree: {},
-    hostedReviewCache: {},
-    issueCache: {},
-    linearIssueCache: {},
-    openModal: vi.fn(),
-    openTaskPage: vi.fn(),
-    projectGroups: [],
-    ptyIdsByTabId: {},
-    recordFeatureInteraction: vi.fn(),
-    remoteBranchConflictByWorktreeId: {},
-    setRemoteBrowserPageHandle: vi.fn(),
-    replaceWorkspacePortScans,
-    setWorkspacePortScanRefreshing,
-    settings,
-    sshConnectionStates: new Map(),
-    sshTargetLabels: new Map(),
-    tabsByWorktree: {},
-    updateWorktreeMeta: vi.fn(),
-    workspacePortScan,
-    worktreeCardProperties
-  })
-  return {
-    useAppStore: Object.assign((selector: (state: unknown) => unknown) => selector(getState()), {
-      getState
+vi.mock('@/store', () => ({
+  useAppStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      browserTabsByWorktree: {},
+      agentActivityDisplayMode: undefined,
+      createBrowserTab: vi.fn(),
+      deleteStateByWorktreeId: {},
+      fetchHostedReviewForBranch,
+      fetchIssue,
+      fetchLinearIssue,
+      gitConflictOperationByWorktree: {},
+      hostedReviewCache: {},
+      issueCache: {},
+      linearIssueCache: {},
+      openModal: vi.fn(),
+      openTaskPage: vi.fn(),
+      projectGroups: [],
+      ptyIdsByTabId: {},
+      recordFeatureInteraction: vi.fn(),
+      remoteBranchConflictByWorktreeId: {},
+      setRemoteBrowserPageHandle: vi.fn(),
+      replaceWorkspacePortScans,
+      setWorkspacePortScanRefreshing,
+      settings,
+      sshConnectionStates: new Map(),
+      sshTargetLabels: new Map(),
+      tabsByWorktree: {},
+      updateWorktreeMeta: vi.fn(),
+      workspacePortScan,
+      worktreeCardProperties
     })
-  }
-})
+}))
 
-// Expose hover controls to verify compact identity and metadata have one owner.
+// Why: the real Radix HoverCard is controlled by each root's `open`/`onOpenChange`; expose them so the test can
+// prove the compact title root and the ports root track independent open-state controllers.
 const openChangeByRoot = new Map<HTMLElement, (open: boolean) => void>()
 vi.mock('@/components/ui/hover-card', () => ({
   HoverCard: ({
@@ -109,6 +106,10 @@ vi.mock('@/lib/sidebar-worktree-activation', () => ({
   activateWorktreeFromSidebar: vi.fn()
 }))
 
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  getActiveRuntimeTarget: () => ({ kind: 'local' })
+}))
+
 vi.mock('./use-worktree-activity-status', () => ({
   useWorktreeActivityStatus: () => 'active'
 }))
@@ -132,6 +133,7 @@ vi.mock('./WorktreeCardAgents', () => ({
 
 vi.mock('./WorktreeContextMenu', () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
+  CLOSE_ALL_CONTEXT_MENUS_EVENT: 'orca:test-close-context-menus',
   WORKTREE_CONTEXT_MENU_SCOPE_ATTR: 'data-orca-context-menu-scope',
   WORKTREE_NATIVE_CONTEXT_MENU_ATTR: 'data-worktree-native-context-menu'
 }))
@@ -206,7 +208,7 @@ function rootContaining(selector: string): HTMLElement {
   return root
 }
 
-describe('WorktreeCard compact hover ownership', () => {
+describe('WorktreeCard compact ports hover independence', () => {
   let container: HTMLDivElement
   let root: Root
 
@@ -228,26 +230,8 @@ describe('WorktreeCard compact hover ownership', () => {
     container.remove()
   })
 
-  it('uses one full identity anchor for compact title, metadata, and live ports', async () => {
-    const worktree = makeWorktree({
-      linkedItems: [
-        {
-          provider: 'github',
-          type: 'pr',
-          number: 57,
-          title: 'Review',
-          url: 'https://github.com/acme/orca/pull/57'
-        },
-        {
-          provider: 'linear',
-          type: 'issue',
-          number: 0,
-          identifier: 'ENG-2',
-          title: 'Task',
-          url: 'https://linear.app/acme/issue/ENG-2/task'
-        }
-      ]
-    })
+  it('does not force the compact title hover open when the live-ports hover opens', async () => {
+    const worktree = makeWorktree()
     workspacePortScan = makePortScan(worktree)
     const { default: WorktreeCard } = await import('./WorktreeCard')
 
@@ -255,30 +239,22 @@ describe('WorktreeCard compact hover ownership', () => {
       root.render(<WorktreeCard worktree={worktree} repo={makeRepo()} isActive={false} />)
     })
 
+    // Compact mode renders two hover roots: the title-wrapper root and the plug/ports root.
     const titleRoot = rootContaining('[data-worktree-title-inline-rename]')
     const portsRoot = rootContaining('[aria-label="1 live port"]')
-    const metadataRoot = rootContaining('[aria-label="Workspace metadata"]')
-    expect(titleRoot).toBe(portsRoot)
-    expect(titleRoot).toBe(metadataRoot)
-    expect(container.querySelectorAll('[data-hovercard-root]')).toHaveLength(1)
-    expect(container.querySelectorAll('[data-hover-card-content]')).toHaveLength(1)
-    expect(
-      container
-        .querySelector('[data-worktree-card-hover-trigger]')
-        ?.hasAttribute('data-hover-card-trigger')
-    ).toBe(true)
-    const open = openChangeByRoot.get(titleRoot)
+    expect(titleRoot).not.toBe(portsRoot)
+    expect(titleRoot.dataset.open).toBe('false')
+    expect(portsRoot.dataset.open).toBe('false')
+
+    // Opening the ports hover must not drag the (separately anchored, wider) title card open — that cross-root
+    // force-open was the flicker loop in #9304.
+    const openPorts = openChangeByRoot.get(portsRoot)
+    expect(openPorts).toBeTypeOf('function')
     act(() => {
-      open?.(true)
+      openPorts?.(true)
     })
-    expect(container.querySelectorAll('[data-open="true"]')).toHaveLength(1)
-    act(() => {
-      open?.(false)
-      open?.(true)
-    })
-    expect(container.querySelectorAll('[data-open="true"]')).toHaveLength(1)
-    expect(titleRoot.textContent).toContain('Reviews · 1')
-    expect(titleRoot.textContent).toContain('Issues & tasks · 1')
-    expect(titleRoot.textContent).toContain('58941')
+
+    expect(portsRoot.dataset.open).toBe('true')
+    expect(titleRoot.dataset.open).toBe('false')
   })
 })

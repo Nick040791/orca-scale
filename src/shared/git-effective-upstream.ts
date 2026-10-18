@@ -7,7 +7,6 @@ import {
 import { splitRemoteBranchName } from './git-remote-branch-name'
 import { parseGitRevListAheadBehindCounts } from './git-rev-list-output'
 import { iterateProcessOutputLines } from './process-output-field-scanner'
-import { createGitConfigSnapshotRunner } from './git-config-snapshot-runner'
 
 export { gitRefTargetsBranchName, splitRemoteBranchName } from './git-remote-branch-name'
 
@@ -184,17 +183,15 @@ async function resolveEffectiveGitUpstreamForBranch(
 }
 
 export async function resolveEffectiveGitUpstream(
-  execGit: GitCommandRunner
+  runGit: GitCommandRunner
 ): Promise<EffectiveGitUpstream | null> {
-  const runGit = createGitConfigSnapshotRunner(execGit)
   return resolveEffectiveGitUpstreamForBranch(runGit, await getCurrentBranchName(runGit))
 }
 
 export async function getEffectiveGitUpstreamStatus(
-  execGit: GitCommandRunner,
+  runGit: GitCommandRunner,
   getBehindCommitsArePatchEquivalent?: (upstreamName: string) => Promise<boolean>
 ): Promise<GitUpstreamStatus> {
-  const runGit = createGitConfigSnapshotRunner(execGit)
   const currentBranchName = await getCurrentBranchName(runGit)
   const upstream = await resolveEffectiveGitUpstreamForBranch(runGit, currentBranchName)
   if (!upstream) {

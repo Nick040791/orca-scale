@@ -9,7 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENT_LAUNCH_RUNTIME_CAPABILITY } from '../../../../shared/agent-launch-runtime-capability'
+import { AGENT_LAUNCH_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import type { RpcContext } from '../core'
 import {
   CAPABLE_CLIENT,
@@ -213,13 +213,6 @@ describe('the worktree factory', () => {
     expect(result.outcome.kind).toBe('structured')
   })
 
-  it('lets the create fall back to a local base when the launch carries no automation provenance', async () => {
-    const runtime = runtimeStub()
-    await launch(CREATE_LAUNCH, runtime)
-
-    expect(createArgs(runtime).allowLocalBaseFallback).toBe(true)
-  })
-
   it('deduplicates concurrent launches through surface creation', async () => {
     const runtime = runtimeStub()
 
@@ -332,28 +325,10 @@ describe('the worktree factory', () => {
 
     expect(createArgs(runtime)).toMatchObject({
       startupAgent: 'claude',
-      terminalImageViewerSupported: false,
       startupAgentArgs: '--model opus',
       startupCwd: '/repo/packages/api',
       startupLaunchSource: 'source_control_recovery'
     })
-  })
-
-  it("attributes a create by the launch's own source, never a copy inside the create payload", async () => {
-    const createWithSource = {
-      ...CREATE_LAUNCH,
-      target: {
-        kind: 'create-worktree',
-        create: { ...CREATE_LAUNCH.target.create, launchSource: 'cli' }
-      }
-    }
-    const named = runtimeStub({ settings: {} })
-    await launch({ ...createWithSource, launchSource: 'onboarding' }, named)
-    expect(createArgs(named)).toMatchObject({ startupLaunchSource: 'onboarding' })
-
-    const unnamed = runtimeStub({ settings: {} })
-    await launch(createWithSource, unnamed)
-    expect(createArgs(unnamed)).not.toHaveProperty('startupLaunchSource')
   })
 
   it('preserves an explicit no-arguments value for an agent-first worktree create', async () => {
@@ -383,67 +358,6 @@ describe('the worktree factory', () => {
     const args = createArgs(runtime)
     expect(args.startupAgent).toBeUndefined()
     expect(args.startup).toBeUndefined()
-  })
-})
-
-describe('whose window a new workspace moves', () => {
-  const ACTIVATING_CREATE_LAUNCH = {
-    agent: 'claude',
-    target: {
-      kind: 'create-worktree',
-      create: { ...CREATE_LAUNCH.target.create, activate: true, runHooks: true }
-    }
-  }
-  const PAIRED_DESKTOP: Partial<RpcContext> = { ...CAPABLE_CLIENT, clientKind: 'runtime' }
-
-  it.each([
-    ['a phone', 'chat', CAPABLE_CLIENT],
-    ['a phone', 'terminal', CAPABLE_CLIENT],
-    ['a paired desktop', 'chat', PAIRED_DESKTOP],
-    ['a paired desktop', 'terminal', PAIRED_DESKTOP]
-  ] as const)(
-    '%s creates without activating the host, and its setup still runs (%s)',
-    async (_name, mode, context) => {
-      const runtime = runtimeStub(mode === 'terminal' ? { settings: {} } : {})
-      await launch(ACTIVATING_CREATE_LAUNCH, runtime, context)
-
-      // Unactivated, the create provisions setup and default tabs in the background.
-      expect(createArgs(runtime)).toMatchObject({
-        activate: false,
-        runHooks: false,
-        setupDecision: 'run',
-        awaitTerminalProvisioning: true
-      })
-    }
-  )
-
-  it("keeps a paired device's own setup decision when it asked only to activate", async () => {
-    const runtime = runtimeStub()
-    await launch(
-      {
-        agent: 'claude',
-        target: {
-          kind: 'create-worktree',
-          create: { ...CREATE_LAUNCH.target.create, activate: true, setupDecision: 'skip' }
-        }
-      },
-      runtime
-    )
-
-    expect(createArgs(runtime)).toMatchObject({
-      activate: false,
-      runHooks: false,
-      setupDecision: 'skip'
-    })
-  })
-
-  it('still activates a create the CLI asked to activate', async () => {
-    const runtime = runtimeStub({ settings: {} })
-    await launch(ACTIVATING_CREATE_LAUNCH, runtime, {})
-
-    const args = createArgs(runtime)
-    expect(args).toMatchObject({ activate: true, runHooks: true })
-    expect(args.setupDecision).toBeUndefined()
   })
 })
 
@@ -497,29 +411,11 @@ describe('a create that succeeded but is incomplete', () => {
     expect(result.warning).toBe('Could not copy untracked files into the new workspace.')
   })
 
-  it('carries lineage warnings alongside create warnings', async () => {
-    const runtime = runtimeStub({
-      createWarning: 'Could not copy untracked files into the new workspace.',
-      createLineageWarnings: [
-        {
-          code: 'LINEAGE_PARENT_CONTEXT_CONFLICT',
-          message: 'The inferred parent contexts conflict.'
-        }
-      ]
-    })
-
-    const result = await launch(CREATE_LAUNCH, runtime)
-
-    expect(result.warning).toBe(
-      'Could not copy untracked files into the new workspace. Also the inferred parent contexts conflict.'
-    )
-  })
-
   it('carries a create warning onto an agent-first terminal launch', async () => {
     // settings: {} leaves the structured preference off, so the launch is agent-first and returns
     // on the cached startup handle - the early path that also had to learn to carry a warning.
     // Wording matters: the producer cannot emit "startup terminal failed" ALONGSIDE a handle —
-    // `workspaces/workspace-creation.ts` gates startupTerminal on the spawn having
+    // `orca-runtime-create-managed-worktree.ts:283` gates startupTerminal on the spawn having
     // succeeded. An untracked-copy warning is the one that genuinely co-occurs with a handle.
     const runtime = runtimeStub({
       settings: {},
@@ -565,15 +461,7 @@ describe('the terminal factory', () => {
     const runtime = runtimeStub({ createSupport: { supported: false, reason: 'wsl' } })
     const result = await launch(CREATE_LAUNCH, runtime)
 
-    expect(runtime.createTerminal).toHaveBeenCalledWith('id:wt-new', {
-      startupAgent: 'claude',
-      terminalImageViewerSupported: false,
-      // A refused structured session opens its fallback tab as a terminal.
-      viewMode: 'terminal',
-      // A paired device's launch never moves the desktop window.
-      surfaceOwner: false,
-      onPtySpawnDispatched: expect.any(Function)
-    })
+    expect(runtime.createTerminal).toHaveBeenCalledWith('id:wt-new', { startupAgent: 'claude' })
     expect(createStructuredSession).not.toHaveBeenCalled()
     expect(result.outcome).toEqual({ kind: 'terminal', handle: 'term_1' })
     // Never a failed launch, and never a silent downgrade.
@@ -583,7 +471,7 @@ describe('the terminal factory', () => {
   it('takes an existing workspace without creating one', async () => {
     const runtime = runtimeStub()
     const result = await launch(
-      { agent: 'gemini', target: { kind: 'existing', worktree: 'id:wt-7' } },
+      { agent: 'grok', target: { kind: 'existing', worktree: 'id:wt-7' } },
       runtime
     )
 
@@ -593,14 +481,7 @@ describe('the terminal factory', () => {
     expect(runtime.showManagedTerminalWorkspace).not.toHaveBeenCalled()
     // Resolved to an id first: everything below re-prefixes it, so a raw selector reaches the
     // runtime as `id:id:wt-7`.
-    expect(runtime.createTerminal).toHaveBeenCalledWith('id:wt-7', {
-      startupAgent: 'gemini',
-      terminalImageViewerSupported: false,
-      // No native chat renderer for this agent, so its tab opens as the terminal.
-      viewMode: 'terminal',
-      surfaceOwner: false,
-      onPtySpawnDispatched: expect.any(Function)
-    })
+    expect(runtime.createTerminal).toHaveBeenCalledWith('id:wt-7', { startupAgent: 'grok' })
     expect(result.worktreeId).toBe('wt-7')
   })
 })
@@ -667,14 +548,15 @@ describe('launch inputs that cross the wire', () => {
     })
   })
 
-  it("hands the caller's launch_source to the runtime, which attributes the launch", async () => {
+  it('derives agent_kind and request_kind, taking only launch_source from the caller', async () => {
     const runtime = runtimeStub({ settings: {} })
     await launch({ ...EXISTING_LAUNCH, launchSource: 'source_control_recovery' }, runtime)
 
-    // The runtime derives agent_kind and request_kind from the agent it builds, so the handler
-    // forwards only the one member it cannot know, and never a prebuilt triple.
-    expect(terminalOptions(runtime)).toMatchObject({ launchSource: 'source_control_recovery' })
-    expect(terminalOptions(runtime)).not.toHaveProperty('telemetry')
+    expect(terminalOptions(runtime).telemetry).toEqual({
+      agent_kind: 'claude-code',
+      launch_source: 'source_control_recovery',
+      request_kind: 'new'
+    })
   })
 
   it('starts the agent anyway when launch_source is one this build has never heard of', async () => {
@@ -685,16 +567,16 @@ describe('launch inputs that cross the wire', () => {
     )
 
     // The whole point of the open arm set: attribution is bookkeeping, and bookkeeping must never
-    // gate a user action. The runtime records it as `unknown`; the launch still starts.
+    // gate a user action. The row is dropped; the launch is not.
     expect(result.outcome).toEqual({ kind: 'terminal', handle: 'term_1' })
-    expect(terminalOptions(runtime)).toMatchObject({ launchSource: 'a_surface_added_later' })
+    expect(terminalOptions(runtime)).not.toHaveProperty('telemetry')
   })
 
-  it('names no launch source when the caller named none', async () => {
+  it('sends no telemetry at all when the caller named no launch source', async () => {
     const runtime = runtimeStub({ settings: {} })
     await launch(EXISTING_LAUNCH, runtime)
 
-    expect(terminalOptions(runtime)).not.toHaveProperty('launchSource')
+    expect(terminalOptions(runtime)).not.toHaveProperty('telemetry')
   })
 
   it('keeps a structured preference when the cwd names the workspace root', async () => {

@@ -174,10 +174,8 @@ describe('remote terminal stalled stream recovery', () => {
   })
 
   it('probes then restarts a stream when an entered command receives no frames', async () => {
-    const { getRemoteRuntimeTerminalMultiplexer } =
+    const { getRemoteRuntimeTerminalMultiplexer, REMOTE_TERMINAL_SNAPSHOT_REQUEST_TIMEOUT_MS } =
       await import('./remote-runtime-terminal-multiplexer')
-    const { REMOTE_TERMINAL_SNAPSHOT_REQUEST_TIMEOUT_MS } =
-      await import('./remote-runtime-terminal-snapshot-state')
     const onTransportClose = vi.fn()
     const stream = await getRemoteRuntimeTerminalMultiplexer('windows-test').subscribeTerminal({
       terminal: 'term-silent',

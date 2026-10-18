@@ -24,7 +24,7 @@ import {
 } from './codex-structured-journal-contracts'
 import { MAX_CODEX_GOAL_THREADS } from './codex-structured-journal-limits'
 import { appendCodexLifecycleTransition } from './codex-structured-journal-sink'
-import type { CodexRowAttribution } from './codex-subagent-linkage'
+import type { CodexRowLinkage } from './codex-subagent-linkage'
 
 type GoalAccounting = { key: string; timeUsedSeconds: number; tokenBudget: number | null }
 
@@ -70,7 +70,7 @@ export class CodexJournalGoals {
 
   constructor(
     private readonly sink: StructuredAgentSessionEventSink,
-    private readonly attributionFor: CodexRowAttribution
+    private readonly linkageFor: CodexRowLinkage
   ) {}
 
   handle(event: {
@@ -132,7 +132,7 @@ export class CodexJournalGoals {
           event.method === 'thread/goal/cleared'
         ),
       // A goal belongs to its thread, not to one run of it, so no turn is named.
-      this.attributionFor(event.threadId, null)
+      this.linkageFor(event.threadId, null)
     )
     if (!admission.accepted) {
       return admission

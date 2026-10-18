@@ -82,7 +82,7 @@ export function buildRuntimeClientEventEnvironmentKey(environmentIds: string[]):
 }
 
 /** Ids in `next` not in `previous` — environments that just became connected. */
-function getNewlyConnectedRuntimeEnvironmentIds(
+export function getNewlyConnectedRuntimeEnvironmentIds(
   previous: readonly string[],
   next: readonly string[]
 ): string[] {
@@ -91,14 +91,14 @@ function getNewlyConnectedRuntimeEnvironmentIds(
 }
 
 /** Ids in `previous` not in `next` — environments whose transport was just observed down. */
-function getNewlyDisconnectedRuntimeEnvironmentIds(
+export function getNewlyDisconnectedRuntimeEnvironmentIds(
   previous: readonly string[],
   next: readonly string[]
 ): string[] {
   return getNewlyConnectedRuntimeEnvironmentIds(next, previous)
 }
 
-function getRuntimeProjectRefreshEnvironmentIds(args: {
+export function getRuntimeProjectRefreshEnvironmentIds(args: {
   previousDesired: readonly string[]
   nextDesired: readonly string[]
   previousReachable: readonly string[]

@@ -35,12 +35,3 @@ export function prependFrontMatter(raw: string, body: string): string {
   const normalizedRaw = raw.endsWith('\n') ? raw : `${raw}\n`
   return `${normalizedRaw}${body}`
 }
-
-export function markdownFrontMatterInner(frontMatter: FrontMatter | null): string {
-  return (
-    frontMatter?.raw
-      .replace(/^(?:---|\+\+\+)\r?\n/, '')
-      .replace(/\r?\n(?:---|\+\+\+)\r?\n?$/, '')
-      .trim() ?? ''
-  )
-}

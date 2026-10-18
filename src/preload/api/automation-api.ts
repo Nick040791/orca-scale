@@ -3,12 +3,16 @@ import type {
   AutomationDispatchResult,
   AutomationPrecheckResult,
   AutomationRun,
-  ExternalAutomationManager
+  ExternalAutomationManager,
+  ExternalAutomationRunsPage
 } from '../../shared/automations-types'
 import type { AutomationOwnerRef } from '../../shared/automation-owner-ref'
 import type {
   ScopedExternalManagerActionRequest,
-  ScopedExternalManagerListRequest
+  ScopedExternalManagerCreateRequest,
+  ScopedExternalManagerListRequest,
+  ScopedExternalManagerRunsRequest,
+  ScopedExternalManagerUpdateRequest
 } from '../../shared/external-automation-scope'
 import type { AutomationsChangedPayload } from '../../shared/runtime-client-events'
 
@@ -28,6 +32,11 @@ export type AutomationsApi = {
   listExternalManagerForOwner: (
     request: ScopedExternalManagerListRequest
   ) => Promise<ExternalAutomationManagerResult>
+  listExternalRunsForOwner: (
+    request: ScopedExternalManagerRunsRequest
+  ) => Promise<ExternalAutomationRunsPage>
+  createExternalForOwner: (request: ScopedExternalManagerCreateRequest) => Promise<void>
+  updateExternalForOwner: (request: ScopedExternalManagerUpdateRequest) => Promise<void>
   runExternalActionForOwner: (request: ScopedExternalManagerActionRequest) => Promise<void>
   retainExternalScopes: (request: { owners: readonly AutomationOwnerRef[] }) => Promise<void>
   runPrecheck: (args: {

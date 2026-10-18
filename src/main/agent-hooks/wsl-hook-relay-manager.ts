@@ -162,7 +162,7 @@ export class WslHookRelayManager {
     if (!bundle) {
       if (!this.warnedBundleMissing) {
         this.warnedBundleMissing = true
-        this.deps.warn('[agent-hooks] WSL hook relay bundle not found; run build:wsl-guest')
+        this.deps.warn('[agent-hooks] WSL hook relay bundle not found; run build:relay')
       }
       return
     }
@@ -226,7 +226,6 @@ export class WslHookRelayManager {
     const mux = new SshChannelMultiplexer(transport)
     state.mux = mux
     wireWslRelayLink({
-      bindInterruptReconciliation: this.deps.bindInterruptReconciliation,
       mux,
       child,
       distro: state.distro,

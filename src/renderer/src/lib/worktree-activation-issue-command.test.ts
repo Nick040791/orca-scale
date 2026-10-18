@@ -3,9 +3,8 @@ import { ensureWorktreeHasInitialTerminal } from './worktree-initial-terminal-se
 import {
   createMockStore,
   registerWorktreeActivationReset,
-  setLegacySetupScriptLaunchMode,
-  createdTabStartups
-} from './worktree-activation.test-fixture'
+  setSetupScriptLaunchMode
+} from './worktree-activation-test-harness'
 
 registerWorktreeActivationReset()
 
@@ -25,6 +24,7 @@ describe('ensureWorktreeHasInitialTerminal', () => {
       pendingActivationSpawn: true
     })
     expect(store.setActiveTab).toHaveBeenCalledWith('tab-1')
+    expect(store.queueTabSetupSplit).not.toHaveBeenCalled()
     expect(store.queueTabIssueCommandSplit).toHaveBeenCalledWith('tab-1', {
       command: 'bash /tmp/repo/.git/orca/issue-command-runner.sh',
       env: {
@@ -49,8 +49,8 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     })
   })
 
-  it('creates a Setup tab and queues issue automation on the primary terminal', () => {
-    setLegacySetupScriptLaunchMode('split-vertical')
+  it('queues both setup split and issue command split when both are provided', () => {
+    setSetupScriptLaunchMode('split-vertical')
     const store = createMockStore()
 
     ensureWorktreeHasInitialTerminal(
@@ -67,9 +67,11 @@ describe('ensureWorktreeHasInitialTerminal', () => {
       }
     )
 
-    expect(createdTabStartups(store)['tab-2']).toEqual({
+    expect(store.queueTabStartupCommand).not.toHaveBeenCalled()
+    expect(store.queueTabSetupSplit).toHaveBeenCalledWith('tab-1', {
       command: 'bash /tmp/repo/.git/orca/setup-runner.sh',
-      env: { ORCA_ROOT_PATH: '/tmp/repo' }
+      env: { ORCA_ROOT_PATH: '/tmp/repo' },
+      direction: 'vertical'
     })
     expect(store.queueTabIssueCommandSplit).toHaveBeenCalledWith('tab-1', {
       command: 'bash /tmp/repo/.git/orca/issue-command-runner.sh',
@@ -82,7 +84,7 @@ describe('ensureWorktreeHasInitialTerminal', () => {
 
     ensureWorktreeHasInitialTerminal(store, 'wt-1')
 
-    expect(createdTabStartups(store)).toEqual({})
+    expect(store.queueTabStartupCommand).not.toHaveBeenCalled()
     expect(store.queueTabIssueCommandSplit).not.toHaveBeenCalled()
   })
 })

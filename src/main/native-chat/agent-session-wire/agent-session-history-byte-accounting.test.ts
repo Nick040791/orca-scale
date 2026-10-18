@@ -1,4 +1,3 @@
-import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,17 +7,16 @@ import type {
   AgentJournalItemIdentity,
   AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
-import { createTrackedJournalOpener } from '../agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { readAgentSessionHistory } from './agent-session-history-page'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 
 const IDENTITY: AgentSessionJournalIdentity = {
   sessionId: 'session-1',
   workspaceId: 'ws-1',
   hostId: 'host-1',
   agent: 'codex',
-  providerHandle: codexProviderHandle('thread-1')
+  providerHandle: { kind: 'codex', threadId: 'thread-1' }
 }
 
 const journals = createTrackedJournalOpener()
@@ -42,10 +40,7 @@ function body(text: string): AgentJournalItemBody {
 
 async function appendItems(count: number, text: string): Promise<void> {
   for (let ordinal = 1; ordinal <= count; ordinal += 1) {
-    await journal.appendItem(item(ordinal), body(`${text}-${ordinal}`), {
-      fence: 1,
-      turnScope: AGENT_JOURNAL_THREAD_SCOPE
-    })
+    await journal.appendItem(item(ordinal), body(`${text}-${ordinal}`), { fence: 1 })
   }
 }
 
@@ -55,7 +50,7 @@ beforeEach(async () => {
   epochs = 0
   journal = await journals.open({
     identity: IDENTITY,
-    stateDirectory: root,
+    journalDir: root,
     now: tick,
     mintEpoch: () => {
       epochs += 1
@@ -94,7 +89,7 @@ it.each([1, 100, 200])('serializes each of %i unchanged forward page items once'
         limit: count,
         cursor
       },
-      { snapshot }
+      snapshot
     )
     expect(result.ok).toBe(true)
     expect(result.page.items).toHaveLength(count)

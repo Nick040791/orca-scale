@@ -53,8 +53,6 @@ export type EphemeralVmProvisionIpcResult =
       connectionType: 'ssh'
       runtime: EphemeralVmRuntimeRecord
       sshTargetId: string
-      /** The managed Orca server the host runs; its workspace lives there. */
-      environmentId?: string
       expectedRefHead?: string
       stderr: string
       warnings: EphemeralVmRecipeResultWarning[]
@@ -146,8 +144,10 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
           chunk: redactEphemeralVmRecipeDiagnosticText(chunk)
         })
       }
-      // Why: deregister only when the whole handler settles, so cancelProvision still finds the
-      // controller for every phase that reads its signal.
+      // Why: keep the controller registered across BOTH the recipe-create phase AND
+      // the post-create SSH-connect/provider-wait phase, so cancelProvision can still
+      // abort during the up-to-10s SSH connect window. Removing it in the provision
+      // promise's own .finally() would deregister it before SSH connect even starts.
       try {
         let recipeRepoUrl = repo.repo.gitRemoteIdentity?.remoteUrl
         let sourceRef = args.ref
@@ -206,14 +206,14 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
           try {
             const ssh = await connectRuntimeOwnedSshTarget({
               runtimeId: result.runtime.id,
-              connection
+              connection,
+              ...(controller ? { signal: controller.signal } : {})
             })
             const runtime = updateEphemeralVmRuntimeStatus(
               app.getPath('userData'),
               result.runtime.id,
               {
-                sshTargetId: ssh.targetId,
-                runtimeEnvironmentId: ssh.environmentId
+                sshTargetId: ssh.targetId
               }
             )
             return {
@@ -221,7 +221,6 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
               connectionType: 'ssh',
               runtime,
               sshTargetId: ssh.targetId,
-              environmentId: ssh.environmentId,
               ...(expectedRefHead ? { expectedRefHead } : {}),
               stderr: redactEphemeralVmRecipeDiagnosticText(result.start.stderr),
               warnings: getEphemeralVmRecipeResultWarnings(result.start.result)

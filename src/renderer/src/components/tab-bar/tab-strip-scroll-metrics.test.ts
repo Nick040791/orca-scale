@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  computeTabStripOverflowState,
+  computeTabStripScrollMetrics,
   computeTabStripThumbLayout,
   getTabStripScrollMaskClassName
 } from './tab-strip-scroll-metrics'
 
-describe('computeTabStripOverflowState', () => {
+describe('computeTabStripScrollMetrics', () => {
   it('reports no overflow when all tabs fit', () => {
     expect(
-      computeTabStripOverflowState({
+      computeTabStripScrollMetrics({
         scrollWidth: 400,
         clientWidth: 400,
         scrollLeft: 0
@@ -16,20 +16,38 @@ describe('computeTabStripOverflowState', () => {
     ).toEqual({
       hasOverflow: false,
       canScrollStart: false,
-      canScrollEnd: false
+      canScrollEnd: false,
+      thumbSizeFraction: 1,
+      thumbOffsetFraction: 0
+    })
+  })
+
+  it('tracks thumb size and offset while scrolled', () => {
+    expect(
+      computeTabStripScrollMetrics({
+        scrollWidth: 800,
+        clientWidth: 400,
+        scrollLeft: 200
+      })
+    ).toEqual({
+      hasOverflow: true,
+      canScrollStart: true,
+      canScrollEnd: true,
+      thumbSizeFraction: 0.5,
+      thumbOffsetFraction: 0.5
     })
   })
 
   it('marks the start and end scroll edges', () => {
     expect(
-      computeTabStripOverflowState({
+      computeTabStripScrollMetrics({
         scrollWidth: 800,
         clientWidth: 400,
         scrollLeft: 0
       }).canScrollStart
     ).toBe(false)
     expect(
-      computeTabStripOverflowState({
+      computeTabStripScrollMetrics({
         scrollWidth: 800,
         clientWidth: 400,
         scrollLeft: 0
@@ -37,14 +55,14 @@ describe('computeTabStripOverflowState', () => {
     ).toBe(true)
 
     expect(
-      computeTabStripOverflowState({
+      computeTabStripScrollMetrics({
         scrollWidth: 800,
         clientWidth: 400,
         scrollLeft: 400
       }).canScrollStart
     ).toBe(true)
     expect(
-      computeTabStripOverflowState({
+      computeTabStripScrollMetrics({
         scrollWidth: 800,
         clientWidth: 400,
         scrollLeft: 400
@@ -56,16 +74,22 @@ describe('computeTabStripOverflowState', () => {
 describe('computeTabStripThumbLayout', () => {
   it('clamps thumb width and keeps the thumb inside the track', () => {
     expect(
-      computeTabStripThumbLayout(200, { scrollWidth: 10_000, clientWidth: 400, scrollLeft: 9_600 })
+      computeTabStripThumbLayout(200, {
+        thumbSizeFraction: 0.04,
+        thumbOffsetFraction: 1
+      })
     ).toEqual({
       widthPx: 18,
       leftPx: 182
     })
   })
 
-  it('sizes and offsets the thumb from the strip scroll position', () => {
+  it('uses the raw width when it is already above the minimum', () => {
     expect(
-      computeTabStripThumbLayout(400, { scrollWidth: 800, clientWidth: 400, scrollLeft: 100 })
+      computeTabStripThumbLayout(400, {
+        thumbSizeFraction: 0.5,
+        thumbOffsetFraction: 0.25
+      })
     ).toEqual({
       widthPx: 200,
       leftPx: 50
@@ -92,11 +116,5 @@ describe('getTabStripScrollMaskClassName', () => {
         canScrollEnd: true
       })
     ).toBe('terminal-tab-strip--fade-start terminal-tab-strip--fade-end')
-  })
-
-  it('drops the fade on the edge the active tab is docked to', () => {
-    const metrics = { hasOverflow: true, canScrollStart: true, canScrollEnd: true }
-    expect(getTabStripScrollMaskClassName(metrics, 'start')).toBe('terminal-tab-strip--fade-end')
-    expect(getTabStripScrollMaskClassName(metrics, 'end')).toBe('terminal-tab-strip--fade-start')
   })
 })

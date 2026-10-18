@@ -14,11 +14,13 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
  *  rebinds one. A remount reattaches over the still-live PTY and drains the
  *  buffer.
  *
- *  A transport that armed or parked its own retry owns the pane, so a second
- *  remount never races it. */
+ *  A direct-SSH lease runs its own retry ledger, so it keeps ownership here and
+ *  a second remount never races it. */
 export function settleSpawnThatLeftPaneUnbound(session: ConnectPanePtySession): void {
-  session.settlePaneAttachAttempt('failed')
-  if (session.transport.ownsRecovery?.() === true) {
+  // Read before settling: the settle clears the lease this branch tests.
+  const directSshRetryOwnsRecovery = Boolean(session.directSshRetryAttempt)
+  session.settlePaneAttachAttempt(session.directSshRetryAttempt, 'failed')
+  if (directSshRetryOwnsRecovery) {
     return
   }
   warnTerminalLifecycleAnomaly('fresh spawn left the pane unbound', {

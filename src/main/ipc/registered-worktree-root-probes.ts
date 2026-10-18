@@ -3,27 +3,16 @@ import { resolve } from 'node:path'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
 import type { Repo } from '../../shared/repo-types'
 import { getErrorCode } from '../git/worktree-operation-options'
-import { resolveLocalProjectRuntimesForRepos } from '../local-project-runtime-resolution'
-import type { RegisteredWorktreeRootStore as RootStore } from './registered-worktree-root-store'
-import { getWorktreeMirrorDistroForRuntime } from '../project-runtime-git-options'
 import { listRepoWorktreeGraph } from '../repo-worktrees'
 
 const CREATED_WORKTREE_ROOT_PROBE_TIMEOUT_MS = 1_000
 const AUTHORIZED_ROOTS_REBUILD_CONCURRENCY = 8
 
-/** `wslDistro` names the Git that listed the roots; undefined is host Git. */
-type ListedRoots = { roots: Set<string>; listingFailed: boolean; wslDistro: string | undefined }
+type ListedRoots = { roots: Set<string>; listingFailed: boolean }
 
-/**
- * Why the project runtime's distro: the catalog and removal list through it, and WSL Git records a
- * `C:\` worktree as `/mnt/c/...`, which host Git reading that metadata names as another path. A
- * runtime awaiting repair has no distro, so it keeps the host Git this listing always used.
- */
 export async function listWorktreeRootsWithConcurrency(
-  store: RootStore,
   repos: readonly Repo[]
 ): Promise<ListedRoots[]> {
-  const runtimes = resolveLocalProjectRuntimesForRepos(store, repos)
   const results: ListedRoots[] = []
   let nextIndex = 0
   await Promise.all(
@@ -33,14 +22,10 @@ export async function listWorktreeRootsWithConcurrency(
         while (nextIndex < repos.length) {
           const index = nextIndex++
           const repo = repos[index]
-          const wslDistro = getWorktreeMirrorDistroForRuntime(runtimes.get(repo.id))
           const roots = new Set([resolve(repo.path)])
           let listingFailed = false
           try {
-            for (const worktree of await listRepoWorktreeGraph(
-              repo,
-              wslDistro ? { wslDistro } : {}
-            )) {
+            for (const worktree of await listRepoWorktreeGraph(repo)) {
               roots.add(resolve(worktree.path))
             }
           } catch (error) {
@@ -50,7 +35,7 @@ export async function listWorktreeRootsWithConcurrency(
             )
             listingFailed = true
           }
-          results[index] = { roots, listingFailed, wslDistro }
+          results[index] = { roots, listingFailed }
         }
       }
     )

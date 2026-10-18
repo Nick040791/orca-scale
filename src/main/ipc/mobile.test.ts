@@ -1,4 +1,3 @@
-import '../runtime/rpc/unused-default-rpc-methods.test-fixture'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type * as NodeOs from 'node:os'
 
@@ -37,7 +36,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerMobileHandlers } from './mobile'
 import { NETWORK_EXPOSURE_FAILED_GUIDANCE } from '../runtime/network-exposure-guidance'
-import { createMobileRpcSurfaceRuntime } from '../runtime/runtime-rpc-mobile-method-allowlist-fixtures'
+import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 import { WebSocketTransport } from '../runtime/rpc/ws-transport'
 
@@ -847,7 +846,8 @@ describe('runtime pairing bind host', () => {
   beforeEach(() => {
     handlers.clear()
     handleMock.mockReset()
-    networkInterfacesMock.mockReset().mockReturnValue({})
+    networkInterfacesMock.mockReset()
+    networkInterfacesMock.mockReturnValue({})
     handleMock.mockImplementation((channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler)
     })
@@ -855,8 +855,7 @@ describe('runtime pairing bind host', () => {
 
   const startServer = async (userDataPath: string): Promise<OrcaRuntimeRpcServer> => {
     const server = new OrcaRuntimeRpcServer({
-      methods: [],
-      runtime: createMobileRpcSurfaceRuntime().runtime,
+      runtime: new OrcaRuntimeService(),
       userDataPath,
       enableWebSocket: true,
       wsPort: 0

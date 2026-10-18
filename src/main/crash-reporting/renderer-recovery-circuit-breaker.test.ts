@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { RendererRecoveryCircuitBreaker } from './renderer-recovery-circuit-breaker'
+import {
+  DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES,
+  DEFAULT_RENDERER_RECOVERY_WINDOW_MS,
+  RendererRecoveryCircuitBreaker
+} from './renderer-recovery-circuit-breaker'
 
 describe('RendererRecoveryCircuitBreaker', () => {
   it('allows recoveries up to the limit, then opens', () => {
@@ -52,5 +56,10 @@ describe('RendererRecoveryCircuitBreaker', () => {
     expect(breaker.registerRecoveryAttempt(100).allowed).toBe(false)
     breaker.reset()
     expect(breaker.registerRecoveryAttempt(200).allowed).toBe(true)
+  })
+
+  it('ships conservative defaults', () => {
+    expect(DEFAULT_RENDERER_RECOVERY_WINDOW_MS).toBe(60_000)
+    expect(DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES).toBe(3)
   })
 })

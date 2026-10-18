@@ -1,9 +1,8 @@
-import { getDefaultSettings } from '../../../shared/constants'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore, type AppState } from '@/store'
 import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
-import { makeCreatedAgentWorktree } from '@/lib/worktree-activation-created-agent.test-fixture'
+import { makeCreatedAgentWorktree } from '@/lib/worktree-activation-created-agent-test-state'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import {
   hasHostSessionMirrorHydrated,
@@ -92,9 +91,9 @@ function seedState(worktree: ReturnType<typeof makeCreatedAgentWorktree>): void 
       } as never
     },
     settings: {
-      ...getDefaultSettings(''),
-      agentCmdOverrides: {}
-    },
+      agentCmdOverrides: {},
+      setupScriptLaunchMode: 'new-tab'
+    } as unknown as AppState['settings'],
     markWorktreeVisited: vi.fn(),
     recordWorktreeVisit: vi.fn(),
     refreshGitHubForWorktreeIfStale: vi.fn(),
@@ -156,7 +155,7 @@ afterEach(() => {
 })
 
 describe('parked mirrored-pane resume replay', () => {
-  it('releases the deferred sweep without relaunching a retracted host pane', () => {
+  it('replays the deferred sweep and relaunches once the mirror retracts the pane', () => {
     const worktree = makeRuntimeOwnedWorktree()
     seedState(worktree)
     const paneKey = seedSleepingRecord(worktree.id, 'codex-session-replay-1')
@@ -164,14 +163,18 @@ describe('parked mirrored-pane resume replay', () => {
     expect(resumeSleepingAgentSessionsForWorktree(worktree.id)).toBe(0)
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[paneKey]).toBeDefined()
 
-    // Retraction settles the mirror; it does not authorize a client to restart the agent.
+    // The host answered: this pane is gone, so recovery is finally justified.
     retractMirroredTab(worktree.id)
     markHostSessionMirrorHydrated(RUNTIME_ENV_ID)
 
     const after = useAppStore.getState()
-    expect(after.tabsByWorktree[worktree.id]).toEqual([])
-    expect(Object.keys(after.automaticAgentResumeClaimsByTabId)).toHaveLength(0)
-    expect(after.sleepingAgentSessionsByPaneKey[paneKey]).toBeDefined()
+    const tabs = after.tabsByWorktree[worktree.id] ?? []
+    expect(tabs).toHaveLength(1)
+    expect(after.automaticAgentResumeClaimsByTabId[tabs[0]!.id]?.providerSession).toEqual({
+      key: 'session_id',
+      id: 'codex-session-replay-1'
+    })
+    expect(after.sleepingAgentSessionsByPaneKey[paneKey]).toBeUndefined()
   })
 
   it('replays without relaunching when the mirror reports the host PTY live', () => {

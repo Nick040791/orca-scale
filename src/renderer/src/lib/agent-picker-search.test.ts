@@ -3,6 +3,7 @@ import {
   AGENT_PICKER_QUERY_MAX_BYTES,
   agentPickerBlankTerminalMatches,
   getAgentPickerCommandValue,
+  isAgentPickerQueryTooLarge,
   searchAgentPickerEntries
 } from './agent-picker-search'
 import { AGENT_CATALOG, type AgentCatalogEntry } from './agent-catalog'
@@ -66,41 +67,10 @@ describe('agent picker search', () => {
     expect(replaceSpy).not.toHaveBeenCalled()
   })
 
-  it('resolves catalog commands to the first entry owning that command', () => {
+  it('resolves every catalog command alias to its agent first', () => {
     for (const agent of AGENT_CATALOG) {
-      const owner = AGENT_CATALOG.find((candidate) => candidate.cmd === agent.cmd)
-      expect(searchAgentPickerEntries(AGENT_CATALOG, agent.cmd)[0]?.id).toBe(owner?.id)
+      expect(searchAgentPickerEntries(AGENT_CATALOG, agent.cmd)[0]?.id).toBe(agent.id)
     }
-  })
-
-  it.each([
-    ['qoder', 'qoder'],
-    ['qodercli', 'qoder'],
-    ['qoder-cn', 'qoder-cn'],
-    ['qoderclicn', 'qoder-cn'],
-    ['Qoder CLI China', 'qoder-cn'],
-    ['qwen', 'qwen-code']
-  ] as const)('resolves explicit identity or command %s to %s', (query, expected) => {
-    expect(searchAgentPickerEntries(AGENT_CATALOG, query)[0]?.id).toBe(expected)
-  })
-
-  it('keeps a stable default for a shared binary while explicit CN remains selectable', () => {
-    const shared = [
-      entry('qoder', 'Qoder CLI', 'qodercli'),
-      entry('qoder-cn', 'Qoder CLI China', 'qodercli')
-    ]
-    expect(searchAgentPickerEntries(shared, 'qodercli').map((agent) => agent.id)).toEqual([
-      'qoder',
-      'qoder-cn'
-    ])
-    expect(searchAgentPickerEntries(shared, 'qoder-cn')[0]?.id).toBe('qoder-cn')
-    expect(searchAgentPickerEntries(shared, 'Qoder CLI China')[0]?.id).toBe('qoder-cn')
-    expect(
-      searchAgentPickerEntries(
-        shared.filter((agent) => agent.id !== 'qoder'),
-        'qodercli'
-      )[0]?.id
-    ).toBe('qoder-cn')
   })
 
   it('returns no entries for unrelated text', () => {
@@ -124,6 +94,7 @@ describe('agent picker search', () => {
       }
     ] as AgentCatalogEntry[]
 
+    expect(isAgentPickerQueryTooLarge(oversizedQuery)).toBe(true)
     expect(searchAgentPickerEntries(throwingAgents, oversizedQuery)).toEqual([])
     expect(agentPickerBlankTerminalMatches(oversizedQuery)).toBe(false)
     expect(

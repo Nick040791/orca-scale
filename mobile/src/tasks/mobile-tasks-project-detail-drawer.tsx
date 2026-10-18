@@ -22,8 +22,7 @@ import {
   SHOW_MOBILE_PROJECT_METADATA_EDITORS,
   githubProjectOptionColor,
   canCreateWorkspaceFromProjectRow,
-  projectRowType,
-  TASK_SECONDARY_DRAWER_Z_INDEX
+  projectRowType
 } from './mobile-tasks-legacy-foundation'
 import { renderMobileTasksProjectFieldEditors } from './mobile-tasks-project-field-editors'
 import {
@@ -46,8 +45,6 @@ export function renderMobileTasksProjectMissingRepoDrawer(model: ConnectionPrese
       onClose={() => {
         setProjectRepoNotInOrca(null)
       }}
-      // Why: opens over the project detail, which renders after it in the shared host.
-      zIndex={TASK_SECONDARY_DRAWER_Z_INDEX}
     >
       {projectRepoNotInOrca ? (
         <View>

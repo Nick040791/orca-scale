@@ -7,14 +7,7 @@ import type { SettingsNavigationModel } from './use-settings-navigation-model'
 import { getSettingsNavGroupDefinitionsForSearch } from './settings-navigation-foundations'
 
 export function useSettingsNavigationActions(
-  model: Pick<
-    SettingsStoreModel,
-    | 'activeSectionId'
-    | 'setActiveSectionId'
-    | 'setPendingNavRequestTick'
-    | 'setSettingsSearchQuery'
-    | 'settingsSearchQuery'
-  >,
+  model: SettingsStoreModel,
   interactions: SettingsInteractionController
 ) {
   const {

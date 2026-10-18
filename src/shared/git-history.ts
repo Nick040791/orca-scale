@@ -209,8 +209,6 @@ export async function loadGitHistoryFromExecutor(
   const { stdout } = await git(
     [
       'log',
-      '--no-show-signature',
-      '--no-color',
       `--format=${GIT_HISTORY_COMMIT_FORMAT}`,
       '-z',
       '--topo-order',

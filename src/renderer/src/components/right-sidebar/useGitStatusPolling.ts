@@ -10,7 +10,7 @@ import {
   hasInteractiveActiveGitStatusConsumer,
   shouldPollActiveGitStatus
 } from '@/lib/passive-macos-app-data-access'
-import { getWorktreeGitOwnerTarget } from './worktree-git-owner-target'
+import { getRightSidebarWorktreeRuntimeSettings } from './file-explorer-runtime-owner'
 import { useGitStatusFileWatchRefresh } from './git-status-file-watch-refresh'
 import { useGitStatusPushSignalRefresh } from './git-status-push-signal-refresh'
 import { useStaleConflictOperationPolling } from './stale-conflict-operation-poll'
@@ -135,12 +135,9 @@ export function useGitStatusPolling(options: { enabled?: boolean } = {}): void {
       }
       try {
         const connectionId = getConnectionId(activeWorktreeId) ?? undefined
-        const target = getWorktreeGitOwnerTarget(activeWorktreeId)
-        if (!target) {
-          return
-        }
+        const runtimeSettings = getRightSidebarWorktreeRuntimeSettings(activeWorktreeId)
         await refreshGitStatusForWorktree({
-          target,
+          settings: runtimeSettings,
           worktreeId: activeWorktreeId,
           worktreePath,
           connectionId,
@@ -293,12 +290,6 @@ export function useGitStatusPolling(options: { enabled?: boolean } = {}): void {
     statusSchedulerRef.current?.signal()
   }, [])
 
-  const getRepoWorktreePathsForSignal = useCallback(
-    (repoId: string) =>
-      (useAppStore.getState().worktreesByRepo[repoId] ?? []).map((worktree) => worktree.path),
-    []
-  )
-
   useGitStatusFileWatchRefresh({
     activeConnectionId,
     activeRepoSupportsGit,
@@ -317,10 +308,8 @@ export function useGitStatusPolling(options: { enabled?: boolean } = {}): void {
   useGitStatusPushSignalRefresh({
     activeRepoId,
     activeWorktreeId,
-    activeWorktreePath: worktreePath,
     enabled: canFetchActiveWorktreeGitStatus,
-    fetchStatus: fetchStatusOnChangeSignal,
-    getRepoWorktreePaths: getRepoWorktreePathsForSignal
+    fetchStatus: fetchStatusOnChangeSignal
   })
 
   useStaleConflictOperationPolling({

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getLiveAgentStatusByWorktreeId,
   getWorktreeIdsWithLiveAgent,
+  hasActiveWorkspaceActivity,
   isInactiveWorkspace
 } from './worktree-activity-state'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
@@ -27,6 +28,12 @@ function makeAgentEntry(
 }
 
 describe('worktree activity state', () => {
+  it('treats a slept wake-hint workspace as inactive', () => {
+    expect(
+      isInactiveWorkspace('wt-1', { 'wt-1': [makeTab('tab-1')] }, { 'tab-1': [] }, {}, new Set())
+    ).toBe(true)
+  })
+
   it('treats a never-opened workspace as inactive', () => {
     expect(isInactiveWorkspace('wt-1', {}, {}, {}, new Set())).toBe(true)
   })
@@ -36,6 +43,9 @@ describe('worktree activity state', () => {
     const ptyIdsByTabId = { 'tab-1': ['pty-1'] }
 
     expect(isInactiveWorkspace('wt-1', tabsByWorktree, ptyIdsByTabId, {}, new Set())).toBe(false)
+    expect(hasActiveWorkspaceActivity('wt-1', tabsByWorktree, ptyIdsByTabId, {}, new Set())).toBe(
+      true
+    )
   })
 
   it('treats browser workspaces as active', () => {
@@ -52,42 +62,51 @@ describe('worktree activity state', () => {
 
   it('treats pending paired web host terminal mirrors as inactive without a live pty', () => {
     expect(
-      isInactiveWorkspace(
+      hasActiveWorkspaceActivity(
         'wt-1',
         { 'wt-1': [makeTab('web-terminal-host-tab-1')] },
         {},
         {},
         new Set()
       )
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('treats ready paired web host terminal mirrors as active with a live pty', () => {
     expect(
-      isInactiveWorkspace(
+      hasActiveWorkspaceActivity(
         'wt-1',
         { 'wt-1': [makeTab('web-terminal-host-tab-1')] },
         { 'web-terminal-host-tab-1': ['pty-1'] },
         {},
         new Set()
       )
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('keeps browser-only workspaces active when mirrored terminals are pending', () => {
     expect(
-      isInactiveWorkspace(
+      hasActiveWorkspaceActivity(
         'wt-1',
         { 'wt-1': [makeTab('web-terminal-host-tab-1')] },
         {},
         { 'wt-1': [{ id: 'browser-1' }] },
         new Set()
       )
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('keeps a workspace with a running agent active even without a live pty (#7197)', () => {
     const worktreeIdsWithLiveAgent = new Set(['wt-1'])
+    expect(
+      hasActiveWorkspaceActivity(
+        'wt-1',
+        { 'wt-1': [makeTab('tab-1')] },
+        { 'tab-1': [] },
+        {},
+        worktreeIdsWithLiveAgent
+      )
+    ).toBe(true)
     expect(
       isInactiveWorkspace(
         'wt-1',

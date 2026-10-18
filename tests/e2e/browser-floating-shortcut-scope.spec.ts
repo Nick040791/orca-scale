@@ -69,20 +69,16 @@ function findInput(page: Page, browserTabId: string) {
   return browserOverlay(page, browserTabId).getByPlaceholder('Find in page...')
 }
 
-function cancelGrabButton(page: Page, browserTabId: string) {
+function grabButton(page: Page, browserTabId: string) {
   return browserOverlay(page, browserTabId).getByRole('button', {
-    name: 'Cancel',
+    name: 'Grab page element',
     exact: true
   })
 }
 
 // Why: a non-editable chrome target, so reload and grab are not skipped as text-field keys.
 async function focusChrome(page: Page, browserTabId: string): Promise<void> {
-  // Reload stays in the toolbar when narrow panes fold their element tools into the menu.
-  const target = browserOverlay(page, browserTabId).getByRole('button', {
-    name: 'Reload',
-    exact: true
-  })
+  const target = grabButton(page, browserTabId)
   await expect(target).toBeEnabled()
   await target.focus()
   await expect(target).toBeFocused()
@@ -152,10 +148,10 @@ test.describe('floating browser shortcut scope', () => {
 
           await focusChrome(orcaPage, owner)
           await orcaPage.keyboard.press(`${shortcutModifier}+c`)
-          await expect(cancelGrabButton(orcaPage, owner)).toBeVisible()
-          await expect(cancelGrabButton(orcaPage, other)).toBeHidden()
-          await cancelGrabButton(orcaPage, owner).click()
-          await expect(cancelGrabButton(orcaPage, owner)).toBeHidden()
+          await expect(grabButton(orcaPage, owner)).toHaveAttribute('data-variant', 'default')
+          await expect(grabButton(orcaPage, other)).toHaveAttribute('data-variant', 'ghost')
+          await grabButton(orcaPage, owner).click()
+          await expect(grabButton(orcaPage, owner)).toHaveAttribute('data-variant', 'ghost')
         })
       }
 

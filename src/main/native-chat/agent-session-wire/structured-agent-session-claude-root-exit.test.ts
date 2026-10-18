@@ -8,18 +8,12 @@ import {
   fakeClaude,
   identityFor
 } from '../../claude/claude-structured-session-test-support'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
-import {
-  createTrackedJournalOpener,
-  openTestJournalHostDatabase
-} from '../agent-session-journal/journal-host-database-test-support'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import type { AgentSessionAttachParams } from './structured-agent-session-attach'
-import { stopStructuredAgentSessionAgentUnderSerialize } from './structured-agent-session-host-lifetime'
-import { endExitedStructuredAgentSessionChildUnderSerialize } from './structured-agent-session-child-exit'
+import { evictHeldStructuredAgentSession } from './structured-agent-session-host-lifetime'
 import { StructuredAgentSessionHostRuntimeState } from './structured-agent-session-host-runtime-state'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
 
 const NOW = 1_788_727_031_330
 const roots: string[] = []
@@ -30,12 +24,11 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-describe('Claude root-exit stop', () => {
+describe('Claude root-exit eviction', () => {
   it('releases a captured live claim after the provider root exits', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-claude-root-exit-'))
     roots.push(root)
-    const stateDirectory = join(root, 'journal')
-    const store = await openTestAgentSessionRecordStore(stateDirectory)
+    const store = await AgentSessionRecordStore.open({ directory: root, hostId: 'local' })
     const claude = fakeClaude({
       unprovenCloseVerdict: { root: 'exited', tree: 'unverifiable' }
     })
@@ -82,10 +75,9 @@ describe('Claude root-exit stop', () => {
     })
     const journal = await journals.open({
       identity: { ...identityFor(), hostId: 'local', workspaceId: 'folder-1' },
-      stateDirectory
+      journalDir: join(root, 'journal')
     })
     const close = vi.spyOn(journal, 'close')
-    const publishStatus = vi.fn()
     const params: AgentSessionAttachParams = {
       envelope: {
         sessionId: 'session-1',
@@ -111,53 +103,27 @@ describe('Claude root-exit stop', () => {
         {
           journal,
           params,
-          child: {
-            generation: acquisition.acquisitionGeneration ?? null,
-            fence,
-            phase: 'ready'
-          }
+          fence,
+          hasProviderChild: true,
+          providerChildPhase: 'ready',
+          acquisitionGeneration: acquisition.acquisitionGeneration ?? null
         }
       ]
     ])
-    const deps = {
-      store,
-      adapter,
-      agents: NO_STRUCTURED_AGENTS,
-      // The one database the store and the journal share, as the runtime installs them.
-      journalDatabase: openTestJournalHostDatabase(stateDirectory),
-      claimKeyId: 'key-1',
-      logger: createStructuredAgentSessionLogger()
-    }
-    const runtimeState = new StructuredAgentSessionHostRuntimeState(deps, new Map())
+    const deps = { store, adapter, journalRoot: root, claimKeyId: 'key-1' }
+    const runtimeState = new StructuredAgentSessionHostRuntimeState(deps)
 
     claude.connections[0]!.handlers.onExit?.(new Error('provider exited'))
     await expect(
-      stopStructuredAgentSessionAgentUnderSerialize(
+      evictHeldStructuredAgentSession(
         {
           deps,
           runtimeState,
           sessions,
           now: () => NOW + 30 * 60_000,
-          publishStatus,
-          endExitedChild: (sessionId, child, exit) =>
-            endExitedStructuredAgentSessionChildUnderSerialize(
-              {
-                store,
-                sessions,
-                flushLifecycle: (id) => runtimeState.lifecycleBarrier(id),
-                generationEnded: () => undefined,
-                publishStatus,
-                serialize: (_sessionId, task) => task(),
-                now: () => NOW + 30 * 60_000,
-                logger: deps.logger
-              },
-              sessionId,
-              child,
-              exit
-            )
+          forgetStatus: vi.fn()
         },
-        'session-1',
-        { cause: 'evict' }
+        'session-1'
       )
     ).resolves.toBeUndefined()
 
@@ -166,10 +132,8 @@ describe('Claude root-exit stop', () => {
       ownerProcess: null,
       deathEvidence: { kind: 'exit-observed' }
     })
-    // The agent went to rest; the conversation stays open and listed.
-    expect(sessions.get('session-1')?.child).toBeNull()
-    expect(close).not.toHaveBeenCalled()
-    expect(publishStatus).toHaveBeenCalledWith('session-1')
+    expect(sessions.size).toBe(0)
+    expect(close).toHaveBeenCalledOnce()
     // The adapter agrees the session is over: nothing is left to refuse the next start.
     await expect(adapter.closeSession('session-1')).resolves.toBe(true)
   })

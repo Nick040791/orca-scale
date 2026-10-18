@@ -103,8 +103,8 @@ export const ORCHESTRATION_QUESTION_HANDLER: Record<string, CommandHandler> = {
                 resolveOrchestrationCliExecutable(),
                 'orchestration',
                 'ask',
-                // A session's resume is flagless: its injected id names it again.
-                ...(from ? ['--from', from] : []),
+                '--from',
+                from,
                 ...(dispatchCapability ? ['--dispatch-capability', dispatchCapability] : []),
                 '--resume',
                 messageId,

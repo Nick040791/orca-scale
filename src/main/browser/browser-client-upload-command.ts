@@ -38,7 +38,6 @@ export async function executeBrowserClientUploadCommand(options: {
     pageHostGeneration: options.event.pageHostGeneration,
     files
   })
-  files.length = 0
   try {
     return await options.run({ ...options.params, files: [...staged.localFilePaths] })
   } catch (error) {

@@ -7,7 +7,6 @@ import { createMobileFilePreviewHref } from '../files/mobile-file-preview-route'
 import { classifyMobileArtifact } from './mobile-artifact-kind'
 import { fileTapOpenRun, fileTapPathResolve } from './mobile-session-launch-operations'
 import { shouldActivateOpenedMobileSessionTab } from './opened-mobile-session-tab'
-import { isRendererUnavailableReply } from '../transport/renderer-unavailable-reply'
 import type { RpcOperationSender } from '../transport/rpc-operation-sender'
 
 export type FileTapSessionTab = {
@@ -147,7 +146,11 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
     return
   }
   options.triggerOpenFeedback()
-  const pushWorktreePreview = (): void =>
+  if (
+    resolvedWorktreeId !== options.worktreeId ||
+    options.line !== null ||
+    options.column !== null
+  ) {
     options.pushPreviewRoute(
       createMobileFilePreviewHref({
         hostId: options.hostId,
@@ -160,12 +163,6 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
         ...(resolvedWorktreeName ? { worktreeName: resolvedWorktreeName } : {})
       })
     )
-  if (
-    resolvedWorktreeId !== options.worktreeId ||
-    options.line !== null ||
-    options.column !== null
-  ) {
-    pushWorktreePreview()
     return
   }
   if (
@@ -181,15 +178,6 @@ async function openMobileFileTapAsync<T extends FileTapSessionTab>(
     { worktree: resolvedWorktree, relativePath: openedPath },
     { timeoutMs: 15_000 }
   )
-  // Why: a host with no desktop window opens no editor tabs; the preview route reads the file through files.read.
-  if (isRendererUnavailableReply(openResponse)) {
-    // Not a failure: the user moved off the source tab during the call.
-    if (!shouldActivateOpenedMobileSessionTab(options.getActivationState(false))) {
-      return
-    }
-    pushWorktreePreview()
-    return
-  }
   const opened = fileTapOpenRun.interpret(openResponse)
   if (!opened.accepted) {
     reportOpenFailure(options)

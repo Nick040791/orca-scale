@@ -1,26 +1,22 @@
-import { selectAgentSessionCurrentRequests } from '../../../src/shared/agent-session-current-requests'
 import type { AgentSessionCancelResult } from '../../../src/shared/agent-session-wire'
+import type { AgentJournalRenderItem } from '../../../src/shared/agent-session-journal-types'
 import type { StructuredAgentSessionState } from '../../../src/shared/structured-agent-session-reducer'
-import {
-  isActionableStructuredAgentSessionPrompt,
-  runningStructuredAgentSessionTurnId
-} from '../../../src/shared/structured-agent-session-live-turn'
+import { activeStructuredAgentSessionTurnId } from '../../../src/shared/structured-agent-session-live-turn'
 import type { RpcClient } from '../transport/rpc-client'
 import {
   requestStructuredAgentSessionMutation,
+  retainStructuredSessionOperationId,
   type StructuredAgentSessionMutationCallResult
 } from './mobile-structured-agent-session-rpc'
 
 type PromptIdentity = { itemId: string; expectedRevision: number }
 
-/** The prompt a Stop cancels: one the host says still waits on the person, when it says. */
 export function pendingStructuredPromptIdentity(
-  state: Pick<StructuredAgentSessionState, 'items' | 'currentRequests' | 'actionablePromptIds'>
+  items: readonly AgentJournalRenderItem[]
 ): PromptIdentity | undefined {
-  const prompt = selectAgentSessionCurrentRequests(state).find((item) =>
+  const prompt = items.find((item) =>
     item.body.kind === 'approval' || item.body.kind === 'question'
-      ? item.body.resolution.state === 'pending' &&
-        isActionableStructuredAgentSessionPrompt(item.itemId, state.actionablePromptIds)
+      ? item.body.resolution.state === 'pending'
       : false
   )
   return prompt ? { itemId: prompt.itemId, expectedRevision: prompt.revision } : undefined
@@ -31,78 +27,55 @@ export async function requestMobileStructuredAgentSessionCancel(args: {
   sessionId: string | null
   enabled: boolean
   stateRef: { readonly current: StructuredAgentSessionState }
+  sessionKey: string
+  operationIds: Map<string, string>
   promptCancelSupported: boolean | null
   prompt?: PromptIdentity
-  /** Whether the host answers a repeated Stop of a turn quietly; null until the status probe answers. */
-  hostAnswersRepeatedStops: boolean | null
-  /** Whether the host takes a Stop naming no turn; null until the status probe answers. */
-  hostStopsConversation: boolean | null
-  /** Stops still on their way, by what they stop; against a host that does not answer a repeat
-   *  quietly, a press for the same one joins it here. */
-  inFlight: Map<string, Promise<boolean>>
   onSendError: (message: string) => void
 }): Promise<boolean> {
-  const { client, enabled, inFlight, onSendError, sessionId, stateRef } = args
+  const { client, enabled, onSendError, operationIds, sessionId, sessionKey, stateRef } = args
   const current = stateRef.current
-  const turnId = runningStructuredAgentSessionTurnId(current)
-  // Check the capability before fields enter the fingerprint.
-  const prompt = args.prompt && args.promptCancelSupported === true ? args.prompt : undefined
-  // Such a host stops whatever the chat has in flight, a send the agent has not echoed included;
-  // a card's Cancel names the turn that raised it, prompt identity sent or not.
-  const unnamed = args.hostStopsConversation === true && !args.prompt
-  if (!client || !sessionId || !enabled || current.fence === null || (!turnId && !unnamed)) {
+  const turnId = activeStructuredAgentSessionTurnId(current.items)
+  if (!client || !sessionId || !enabled || current.fence === null || !turnId) {
     onSendError('Stop not sent')
     return false
   }
-  const fields = unnamed ? {} : { turnId, ...(prompt ? { prompt } : {}) }
-  // Every press is its own Stop: a kept id would be answered from the last one and stop nothing.
-  const fence = current.fence
-  const stop = () => sendStop({ client, sessionId, fence, fields, onSendError })
-  if (args.hostAnswersRepeatedStops === true) {
-    return stop()
+  // Check the capability before fields enter either the fingerprint or operation key.
+  const fields = {
+    turnId,
+    ...(args.prompt && args.promptCancelSupported === true ? { prompt: args.prompt } : {})
   }
-  // Temporary, for a host that predates the quiet repeated Stop: remove once none is supported.
-  const key = `${sessionId}:agentSession.cancel:${JSON.stringify(fields)}`
-  const joined = inFlight.get(key)
-  if (joined) {
-    return joined
-  }
-  const stopping = stop()
-  inFlight.set(key, stopping)
-  // Gone once it settles, so the next press is a new Stop.
-  void stopping.finally(() => {
-    if (inFlight.get(key) === stopping) {
-      inFlight.delete(key)
-    }
-  })
-  return stopping
-}
-
-async function sendStop(input: {
-  client: RpcClient
-  sessionId: string
-  fence: number
-  fields: Record<string, unknown>
-  onSendError: (message: string) => void
-}): Promise<boolean> {
+  const key = `${sessionKey}:agentSession.cancel:${JSON.stringify(fields)}`
+  const clientOperationId = retainStructuredSessionOperationId(
+    operationIds,
+    key,
+    operationIds.get(key)
+  )
   const result: StructuredAgentSessionMutationCallResult<AgentSessionCancelResult> =
     await requestStructuredAgentSessionMutation<AgentSessionCancelResult>({
-      client: input.client,
+      client,
       method: 'agentSession.cancel',
       fingerprintMethod: 'agentSession.cancel',
-      sessionId: input.sessionId,
-      expectedRuntimeFence: input.fence,
-      fields: input.fields
+      sessionId,
+      expectedRuntimeFence: current.fence,
+      fields,
+      clientOperationId
     })
+  // Cancel's plan recovers no unknown ledger row, so an id the host answered that
+  // way earns the same refusal until it expires; keeping it leaves Stop unusable.
+  // Transport doubt proves nothing about delivery, so it stays a replay.
+  if (result.status !== 'unknown' || result.hostReportedOperationUnknown === true) {
+    operationIds.delete(key)
+  }
   if (result.status === 'accepted') {
     return true
   }
   if (result.status === 'unknown') {
-    input.onSendError('Stop unconfirmed — check chat before retrying')
+    onSendError('Stop unconfirmed — check chat before retrying')
   } else if (result.status === 'refused') {
-    input.onSendError(result.message)
+    onSendError(result.message)
   } else if (result.status === 'failed') {
-    input.onSendError(result.message)
+    onSendError(result.message === 'Request not sent' ? 'Stop not sent' : result.message)
   }
   return false
 }

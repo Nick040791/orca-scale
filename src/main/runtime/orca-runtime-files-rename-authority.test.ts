@@ -9,7 +9,7 @@ import {
   createRuntimeFileCommands,
   useRuntimeFileCommandsLifecycle
 } from './orca-runtime-files-test-harness'
-import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
+import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { setSshConnectionGeneration } from '../ssh/ssh-connection-generation'
 
 vi.mock('fs', async () => (await import('./orca-runtime-files-mock-registry')).fsModuleMock())
@@ -29,6 +29,10 @@ vi.mock('../git/runner', async () =>
 vi.mock(
   '../ipc/local-worktree-runtime-options',
   async () => (await import('./orca-runtime-files-mock-registry')).localWorktreeRuntimeOptionsMock
+)
+vi.mock(
+  '../providers/ssh-filesystem-dispatch',
+  async () => (await import('./orca-runtime-files-mock-registry')).sshFilesystemDispatchMock
 )
 
 function mockStats(dev: number, ino: number) {
@@ -72,6 +76,7 @@ describe('RuntimeFileCommands', () => {
       'newer Orca client'
     )
 
+    expect(getSshFilesystemProvider).not.toHaveBeenCalled()
     expect(renameMock).not.toHaveBeenCalled()
   })
 
@@ -83,6 +88,7 @@ describe('RuntimeFileCommands', () => {
       commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1')
     ).rejects.toThrow('newer Orca client')
 
+    expect(getSshFilesystemProvider).not.toHaveBeenCalled()
     expect(renameMock).not.toHaveBeenCalled()
   })
 
@@ -94,6 +100,7 @@ describe('RuntimeFileCommands', () => {
       commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', undefined, undefined, 'local')
     ).rejects.toThrow('Workspace host changed')
 
+    expect(getSshFilesystemProvider).not.toHaveBeenCalled()
     expect(renameMock).not.toHaveBeenCalled()
   })
 
@@ -104,6 +111,7 @@ describe('RuntimeFileCommands', () => {
       commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1', 'ssh:ssh-1')
     ).rejects.toThrow('Workspace host changed')
 
+    expect(getSshFilesystemProvider).not.toHaveBeenCalled()
     expect(renameMock).not.toHaveBeenCalled()
   })
 
@@ -182,17 +190,22 @@ describe('RuntimeFileCommands', () => {
     expect(renameMock).not.toHaveBeenCalled()
   })
 
-  it('refuses a matching SSH rename without renaming on this machine', async () => {
+  it('routes runtime remote rename through the SSH no-clobber provider method', async () => {
+    const renameNoClobber = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(getSshFilesystemProvider).mockReturnValue({ renameNoClobber } as never)
     const { commands, store } = createRuntimeFileCommands()
     store.getRepo.mockReturnValue({ connectionId: 'ssh-1' })
 
-    await expect(
-      commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1', 'ssh:ssh-1')
-    ).rejects.toThrow(SshHostNotServedError)
+    await commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1', 'ssh:ssh-1')
+
+    expect(renameNoClobber).toHaveBeenCalledWith('/repo/old.ts', '/repo/new.ts')
+    expect(store.getRepo).toHaveBeenCalledTimes(1)
     expect(renameMock).not.toHaveBeenCalled()
   })
 
   it('rejects a mutation captured for an obsolete SSH connection generation', async () => {
+    const renameNoClobber = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(getSshFilesystemProvider).mockReturnValue({ renameNoClobber } as never)
     const { commands, store } = createRuntimeFileCommands()
     store.getRepo.mockReturnValue({ connectionId: 'ssh-1' })
     setSshConnectionGeneration('ssh-1', 8)
@@ -200,10 +213,12 @@ describe('RuntimeFileCommands', () => {
     await expect(
       commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 7, 'ssh-1', 'ssh:ssh-1')
     ).rejects.toThrow('SSH connection changed')
-    expect(renameMock).not.toHaveBeenCalled()
+    expect(renameNoClobber).not.toHaveBeenCalled()
   })
 
   it('rejects nested SSH mutations from clients without generation support', async () => {
+    const renameNoClobber = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(getSshFilesystemProvider).mockReturnValue({ renameNoClobber } as never)
     const { commands, store } = createRuntimeFileCommands()
     store.getRepo.mockReturnValue({ connectionId: 'ssh-1' })
 
@@ -217,16 +232,40 @@ describe('RuntimeFileCommands', () => {
         'ssh:ssh-1'
       )
     ).rejects.toThrow('SSH connection changed')
-    expect(renameMock).not.toHaveBeenCalled()
+    expect(renameNoClobber).not.toHaveBeenCalled()
   })
 
   it('rejects an equal-generation mutation captured for another SSH target', async () => {
+    const renameNoClobber = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(getSshFilesystemProvider).mockReturnValue({ renameNoClobber } as never)
     const { commands, store } = createRuntimeFileCommands()
     store.getRepo.mockReturnValue({ connectionId: 'ssh-b' })
 
     await expect(
       commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-a', 'ssh:ssh-a')
     ).rejects.toThrow('Workspace host changed')
+    expect(getSshFilesystemProvider).not.toHaveBeenCalled()
+    expect(renameNoClobber).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale SSH expectation after the worktree becomes HUB-local', async () => {
+    const { commands } = createRuntimeFileCommands()
+
+    await expect(
+      commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1', 'ssh:ssh-1')
+    ).rejects.toThrow('Workspace host changed')
+    expect(renameMock).not.toHaveBeenCalled()
+  })
+
+  it('propagates runtime remote no-clobber rename failures', async () => {
+    const renameNoClobber = vi.fn().mockRejectedValue(new Error('destination exists'))
+    vi.mocked(getSshFilesystemProvider).mockReturnValue({ renameNoClobber } as never)
+    const { commands, store } = createRuntimeFileCommands()
+    store.getRepo.mockReturnValue({ connectionId: 'ssh-1' })
+
+    await expect(
+      commands.renameFileExplorerPath('id:wt-1', 'old.ts', 'new.ts', 0, 'ssh-1', 'ssh:ssh-1')
+    ).rejects.toThrow('destination exists')
     expect(renameMock).not.toHaveBeenCalled()
   })
 })

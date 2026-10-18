@@ -1,15 +1,9 @@
 import type { TerminalLayoutSnapshot } from '../../../../shared/terminal-tab-types'
-import type { PaneLayoutEditIntent } from '../../../../shared/rpc-contract/session-tabs-schemas-params'
-import { terminalLayoutEqual } from '../../../../shared/terminal-layout-equality'
-import { updateWebRuntimePaneLayout } from '@/runtime/web-runtime-terminal-actions'
+import { terminalLayoutEqual } from '@/lib/terminal-layout-equality'
+import { updateWebRuntimePaneLayout } from '@/runtime/web-runtime-session'
 
 export type RemotePaneLayoutPusher = {
-  push: (input: {
-    worktreeId: string
-    tabId: string
-    layout: TerminalLayoutSnapshot
-    intent?: PaneLayoutEditIntent
-  }) => void
+  push: (input: { worktreeId: string; tabId: string; layout: TerminalLayoutSnapshot }) => void
 }
 
 /**
@@ -26,7 +20,7 @@ export function createRemotePaneLayoutPusher(): RemotePaneLayoutPusher {
   } | null = null
   let nextAttemptId = 0
   return {
-    push: ({ worktreeId, tabId, layout, intent }) => {
+    push: ({ worktreeId, tabId, layout }) => {
       if (
         lastAttempt?.worktreeId === worktreeId &&
         lastAttempt.tabId === tabId &&
@@ -42,8 +36,7 @@ export function createRemotePaneLayoutPusher(): RemotePaneLayoutPusher {
         root: layout.root,
         expandedLeafId: layout.expandedLeafId,
         chatLeafId: layout.chatLeafId ?? null,
-        ...(layout.titlesByLeafId ? { titlesByLeafId: layout.titlesByLeafId } : {}),
-        ...(intent ? { intent } : {})
+        ...(layout.titlesByLeafId ? { titlesByLeafId: layout.titlesByLeafId } : {})
       }).then((updated) => {
         // Why: a disconnected or timed-out push carried no information, so the next persist must retry it.
         if (!updated && lastAttempt?.id === attempt.id) {

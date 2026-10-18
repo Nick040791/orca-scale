@@ -1,10 +1,7 @@
-import { assertWorkspaceAttachmentWriteCapability } from '../../../../runtime/runtime-workspace-attachment-capabilities'
-import type { WorkspaceAttachmentMutation } from '../../../../../../shared/workspace-attachment-mutation'
-import { getLegacyWorkspaceReviewSelectionUpdates } from '../../../../../../shared/workspace-attachment-legacy'
-import { WORKTREE_LINKED_ITEMS_RUNTIME_CAPABILITY } from '../../../../../../shared/workspace-attachment-capabilities'
 import {
   assertRuntimeEnvironmentCapability,
   callRuntimeRpc,
+  getActiveRuntimeTarget,
   runtimeEnvironmentSupportsCapability
 } from '../../../../runtime/runtime-rpc-client'
 import {
@@ -14,7 +11,7 @@ import {
 } from '../../../../../../shared/protocol-version'
 import { toRuntimeWorktreeSelector } from '../../../../runtime/runtime-worktree-selector'
 import { translate } from '@/i18n/i18n'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
+import type { AppState } from '../../../types'
 import type { WorktreeMeta } from '../../../../../../shared/worktree/meta-types'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import { encodePushTargetClearForRuntimeRpc } from './hosted-review-link-mutation'
@@ -52,14 +49,14 @@ export function isDisplayNamePersistencePending(
 }
 
 export function persistWorktreeMeta(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   worktreeId: string,
-  updates: Partial<WorktreeMeta> & WorkspaceAttachmentMutation,
+  updates: Partial<WorktreeMeta>,
   executionHostId?: ExecutionHostId,
   identityKey?: string
 ): Promise<void> {
   const operation = persistWorktreeMetaUntracked(
-    target,
+    settings,
     worktreeId,
     updates,
     executionHostId,
@@ -81,21 +78,21 @@ export function persistWorktreeMeta(
 }
 
 async function persistWorktreeMetaUntracked(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   worktreeId: string,
-  updates: Partial<WorktreeMeta> & WorkspaceAttachmentMutation,
+  updates: Partial<WorktreeMeta>,
   executionHostId?: ExecutionHostId,
   identityKey?: string
 ): Promise<void> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'local') {
     await window.api.worktrees.updateMeta({
       worktreeId,
       ...(executionHostId ? { executionHostId } : {}),
-      updates: updates
+      updates
     })
     return
   }
-  await assertWorkspaceAttachmentWriteCapability(target, updates)
   // Why: `worktree.set` parses in strip mode, so an older runtime drops the key
   // and applies the rest. Both gates key off presence, not value — a dropped
   // *clear* strands a stale link that the Issue row then hides.
@@ -125,17 +122,6 @@ async function persistWorktreeMetaUntracked(
     )
   }
   let compatibleUpdates = updates
-  const legacySelection = getLegacyWorkspaceReviewSelectionUpdates(updates)
-  if (
-    legacySelection !== updates &&
-    target.kind === 'environment' &&
-    !(await runtimeEnvironmentSupportsCapability(
-      target.environmentId,
-      WORKTREE_LINKED_ITEMS_RUNTIME_CAPABILITY
-    ))
-  ) {
-    compatibleUpdates = legacySelection
-  }
   if (target.kind === 'environment' && 'suppressedGitHubPR' in updates) {
     if (typeof updates.suppressedGitHubPR === 'number' && updates.suppressedGitHubPR > 0) {
       await assertRuntimeEnvironmentCapability(
@@ -153,7 +139,7 @@ async function persistWorktreeMetaUntracked(
         WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY
       ))
     ) {
-      const olderHostUpdates = { ...compatibleUpdates }
+      const olderHostUpdates = { ...updates }
       delete olderHostUpdates.suppressedGitHubPR
       compatibleUpdates = olderHostUpdates
     }

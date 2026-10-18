@@ -261,7 +261,7 @@ describe('Codex live prompt ownership', () => {
         fence: 7,
         prompt: { itemId: 'journal-prompt' }
       })
-    ).resolves.toEqual({ cancelled: false, refusal: {} })
+    ).resolves.toEqual({ cancelled: false })
     await adapter.answerPrompt({
       sessionId: 'session-1',
       itemId: 'journal-prompt',
@@ -277,7 +277,8 @@ describe('Codex live prompt ownership', () => {
     const codex = fakeCodex({
       'turn/interrupt': () => completeTurn(codex, 'thread-child', 'child-turn')
     })
-    const adapter = adapterFor(codex)
+    const terminateTurnProcesses = vi.fn(async () => true)
+    const adapter = adapterFor(codex, {}, [], { terminateTurnProcesses })
     await adapter.acquire({
       identity: identityFor('session-1'),
       fence: 7,
@@ -297,6 +298,7 @@ describe('Codex live prompt ownership', () => {
       method: 'turn/interrupt',
       params: { threadId: 'thread-child', turnId: 'child-turn' }
     })
+    expect(terminateTurnProcesses).not.toHaveBeenCalled()
     expect(codex.connections[0]?.closed).toBe(false)
   })
 
@@ -509,7 +511,7 @@ describe('Codex live prompt ownership', () => {
 
     await expect(
       adapter.cancelTurn({ sessionId: 'session-1', turnId: 'turn-1', fence: 7 })
-    ).resolves.toEqual({ cancelled: true, turnId: 'turn-1' })
+    ).resolves.toEqual({ cancelled: true })
     expect(completionThreads(events)).toEqual([])
   })
 
@@ -551,7 +553,7 @@ describe('Codex live prompt ownership', () => {
     expect(commit).not.toHaveBeenCalled()
   })
 
-  it("confirms on Codex's answer and keeps the prompt's claim when the turn's end is backpressured", async () => {
+  it('does not report success when a deferred provider completion is backpressured', async () => {
     const recorded = lifecycleRecorder(true, false)
     const codex = fakeCodex({
       'turn/interrupt': () => {
@@ -578,7 +580,7 @@ describe('Codex live prompt ownership', () => {
         fence: 7,
         prompt: { itemId: promptItemId }
       })
-    ).resolves.toEqual({ cancelled: true })
+    ).rejects.toThrow(/deferred turn completion lifecycle was not admitted/)
     const commit = vi.fn(async () => undefined)
     await expect(
       adapter.answerPrompt({
@@ -595,7 +597,7 @@ describe('Codex live prompt ownership', () => {
     await adapter.closeSession('session-1')
   })
 
-  it("publishes every thread's turn end as Codex sends it, ahead of the Stop's answer", async () => {
+  it('defers only the matching thread and emits its terminal event before cancel resolves', async () => {
     const interruptGate = deferred()
     const events: CodexStructuredSessionEvent[] = []
     const codex = fakeCodex({
@@ -608,13 +610,18 @@ describe('Codex live prompt ownership', () => {
     const adapter = await acquired(codex, {}, events)
     registerPrompt(adapter, codex, 'child-prompt', 'thread-child')
 
-    const cancellation = adapter.cancelTurn({
-      sessionId: 'session-1',
-      turnId: 'turn-1',
-      fence: 7,
-      prompt: { itemId: 'child-prompt' }
-    })
-    await vi.waitFor(() => expect(completionThreads(events)).toEqual([THREAD_ID, 'thread-child']))
+    const cancellation = adapter
+      .cancelTurn({
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        fence: 7,
+        prompt: { itemId: 'child-prompt' }
+      })
+      .then((result) => {
+        expect(completionThreads(events)).toEqual([THREAD_ID, 'thread-child'])
+        return result
+      })
+    await vi.waitFor(() => expect(completionThreads(events)).toEqual([THREAD_ID]))
 
     interruptGate.resolve()
     await expect(cancellation).resolves.toEqual({ cancelled: true })

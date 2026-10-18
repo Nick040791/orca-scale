@@ -1,15 +1,8 @@
 import type { FolderWorkspace } from './folder-workspace-types'
 import type { Worktree } from './worktree/types'
 import { folderWorkspaceKey } from './workspace-scope'
-import {
-  getConnectionExecutionHostId,
-  parseExecutionHostId,
-  type ExecutionHostId
-} from './execution-host'
-import { composeWorktreeHostIdentity } from './worktree/host-qualified-identity'
+import { parseExecutionHostId, toSshExecutionHostId } from './execution-host'
 import { normalizeWorkspaceCreatorProvenance } from './workspace-creator-provenance'
-import { getWorkspaceAttachments } from './workspace-attachments'
-import { normalizeWorkspaceAttachment } from './workspace-attachment-normalization'
 
 /**
  * A folder workspace has no git repo, so its synthetic `Worktree` borrows the `repoId` slot to
@@ -33,30 +26,12 @@ export function projectGroupIdFromRepoId(repoId: string | null | undefined): str
   return projectGroupId === '' ? null : projectGroupId
 }
 
-function getFolderWorkspaceWorktreeHostId(
-  workspace: Pick<FolderWorkspace, 'executionHostId' | 'connectionId'>
-): ExecutionHostId {
-  return workspace.executionHostId ?? getConnectionExecutionHostId(workspace.connectionId)
-}
-
-export function getFolderWorkspaceHostIdentity(
-  workspace: Pick<FolderWorkspace, 'id' | 'executionHostId' | 'connectionId'>
-): string {
-  return composeWorktreeHostIdentity(
-    getFolderWorkspaceWorktreeHostId(workspace),
-    folderWorkspaceKey(workspace.id)
-  )
-}
-
 export function folderWorkspaceToWorktree(folderWorkspace: FolderWorkspace): Worktree {
   const linkedTask = folderWorkspace.linkedTask
-  const selectedTask = linkedTask
-    ? normalizeWorkspaceAttachment(linkedTask)
-    : getWorkspaceAttachments({
-        linkedItems: folderWorkspace.linkedItems
-      }).find((item) => item.type === 'issue')
   const creatorProvenance = normalizeWorkspaceCreatorProvenance(folderWorkspace.creatorProvenance)
-  const hostId = getFolderWorkspaceWorktreeHostId(folderWorkspace)
+  const hostId =
+    folderWorkspace.executionHostId ??
+    (folderWorkspace.connectionId ? toSshExecutionHostId(folderWorkspace.connectionId) : 'local')
   const parsedHost = parseExecutionHostId(hostId)
   return {
     id: folderWorkspaceKey(folderWorkspace.id),
@@ -65,30 +40,17 @@ export function folderWorkspaceToWorktree(folderWorkspace: FolderWorkspace): Wor
     displayName: folderWorkspace.name,
     comment: folderWorkspace.comment,
     linkedIssue:
-      selectedTask?.provider === 'github' && selectedTask.type === 'issue'
-        ? selectedTask.number
-        : null,
+      linkedTask?.provider === 'github' && linkedTask.type === 'issue' ? linkedTask.number : null,
     linkedPR: null,
     linkedLinearIssue:
-      selectedTask?.provider === 'linear'
-        ? (selectedTask.identifier ?? selectedTask.linearIdentifier ?? null)
-        : null,
-    linkedLinearIssueWorkspaceId:
-      selectedTask?.provider === 'linear' ? (selectedTask.linearWorkspaceId ?? null) : null,
-    linkedLinearIssueOrganizationUrlKey:
-      selectedTask?.provider === 'linear' ? (selectedTask.linearOrganizationUrlKey ?? null) : null,
+      linkedTask?.provider === 'linear' ? (linkedTask.linearIdentifier ?? null) : null,
     linkedGitLabMR: null,
     linkedGitLabIssue:
-      selectedTask?.provider === 'gitlab' && selectedTask.type === 'issue'
-        ? selectedTask.number
-        : null,
+      linkedTask?.provider === 'gitlab' && linkedTask.type === 'issue' ? linkedTask.number : null,
     linkedBitbucketPR: null,
     linkedAzureDevOpsPR: null,
     linkedGiteaPR: null,
     linkedWorkItem: linkedTask,
-    ...(folderWorkspace.linkedItems !== undefined
-      ? { linkedItems: folderWorkspace.linkedItems }
-      : {}),
     linkedTaskSourceContext: folderWorkspace.linkedTaskSourceContext ?? null,
     isArchived: folderWorkspace.isArchived,
     isUnread: folderWorkspace.isUnread,
@@ -96,9 +58,6 @@ export function folderWorkspaceToWorktree(folderWorkspace: FolderWorkspace): Wor
     sortOrder: folderWorkspace.sortOrder,
     manualOrder: folderWorkspace.manualOrder,
     lastActivityAt: folderWorkspace.lastActivityAt,
-    ...(folderWorkspace.smartTier !== undefined
-      ? { smartTier: folderWorkspace.smartTier, smartAt: folderWorkspace.smartAt }
-      : {}),
     createdAt: folderWorkspace.createdAt,
     createdWithAgent: folderWorkspace.createdWithAgent,
     pendingFirstAgentMessageRename: folderWorkspace.pendingFirstAgentMessageRename,

@@ -19,12 +19,7 @@ const FOLDER_WORKSPACE_INSTANCE_SUFFIX = new RegExp(
  * runtimes reject it with `worktree_id_requires_full_path` (#16447).
  */
 export function getRepoMainWorktreeId(repo: Pick<Repo, 'id' | 'path'>): string {
-  return composeWorktreeId(repo.id, repo.path)
-}
-
-/** Worktree id for a checkout, spelled exactly as given: ids are never reassigned by a fold. */
-export function composeWorktreeId(repoId: string, worktreePath: string): string {
-  return `${repoId}${WORKTREE_ID_SEPARATOR}${worktreePath}`
+  return `${repo.id}${WORKTREE_ID_SEPARATOR}${repo.path}`
 }
 
 export function getRepoIdFromWorktreeId(worktreeId: string): string {
@@ -33,15 +28,15 @@ export function getRepoIdFromWorktreeId(worktreeId: string): string {
 }
 
 /**
- * Comparison-only identity of a worktree id: the repoId is compared EXACT and only the path folds,
+ * Canonical comparison form of a worktree id: the repoId is compared EXACT and only the path folds,
  * through the same `normalizeRuntimePathForComparison` a `path:` selector has always applied and
- * byte-exact id matching denied the renderer (#16243). A malformed id keys as itself, so it only
- * ever matches itself. Never persist or return this key.
+ * byte-exact id matching denied the renderer (#16243). Null for a malformed id, so callers keep
+ * exact matching for it. Comparison only — never persist or return this key.
  */
-export function worktreeIdentityKey(worktreeId: string): string {
+export function worktreeIdComparisonKey(worktreeId: string): string | null {
   const parsed = splitWorktreeId(worktreeId)
   if (!parsed || !parsed.repoId || !parsed.worktreePath) {
-    return worktreeId
+    return null
   }
   return `${parsed.repoId}${WORKTREE_ID_SEPARATOR}${normalizeRuntimePathForComparison(
     parsed.worktreePath
@@ -52,10 +47,12 @@ export function worktreeIdentityKey(worktreeId: string): string {
  * Why: workspace identity is per *workspace*, not per checkout dir. Folder projects back several
  * independent workspaces with one directory, separated only by the `::workspace:<uuid>` suffix that
  * filesystem callers must strip; stripping it here instead lets one session steal a sibling's PTYs.
- * Normalize only path spelling, so Windows/WSL/SSH ids still match themselves across hosts.
+ * Normalize only path spelling, so Windows/WSL/SSH ids still match themselves across hosts, and
+ * fall back to exact equality for a malformed id.
  */
 export function worktreeIdsEqual(left: string, right: string): boolean {
-  return worktreeIdentityKey(left) === worktreeIdentityKey(right)
+  const leftKey = worktreeIdComparisonKey(left)
+  return leftKey === null ? left === right : leftKey === worktreeIdComparisonKey(right)
 }
 
 export function splitWorktreeId(worktreeId: string): ParsedWorktreeId | null {

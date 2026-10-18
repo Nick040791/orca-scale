@@ -7,9 +7,9 @@
  * set, so the page's store is the app's, reached over the `storage` grant.
  *
  * An allowlist and not a passthrough. Everything the app keeps under `orca:` is in one namespace —
- * paired hosts, push registrations — and a page that could write any of them could rewrite state
- * the native app owns. A prefix is listed only where the key carries an id the desktop chooses; the
- * rest are exact.
+ * push registrations, the hybrid shell flag itself — and a page that could write any of them could
+ * turn the feature on for a build that never offered it. A prefix is listed only where the key
+ * carries an id the desktop chooses; the rest are exact.
  *
  * Every key here was read off a page route's own closure rather than taken from a list: a key a
  * screen reads and this file does not name is a preference that silently falls back to its default
@@ -29,7 +29,7 @@ export const PAGE_STORAGE_EXACT_KEYS = [
   'orca:custom-accessory-keys',
   /** Whether a supported agent session opens on the terminal or the native chat. */
   'orca:defaultSessionView',
-  /** Legacy journal access for embedded pages served by older hosts. */
+  /** The durable send journal: which `agentSession.send` operation ids are still unsettled. */
   'orca:mobileStructuredSendOperations:v1',
   /** The terminal's text scale, which pinch-to-zoom writes. */
   'orca:terminalTextScale',
@@ -98,23 +98,9 @@ export function pageRouteWorkspace(
   }
 }
 
-const WORKSPACE_KEY_PREFIXES = ['orca:nativeChatTabs:', 'orca:terminalLiveInputDisabled:'] as const
-
 /** Both workspace-scoped keys are built the same way, so the shape is written once. */
 function workspaceScopedKey(prefix: string, hostId: string, worktreeId: string): string {
   return `${prefix}${encodeURIComponent(hostId)}:${encodeURIComponent(worktreeId)}`
-}
-
-/** A workspace-scoped key of this host, any workspace: what a host-area page may reach in-page.
- *  The encoded host id holds no `:`, so the scope cannot match another host's keys. */
-export function isHostWorkspaceStorageKey(key: string, hostId: string): boolean {
-  const scope = `${encodeURIComponent(hostId)}:`
-  return (
-    isPageStorageKey(key) &&
-    WORKSPACE_KEY_PREFIXES.some(
-      (prefix) => key.startsWith(prefix + scope) && key.length > prefix.length + scope.length
-    )
-  )
 }
 
 /**
@@ -129,9 +115,10 @@ export function pageStorageKeysForRoute(hostId: string, routePathname: string): 
   const scoped =
     workspace === null || workspace.hostId !== hostId
       ? []
-      : WORKSPACE_KEY_PREFIXES.map((prefix) =>
-          workspaceScopedKey(prefix, hostId, workspace.worktreeId)
-        )
+      : [
+          workspaceScopedKey('orca:nativeChatTabs:', hostId, workspace.worktreeId),
+          workspaceScopedKey('orca:terminalLiveInputDisabled:', hostId, workspace.worktreeId)
+        ]
   return [...PAGE_STORAGE_EXACT_KEYS, `orca:pins:${hostId}`, ...scoped].filter(isPageStorageKey)
 }
 
@@ -147,13 +134,11 @@ export function pageStorageKeysForRoute(hostId: string, routePathname: string): 
 export function isPageStorageKeyForRoute(
   key: string,
   hostId: string,
-  routePathname: string,
-  hostArea = false
+  routePathname: string
 ): boolean {
   return (
     key.length <= PAGE_STORAGE_MAX_KEY_CHARS &&
-    (pageStorageKeysForRoute(hostId, routePathname).includes(key) ||
-      (hostArea && isHostWorkspaceStorageKey(key, hostId)))
+    pageStorageKeysForRoute(hostId, routePathname).includes(key)
   )
 }
 
@@ -170,12 +155,11 @@ export function pageMayWriteStorageKey(
   key: string,
   hostId: string,
   route: { pathname: string } | null,
-  held: PageStorageForInit,
-  hostArea = false
+  held: PageStorageForInit
 ): boolean {
   return (
     route !== null &&
-    isPageStorageKeyForRoute(key, hostId, route.pathname, hostArea) &&
+    isPageStorageKeyForRoute(key, hostId, route.pathname) &&
     !held.storageOversize.includes(key)
   )
 }

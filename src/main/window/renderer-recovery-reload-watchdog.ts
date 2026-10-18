@@ -1,7 +1,6 @@
 import { is } from '@electron-toolkit/utils'
 import type { BrowserWindow } from 'electron'
 import { isSystemSessionEnding } from '../crash-reporting/expected-teardown-state'
-import type { LowCommitOomVerdict } from '../crash-reporting/low-commit-oom-recovery-gate'
 import type { CreateMainWindowOptions, MainWindowLoadObserver } from './main-window-contracts'
 import { mainWindowLoadErrorCode } from './main-window-load-error-code'
 
@@ -25,11 +24,7 @@ const MILESTONE_RANK: Record<RecoveryReloadMilestone, number> = {
   'dom-ready': 2
 }
 
-export type RecoveryExhaustionCause =
-  | 'crash-loop'
-  | 'reload-stalled'
-  | 'launch-failed'
-  | 'low-commit'
+export type RecoveryExhaustionCause = 'crash-loop' | 'reload-stalled'
 
 export type RendererRecoveryReloadWatchdog = {
   /** Issues a recovery reload and arms the stall watchdog. */
@@ -39,11 +34,7 @@ export type RendererRecoveryReloadWatchdog = {
     trigger?: RecoveryReloadTrigger
   ) => void
   /** Raises the recovery prompt at most once: a native message box cannot be dismissed, so a second one stacks. */
-  escalate: (
-    subject: RecoveryPromptSubject,
-    cause: RecoveryExhaustionCause,
-    lowCommit?: LowCommitOomVerdict
-  ) => void
+  escalate: (subject: RecoveryPromptSubject, cause: RecoveryExhaustionCause) => void
   /**
    * A main-frame document finished loading. Only an attempt whose load was superseded takes this as its outcome;
    * every other attempt settles through its own load promise, which an error page or a later navigation cannot fool.
@@ -206,11 +197,7 @@ export function createRendererRecoveryReloadWatchdog(args: {
     )
   }
 
-  const escalate = (
-    subject: RecoveryPromptSubject,
-    cause: RecoveryExhaustionCause,
-    lowCommit?: LowCommitOomVerdict
-  ): void => {
+  const escalate = (subject: RecoveryPromptSubject, cause: RecoveryExhaustionCause): void => {
     // A new crash invalidates any document that landed while the prompt was open.
     documentLanded = false
     if (prompt) {
@@ -222,7 +209,6 @@ export function createRendererRecoveryReloadWatchdog(args: {
       webContentsId: rendererWebContentsId,
       recentRecoveryCount: subject.recentRecoveryCount,
       cause,
-      ...(lowCommit ? { lowCommit } : {}),
       // Watch manual retries too, so another stall can offer recovery again.
       retry: () => retryFrom(subject)
     })

@@ -1,10 +1,10 @@
 import { useAppStore } from '@/store'
-import { requireRuntimeTargetForFileOwner } from '@/lib/file-owner-runtime-target'
+import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import {
   getRuntimeGitBranchDiff,
   getRuntimeGitCommitDiff,
   getRuntimeGitDiff
-} from '@/runtime/runtime-git-diff-client'
+} from '@/runtime/runtime-git-client'
 import type { OpenFile } from '@/store/slices/editor'
 import type {
   GitBranchChangeEntry,
@@ -36,16 +36,13 @@ export function fetchCombinedDiffSection({
     file.filePath,
     entry.path
   )
-  const fileTarget = requireRuntimeTargetForFileOwner(
-    useAppStore.getState(),
-    file.worktreeId,
-    file.runtimeEnvironmentId
-  )
+  const state = useAppStore.getState()
+  const fileSettings = settingsForRuntimeOwner(state.settings, file.runtimeEnvironmentId)
   if ((isBranchMode || (isAllMode && !('area' in entry))) && branchCompare) {
     return withDiffSectionLoadTimeout(
       getRuntimeGitBranchDiff(
         {
-          target: fileTarget,
+          settings: fileSettings,
           worktreeId: file.worktreeId,
           worktreePath: file.filePath,
           connectionId
@@ -67,7 +64,7 @@ export function fetchCombinedDiffSection({
     return withDiffSectionLoadTimeout(
       getRuntimeGitCommitDiff(
         {
-          target: fileTarget,
+          settings: fileSettings,
           worktreeId: file.worktreeId,
           worktreePath: file.filePath,
           connectionId
@@ -84,7 +81,7 @@ export function fetchCombinedDiffSection({
   return withDiffSectionLoadTimeout(
     getRuntimeGitDiff(
       {
-        target: fileTarget,
+        settings: fileSettings,
         worktreeId: file.worktreeId,
         worktreePath: file.filePath,
         connectionId

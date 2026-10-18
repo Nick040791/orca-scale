@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
-import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import {
   createAutomationTerminalOwnership,
   type AutomationTerminalOwnershipStore
@@ -23,30 +22,11 @@ type OwnershipState = Pick<
   | 'ptyIdsByTabId'
   | 'terminalLayoutsByTabId'
   | 'lastTerminalInputAtByPaneKey'
-  | 'agentStatusByPaneKey'
-  | 'retainedAgentsByPaneKey'
-  | 'sleepingAgentSessionsByPaneKey'
-  | 'agentLaunchConfigByPaneKey'
   | 'closeTab'
-  | 'shutdownCompletedAgentPaneForHibernation'
 >
-
-// A finished Claude turn whose hook reported its conversation id, as a live run leaves it.
-const RESUMABLE_DONE_ENTRY: AgentStatusEntry = {
-  state: 'done',
-  prompt: 'Reply with pineapple',
-  updatedAt: 300,
-  stateStartedAt: 300,
-  paneKey: PANE_KEY,
-  worktreeId: WORKTREE_ID,
-  agentType: 'claude',
-  providerSession: { key: 'session_id', id: 'c569e233-595e-4085-8660-5af742f81e59' },
-  stateHistory: []
-}
 
 function createStore() {
   const closeTab = vi.fn()
-  const shutdownCompletedAgentPaneForHibernation = vi.fn(async () => {})
   let state: OwnershipState = {
     activeWorktreeId: 'other-worktree',
     activeTabId: 'other-tab',
@@ -70,12 +50,7 @@ function createStore() {
       [TAB_ID]: singlePaneLayoutSnapshot(LEAF_ID, PTY_ID)
     },
     lastTerminalInputAtByPaneKey: {},
-    agentStatusByPaneKey: { [PANE_KEY]: RESUMABLE_DONE_ENTRY },
-    retainedAgentsByPaneKey: {},
-    sleepingAgentSessionsByPaneKey: {},
-    agentLaunchConfigByPaneKey: {},
-    closeTab,
-    shutdownCompletedAgentPaneForHibernation
+    closeTab
   }
   const listeners = new Set<(state: AppState, previousState: AppState) => void>()
   const store: AutomationTerminalOwnershipStore = {
@@ -92,13 +67,7 @@ function createStore() {
       listener(state as unknown as AppState, previousState as unknown as AppState)
     }
   }
-  return {
-    closeTab,
-    getState: () => state,
-    shutdownCompletedAgentPaneForHibernation,
-    store,
-    update
-  }
+  return { closeTab, getState: () => state, store, update }
 }
 
 function own(
@@ -120,7 +89,7 @@ function own(
 describe('automation terminal ownership', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('closes the exact fresh desktop tab once after the PTY exit binding is cleared', async () => {
+  it('closes the exact fresh desktop tab once after the PTY exit binding is cleared', () => {
     const { closeTab, store, update } = createStore()
     const ownership = own(store)
     update({
@@ -130,8 +99,8 @@ describe('automation terminal ownership', () => {
       }
     })
 
-    expect(await ownership.finalize({ preservePane: false })).toBe('closed')
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(true)
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).toHaveBeenCalledTimes(1)
     expect(closeTab).toHaveBeenCalledWith(TAB_ID, {
       recordInteraction: false,
@@ -139,24 +108,24 @@ describe('automation terminal ownership', () => {
     })
   })
 
-  it('preserves a tab activated after launch even when focus later moves away', async () => {
+  it('preserves a tab activated after launch even when focus later moves away', () => {
     const { closeTab, store, update } = createStore()
     const ownership = own(store)
 
     update({ activeWorktreeId: WORKTREE_ID, activeTabId: TAB_ID })
     update({ activeWorktreeId: 'other-worktree', activeTabId: 'other-tab' })
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 
-  it('preserves a tab that received user input after launch', async () => {
+  it('preserves a tab that received user input after launch', () => {
     const { closeTab, store, update } = createStore()
     const ownership = own(store)
 
     update({ lastTerminalInputAtByPaneKey: { [PANE_KEY]: 200 } })
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 
@@ -170,7 +139,7 @@ describe('automation terminal ownership', () => {
       'pane layout',
       { tabsByWorktree: null, ptyIdsByTabId: undefined, layoutPty: 'pty-replacement' }
     ]
-  ])('refuses a replacement identity in the %s binding', async (_label, drift) => {
+  ])('refuses a replacement identity in the %s binding', (_label, drift) => {
     const { closeTab, getState, store, update } = createStore()
     const ownership = own(store)
     const tab = getState().tabsByWorktree[WORKTREE_ID]![0]!
@@ -191,11 +160,11 @@ describe('automation terminal ownership', () => {
         : {})
     })
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 
-  it('refuses a tab recreated with the same id', async () => {
+  it('refuses a tab recreated with the same id', () => {
     const { closeTab, getState, store, update } = createStore()
     const ownership = own(store)
     update({
@@ -206,68 +175,28 @@ describe('automation terminal ownership', () => {
       }
     })
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 
   it.each([
     ['remote runtime', { runtimeKind: 'environment' as const }],
     ['remote PTY identity', { ptyId: 'remote:env-1@@terminal-1' }]
-  ])('never owns a %s terminal', async (_label, overrides) => {
+  ])('never owns a %s terminal', (_label, overrides) => {
     const { closeTab, store } = createStore()
     const ownership = own(store, overrides)
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 
-  it('sleeps a resumable pane in a workspace the run owns instead of closing it', async () => {
-    const { closeTab, shutdownCompletedAgentPaneForHibernation, store } = createStore()
-    const ownership = own(store)
-
-    expect(await ownership.finalize({ preservePane: true })).toBe('hibernated')
-    expect(shutdownCompletedAgentPaneForHibernation).toHaveBeenCalledExactlyOnceWith(WORKTREE_ID, {
-      paneKey: PANE_KEY,
-      tabId: TAB_ID,
-      leafId: LEAF_ID,
-      ptyId: PTY_ID
-    })
-    expect(closeTab).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ['the agent reported no conversation id', { providerSession: undefined }, [PTY_ID]],
-    ['the run ended by its process exiting', {}, []]
-  ])('closes the tab when %s', async (_label, entryPatch, livePtyIds) => {
-    const { closeTab, shutdownCompletedAgentPaneForHibernation, store, update } = createStore()
-    const ownership = own(store)
-    update({
-      agentStatusByPaneKey: { [PANE_KEY]: { ...RESUMABLE_DONE_ENTRY, ...entryPatch } },
-      ptyIdsByTabId: { [TAB_ID]: livePtyIds }
-    })
-
-    expect(await ownership.finalize({ preservePane: true })).toBe('closed')
-    expect(shutdownCompletedAgentPaneForHibernation).not.toHaveBeenCalled()
-    expect(closeTab).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps the terminal running when its stop fails', async () => {
-    const { closeTab, shutdownCompletedAgentPaneForHibernation, store } = createStore()
-    shutdownCompletedAgentPaneForHibernation.mockRejectedValueOnce(new Error('kill failed'))
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const ownership = own(store)
-
-    expect(await ownership.finalize({ preservePane: true })).toBeNull()
-    expect(closeTab).not.toHaveBeenCalled()
-  })
-
-  it('release consumes ownership without closing the terminal', async () => {
+  it('release consumes ownership without closing the terminal', () => {
     const { closeTab, store } = createStore()
     const ownership = own(store)
 
     ownership.release()
 
-    expect(await ownership.finalize({ preservePane: false })).toBeNull()
+    expect(ownership.finalize()).toBe(false)
     expect(closeTab).not.toHaveBeenCalled()
   })
 })

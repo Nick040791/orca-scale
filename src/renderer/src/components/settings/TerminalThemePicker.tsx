@@ -11,7 +11,6 @@ import {
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import type { TerminalThemeOption } from '@/lib/terminal-theme'
-import { motionSafeScrollBehavior } from '@/hooks/usePrefersReducedMotion'
 
 type ThemePickerProps = {
   label: string
@@ -46,10 +45,7 @@ export function ThemePicker({
     if (!importedHighlightSignal) {
       return
     }
-    importedGroupRef.current?.scrollIntoView({
-      behavior: motionSafeScrollBehavior(),
-      block: 'nearest'
-    })
+    importedGroupRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     setHighlightImported(true)
     const timer = setTimeout(() => setHighlightImported(false), 2000)
     return () => clearTimeout(timer)

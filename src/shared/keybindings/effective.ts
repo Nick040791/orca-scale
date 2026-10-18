@@ -73,27 +73,12 @@ export function normalizeTerminalShortcutPolicy(
   return policy === 'terminal-first' ? 'terminal-first' : 'orca-first'
 }
 
-const TUI_CONFLICT_ACTIONS = new Set<KeybindingActionId>([
-  'terminal.search',
-  'terminal.clear',
-  'terminal.selectAll',
-  'terminal.splitRight',
-  'terminal.splitDown',
-  'terminal.closePane',
-  'worktree.history.back',
-  'worktree.history.forward'
-])
-
 export function isKeybindingAllowedInTerminal(definition: KeybindingDefinition): boolean {
-  // Keep clipboard, input-source and pane navigation controls available.
-  return (
-    !TUI_CONFLICT_ACTIONS.has(definition.id) &&
-    (definition.scope === 'terminal' || definition.allowInTerminal === true)
-  )
+  return definition.scope === 'terminal' || definition.allowInTerminal === true
 }
 
 export function isKeybindingPotentialTerminalConflict(definition: KeybindingDefinition): boolean {
-  return !isKeybindingAllowedInTerminal(definition)
+  return definition.scope !== 'terminal' && definition.allowInTerminal !== true
 }
 
 export function keybindingIsActiveInContext(

@@ -3,8 +3,7 @@ import type { Repo } from './repo-types'
 import {
   readSourceControlActionDefault,
   resolveSourceControlActionCommandTemplate,
-  type AiActionId,
-  type SourceControlTextActionId,
+  type SourceControlActionId,
   type SourceControlActionRecipe
 } from './source-control-ai-actions'
 import { commandTemplateFromOperationInstruction } from './source-control-ai-command-template'
@@ -15,7 +14,7 @@ import {
 } from './source-control-ai-settings'
 import type {
   RepoSourceControlAiOverrides,
-  AiTextOperation,
+  SourceControlAiOperation,
   SourceControlAiPrCreationDefaults,
   SourceControlAiSettings
 } from './source-control-ai-types'
@@ -24,7 +23,7 @@ import type { TuiAgent } from './tui-agent'
 
 function readRepoInstructionOverride(
   instructions: RepoSourceControlAiOverrides['instructionsByOperation'],
-  operation: SourceControlTextActionId
+  operation: SourceControlAiOperation
 ): string | undefined {
   if (!Object.hasOwn(instructions ?? {}, operation)) {
     return undefined
@@ -36,13 +35,13 @@ function readRepoInstructionOverride(
 export function resolveInstructionsFromNormalized(
   source: SourceControlAiSettings,
   repoOverrides: RepoSourceControlAiOverrides | null | undefined,
-  operation: AiTextOperation,
+  operation: SourceControlAiOperation,
   legacyCustomPrompt: string | undefined
 ): string {
-  const repoInstruction =
-    operation === 'conversationName'
-      ? undefined
-      : readRepoInstructionOverride(repoOverrides?.instructionsByOperation, operation)
+  const repoInstruction = readRepoInstructionOverride(
+    repoOverrides?.instructionsByOperation,
+    operation
+  )
   if (repoInstruction !== undefined) {
     return repoInstruction.trim()
   }
@@ -56,7 +55,7 @@ export function resolveInstructionsFromNormalized(
 export function resolveSourceControlAiInstructions(args: {
   settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'>
   repo?: Pick<Repo, 'sourceControlAi'> | null
-  operation: AiTextOperation
+  operation: SourceControlAiOperation
 }): string {
   const source = normalizeSourceControlAiSettings(
     args.settings.sourceControlAi,
@@ -73,16 +72,12 @@ export function resolveSourceControlAiInstructions(args: {
 export function hasConfiguredSourceControlAiInstructions(args: {
   settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'>
   repo?: Pick<Repo, 'sourceControlAi'> | null
-  operation: AiTextOperation
+  operation: SourceControlAiOperation
 }): boolean {
-  const repoInstruction =
-    args.operation === 'conversationName'
-      ? undefined
-      : readRepoInstructionOverride(
-          normalizeRepoSourceControlAiOverrides(args.repo?.sourceControlAi)
-            ?.instructionsByOperation,
-          args.operation
-        )
+  const repoInstruction = readRepoInstructionOverride(
+    normalizeRepoSourceControlAiOverrides(args.repo?.sourceControlAi)?.instructionsByOperation,
+    args.operation
+  )
   return repoInstruction !== undefined || resolveSourceControlAiInstructions(args).length > 0
 }
 
@@ -110,15 +105,14 @@ export function resolvePrCreationDefaults(
 export function resolveActionRecipeForTextOperation(
   source: SourceControlAiSettings,
   repoOverrides: RepoSourceControlAiOverrides | null | undefined,
-  operation: AiTextOperation
+  operation: SourceControlAiOperation
 ): { agentId?: TuiAgent | CustomAgentId | null; commandInputTemplate: string; agentArgs?: string } {
   const globalRecipe = readSourceControlActionDefault(source.actions, operation)
-  const repoRecipe =
-    operation === 'conversationName' ? undefined : repoOverrides?.actionOverrides?.[operation]
-  const repoInstruction =
-    operation === 'conversationName'
-      ? undefined
-      : readRepoInstructionOverride(repoOverrides?.instructionsByOperation, operation)
+  const repoRecipe = repoOverrides?.actionOverrides?.[operation]
+  const repoInstruction = readRepoInstructionOverride(
+    repoOverrides?.instructionsByOperation,
+    operation
+  )
   const fallbackTemplate =
     repoInstruction !== undefined
       ? commandTemplateFromOperationInstruction(operation, repoInstruction)
@@ -185,19 +179,15 @@ export function resolveSourceControlAiEnabled(input: {
 export function resolveSourceControlActionRecipe(input: {
   settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'> | null | undefined
   repo?: Pick<Repo, 'sourceControlAi'> | null
-  actionId: AiActionId
+  actionId: SourceControlActionId
 }): SourceControlActionRecipe {
   const source = normalizeSourceControlAiSettings(
     input.settings?.sourceControlAi,
     input.settings?.commitMessageAi
   )
   const globalRecipe = readSourceControlActionDefault(source.actions, input.actionId)
-  const repoRecipe =
-    input.actionId === 'conversationName'
-      ? undefined
-      : normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)?.actionOverrides?.[
-          input.actionId
-        ]
+  const repoRecipe = normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)
+    ?.actionOverrides?.[input.actionId]
   const commandInputTemplate = resolveSourceControlActionCommandTemplate(
     source.actions,
     input.actionId

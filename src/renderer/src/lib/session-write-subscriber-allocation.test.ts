@@ -50,9 +50,7 @@ function createHarness() {
       },
       getState: () => state
     },
-    persist: (payload) => {
-      persisted.push(payload)
-    }
+    persist: (payload) => persisted.push(payload)
   })
   return {
     dispose,
@@ -167,7 +165,7 @@ describe('session write subscriber allocation', () => {
     let state = makeSessionState()
     const listeners: ((next: AppState) => void)[] = []
     const persisted: unknown[] = []
-    let refuse = true
+    let gateOpen = false
     const dispose = createSessionWriteSubscriber({
       store: {
         subscribe: (listener) => {
@@ -176,12 +174,9 @@ describe('session write subscriber allocation', () => {
         },
         getState: () => state
       },
-      persist: (payload) => {
-        if (refuse) {
-          throw new Error('write refused')
-        }
-        persisted.push(payload)
-      }
+      persist: (payload) => persisted.push(payload),
+      shouldSchedulePersist: () => gateOpen,
+      subscribeToPersistGateOpen: () => () => {}
     })
     const write = (patch: Partial<AppState>): void => {
       state = { ...state, ...patch } as AppState
@@ -190,14 +185,14 @@ describe('session write subscriber allocation', () => {
       }
     }
     try {
-      // A real session change whose write is refused, so the write is owed but deferred.
+      // A real session change lands while the gate is closed, so the write is owed but deferred.
       write({ activeTabId: 'tab-1' })
       vi.advanceTimersByTime(500)
       expect(persisted).toHaveLength(0)
 
-      // An unrelated write must re-arm it even though nothing session-relevant moved — the
-      // identity-scan fast path must not swallow this wake-up.
-      refuse = false
+      // An unrelated write with the gate open must re-arm it even though nothing session-relevant
+      // moved — the identity-scan fast path must not swallow this wake-up.
+      gateOpen = true
       write({ agentStatusByPaneKey: { a: {} } as never })
       vi.advanceTimersByTime(500)
       expect(persisted).toHaveLength(1)

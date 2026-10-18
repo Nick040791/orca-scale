@@ -20,8 +20,7 @@ vi.mock('../ipc/worktree-logic', async (importOriginal) => {
 })
 
 vi.mock('../ipc/registered-worktree-roots-cache', () => ({
-  invalidateAuthorizedRootsCache: vi.fn(),
-  invalidateAuthorizedRootsCacheForRepo: vi.fn()
+  invalidateAuthorizedRootsCache: vi.fn()
 }))
 
 vi.mock('../git/repo', async (importOriginal) => {

@@ -194,14 +194,10 @@ describe('terminal.sendText explicit worktree routing', () => {
         { includeVisualLayouts: false }
       )
       expect(delegate.sendTerminal).toHaveBeenCalledTimes(1)
-      expect(delegate.sendTerminal).toHaveBeenCalledWith(
-        terminalId,
-        {
-          text: 'echo hi',
-          enter: true
-        },
-        { inputKind: 'driving' }
-      )
+      expect(delegate.sendTerminal).toHaveBeenCalledWith(terminalId, {
+        text: 'echo hi',
+        enter: true
+      })
       expect(vi.mocked(delegate.listTerminals).mock.invocationCallOrder[0]!).toBeLessThan(
         vi.mocked(delegate.sendTerminal).mock.invocationCallOrder[0]!
       )

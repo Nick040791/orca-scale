@@ -84,7 +84,6 @@ export function BrowserPageViewportOverlays({
         webviewRef={webviewRef}
         browserOverlayViewport={browserOverlayViewport}
         worktreeId={worktreeId}
-        currentUrl={browserTab.url}
       />
       <BrowserPageZoomIndicator state={browserZoomIndicatorState} percent={browserZoomPercent} />
       <BrowserFind isOpen={findOpen} onClose={() => setFindOpen(false)} webviewRef={webviewRef} />

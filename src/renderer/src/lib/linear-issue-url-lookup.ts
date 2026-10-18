@@ -33,8 +33,7 @@ export async function lookupLinearIssueUrl({
   knownStatus,
   sourceContext,
   fetchLinearIssue,
-  // Why: no source context has always read this computer's Linear status.
-  readLinearStatus = (context) => linearStatus(context ?? { kind: 'local' })
+  readLinearStatus = linearStatus
 }: {
   intent: LinearIssueUrlIntent
   knownStatus: Pick<

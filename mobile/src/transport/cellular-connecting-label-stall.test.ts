@@ -9,8 +9,6 @@ import { classifyConnection, verdictDisplayLabel } from './connection-health'
 // reverted to "Connecting…" on every redial, so no escalation assertion here
 // could pass: the label looped "Connecting…" forever.
 
-vi.mock('./direct-e2ee-framing-policy', () => import('./legacy-direct-framing-test-policy'))
-
 vi.mock('./e2ee', () => ({
   generateKeyPair: () => ({ publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) }),
   deriveSharedKey: () => new Uint8Array(32),
@@ -235,18 +233,17 @@ describe('issue #10119 — what a phone shows while it cannot reach the desktop'
     expect(after.every((s) => s.label === "Can't reach desktop")).toBe(true)
   })
 
-  it('resets the failure counter only once a handshake actually completes', async () => {
+  it('resets the failure counter only once a handshake actually completes', () => {
     carrier = { kind: 'slow-handshake', readyAfterMs: 6_000 }
     const client = connect('ws://192.168.0.56:6769', 'device-token', 'server-public-key')
 
-    // Async: the auth step is awaited, so promise jobs must run between timers.
-    await vi.advanceTimersByTimeAsync(40_000)
+    vi.advanceTimersByTime(40_000)
     expect(client.getState()).not.toBe('connected')
     expect(client.getReconnectAttempt()).toBeGreaterThanOrEqual(3)
 
     // The link heals: the same desktop now answers inside the budget.
     carrier = { kind: 'slow-handshake', readyAfterMs: 50 }
-    await vi.advanceTimersByTimeAsync(20_000)
+    vi.advanceTimersByTime(20_000)
     expect(client.getState()).toBe('connected')
     expect(client.getReconnectAttempt()).toBe(0)
 

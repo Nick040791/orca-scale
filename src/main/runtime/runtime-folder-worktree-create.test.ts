@@ -28,6 +28,7 @@ function createDeps() {
     store: store as unknown as CreateArgs['deps']['store'],
     ptySpawnAvailable: true,
     createTerminal,
+    markTrusted: vi.fn(),
     pasteDraft: vi.fn(),
     sendFollowup: vi.fn(),
     invalidateResolvedWorktrees: vi.fn(),
@@ -58,42 +59,6 @@ async function startupTerminalOptions(startupPaneKey?: string): Promise<Record<s
 }
 
 describe('a folder workspace create with a startup agent', () => {
-  it('registers a folder launch before announcing its workspace', async () => {
-    const { deps } = createDeps()
-    const order: string[] = []
-    vi.mocked(deps.notifyWorktreesChanged).mockImplementation(() => order.push('notify'))
-    const result = await createRuntimeFolderWorktree({
-      request: { repoSelector: `id:${repo.id}`, name: 'chat', activate: true },
-      repo,
-      promisedAgentChat: true,
-      onWorkspaceCreated: (id) => order.push(`register:${id}`),
-      deps
-    })
-    expect(order).toEqual([`register:${result.worktree.id}`, 'notify'])
-  })
-
-  it('only promises a chat when the caller explicitly plans one', async () => {
-    const { deps } = createDeps()
-    await createRuntimeFolderWorktree({
-      request: { repoSelector: `id:${repo.id}`, name: 'attributed', activate: true },
-      repo,
-      createdWithAgent: 'codex',
-      deps
-    })
-    expect(deps.activate).toHaveBeenCalledWith(repo.id, expect.any(String), undefined, undefined)
-  })
-
-  it('seeds a headless activated folder workspace without a paired viewer', async () => {
-    const { deps, createTerminal } = createDeps()
-    deps.provisionInBackground = () => true
-    const result = await createRuntimeFolderWorktree({
-      request: { repoSelector: `id:${repo.id}`, name: 'headless', activate: true },
-      repo,
-      deps
-    })
-    expect(createTerminal).toHaveBeenCalledWith(`id:${result.worktree.id}`, { surfaceOwner: false })
-  })
-
   it('creates the startup terminal under the pane the caller reserved', async () => {
     expect(await startupTerminalOptions(`${TAB_ID}:${LEAF_ID}`)).toMatchObject({
       tabId: TAB_ID,

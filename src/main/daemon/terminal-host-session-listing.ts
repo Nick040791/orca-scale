@@ -15,9 +15,7 @@ export function listLiveTerminalHostSessions(
     result.push({
       sessionId: session.sessionId,
       incarnationId: session.incarnationId,
-      // Why: a session whose kill was accepted is still live but no longer restorable; readers that
-      // adopt or restore sessions must skip it, while liveness readers keep counting it.
-      state: session.isTerminating ? 'exiting' : session.state,
+      state: session.state,
       shellState: session.shellState,
       isAlive: true,
       ...(session.terminalHandle ? { terminalHandle: session.terminalHandle } : {}),

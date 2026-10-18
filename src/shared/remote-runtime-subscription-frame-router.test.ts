@@ -3,16 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { encrypt, encryptBytes } from './e2ee-crypto'
 import type { RemoteRuntimeClientError } from './remote-runtime-client-error'
 import { RemoteRuntimeSubscriptionFrameRouter } from './remote-runtime-subscription-frame-router'
-import { createFixedKeyLegacyHandshakeForTest } from './paired-e2ee-fixed-key-test-fixture'
 
 const SHARED_KEY = new Uint8Array(32).fill(7)
 
 function createAwaitingAuthRouter() {
   const fail = vi.fn<(error: RemoteRuntimeClientError) => void>()
   const router = new RemoteRuntimeSubscriptionFrameRouter<unknown>({
-    handshake: createFixedKeyLegacyHandshakeForTest(SHARED_KEY),
-    sealAuth: async () => '{}',
-    isSettled: () => false,
+    sharedKey: SHARED_KEY,
+    serializedAuth: '{}',
     serializedRequest: '{}',
     requestId: 'request-1',
     send: vi.fn(),
@@ -67,9 +65,8 @@ function createReadyRouter(callbacks: {
 }) {
   const fail = vi.fn<(error: RemoteRuntimeClientError) => void>()
   const router = new RemoteRuntimeSubscriptionFrameRouter<unknown>({
-    handshake: createFixedKeyLegacyHandshakeForTest(SHARED_KEY),
-    sealAuth: async () => '{}',
-    isSettled: () => false,
+    sharedKey: SHARED_KEY,
+    serializedAuth: '{}',
     serializedRequest: '{}',
     requestId: 'request-1',
     send: vi.fn(),

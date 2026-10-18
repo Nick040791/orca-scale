@@ -218,11 +218,6 @@ describe('terminal WebView external pointer wheel scrolling', () => {
       throw new Error('terminal missing')
     }
     terminal.modes.mouseTrackingMode = 'any'
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({ type: 'write', data: `${ESC}[?1006l` })
-      })
-    )
 
     dispatchWheel(CELL_HEIGHT)
 

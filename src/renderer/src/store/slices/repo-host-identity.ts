@@ -5,16 +5,13 @@ import {
   getSettingsFocusedExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import {
-  getRepoHostIdentityForParts,
-  type HostScopedRepoKey
-} from '../../../../shared/repo-host-identity'
+import { getRepoHostIdentityForParts } from '../../../../shared/repo-host-identity'
 
-export { getRepoHostIdentityForParts, type HostScopedRepoKey }
+export { getRepoHostIdentityForParts }
 
 type RepoIdentityParts = Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>
 
-export function getRepoHostIdentity(repo: RepoIdentityParts): HostScopedRepoKey {
+export function getRepoHostIdentity(repo: RepoIdentityParts): string {
   return getRepoHostIdentityForParts(repo.id, getRepoExecutionHostId(repo))
 }
 

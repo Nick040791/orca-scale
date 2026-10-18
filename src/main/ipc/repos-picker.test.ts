@@ -28,8 +28,15 @@ vi.mock('../git/repo', () => ({
 }))
 
 vi.mock('./registered-worktree-roots-cache', () => ({
-  invalidateAuthorizedRootsCache: vi.fn(),
-  invalidateAuthorizedRootsCacheForRepo: vi.fn()
+  invalidateAuthorizedRootsCache: vi.fn()
+}))
+
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: vi.fn()
+}))
+
+vi.mock('./ssh', () => ({
+  getActiveMultiplexer: vi.fn()
 }))
 
 import { registerRepoHandlers } from './repos'
@@ -43,6 +50,7 @@ describe('repos folder pickers', () => {
   const mockStore = {
     getRepos: vi.fn().mockReturnValue([]),
     addRepo: vi.fn(),
+    removeProject: vi.fn(),
     getRepo: vi.fn(),
     updateRepo: vi.fn()
   }

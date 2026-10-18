@@ -3,7 +3,6 @@ import { OrchestrationError } from '../../orchestration-error'
 import { generateId } from '../generated-id'
 import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
-import { DISPATCH_CONTEXT_COLUMN_LIST } from '../row-column-lists'
 
 // ── Decision Gates ──
 
@@ -28,15 +27,13 @@ export function createGate(
     }
     const runId = task.run_id
     this.requireRun(runId)
-    const rawActive = this.db
+    const active = this.db
       .prepare(
-        `SELECT ${DISPATCH_CONTEXT_COLUMN_LIST} FROM dispatch_contexts
+        `SELECT * FROM dispatch_contexts
          WHERE task_id = ? AND status IN ('pending', 'dispatched')
          ORDER BY rowid DESC LIMIT 1`
       )
-      .get(gate.taskId)
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The schema-pinned complete Dispatch projection returns one Dispatch row or undefined; the adapter exposes unknown.
-    const active = rawActive as DispatchContextRow | undefined
+      .get(gate.taskId) as DispatchContextRow | undefined
     if (
       gate.requester &&
       (!active ||

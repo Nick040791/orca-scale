@@ -3,7 +3,7 @@ import type { Repo } from '../../../../shared/repo-types'
 import type { WorktreeLineage } from '../../../../shared/worktree/lineage-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { canAssignWorktreeParent } from './worktree-parent-eligibility'
-import { getCyclicProjectedWorktreeLineageIds } from '../../../../shared/sidebar-list/worktree-lineage-projection'
+import { getCyclicProjectedWorktreeLineageIds } from './worktree-lineage-projection'
 
 type ParentCandidateArgs = {
   child: Worktree
@@ -59,8 +59,12 @@ export function isEligibleWorktreeParent({
   childHostId?: string | null
 }): boolean {
   return (
+    candidateParent.repoId === child.repoId &&
     childHostId !== null &&
     getWorktreeOwnerHostId(candidateParent, repoMap) === childHostId &&
+    (child.projectId === undefined ||
+      candidateParent.projectId === undefined ||
+      child.projectId === candidateParent.projectId) &&
     !candidateParent.isArchived &&
     canAssignWorktreeParent({
       child,

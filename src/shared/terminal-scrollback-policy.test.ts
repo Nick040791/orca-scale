@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DESKTOP_TERMINAL_SCROLLBACK_ROW_PRESETS,
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT,
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_MAX,
+  DESKTOP_TERMINAL_SCROLLBACK_ROWS_MIN,
   legacyTerminalScrollbackBytesToRows,
   normalizeDesktopTerminalScrollbackRows,
   normalizeDesktopTerminalSnapshotRows,
@@ -8,6 +12,13 @@ import {
 } from './terminal-scrollback-policy'
 
 describe('terminal scrollback policy', () => {
+  it('exports the desktop row defaults and presets', () => {
+    expect(DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT).toBe(5_000)
+    expect(DESKTOP_TERMINAL_SCROLLBACK_ROWS_MIN).toBe(1_000)
+    expect(DESKTOP_TERMINAL_SCROLLBACK_ROWS_MAX).toBe(50_000)
+    expect(DESKTOP_TERMINAL_SCROLLBACK_ROW_PRESETS).toEqual([5_000, 10_000, 25_000, 50_000])
+  })
+
   it('normalizes persisted desktop rows without string coercion', () => {
     expect(normalizeDesktopTerminalScrollbackRows(undefined)).toBe(5_000)
     expect(normalizeDesktopTerminalScrollbackRows('25000')).toBe(5_000)

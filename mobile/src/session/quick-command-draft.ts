@@ -5,8 +5,8 @@ import type {
 } from '../../../src/shared/terminal-quick-command-types'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import {
-  getTerminalQuickCommandBodySize,
   isAgentQuickCommand,
+  MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH,
   MAX_QUICK_COMMAND_LABEL_LENGTH,
   MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH,
   supportsTerminalAgentQuickCommand
@@ -68,22 +68,7 @@ export function quickCommandToDraft(command: TerminalQuickCommand): QuickCommand
   }
 }
 
-/** Whether the draft's prompt is over its limit; `agentPromptMaxLength` is an older host's cap. */
-export function isQuickCommandDraftPromptTooLong(
-  draft: QuickCommandDraft,
-  agentPromptMaxLength: number | null
-): boolean {
-  if (draft.action !== 'agent-prompt') {
-    return false
-  }
-  const size = getTerminalQuickCommandBodySize('agent-prompt', draft.prompt, agentPromptMaxLength)
-  return size.used > size.max
-}
-
-export function isQuickCommandDraftValid(
-  draft: QuickCommandDraft,
-  agentPromptMaxLength: number | null = null
-): boolean {
+export function isQuickCommandDraftValid(draft: QuickCommandDraft): boolean {
   if (!draft.label.trim()) {
     return false
   }
@@ -91,8 +76,7 @@ export function isQuickCommandDraftValid(
     return Boolean(
       draft.agent &&
       supportsTerminalAgentQuickCommand(draft.agent) &&
-      draft.prompt.trim().length > 0 &&
-      !isQuickCommandDraftPromptTooLong(draft, agentPromptMaxLength)
+      draft.prompt.trim().length > 0
     )
   }
   return draft.command.trim().length > 0
@@ -101,11 +85,8 @@ export function isQuickCommandDraftValid(
 // Build the persisted command from a draft. Returns null when incomplete so the
 // caller can keep the editor open. The server re-normalizes, but we trim/cap
 // here so optimistic local state matches what will be saved.
-export function draftToQuickCommand(
-  draft: QuickCommandDraft,
-  agentPromptMaxLength: number | null = null
-): TerminalQuickCommand | null {
-  if (!isQuickCommandDraftValid(draft, agentPromptMaxLength)) {
+export function draftToQuickCommand(draft: QuickCommandDraft): TerminalQuickCommand | null {
+  if (!isQuickCommandDraftValid(draft)) {
     return null
   }
   // Why: timestamps alone collide when desktop and mobile add commands in the
@@ -120,7 +101,7 @@ export function draftToQuickCommand(
       label,
       action: 'agent-prompt',
       agent: draft.agent,
-      prompt: draft.prompt.trimEnd(),
+      prompt: draft.prompt.trimEnd().slice(0, MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH),
       scope: draft.scope
     }
   }

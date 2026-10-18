@@ -25,7 +25,7 @@ vi.mock('child_process', () => ({
 // Why mock the chokepoint for the Windows sweep: maxBuffer, timeout and the
 // hidden console are its contract now, so the assertions below are about which
 // query runs, not how a process is started.
-vi.mock('@orca/process-host', () => ({
+vi.mock('../../shared/child-process/run-process', () => ({
   runProcess: (spec: { program: string; args?: string[] }) => runProcessMock(spec)
 }))
 

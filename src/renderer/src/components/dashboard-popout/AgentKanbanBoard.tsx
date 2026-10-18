@@ -20,13 +20,12 @@ import {
 } from './agent-board-filtering'
 import './agent-board-transitions.css'
 import { translate } from '@/i18n/i18n'
-import type { AgentSubjectReadIntent } from '@/attention/agent-subject-read-actions'
 
 /** Ack an agent in the pop-out window: relayed over IPC to the main renderer.
  *  ?. shields dialog-opening from dev-HMR preload skew (renderer updates hot,
  *  the preload only on app restart) — acks just no-op until restart. */
-function ackAgentViaPopoutRelay(paneKey: string, intent: AgentSubjectReadIntent): void {
-  void window.api.dashboard.ackAgent?.(paneKey, intent)
+function ackAgentViaPopoutRelay(paneKey: string): void {
+  void window.api.dashboard.ackAgent?.(paneKey)
 }
 
 /** Reveal an agent from the pop-out window: raise the main window and route it
@@ -80,18 +79,13 @@ function KanbanColumn({
   now: number
   onOpenTerminal: (card: DashboardCard) => void
 }): React.JSX.Element {
-  const label = bucketLabel(bucket)
-
   return (
     // Why: attention no longer tints the whole column — the cards inside carry
     // their own state color, so a column border would double-signal it.
-    <section
-      aria-label={label}
-      className="flex min-w-[264px] flex-1 flex-col rounded-xl border border-border/60 bg-muted/30"
-    >
+    <section className="flex min-w-[264px] flex-1 flex-col rounded-xl border border-border/60 bg-muted/30">
       <header className="flex items-center gap-2 px-3 py-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          {label}
+          {bucketLabel(bucket)}
         </span>
         <span className="ml-auto rounded-full bg-background px-1.5 text-[11px] tabular-nums text-muted-foreground">
           {cards.length}
@@ -125,7 +119,7 @@ type AgentKanbanBoardProps = {
   containerClassName?: string
   /** Marks an agent as seen. Defaults to the pop-out IPC relay; the in-window
    *  host acks the store directly. */
-  onAckAgent?: (paneKey: string, intent: AgentSubjectReadIntent) => void
+  onAckAgent?: (paneKey: string) => void
   /** Focuses the agent's pane. Defaults to the pop-out IPC relay; the in-window
    *  host activates the worktree/pane locally and closes the overlay. */
   onRevealAgent?: (args: AgentRevealArgs) => void
@@ -228,11 +222,9 @@ export function AgentKanbanBoard({
   // Seen-state is the app-wide ack map (same signal as the sidebar's bold/mute
   // rows): opening a dialog acks the agent, and the next snapshot comes back
   // with unseen=false.
-  const clickAcked = useRef<{ paneKey: string; stateChangedAt: number } | null>(null)
   const handleOpenTerminal = useCallback(
     (card: DashboardCard) => {
-      onAckAgent(card.paneKey, 'explicit')
-      clickAcked.current = { paneKey: card.paneKey, stateChangedAt: card.stateChangedAt }
+      onAckAgent(card.paneKey)
       setOpenedCard(card)
     },
     [onAckAgent]
@@ -240,18 +232,10 @@ export function AgentKanbanBoard({
   // Watching the open dialog counts as seeing state changes as they happen —
   // without this, an agent finishing while you watch would re-flag its card.
   useEffect(() => {
-    // The click already read the state it opened on; only later changes are watched.
-    const clicked = clickAcked.current
-    if (
-      dialogCard?.unseen &&
-      !(
-        clicked?.paneKey === dialogCard.paneKey &&
-        clicked.stateChangedAt === dialogCard.stateChangedAt
-      )
-    ) {
-      onAckAgent(dialogCard.paneKey, 'view')
+    if (dialogCard?.unseen) {
+      onAckAgent(dialogCard.paneKey)
     }
-  }, [dialogCard?.paneKey, dialogCard?.unseen, dialogCard?.stateChangedAt, onAckAgent])
+  }, [dialogCard?.paneKey, dialogCard?.unseen, onAckAgent])
 
   return (
     // Why: the pop-out is its own React root with no app-level provider, and the

@@ -18,7 +18,7 @@ export function selectExactWorkerProviderSession(args: {
     .filter(
       (entry) =>
         entry.paneKey === args.paneKey &&
-        terminalHostConnectionMatches(entry.connectionId, args.connectionId, args.wslDistro) &&
+        connectionMatches(entry.connectionId, args.connectionId, args.wslDistro) &&
         (!args.launchToken || entry.launchToken === args.launchToken) &&
         entry.providerSessionOnly !== true &&
         entry.providerSession !== undefined &&
@@ -50,7 +50,7 @@ function attestedWslDistro(
   return distro && connectionId === wslHookRelayConnectionId(distro) ? distro : undefined
 }
 
-export function terminalHostConnectionMatches(
+function connectionMatches(
   entryConnectionId: string | null,
   expectedConnectionId: string | null | undefined,
   wslDistro: string | null | undefined

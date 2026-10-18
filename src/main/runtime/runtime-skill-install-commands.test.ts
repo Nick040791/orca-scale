@@ -1,11 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SkillBundleInstallRequest } from '../../shared/skill-bundle-install-contract'
+import type * as SkillBundleSshRelayService from '../skills/skill-bundle-ssh-relay-service'
 import type { RuntimeSkillCommandHost } from './runtime-skill-command-contract'
 import { toSshExecutionHostId } from '../../shared/execution-host'
-import {
-  RuntimeSkillInstallCommands,
-  SKILL_SSH_UNAVAILABLE
-} from './runtime-skill-install-commands'
+
+const mocks = vi.hoisted(() => ({ installSkillBundleOnSshHost: vi.fn() }))
+
+vi.mock('../skills/skill-bundle-ssh-relay-service', async (importOriginal) => ({
+  ...(await importOriginal<typeof SkillBundleSshRelayService>()),
+  installSkillBundleOnSshHost: mocks.installSkillBundleOnSshHost
+}))
+
+import { RuntimeSkillInstallCommands } from './runtime-skill-install-commands'
 
 function createHost(): RuntimeSkillCommandHost {
   return {
@@ -19,6 +25,7 @@ function createHost(): RuntimeSkillCommandHost {
     showManagedWorktree: async () => {
       throw new Error('unused')
     },
+    getSshProvider: () => ({ requestHostRpc: vi.fn() }) as never,
     skillTransactionRecovery: Promise.resolve()
   }
 }
@@ -47,18 +54,35 @@ function createRequest(): SkillBundleInstallRequest {
   }
 }
 
-// Why: this process serves no SSH target, so an SSH destination is refused before any local work.
 describe('RuntimeSkillInstallCommands', () => {
-  it('refuses a global SSH bundle install without touching this computer', async () => {
-    const request = createRequest()
-    const host = createHost()
-    const showManagedWorktree = vi.fn(host.showManagedWorktree)
-    host.showManagedWorktree = showManagedWorktree
+  beforeEach(() => {
+    mocks.installSkillBundleOnSshHost.mockReset()
+  })
 
-    await expect(
-      new RuntimeSkillInstallCommands(host).installSharedSkillBundleRequest(request)
-    ).rejects.toThrow(SKILL_SSH_UNAVAILABLE)
-    expect(showManagedWorktree).not.toHaveBeenCalled()
+  it('retargets a global SSH bundle install to the owning host runtime', async () => {
+    const request = createRequest()
+    mocks.installSkillBundleOnSshHost.mockResolvedValue({
+      operationId: request.operationId,
+      packageId: request.package.packageId,
+      versionId: request.package.versionId,
+      bundleDigest: request.package.bundleDigest,
+      status: 'complete',
+      skills: []
+    })
+
+    await new RuntimeSkillInstallCommands(createHost()).installSharedSkillBundleRequest(request)
+
+    expect(mocks.installSkillBundleOnSshHost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          destination: { scope: 'global', executionTarget: { kind: 'host' } }
+        })
+      })
+    )
+    expect(request.destination).toEqual({
+      scope: 'global',
+      executionTarget: { kind: 'ssh', connectionId: 'ssh-1' }
+    })
   })
 
   it('rejects an unqualified worktree id shared by local and SSH hosts', async () => {
@@ -75,9 +99,10 @@ describe('RuntimeSkillInstallCommands', () => {
     await expect(
       new RuntimeSkillInstallCommands(host).installSharedSkillBundleRequest(request)
     ).rejects.toThrow('skill-install-workspace-host-ambiguous')
+    expect(mocks.installSkillBundleOnSshHost).not.toHaveBeenCalled()
   })
 
-  it('places the exact SSH-owned worktree when ids collide, then refuses it', async () => {
+  it('uses the exact SSH-owned worktree when ids collide in the resolved inventory', async () => {
     const request = {
       ...createRequest(),
       destination: { scope: 'workspace' as const, worktreeId: 'repo-1::/workspace/app' }
@@ -92,9 +117,25 @@ describe('RuntimeSkillInstallCommands', () => {
         hostId: toSshExecutionHostId('ssh-1')
       }
     ]
+    mocks.installSkillBundleOnSshHost.mockResolvedValue({
+      operationId: request.operationId,
+      packageId: request.package.packageId,
+      versionId: request.package.versionId,
+      bundleDigest: request.package.bundleDigest,
+      status: 'complete',
+      skills: []
+    })
 
-    await expect(
-      new RuntimeSkillInstallCommands(host).installSharedSkillBundleRequest(request)
-    ).rejects.toThrow(SKILL_SSH_UNAVAILABLE)
+    await new RuntimeSkillInstallCommands(host).installSharedSkillBundleRequest(request)
+
+    expect(mocks.installSkillBundleOnSshHost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: {
+          kind: 'worktree',
+          id: request.destination.worktreeId,
+          path: '/remote/app'
+        }
+      })
+    )
   })
 })

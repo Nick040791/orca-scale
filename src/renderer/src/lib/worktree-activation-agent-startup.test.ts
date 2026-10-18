@@ -2,9 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { ensureWorktreeHasInitialTerminal } from './worktree-initial-terminal-seeding'
 import {
   createMockStore,
-  registerWorktreeActivationReset,
-  createdTabStartups
-} from './worktree-activation.test-fixture'
+  registerWorktreeActivationReset
+} from './worktree-activation-test-harness'
 
 registerWorktreeActivationReset()
 
@@ -21,20 +20,21 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true
     })
     expect(store.setActiveTab).toHaveBeenCalledWith('tab-1')
-    expect(createdTabStartups(store)['tab-1']).toEqual({
+    expect(store.queueTabStartupCommand).toHaveBeenCalledWith('tab-1', {
       command: 'claude "Fix this bug"'
     })
+    expect(store.queueTabSetupSplit).not.toHaveBeenCalled()
     expect(store.queueTabIssueCommandSplit).not.toHaveBeenCalled()
   })
 
   it('opens new agent workspace terminals in native chat when configured', () => {
     const store = createMockStore({
       settings: {
-        experimentalNativeChat: true
+        experimentalNativeChat: true,
+        openAgentTabsInChatByDefault: true
       }
     })
 
@@ -50,24 +50,25 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true,
-      launchAgent: 'claude'
+      launchAgent: 'claude',
+      viewMode: 'chat'
     })
-    expect(createdTabStartups(store)['tab-1']).toEqual({
+    expect(store.queueTabStartupCommand).toHaveBeenCalledWith('tab-1', {
       command: 'claude',
       launchAgent: 'claude'
     })
   })
 
   it.each([
-    ['mirrorable', 'https://github.com/o/r/issues/12', {}],
-    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', {}],
+    ['mirrorable', 'https://github.com/o/r/issues/12', { viewMode: 'chat' }],
+    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', { viewMode: 'chat' }],
     ['unsupported-separator', 'Review this\u2028https://github.com/o/r/issues/12', {}]
   ])('opens a %s draft startup payload accordingly', (_label, draftPrompt, expectedViewMode) => {
     const store = createMockStore({
       settings: {
-        experimentalNativeChat: true
+        experimentalNativeChat: true,
+        openAgentTabsInChatByDefault: true
       }
     })
 
@@ -84,24 +85,26 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true,
       launchAgent: 'claude',
       ...expectedViewMode
     })
   })
 
-  // An argv-prefill launch carries its draft inside the terminal command.
+  // An argv-prefill launch carries the draft inside `command` and sets NO
+  // draftPrompt, so gating on draftPrompt alone lets it open in chat with
+  // nothing mirrored — an empty composer beside a filled TUI input.
   it.each([
-    ['mirrorable', 'https://github.com/o/r/issues/12', {}],
-    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', {}],
+    ['mirrorable', 'https://github.com/o/r/issues/12', { viewMode: 'chat' }],
+    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', { viewMode: 'chat' }],
     ['unsupported-separator', 'Review this\u2028https://github.com/o/r/issues/12', {}]
   ])(
-    'keeps a %s argv-prefill draft in the terminal',
+    'gates a %s argv-prefill draft on launchDraftText alone',
     (_label, launchDraftText, expectedViewMode) => {
       const store = createMockStore({
         settings: {
-          experimentalNativeChat: true
+          experimentalNativeChat: true,
+          openAgentTabsInChatByDefault: true
         }
       })
 
@@ -110,14 +113,14 @@ describe('ensureWorktreeHasInitialTerminal', () => {
         'wt-1',
         {
           command: `claude --prefill '${launchDraftText}'`,
-          launchAgent: 'claude'
+          launchAgent: 'claude',
+          launchDraftText
         },
         undefined,
         undefined
       )
 
       expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-        pendingStartup: expect.anything(),
         pendingActivationSpawn: true,
         launchAgent: 'claude',
         ...expectedViewMode
@@ -125,13 +128,14 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     }
   )
 
-  it('opens the startup default tab in the terminal', () => {
+  it('opens the startup default tab in native chat when configured', () => {
     let createdIndex = 0
     const createTab = vi.fn(() => ({ id: `tab-${++createdIndex}` }))
     const store = createMockStore({
       createTab,
       settings: {
-        experimentalNativeChat: true
+        experimentalNativeChat: true,
+        openAgentTabsInChatByDefault: true
       }
     })
 
@@ -145,16 +149,16 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(createTab).toHaveBeenNthCalledWith(1, 'wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true,
       recordInteraction: false,
-      launchAgent: 'claude'
+      launchAgent: 'claude',
+      viewMode: 'chat'
     })
   })
 
   it.each([
-    ['mirrorable', 'https://github.com/o/r/issues/12', {}],
-    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', {}],
+    ['mirrorable', 'https://github.com/o/r/issues/12', { viewMode: 'chat' }],
+    ['multi-line', 'Review this\n\nhttps://github.com/o/r/issues/12', { viewMode: 'chat' }],
     ['unsupported-separator', 'Review this\u2028https://github.com/o/r/issues/12', {}]
   ])(
     'opens a %s draft startup default tab accordingly',
@@ -164,7 +168,8 @@ describe('ensureWorktreeHasInitialTerminal', () => {
       const store = createMockStore({
         createTab,
         settings: {
-          experimentalNativeChat: true
+          experimentalNativeChat: true,
+          openAgentTabsInChatByDefault: true
         }
       })
 
@@ -178,7 +183,6 @@ describe('ensureWorktreeHasInitialTerminal', () => {
       )
 
       expect(createTab).toHaveBeenNthCalledWith(1, 'wt-1', undefined, undefined, {
-        pendingStartup: expect.anything(),
         pendingActivationSpawn: true,
         recordInteraction: false,
         launchAgent: 'claude',
@@ -206,11 +210,10 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true,
       launchAgent: 'claude'
     })
-    expect(createdTabStartups(store)['tab-1']).toEqual({
+    expect(store.queueTabStartupCommand).toHaveBeenCalledWith('tab-1', {
       command: 'claude',
       telemetry: {
         agent_kind: 'claude-code',
@@ -235,11 +238,10 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     )
 
     expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingStartup: expect.anything(),
       pendingActivationSpawn: true,
       launchAgent: 'codex'
     })
-    expect(createdTabStartups(store)['tab-1']).toEqual({
+    expect(store.queueTabStartupCommand).toHaveBeenCalledWith('tab-1', {
       command: 'codex',
       launchAgent: 'codex'
     })

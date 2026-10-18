@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from './dispatcher'
 import type { OrcaRuntimeService, RuntimeTerminalDataMeta } from '../orca-runtime'
@@ -310,11 +309,7 @@ describe('terminal multiplex RPC', () => {
       expect(runtime.sendTerminal).toHaveBeenCalledWith(
         'terminal-1',
         { text: 'x', enter: false, interrupt: false },
-        {
-          inputKind: 'driving',
-          reserveWrite: expect.any(Function),
-          afterWrite: expect.any(Function)
-        }
+        { reserveWrite: expect.any(Function), afterWrite: expect.any(Function) }
       )
     )
     expect(beginMobileInputFloor.mock.invocationCallOrder[0]).toBeLessThan(

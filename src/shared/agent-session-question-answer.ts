@@ -5,9 +5,6 @@ const GROUP_ANSWER_PREFIX = 'question-group:'
 /** A single-question item has no question list; the client and host must agree on its id. */
 const SINGLE_QUESTION_ID = 'q1'
 
-/** Longest option id a host takes, which also bounds an answer packed into one. */
-export const AGENT_SESSION_RESPONSE_OPTION_ID_MAX_LENGTH = 1024
-
 /** Largest typed answer to one question, in UTF-8 bytes. */
 export const AGENT_SESSION_QUESTION_ANSWER_MAX_BYTES = 64 * 1024
 
@@ -24,10 +21,7 @@ export type AgentSessionPromptResponse =
 
 /** The questions an item asks: its grouped list, or the item itself as one question. */
 export function agentSessionPromptQuestions(
-  body: Pick<
-    AgentJournalQuestionItem,
-    'question' | 'options' | 'questions' | 'freeTextQuestionId' | 'freeTextInput'
-  >
+  body: Pick<AgentJournalQuestionItem, 'question' | 'options' | 'questions' | 'freeTextQuestionId'>
 ): AgentJournalQuestion[] {
   if (body.questions) {
     return body.questions
@@ -38,8 +32,7 @@ export function agentSessionPromptQuestions(
       question: body.question,
       options: body.options,
       multiSelect: false,
-      ...(body.freeTextQuestionId ? { freeTextQuestionId: body.freeTextQuestionId } : {}),
-      ...(body.freeTextInput ? { freeTextInput: body.freeTextInput } : {})
+      ...(body.freeTextQuestionId ? { freeTextQuestionId: body.freeTextQuestionId } : {})
     }
   ]
 }
@@ -70,7 +63,7 @@ function decodeLegacyFreeTextAnswer(
  * predate structured answers take it as `optionId`, and older clients render receipts from it.
  */
 export function legacyAgentSessionSelectedOptionId(
-  body: Pick<AgentJournalQuestionItem, 'questions' | 'freeTextInput'>,
+  body: Pick<AgentJournalQuestionItem, 'questions'>,
   answers: readonly AgentSessionQuestionAnswer[]
 ): string | null {
   if (body.questions) {
@@ -80,21 +73,15 @@ export function legacyAgentSessionSelectedOptionId(
   if (!answer || answers.length !== 1) {
     return null
   }
-  const other = body.freeTextInput?.allowEmpty ? answer.other : answer.other?.trim()
+  const other = answer.other?.trim()
   return (
-    answer.optionIds[0] ??
-    (other !== undefined && (other.length > 0 || body.freeTextInput?.allowEmpty)
-      ? encodeLegacyFreeTextAnswer(answer.questionId, other)
-      : null)
+    answer.optionIds[0] ?? (other ? encodeLegacyFreeTextAnswer(answer.questionId, other) : null)
   )
 }
 
 /** Reads an answer an older client packed into `optionId`. */
 export function legacyAgentSessionQuestionAnswers(
-  body: Pick<
-    AgentJournalQuestionItem,
-    'question' | 'options' | 'questions' | 'freeTextQuestionId' | 'freeTextInput'
-  >,
+  body: Pick<AgentJournalQuestionItem, 'question' | 'options' | 'questions' | 'freeTextQuestionId'>,
   optionId: string
 ): AgentSessionQuestionAnswer[] | null {
   const grouped = body.questions ? decodeAgentSessionQuestionAnswers(optionId) : null
@@ -112,7 +99,7 @@ export function legacyAgentSessionQuestionAnswers(
   const freeText = decodeLegacyFreeTextAnswer(optionId)
   return body.freeTextQuestionId &&
     freeText?.questionId === body.freeTextQuestionId &&
-    (freeText.answer.trim().length > 0 || body.freeTextInput?.allowEmpty === true)
+    freeText.answer.trim().length > 0
     ? [{ questionId, optionIds: [], other: freeText.answer }]
     : null
 }
@@ -184,13 +171,11 @@ export function isValidAgentSessionQuestionAnswers(
     if (answer.optionIds.some((optionId) => !offered.has(optionId))) {
       return false
     }
-    const hasOther =
-      answer.other !== undefined &&
-      (question.freeTextInput?.allowEmpty === true || answer.other.trim().length > 0)
-    if (hasOther && !question.freeTextQuestionId) {
+    const other = answer.other?.trim() ?? ''
+    if (other && !question.freeTextQuestionId) {
       return false
     }
-    const answerCount = answer.optionIds.length + (hasOther ? 1 : 0)
+    const answerCount = answer.optionIds.length + (other ? 1 : 0)
     return answerCount > 0 && (question.multiSelect || answerCount === 1)
   })
 }

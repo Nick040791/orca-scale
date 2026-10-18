@@ -1,8 +1,7 @@
 import { vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { AgentSessionOwnerBinding } from '../../shared/agent-session-host-authority'
-import { registerPtyHandlers } from './pty/register-handlers'
-import { setLocalPtyProvider } from './pty/provider/registry'
+import { registerPtyHandlers, setLocalPtyProvider } from './pty'
 import { makeDisposable } from './pty-ipc-test-constants'
 
 /** The node-pty process double plus the emitters that drive its registered handlers. */

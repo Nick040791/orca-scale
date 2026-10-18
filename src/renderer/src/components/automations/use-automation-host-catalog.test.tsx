@@ -33,9 +33,9 @@ vi.mock('@/store', () => {
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
   callRuntimeRpc: (...args: unknown[]) => mocks.callRuntimeRpc(...args),
-  getRuntimeEnvironmentStatus: (...args: unknown[]) => mocks.getRuntimeEnvironmentStatus(...args)
+  getRuntimeEnvironmentStatus: (...args: unknown[]) => mocks.getRuntimeEnvironmentStatus(...args),
+  hasRuntimeRpcErrorCode: () => false
 }))
-vi.mock('@/runtime/runtime-rpc-result', () => ({ hasRuntimeRpcErrorCode: () => false }))
 
 import { useAutomationHostCatalog } from './use-automation-host-catalog'
 

@@ -6,8 +6,8 @@ import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport-types'
-import type { SearchState } from './terminal-keyboard-shortcut-matching'
+import type { PtyTransport } from './pty-transport'
+import type { SearchState } from './keyboard-handlers'
 import type { CloseTerminalDialogCopyKind } from './CloseTerminalDialog'
 import type { TerminalLinkActionRequest } from './terminal-link-action-request'
 import { closeTerminalLinkActionRequest } from './terminal-link-action-request'
@@ -16,7 +16,7 @@ import type { AgentSessionContinuationRequest } from '@/lib/agent-session-contin
 import { createTerminalQuickCommandDraft } from '@/components/terminal-quick-commands/TerminalQuickCommandDialog'
 import { useDaemonActions } from '@/components/shared/useDaemonActions'
 import { useMobileOverlayTicks } from './use-mobile-overlay-ticks'
-import type { TerminalPaneProps } from './terminal-pane-types'
+import type { TerminalPaneHandle, TerminalPaneProps } from './terminal-pane-types'
 import { useVisibleTerminalTabClaim } from './use-visible-terminal-tab-claim'
 import type { VisiblePtyRecoveryState } from './terminal-remote-runtime-recovery-ui-state'
 import type { PaneProcessExit } from './pty-connection-types'
@@ -24,7 +24,10 @@ import type { PaneCwdMap } from './resolve-split-cwd'
 import type { TerminalErrorsByPaneId } from './terminal-error-accumulation'
 import { selectTerminalPaneHostState } from './terminal-pane-host-state'
 
-export function useTerminalPaneFoundation(props: TerminalPaneProps) {
+export function useTerminalPaneFoundation(
+  props: TerminalPaneProps,
+  ref: React.ForwardedRef<TerminalPaneHandle>
+) {
   const {
     tabId,
     worktreeId,
@@ -145,9 +148,7 @@ export function useTerminalPaneFoundation(props: TerminalPaneProps) {
   const [ptyRecoveryStatesByPaneId, setPtyRecoveryStatesByPaneId] = useState<
     Record<number, VisiblePtyRecoveryState>
   >({})
-  const [sessionStateSaveFailureMessage, setSessionStateSaveFailureMessage] = useState<
-    string | null
-  >(null)
+  const [sessionStateSaveFailureOpen, setSessionStateSaveFailureOpen] = useState(false)
   const daemonActions = useDaemonActions()
   const { refreshMobileOverlays } = useMobileOverlayTicks({
     managerRef,
@@ -156,6 +157,7 @@ export function useTerminalPaneFoundation(props: TerminalPaneProps) {
 
   return {
     ...props,
+    ref,
     tabId,
     worktreeId,
     cwd,
@@ -233,8 +235,8 @@ export function useTerminalPaneFoundation(props: TerminalPaneProps) {
     setTerminalError,
     ptyRecoveryStatesByPaneId,
     setPtyRecoveryStatesByPaneId,
-    sessionStateSaveFailureMessage,
-    setSessionStateSaveFailureMessage,
+    sessionStateSaveFailureOpen,
+    setSessionStateSaveFailureOpen,
     daemonActions,
     refreshMobileOverlays
   }

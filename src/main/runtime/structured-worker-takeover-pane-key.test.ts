@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentSessionLease } from '../../shared/agent-session-record'
-import {
-  agentSessionLeaseFixture,
-  agentSessionRecordFixture
-} from '../../shared/agent-session-record.test-fixture'
+import type { AgentSessionRecord } from '../../shared/agent-session-record'
 
 const hostRef: { current: unknown } = { current: null }
 
@@ -12,7 +8,7 @@ vi.mock('../native-chat/agent-session-wire/structured-agent-session-registry', (
 }))
 
 const { OrcaRuntimeWithGetPtyRecordForPaneKey } =
-  await import('./orchestration/terminal-pane-mail-routing')
+  await import('./orca-runtime-get-pty-record-for-pane-key')
 const {
   mintStructuredWorkerHandle,
   mintStructuredWorkerPaneKey,
@@ -22,15 +18,16 @@ const {
 
 const SESSION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
 
-function installRecord(lease: Pick<AgentSessionLease, 'runtimeKind' | 'claimStatus'>): void {
+function installRecord(lease: { runtimeKind: string; claimStatus: string }): void {
   hostRef.current = {
     deps: {
       store: {
         getRecord: (sessionId: string) =>
-          agentSessionRecordFixture(
-            agentSessionLeaseFixture({ ...lease, sessionId, runtimeFence: 1, deathEvidence: null })
-          ),
-        listRecords: () => []
+          ({
+            sessionId,
+            location: { executionHostId: 'local', wslDistro: null },
+            lease: { ...lease, runtimeFence: 1, deathEvidence: null }
+          }) as unknown as AgentSessionRecord
       }
     },
     hasSession: () => true

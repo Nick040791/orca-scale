@@ -10,8 +10,10 @@ import {
 import { clearWebSessionTerminalOrphanRecoveryForTests } from './web-session-terminal-orphan-recovery'
 import { mergeAdoptionResponse } from './web-session-terminal-orphan-recovery-adoption'
 import { resolveTerminalOrphanInventory } from './web-session-terminal-orphan-recovery-inventory'
-import { prepareTerminalOrphanRecovery } from './web-session-terminal-orphan-recovery-surface'
-import { surfaceKey } from './web-session-terminal-orphan-recovery-surface-index'
+import {
+  prepareTerminalOrphanRecovery,
+  surfaceKey
+} from './web-session-terminal-orphan-recovery-surface'
 
 describe('post-adoption reconciliation of previously removed surfaces', () => {
   beforeEach(clearWebSessionTerminalOrphanRecoveryForTests)

@@ -4,8 +4,6 @@ export type JiraRecord = Record<string, unknown>
 
 export type JiraSearchResponse = {
   issues?: JiraRecord[]
-  nextPageToken?: string
-  isLast?: boolean
 }
 
 export type JiraPagedResponse<T> = {
@@ -78,39 +76,21 @@ export async function fetchPagedRecords(
   entry: JiraClientForSite,
   key: JiraPageItemKey,
   pathForPage: (startAt: number, maxResults: number) => string,
-  maxResults = 100,
-  options?: { signal?: AbortSignal; requireComplete?: boolean }
+  maxResults = 100
 ): Promise<JiraRecord[]> {
   const records: JiraRecord[] = []
   let startAt = 0
   for (let guard = 0; guard < 100; guard += 1) {
-    const path = pathForPage(startAt, maxResults)
-    const response = options?.signal
-      ? await jiraRequest<JiraPagedResponse<JiraRecord>>(entry, path, { signal: options.signal })
-      : await jiraRequest<JiraPagedResponse<JiraRecord>>(entry, path)
-    if (
-      options?.requireComplete &&
-      !Array.isArray(response[key]) &&
-      !Array.isArray(response.values)
-    ) {
-      throw new Error('Jira returned an invalid project page.')
-    }
+    const response = await jiraRequest<JiraPagedResponse<JiraRecord>>(
+      entry,
+      pathForPage(startAt, maxResults)
+    )
     const items = getPageItems(response, key)
     records.push(...items)
     if (!shouldFetchNextPage(response, startAt, items, maxResults)) {
-      const total = asFiniteNumber(response.total)
-      if (
-        options?.requireComplete &&
-        ((total !== null && startAt + items.length < total) || response.isLast === false)
-      ) {
-        throw new Error('Jira returned an incomplete project page.')
-      }
-      return records
+      break
     }
     startAt += asFiniteNumber(response.maxResults) ?? maxResults
-  }
-  if (options?.requireComplete) {
-    throw new Error('Jira project list exceeded the page limit. Select a project with JQL instead.')
   }
   return records
 }

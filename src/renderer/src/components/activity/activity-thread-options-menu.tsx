@@ -1,5 +1,5 @@
 import React from 'react'
-import { CheckCheck, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { CheckCheck, ListFilter, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -17,11 +17,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
-import { OptionsFilterCountBadge } from '@/components/sidebar/options-filter-count-badge'
-import { formatActiveFilterLabel } from '../../../../shared/workspace-view/workspace-row-filters'
 import {
   ActivityScopeFilterMenuItems,
-  useActivityScopeFilterCount
+  useActivityScopeFilterActive,
+  useActivityScopeFilterMenuItemsVisible
 } from './activity-scope-filter-controls'
 import type { ActivityGroupBy } from './activity-thread-types'
 
@@ -80,20 +79,17 @@ export function ActivityThreadOptionsMenu({
   onUnreadOnlyChange?: (unreadOnly: boolean) => void
 }): React.JSX.Element {
   const skipCloseAutoFocusRef = React.useRef(false)
-  const activeFilterCount =
-    useActivityScopeFilterCount() + (onUnreadOnlyChange && unreadOnly ? 1 : 0)
-  const activeFilterLabel = formatActiveFilterLabel(activeFilterCount)
-  const optionsLabel =
-    activeFilterCount > 0
-      ? translate(
-          'auto.components.activity.ActivityPrototypePage.threadListOptionsActive',
-          'Thread list options ({{value0}} active)',
-          { value0: activeFilterLabel }
-        )
-      : translate(
-          'auto.components.activity.ActivityPrototypePage.db8a1878b5',
-          'Thread list options'
-        )
+  const scopeFilterActive = useActivityScopeFilterActive()
+  const scopeFilterItemsVisible = useActivityScopeFilterMenuItemsVisible()
+  const hasFilters = Boolean(
+    onUnreadOnlyChange || onShowChildAgentsChange || scopeFilterItemsVisible
+  )
+  const optionsLabel = scopeFilterActive
+    ? translate(
+        'auto.components.activity.ActivityPrototypePage.threadListOptionsFiltered',
+        'Thread list options, filters active'
+      )
+    : translate('auto.components.activity.ActivityPrototypePage.db8a1878b5', 'Thread list options')
 
   return (
     <DropdownMenu>
@@ -109,23 +105,23 @@ export function ActivityThreadOptionsMenu({
                 className="relative text-muted-foreground"
                 aria-label={optionsLabel}
               >
-                <SlidersHorizontal className="size-3.5" strokeWidth={2.25} />
-                <OptionsFilterCountBadge count={activeFilterCount} />
+                <ListFilter className="size-3.5" strokeWidth={2.25} />
+                {scopeFilterActive ? (
+                  <span
+                    className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-foreground"
+                    aria-hidden="true"
+                    data-scope-filter-dot=""
+                  />
+                ) : null}
               </Button>
             </DropdownMenuTrigger>
           </span>
         </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>
-          {activeFilterCount > 0
-            ? translate(
-                'auto.components.activity.ActivityPrototypePage.activityOptionsActive',
-                'Activity options ({{value0}})',
-                { value0: activeFilterLabel }
-              )
-            : translate(
-                'auto.components.activity.ActivityPrototypePage.activityOptions',
-                'Activity options'
-              )}
+        <TooltipContent side="bottom">
+          {translate(
+            'auto.components.activity.ActivityPrototypePage.activityOptions',
+            'Activity options'
+          )}
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent
@@ -140,35 +136,42 @@ export function ActivityThreadOptionsMenu({
           }
         }}
       >
-        <DropdownMenuLabel>
-          {translate('auto.components.activity.ActivityPrototypePage.filtersSection', 'Filters')}
-        </DropdownMenuLabel>
-        {onUnreadOnlyChange ? (
-          <DropdownMenuCheckboxItem
-            checked={unreadOnly}
-            onCheckedChange={(checked) => onUnreadOnlyChange(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-          >
-            {translate(
-              'auto.components.activity.ActivityPrototypePage.showUnreadOnly',
-              'Show unread only'
-            )}
-          </DropdownMenuCheckboxItem>
+        {hasFilters ? (
+          <>
+            <DropdownMenuLabel>
+              {translate(
+                'auto.components.activity.ActivityPrototypePage.filtersSection',
+                'Filters'
+              )}
+            </DropdownMenuLabel>
+            {onUnreadOnlyChange ? (
+              <DropdownMenuCheckboxItem
+                checked={unreadOnly}
+                onCheckedChange={(checked) => onUnreadOnlyChange(checked === true)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {translate(
+                  'auto.components.activity.ActivityPrototypePage.showUnreadOnly',
+                  'Show unread only'
+                )}
+              </DropdownMenuCheckboxItem>
+            ) : null}
+            {onShowChildAgentsChange ? (
+              <DropdownMenuCheckboxItem
+                checked={showChildAgents}
+                onCheckedChange={(checked) => onShowChildAgentsChange(checked === true)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {translate(
+                  'auto.components.activity.ActivityPrototypePage.showChildAgents',
+                  'Show child agents'
+                )}
+              </DropdownMenuCheckboxItem>
+            ) : null}
+            <ActivityScopeFilterMenuItems />
+            <DropdownMenuSeparator />
+          </>
         ) : null}
-        {onShowChildAgentsChange ? (
-          <DropdownMenuCheckboxItem
-            checked={showChildAgents}
-            onCheckedChange={(checked) => onShowChildAgentsChange(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-          >
-            {translate(
-              'auto.components.activity.ActivityPrototypePage.showChildAgents',
-              'Show child agents'
-            )}
-          </DropdownMenuCheckboxItem>
-        ) : null}
-        <ActivityScopeFilterMenuItems />
-        <DropdownMenuSeparator />
         <DropdownMenuLabel>
           {translate('auto.components.activity.ActivityPrototypePage.viewSection', 'View')}
         </DropdownMenuLabel>

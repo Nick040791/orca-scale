@@ -25,7 +25,6 @@ import type { BrowserSlice } from './slices/browser'
 import type { RateLimitSlice } from './slices/rate-limits'
 import type { SshSlice } from './slices/ssh'
 import type { RuntimeEnvironmentSshSlice } from './slices/runtime-environment-ssh'
-import type { WslHostsSlice } from './slices/wsl-hosts'
 import type { AgentStatusSlice } from './slices/agent-status'
 import type { PaneForegroundAgentSlice } from './slices/pane-foreground-agent'
 import type { DiffCommentsSlice } from './slices/diffComments'
@@ -46,8 +45,6 @@ import type { FeedbackDraftSlice } from './slices/feedback-draft'
 import type { TaskCreationDraftsSlice } from './slices/task-creation-drafts'
 import type { RemoteServerUpdatesSlice } from './slices/remote-server-updates'
 import type { TerminalQuickCommandHostsSlice } from './slices/terminal-quick-command-hosts'
-import type { StructuredSessionLaunchDirectorySlice } from './slices/structured-session-launch-directories'
-import type { WorkspaceAttentionSlice } from './slices/workspace-attention/workspace-attention-contract'
 
 export type AppState = RepoSlice &
   SparsePresetsSlice &
@@ -74,7 +71,6 @@ export type AppState = RepoSlice &
   RateLimitSlice &
   SshSlice &
   RuntimeEnvironmentSshSlice &
-  WslHostsSlice &
   AgentStatusSlice &
   PaneForegroundAgentSlice &
   DiffCommentsSlice &
@@ -94,6 +90,4 @@ export type AppState = RepoSlice &
   FeedbackDraftSlice &
   TaskCreationDraftsSlice &
   RemoteServerUpdatesSlice &
-  TerminalQuickCommandHostsSlice &
-  StructuredSessionLaunchDirectorySlice &
-  WorkspaceAttentionSlice
+  TerminalQuickCommandHostsSlice

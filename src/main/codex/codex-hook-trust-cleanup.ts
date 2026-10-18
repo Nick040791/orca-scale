@@ -26,7 +26,6 @@ import {
   removeStaleWslCodexManagedHookTrustEntries
 } from './codex-managed-trust-reconciliation'
 import type { CodexTrustGrantLedgerHome } from './codex-trust-grant-ledger'
-import type { CodexHookHashes } from './codex-hook-trust-derivation'
 import type { CodexWslRuntimeHookInstallPlan } from './codex-wsl-hook-install-plan'
 
 export function collectManagedTrustEntries(
@@ -96,10 +95,7 @@ export function removeStaleRuntimeHookTrustEntries(
     if (!parsed || !codexHookSourcePathsEqual(parsed.sourcePath, canonicalRuntimeHooksPath)) {
       continue
     }
-    const expectedHash = expectedHashes.get(normalizeHookTrustKeyForLookup(key))
-    // Why a defined hash: conflicting duplicate tables read as no hash, and an
-    // unexpected key must not match that and survive.
-    if (expectedHash !== undefined && expectedHash === state.trustedHash) {
+    if (expectedHashes.get(normalizeHookTrustKeyForLookup(key)) === state.trustedHash) {
       continue
     }
     staleKeys.push(key)
@@ -111,31 +107,24 @@ export function removeStaleRuntimeHookTrustEntries(
 
 export function removeSystemManagedHookTrustEntries(
   systemHomePath: string,
-  sourcePaths: readonly [string, ...string[]],
-  codexHashes: readonly CodexHookHashes[],
-  tomlPath: string = getSystemCodexConfigTomlPath()
+  hooksJsonPath: string
 ): void {
   removeCodexManagedHookTrustEntries({
-    codexHashes,
-    tomlPath,
+    tomlPath: getSystemCodexConfigTomlPath(),
     runtimeHomePath: systemHomePath,
-    sourcePaths,
+    sourcePath: hooksJsonPath,
     command: getManagedCommand(getManagedScriptPath()),
     managedEventLabels: CODEX_MANAGED_EVENT_LABELS,
     timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS
   })
 }
 
-export function removeRuntimeManagedHookTrustEntries(
-  configPath: string,
-  codexHashes: readonly CodexHookHashes[]
-): void {
+export function removeRuntimeManagedHookTrustEntries(configPath: string): void {
   try {
     removeCodexManagedHookTrustEntries({
-      codexHashes,
       tomlPath: getCodexConfigTomlPath(),
       runtimeHomePath: getOrcaManagedCodexHomePath(),
-      sourcePaths: [configPath],
+      sourcePath: configPath,
       command: getManagedCommand(getManagedScriptPath()),
       managedEventLabels: CODEX_MANAGED_EVENT_LABELS,
       timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS,
@@ -154,7 +143,7 @@ export function removeWslRuntimeManagedHookTrustEntries(
     removeCodexManagedHookTrustEntries({
       tomlPath: plan.tomlPath,
       runtimeHomePath: pathWin32.dirname(plan.tomlPath),
-      sourcePaths: [plan.trustConfigPath],
+      sourcePath: plan.trustConfigPath,
       command: wrapReadablePosixHookCommand(plan.commandScriptPath),
       managedEventLabels: CODEX_MANAGED_EVENT_LABELS,
       timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS

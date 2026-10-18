@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CLAUDE_HOOK_SETTINGS,
   OPENCLAUDE_HOOK_SETTINGS,
-  getManagedEventHook,
   getManagedLifecycleHook,
-  getRemoteManagedCommand as getClaudeRemoteCommand,
-  getRemoteManagedEventCommand
+  getRemoteManagedCommand as getClaudeRemoteCommand
 } from '../claude/hook-settings'
 import {
   getManagedCommand as getCodexCommand,
@@ -24,12 +22,12 @@ import {
 import { getDevinManagedCommand, getDevinRemoteManagedCommand } from '../devin/hook-settings'
 import { getGrokManagedCommand } from '../grok/grok-hook-script'
 import { getMuseManagedCommand, getMuseRemoteManagedCommand } from '../muse/hook-settings'
-import { getDshManagedCommand, getDshRemoteManagedCommand } from '../dsh/hook-settings'
 import { getZCodeManagedCommand, getZCodeRemoteManagedCommand } from '../zcode/hook-settings'
-import { getJcodeManagedCommand, getJcodeRemoteManagedCommand } from '../jcode/hook-settings'
-import { getKiroManagedCommand, getKiroRemoteManagedCommand } from '../kiro/hook-settings'
-import { wrapPosixHookCommand, wrapWindowsHookCommand } from './installer-utils'
-import { wrapWindowsBatchHookCommand } from './windows-direct-cmd-hook-command'
+import {
+  wrapPosixHookCommand,
+  wrapWindowsCmdHookCommand,
+  wrapWindowsHookCommand
+} from './installer-utils'
 import { MANAGED_AGENT_HOOK_INSTALLERS } from './managed-agent-hook-registry'
 import { REMOTE_MANAGED_HOOK_INSTALLER_AGENTS } from './remote-managed-hook-installers'
 import {
@@ -64,74 +62,22 @@ function antigravityPosixCommands(path: string): string[] {
   )
 }
 
-function claudeFamilyBuilders(settings: typeof CLAUDE_HOOK_SETTINGS): CommandBuilders {
-  return {
-    local: (path) => [
-      getManagedLifecycleHook(path, settings).command,
-      getManagedEventHook('PostCompact', path, settings).command
-    ],
-    remote: (path) => [
-      getClaudeRemoteCommand(path),
-      getRemoteManagedEventCommand('PostCompact', path)
-    ]
-  }
-}
-
 const buildersByAgent = new Map<string, CommandBuilders>([
-  ['claude', claudeFamilyBuilders(CLAUDE_HOOK_SETTINGS)],
-  ['openclaude', claudeFamilyBuilders(OPENCLAUDE_HOOK_SETTINGS)],
   [
-    'qoder',
+    'claude',
     {
-      local: (path) => [
-        getManagedLifecycleHook(path, {
-          configDirName: '.qoder',
-          scriptBaseName: 'qoder-hook',
-          usesWindowsCompatLauncher: true,
-          windowsHookShell: 'powershell'
-        }).command
-      ],
+      local: (path) =>
+        [true, false].map(
+          (gitBashAvailable) =>
+            getManagedLifecycleHook(path, CLAUDE_HOOK_SETTINGS, { gitBashAvailable }).command
+        ),
       remote: (path) => [getClaudeRemoteCommand(path)]
     }
   ],
   [
-    'qoder-cn',
+    'openclaude',
     {
-      local: (path) => [
-        getManagedLifecycleHook(path, {
-          configDirName: '.qoder-cn',
-          scriptBaseName: 'qoder-cn-hook',
-          usesWindowsCompatLauncher: true,
-          windowsHookShell: 'powershell'
-        }).command
-      ],
-      remote: (path) => [getClaudeRemoteCommand(path)]
-    }
-  ],
-  [
-    'qwen-code',
-    {
-      local: (path) => [
-        getManagedLifecycleHook(path, {
-          configDirName: '.qwen',
-          scriptBaseName: 'qwen-code-hook',
-          usesWindowsCompatLauncher: true,
-          windowsHookShell: 'powershell'
-        }).command
-      ],
-      remote: (path) => [getClaudeRemoteCommand(path)]
-    }
-  ],
-  [
-    'codebuddy',
-    {
-      local: (path) => [
-        getManagedLifecycleHook(path, {
-          configDirName: '.codebuddy',
-          scriptBaseName: 'codebuddy-hook',
-          usesWindowsCompatLauncher: true
-        }).command
-      ],
+      local: (path) => [getManagedLifecycleHook(path, OPENCLAUDE_HOOK_SETTINGS).command],
       remote: (path) => [getClaudeRemoteCommand(path)]
     }
   ],
@@ -149,7 +95,7 @@ const buildersByAgent = new Map<string, CommandBuilders>([
       local: (path) =>
         process.platform === 'win32'
           ? ANTIGRAVITY_EVENTS.map((event) =>
-              wrapWindowsBatchHookCommand(
+              wrapWindowsCmdHookCommand(
                 path.replace('antigravity-hook.cmd', event.windowsWrapperFileName)
               )
             )
@@ -206,33 +152,10 @@ const buildersByAgent = new Map<string, CommandBuilders>([
     }
   ],
   [
-    'dsh',
-    {
-      local: (path) => [getDshManagedCommand(path)],
-      remote: (path) => [getDshRemoteManagedCommand(path)]
-    }
-  ],
-  [
     'zcode',
     {
       local: (path) => [getZCodeManagedCommand(path)],
       remote: (path) => [getZCodeRemoteManagedCommand(path)]
-    }
-  ],
-  [
-    // Why bare: jcode parses the hook command line shell-style but executes it
-    // directly, so a `sh -c`/`if [ -f … ]` wrapper would be run as the program name.
-    'jcode',
-    {
-      local: (path) => [getJcodeManagedCommand(path)],
-      remote: (path) => [getJcodeRemoteManagedCommand(path)]
-    }
-  ],
-  [
-    'kiro',
-    {
-      local: (path) => [getKiroManagedCommand(path)],
-      remote: (path) => [getKiroRemoteManagedCommand(path)]
     }
   ]
 ])
@@ -275,15 +198,10 @@ describe('managed hook command contract', () => {
       expect(commands.length).toBeGreaterThan(0)
       for (const command of commands) {
         expect(command.length).toBeGreaterThan(0)
-        // Native PowerShell hooks evaluate these variables without Grok's dollar-byte scanner.
+        // Native Windows Codex evaluates PowerShell variables without Grok's dollar-byte scanner.
         const scannedCommand =
-          platform === 'win32' &&
-          (agent === 'qoder' || agent === 'qoder-cn' || agent === 'qwen-code') &&
-          command.startsWith('$scriptPath = Join-Path')
-            ? command
-                .replaceAll('$LASTEXITCODE', '')
-                .replaceAll('$env:', '')
-                .replaceAll('$scriptPath', '')
+          agent === 'codex' && platform === 'win32' && command.startsWith('if (Test-Path')
+            ? command.replaceAll('$LASTEXITCODE', '').replaceAll('$env:', '')
             : command
         expect(findBareHookCommandVariables(scannedCommand), command).toEqual([])
       }

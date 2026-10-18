@@ -216,8 +216,7 @@ export function resolveCreatePrIntentGeneratedReviewFields(
       title: generated.fields.title.trim() || current.title,
       // Why: a description is optional everywhere else (composer, GitHub/GitLab), so an intentionally empty generated body is a valid result, not a failure.
       body: generated.fields.body,
-      // Why: there is no form to review this one, so the agent may flag unfinished work but never downgrade a "Create as draft" choice.
-      draft: current.draft || generated.fields.draft
+      draft: generated.fields.draft
     }
   }
 }

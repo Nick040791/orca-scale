@@ -40,7 +40,6 @@ describe('launchDashboardAgent', () => {
     expect(mocks.getKnownWorktreeById).toHaveBeenCalledWith('folder:docs', 'ssh:docs')
     expect(mocks.setActiveWorktree).toHaveBeenCalledWith('folder:docs', 'ssh:docs')
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledWith({
-      requestId: expect.any(String),
       agent: 'codex',
       worktreeId: 'folder:docs',
       launchSource: 'unknown'

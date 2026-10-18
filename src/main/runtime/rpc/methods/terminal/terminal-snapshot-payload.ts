@@ -53,11 +53,7 @@ export function buildSnapshotFrameMeta(options: SnapshotFrameOptions): Record<st
       ? { alternateScreen: options.alternateScreen }
       : {}),
     truncated: options.truncated === true,
-    truncatedByByteBudget: options.truncatedByByteBudget === true,
-    // Why optional: a client must read absence (an older host) as unknown, not as zero rows.
-    ...(typeof options.scrollbackRows === 'number'
-      ? { scrollbackRows: options.scrollbackRows }
-      : {})
+    truncatedByByteBudget: options.truncatedByByteBudget === true
   }
 }
 

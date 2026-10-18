@@ -1,4 +1,3 @@
-import { AGENT_JOURNAL_THREAD_SCOPE } from '../../shared/agent-session-journal-types'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,12 +9,10 @@ import type {
 import { currentAgentSessionThreadGoal } from '../../shared/agent-session-thread-goal'
 import type { AgentSessionHistoryPage } from '../../shared/agent-session-wire'
 import type { AgentSessionJournal } from '../native-chat/agent-session-journal/journal-store'
-import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-store-test-open'
 import { readAgentSessionHistory } from '../native-chat/agent-session-wire/agent-session-history-page'
 import { createDeferredStructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { CodexJournalGoals } from './codex-structured-journal-goals'
-import { testEventSinkLogging } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 const THREAD = '01a08cc2-f96e-76d0-bb74-88b9bc0b03fc'
 const IDENTITY: AgentSessionJournalIdentity = {
@@ -23,7 +20,7 @@ const IDENTITY: AgentSessionJournalIdentity = {
   workspaceId: 'workspace-1',
   hostId: 'host-1',
   agent: 'codex',
-  providerHandle: codexProviderHandle(THREAD)
+  providerHandle: { kind: 'codex', threadId: THREAD }
 }
 
 let root: string | null = null
@@ -58,7 +55,7 @@ function goalFrame(goal: Record<string, unknown> = {}) {
 /** The host's own sink bound to a real journal. Its publish is what a subscriber
  *  receives: the page after the cursor it had caught up to. */
 function journalSink(journal: AgentSessionJournal) {
-  const deferred = createDeferredStructuredAgentSessionEventSink(testEventSinkLogging())
+  const deferred = createDeferredStructuredAgentSessionEventSink()
   const published: AgentSessionHistoryPage[] = []
   let subscriberCursor: AgentJournalCursor | null = null
   deferred.bind({
@@ -92,14 +89,14 @@ function journalSink(journal: AgentSessionJournal) {
 describe('codex goal accounting revisions', () => {
   it('revises the goal row in place: one visible row, pinned sequence, fresh counters', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-goal-revision-'))
-    const journal = await journals.open({ identity: IDENTITY, stateDirectory: root })
+    const journal = await journals.open({ identity: IDENTITY, journalDir: root })
     await journal.appendItem(
       { provider: 'orca', clientMessageId: 'earlier' },
       { kind: 'status', text: 'Context compacted' },
-      { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+      { fence: 1 }
     )
     const { sink, drained, subscribe, published } = journalSink(journal)
-    const goals = new CodexJournalGoals(sink, () => ({ turnScope: AGENT_JOURNAL_THREAD_SCOPE }))
+    const goals = new CodexJournalGoals(sink, () => ({}))
 
     goals.handle({ threadId: THREAD, method: 'thread/goal/updated', params: goalFrame() })
     await drained()
@@ -107,7 +104,7 @@ describe('codex goal accounting revisions', () => {
     await journal.appendItem(
       { provider: 'orca', clientMessageId: 'later' },
       { kind: 'status', text: 'Something after the goal' },
-      { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+      { fence: 1 }
     )
     subscribe()
 
@@ -161,20 +158,16 @@ describe('codex goal accounting revisions', () => {
 
   it('refreshes the row from a resume snapshot of the same goal', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-goal-resume-revision-'))
-    const journal = await journals.open({ identity: IDENTITY, stateDirectory: root })
+    const journal = await journals.open({ identity: IDENTITY, journalDir: root })
     const first = journalSink(journal)
-    const prior = new CodexJournalGoals(first.sink, () => ({
-      turnScope: AGENT_JOURNAL_THREAD_SCOPE
-    }))
+    const prior = new CodexJournalGoals(first.sink, () => ({}))
     prior.handle({ threadId: THREAD, method: 'thread/goal/updated', params: goalFrame() })
     await first.drained()
     prior.dispose()
     const [created] = journal.snapshot().items
 
     const second = journalSink(journal)
-    const resumed = new CodexJournalGoals(second.sink, () => ({
-      turnScope: AGENT_JOURNAL_THREAD_SCOPE
-    }))
+    const resumed = new CodexJournalGoals(second.sink, () => ({}))
     // Only a few seconds more: a resume snapshot still refreshes, since no live tick follows.
     const snapshot = goalFrame({ timeUsedSeconds: 3, updatedAt: 1789067991 })
     resumed.handle({ threadId: THREAD, method: 'thread/goal/updated', params: snapshot })

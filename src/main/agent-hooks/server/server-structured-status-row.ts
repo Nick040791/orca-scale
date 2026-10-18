@@ -17,9 +17,6 @@ export function structuredStatusLegacyEvent(
     stateStartedAt: row.stateStartedAt,
     evidenceObservedAt: row.evidenceObservedAt,
     structuredHost: row.structuredHost,
-    launchToken: row.launchToken,
-    terminalHandle: row.terminalHandle,
-    promptInteractionKey: row.promptInteractionKey,
     ...(row.providerSession ? { providerSession: row.providerSession } : {}),
     ...(row.observation ? { observation: row.observation } : {}),
     payload: pickParsedAgentStatusPayload(row)

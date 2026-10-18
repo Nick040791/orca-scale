@@ -8,7 +8,7 @@ export function CodexRestartStatusPrompt(): React.JSX.Element | null {
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const codexRestartNoticeByPtyId = useAppStore((s) => s.codexRestartNoticeByPtyId)
-  const queuePaneAccountRestarts = useAppStore((s) => s.queuePaneAccountRestarts)
+  const queueCodexPaneRestarts = useAppStore((s) => s.queueCodexPaneRestarts)
 
   const staleCodexStatus = useMemo(
     () =>
@@ -51,7 +51,7 @@ export function CodexRestartStatusPrompt(): React.JSX.Element | null {
         </div>
         <button
           type="button"
-          onClick={() => queuePaneAccountRestarts(staleCodexStatus.stalePtyIds, 'codex')}
+          onClick={() => queueCodexPaneRestarts(staleCodexStatus.stalePtyIds)}
           className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
         >
           {staleCodexStatus.staleSessionCount === 1

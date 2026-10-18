@@ -1,6 +1,5 @@
 import { useAnyBrowserGuestNeedsPaint } from './browser-pane/host-guest/browser-guest-paint-retention'
 import { WorktreeSplitSurface } from './TerminalWorktreeSplitSurface'
-import { selectParkedEquivalentMountTabIds } from './terminal/startup-terminal-tab-hold'
 import type { TerminalController } from './use-terminal-controller'
 
 export function TerminalSplitWorkspaceSurfaces({
@@ -22,7 +21,6 @@ export function TerminalSplitWorkspaceSurfaces({
     measurableBackgroundWorktreeIdsRef,
     mountedWorktreeIdsRef,
     renderedActiveWorktreeId,
-    startupTerminalTabHold,
     workspaceSurfaces
   } = controller
   // Why: this and TerminalSurface are both strict ancestors of every browser <webview>, so a
@@ -71,11 +69,9 @@ export function TerminalSplitWorkspaceSurfaces({
               backgroundMountTabIds={
                 backgroundMountTabIdsByWorktreeRef.current.get(workspace.id) ?? null
               }
-              activationDeferredMountTabIds={selectParkedEquivalentMountTabIds(
-                activationDeferredMountTabIdsByWorktreeRef.current.get(workspace.id),
-                startupTerminalTabHold,
-                workspace.id
-              )}
+              activationDeferredMountTabIds={
+                activationDeferredMountTabIdsByWorktreeRef.current.get(workspace.id) ?? null
+              }
             />
           )
         })}

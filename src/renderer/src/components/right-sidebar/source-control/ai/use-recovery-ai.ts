@@ -15,7 +15,7 @@ import type { SourceControlAiStoreSnapshot } from './controller-types'
 type SourceControlRecoveryAiParams = {
   activeWorktreeId: string | null | undefined
   activeGroupId: string | null | undefined
-  activeSourceControlLaunchPlatform: NodeJS.Platform | undefined
+  activeSourceControlLaunchPlatform: NodeJS.Platform
   sourceRepoConnectionId?: string | null
   worktreePath: string | null
   commitMessage: string

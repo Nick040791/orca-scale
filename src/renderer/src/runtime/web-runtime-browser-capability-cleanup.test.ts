@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createWebRuntimeSessionBrowserTab } from './web-runtime-browser-creation'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
+import { createWebRuntimeSessionBrowserTab } from './web-runtime-session'
 
 const ENVIRONMENT_ID = 'runtime-1'
 const WORKTREE_ID = 'repo::/worktree'
@@ -21,18 +20,12 @@ vi.mock('../store', () => ({
   }
 }))
 
-vi.mock('./web-session-tabs-sync/tracking-lifecycle', () => ({
+vi.mock('./web-session-tabs-sync', () => ({
   acceptReplayedWebSessionTabsSnapshot: vi.fn(),
-  getWebSessionTabsTrackingGeneration: vi.fn(() => 0)
-}))
-vi.mock('./web-session-tabs-sync/snapshot-api', () => ({ applyWebSessionTabsSnapshot: vi.fn() }))
-vi.mock('./web-session-tabs-sync/tracking-decisions', () => ({
-  decideWebSessionTabsSnapshot: vi.fn(() => ({ apply: true, settlesHostMirror: true }))
-}))
-vi.mock('./web-session-tabs-sync/store-patch', () => ({
-  applyWebSessionTabsStorePatch: vi.fn(() => () => {})
-}))
-vi.mock('./web-session-tabs-sync/tracking-mappings', () => ({
+  applyWebSessionTabsSnapshot: vi.fn(),
+  decideWebSessionTabsSnapshot: vi.fn(() => ({ apply: true, settlesHostMirror: true })),
+  getWebSessionTabsTrackingGeneration: vi.fn(() => 0),
+  applyWebSessionTabsStorePatch: vi.fn(() => () => {}),
   resolveHostSessionTabIdForWebSessionTab: vi.fn()
 }))
 
@@ -40,7 +33,9 @@ vi.mock('@/lib/feature-education-telemetry', () => ({
   trackTerminalPaneSplit: vi.fn()
 }))
 
-vi.mock('@/lib/worktree-runtime-owner', () => ({ getRuntimeEnvironmentIdForWorktree: vi.fn() }))
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: vi.fn()
+}))
 
 vi.mock('@/lib/agent-launch-prompt-delivery', () => ({
   deliverLaunchPromptToAgentTab: vi.fn(),
@@ -51,7 +46,9 @@ describe('paired browser capability cleanup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal('__ORCA_WEB_CLIENT__', true)
-    stubRuntimeEnvironmentBridge({ call: mocks.runtimeCall })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: mocks.runtimeCall } }
+    })
   })
 
   it.each([

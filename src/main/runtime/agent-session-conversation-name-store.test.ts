@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
-import type { AgentSessionRecordStore } from './agent-session-record-store'
-import { openTestAgentSessionRecordStore } from './agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from './agent-session-record-store'
 import type { AgentSessionReserveRequest } from './agent-session-reservation-admission'
 
 const NOW = 1_800_000_000_000
@@ -50,7 +49,7 @@ afterEach(async () => {
 })
 
 async function reservedStore(): Promise<AgentSessionRecordStore> {
-  const store = await openTestAgentSessionRecordStore(directory)
+  const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
   await store.reserveOwner(reserveRequest())
   return store
 }
@@ -61,7 +60,7 @@ describe('AgentSessionRecordStore.setConversationName', () => {
 
     await store.setConversationName(SESSION, 'Fix the lease probe')
 
-    const reloaded = await openTestAgentSessionRecordStore(directory)
+    const reloaded = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     expect(reloaded.getRecord(SESSION)?.conversationName).toBe('Fix the lease probe')
   })
 
@@ -74,7 +73,7 @@ describe('AgentSessionRecordStore.setConversationName', () => {
     expect(name).toHaveLength(200)
     expect(name.startsWith('Fix the ')).toBe(true)
     // A reload validates every record; an over-long name would be dropped as unreadable.
-    const reloaded = await openTestAgentSessionRecordStore(directory)
+    const reloaded = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
     expect(reloaded.getRecord(SESSION)?.conversationName).toBe(name)
   })
 
@@ -87,40 +86,11 @@ describe('AgentSessionRecordStore.setConversationName', () => {
     expect(store.getRecord(SESSION)?.conversationName).toBeUndefined()
   })
 
-  it('compares against the committed name before applying a generated title', async () => {
+  it('does not need the lease: an unfenced rename never contends with the writer', async () => {
     const store = await reservedStore()
-    await store.compareAndSetConversationName(SESSION, 'First prompt', null)
-    await store.setConversationName(SESSION, 'Manual name')
-    const stale = await store.compareAndSetConversationName(
-      SESSION,
-      'Late generated name',
-      'First prompt'
-    )
-    expect(stale).toBeNull()
-    expect(store.getRecord(SESSION)?.conversationName).toBe('Manual name')
-    await store.compareAndSetConversationName(SESSION, 'Generated name', 'Manual name')
-    expect(store.getRecord(SESSION)?.conversationName).toBe('Generated name')
-    const stillNamed = await store.compareAndSetConversationName(
-      SESSION,
-      'Another placeholder',
-      null
-    )
-    expect(stillNamed).toBeNull()
-  })
 
-  it('reports a failed seed even when another writer stored the same placeholder', async () => {
-    const store = await reservedStore()
-    const placeholder = 'First prompt'
-    expect(await store.compareAndSetConversationName(SESSION, placeholder, null)).toMatchObject({
-      conversationName: placeholder
-    })
-    expect(await store.compareAndSetConversationName(SESSION, placeholder, null)).toBeNull()
-    expect(
-      await store.compareAndSetConversationName(SESSION, 'Generated name', placeholder)
-    ).toMatchObject({ conversationName: 'Generated name' })
-    expect(
-      await store.compareAndSetConversationName(SESSION, 'Stale generation', placeholder)
-    ).toBeNull()
+    // No fence argument exists to pass, and no fence error is raised.
+    await expect(store.setConversationName(SESSION, 'Fix the lease probe')).resolves.toBeDefined()
   })
 
   it('refuses a session it has no record for', async () => {

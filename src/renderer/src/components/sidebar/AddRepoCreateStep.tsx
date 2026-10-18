@@ -31,8 +31,7 @@ type CreateStepProps = {
   parentDefaultPending?: boolean
   manualParentEntry?: boolean
   runtimeEnvironmentId?: string | null
-  /** No host resolved yet (its server is still coming up): never create on this computer. */
-  submitDisabled?: boolean
+  sshTargetId?: string | null
   onNameChange: (value: string) => void
   onParentChange: (value: string) => void
   onPickParent: () => void
@@ -50,18 +49,18 @@ export function CreateStep({
   parentDefaultPending = false,
   manualParentEntry = false,
   runtimeEnvironmentId,
-  submitDisabled = false,
+  sshTargetId,
   onNameChange,
   onParentChange,
   onPickParent,
   onCreate
 }: CreateStepProps): React.JSX.Element {
   const [browsingParent, setBrowsingParent] = useState(false)
-  // Why: server hosts need a typed host path; hiding that field behind the
+  // Why: SSH hosts need a typed remote path; hiding that field behind the
   // collapsed defaults makes the create flow look impossible.
   const [advancedOpen, setAdvancedOpen] = useState(manualParentEntry)
 
-  // Why: a failed probe reports "unknown"; only a confirmed Git miss should block
+  // Why: SSH hosts report "unknown"; only a confirmed Git miss should block
   // Git-only creation.
   const canSubmit =
     createName.trim().length > 0 &&
@@ -69,8 +68,7 @@ export function CreateStep({
     gitAvailability !== 'checking' &&
     gitAvailability !== 'unavailable' &&
     !parentDefaultPending &&
-    !isCreating &&
-    !submitDisabled
+    !isCreating
   const missingLocationLabel = translate(
     'auto.components.sidebar.AddRepoCreateStep.3a13f6e88b',
     'location not selected'
@@ -79,7 +77,7 @@ export function CreateStep({
     'auto.components.sidebar.AddRepoCreateStep.6ed14c0281',
     'host folder not selected'
   )
-  const isRemoteHost = Boolean(runtimeEnvironmentId)
+  const isRemoteHost = Boolean(runtimeEnvironmentId || sshTargetId)
 
   const summaryParent = useMemo(
     () =>
@@ -113,10 +111,11 @@ export function CreateStep({
   const showRuntimeMissingParent =
     runtimeEnvironmentId && !createParent.trim() && runtimeParentStatus !== 'checking'
 
-  if (browsingParent && runtimeEnvironmentId) {
+  if (browsingParent && (runtimeEnvironmentId || sshTargetId)) {
     return (
       <CreateProjectParentBrowser
         runtimeEnvironmentId={runtimeEnvironmentId}
+        sshTargetId={sshTargetId}
         createParent={createParent}
         onParentChange={onParentChange}
         onClose={() => setBrowsingParent(false)}
@@ -240,6 +239,7 @@ export function CreateStep({
                 isCreating={isCreating}
                 manualParentEntry={manualParentEntry}
                 runtimeEnvironmentId={runtimeEnvironmentId}
+                sshTargetId={sshTargetId}
                 onParentChange={onParentChange}
                 onPickParent={onPickParent}
                 onBrowseServer={() => setBrowsingParent(true)}

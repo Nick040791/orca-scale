@@ -1,9 +1,6 @@
 import type * as React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  installTerminalTestGlobals,
-  restoreTerminalTestGlobals
-} from './pty-connection-test-environment'
+import { resetAgentStartupDelayedDeliveryForTests } from '@/lib/agent-startup-delayed-delivery'
 
 // Deterministic reproduction for issue2-hidden-output-skip:
 //   "[Orca skipped hidden terminal output because main recovery was unavailable.]"
@@ -32,6 +29,20 @@ async function flushAsyncTicks(count = 6): Promise<void> {
   for (let i = 0; i < count; i++) {
     await Promise.resolve()
   }
+}
+
+async function drainFakeTimerWork(limit = 20): Promise<void> {
+  await flushAsyncTicks(20)
+  if (!vi.isFakeTimers()) {
+    return
+  }
+  for (let iteration = 0; iteration < limit && vi.getTimerCount() > 0; iteration += 1) {
+    await vi.runOnlyPendingTimersAsync()
+    await flushAsyncTicks(20)
+  }
+  vi.clearAllTimers()
+  await flushAsyncTicks(20)
+  vi.clearAllTimers()
 }
 
 const LEAF_1 = '11111111-1111-4111-8111-111111111111' as const
@@ -335,7 +346,12 @@ function createDeps(overrides: Record<string, unknown> = {}) {
             : [...current, ptyId]
       mockStoreState.ptyIdsByTabId = { ...byTab, [tabId]: next }
     }),
-    markTerminalBell: vi.fn(),
+    markWorktreeUnread: vi.fn(),
+    markTerminalTabUnread: vi.fn(),
+    markTerminalPaneUnread: vi.fn(),
+    clearWorktreeUnread: vi.fn(),
+    clearTerminalTabUnread: vi.fn(),
+    clearTerminalPaneUnread: vi.fn(),
     dispatchNotification: vi.fn(),
     onShowSessionRestoredBanner: vi.fn(),
     setCacheTimerStartedAt: vi.fn(),
@@ -466,10 +482,13 @@ function observeFinalPaneState(drive: RemotePaneDrive): {
 }
 
 describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)', () => {
-  beforeEach(async () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+  const originalDocument = globalThis.document
+
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
-    await installTerminalTestGlobals()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
@@ -531,6 +550,7 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
       }),
       registerAgentLaunchConfig: vi.fn(),
       clearAgentLaunchConfig: vi.fn(),
+      markWorktreeUnread: vi.fn(),
       observeTerminalGitHubPullRequestLink: vi.fn(),
       recordTerminalInput: vi.fn(),
       setAgentStatus: vi.fn(),
@@ -543,8 +563,9 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
       clearPaneForegroundAgent: vi.fn((paneKey: string) => {
         delete (mockStoreState.paneForegroundAgentByPaneKey as Record<string, unknown>)[paneKey]
       }),
-      markTerminalBell: vi.fn(),
-      markAgentAttentionUnread: vi.fn()
+      markTerminalTabUnread: vi.fn(),
+      markTerminalPaneUnread: vi.fn(),
+      markAgentCompletionPaneUnread: vi.fn()
     }
     ;(globalThis as unknown as { window: unknown }).window = {
       api: {
@@ -605,7 +626,30 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
     globalThis.cancelAnimationFrame = vi.fn()
   })
 
-  afterEach(restoreTerminalTestGlobals)
+  afterEach(async () => {
+    await drainFakeTimerWork()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    if (originalRequestAnimationFrame) {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    } else {
+      delete (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame })
+        .requestAnimationFrame
+    }
+    if (originalCancelAnimationFrame) {
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+    } else {
+      delete (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame })
+        .cancelAnimationFrame
+    }
+    if (originalDocument) {
+      globalThis.document = originalDocument
+    } else {
+      delete (globalThis as { document?: Document }).document
+    }
+    delete (globalThis as unknown as { window?: unknown }).window
+    resetAgentStartupDelayedDeliveryForTests()
+  })
 
   // ── Mechanism (GREEN on main): pins the defective transition exactly ──────
 
@@ -620,7 +664,7 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
 
     // Reveal triggered exactly one remote snapshot request against the owning runtime.
     expect(serializeBuffer).toHaveBeenCalledTimes(1)
-    expect(serializeBuffer).toHaveBeenNthCalledWith(1, { scrollbackRows: 5000, repaintsPane: true })
+    expect(serializeBuffer).toHaveBeenNthCalledWith(1, { scrollbackRows: 5000 })
 
     await advanceThroughNullRetryBudget(drive)
 
@@ -628,7 +672,7 @@ describe('remote hidden-output restore abandonment (issue2-hidden-output-skip)',
     // 1 initial + 3 deferred retries (50ms each), then abandonment unblocks live
     // output — but for a remote pane it must stay quiet, not claim loss.
     expect(serializeBuffer).toHaveBeenCalledTimes(4)
-    expect(serializeBuffer).toHaveBeenNthCalledWith(4, { scrollbackRows: 5000, repaintsPane: true })
+    expect(serializeBuffer).toHaveBeenNthCalledWith(4, { scrollbackRows: 5000 })
     expect(written.some((data) => data.includes('LIVE_AGENT_CHUNK'))).toBe(true)
     expect(written.some((data) => data.includes(BANNER_FRAGMENT))).toBe(false)
     // Remote pane never consulted local main recovery — the banner's "main

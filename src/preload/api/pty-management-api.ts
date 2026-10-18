@@ -1,5 +1,4 @@
 import type { DaemonPtyCwdClass } from '../../shared/daemon-adoption-telemetry'
-import type { DaemonAsyncIoStatus } from '../../shared/daemon-async-io-health'
 
 // Mirror of daemon's `DaemonSessionInfo` (src/main/daemon/types.ts); not imported — preload can't depend on main-only protocol types.
 export type PtyManagementSession = {
@@ -41,21 +40,7 @@ export type PtyManagementFolderAccessResetResult =
   | { outcome: 'reset_failed' }
   | { outcome: 'probed'; mismatch: PtyManagementFolderAccessMismatch | null }
 
-// Mirrors SeveredDaemonStatus in src/main/daemon/daemon-host-image-state.ts: a Linux AppImage
-// daemon kept for its live terminals although its program files are gone.
-export type PtyManagementSeveredDaemon = {
-  pid: number
-  linuxStartTicks: string
-  bootId: string
-  liveSessionCount: number | null
-}
-
-export type PtyManagementSeveredDaemonRestartResult =
-  | { status: 'restarted'; killedCount: number }
-  | { status: 'refused'; reason: 'not-severed' | 'replaced' | 'unverifiable' }
-
 export type PtyManagementApi = {
-  asyncIoHealth: () => Promise<DaemonAsyncIoStatus>
   // `degraded`: daemon is alive but can't spawn fresh PTYs, so new terminals run locally without daemon persistence.
   listSessions: () => Promise<{ sessions: PtyManagementSession[]; degraded: boolean }>
   killAll: () => Promise<{
@@ -70,8 +55,4 @@ export type PtyManagementApi = {
     folderAccessMismatch: PtyManagementFolderAccessMismatch | null
   }>
   resetFolderAccess: () => Promise<PtyManagementFolderAccessResetResult>
-  severedDaemon: () => Promise<{ severed: PtyManagementSeveredDaemon | null }>
-  restartSeveredDaemon: (
-    expected: Pick<PtyManagementSeveredDaemon, 'pid' | 'linuxStartTicks' | 'bootId'>
-  ) => Promise<PtyManagementSeveredDaemonRestartResult>
 }

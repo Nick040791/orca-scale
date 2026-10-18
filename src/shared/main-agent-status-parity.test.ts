@@ -231,12 +231,11 @@ const STORIES: Story[] = [
       ],
       expect: { state: 'waiting', mainAgent: { state: 'done' } }
     },
-    // KNOWN DIVERGENCE: a child's pending prompt is the session's `attention`, so this lane reads
-    // it as the main agent's own `blocked`, one needs-input state whoever asked, even beside the
-    // child's own waiting record.
+    // KNOWN DIVERGENCE: no structured producer reports a waiting task; a child's pending prompt
+    // is a session-level `attention`, so this lane blames the main agent for the child's request.
     structured: {
       status: 'attention',
-      backgroundTasks: [{ ...AGENT_TASK, state: 'waiting' }],
+      backgroundTasks: [AGENT_TASK],
       expect: { state: 'blocked', mainAgent: { state: 'blocked' } }
     },
     codex: {
@@ -462,7 +461,7 @@ describe('mainAgent status parity across lanes', () => {
     it.each(storiesFor('structured'))('%s', (_name, lane) => {
       const row = structuredAgentSessionAgentStatus({
         status: lane.status,
-        childWork: lane.backgroundTasks,
+        backgroundTasks: lane.backgroundTasks,
         turnOutcome: lane.turnOutcome
       })
       expect(row).toEqual(lane.expect)

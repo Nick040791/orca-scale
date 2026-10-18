@@ -3,7 +3,6 @@
    calls back out would duplicate them into all 4 specs. */
 import type * as ReactModule from 'react'
 import { vi } from 'vitest'
-import type { TerminalSurfaceCloseTarget } from '../../../shared/terminal-surface-close-target'
 
 export type RequestTabCloseListener = (data: {
   requestId: string
@@ -13,7 +12,7 @@ export type RequestTabCloseListener = (data: {
 export type CloseActiveTabListener = (payload?: { sourceId: string }) => void
 export type CloseFloatingItemListener = (payload: { sourceId: string }) => void
 export type SelectFloatingIndexListener = (payload: { index: number }) => void
-export type CloseTerminalListener = (target: TerminalSurfaceCloseTarget) => void
+export type CloseTerminalListener = (data: { tabId: string; paneRuntimeId?: number | null }) => void
 export type CloseSessionTabListener = (data: { tabId: string; worktreeId: string }) => void
 export type SessionTabCloseRequestListener = (data: {
   requestId: string
@@ -178,9 +177,6 @@ export async function useIpcEventsForCloseRouting({
         onActivateWorktree: () => () => {},
         onCreateTerminal: () => () => {},
         onRequestTerminalCreate: () => () => {},
-        onPublishAgentLaunchTab: () => () => {},
-        onRevealTerminalPane: () => () => {},
-        onAgentLaunchPaneVerdict: () => () => {},
         onRequestTerminalTabMount: () => () => {},
         replyTerminalCreate: () => {},
         onSplitTerminal: () => () => {},
@@ -221,7 +217,6 @@ export async function useIpcEventsForCloseRouting({
         onNewBrowserTab: () => () => {},
         onNewMarkdownTab: () => () => {},
         onRequestTabCreate: () => () => {},
-        onRequestRemoteCliBrowserScope: () => () => {},
         replyTabCreate: () => {},
         onRequestTabClose: (listener: RequestTabCloseListener) => {
           if (requestTabCloseListenerRef) {

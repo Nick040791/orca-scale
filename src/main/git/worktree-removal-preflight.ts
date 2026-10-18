@@ -1,6 +1,3 @@
-import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
-import { SUBMODULE_DIRTY_REMOVAL_DETAIL } from '../../shared/worktree/removal'
 import { gitExecFileAsync } from './runner'
 import type { WorktreeRemovalPreflightOptions } from './worktree-operation-options'
 import { WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS, gitExecOptions } from './worktree-operation-options'
@@ -20,14 +17,7 @@ export async function assertWorktreeCleanForRemoval(
   const { ignoredUntrackedPaths = [], ...gitOptions } = options
   const useNullTerminatedStatus = ignoredUntrackedPaths.length > 0
   const { stdout } = await gitExecFileAsync(
-    [
-      'status',
-      '--porcelain',
-      ...(useNullTerminatedStatus ? ['-z'] : []),
-      '--untracked-files=all',
-      // Why: a user's ignore-submodules setting would hide submodule edits from this dirty check.
-      '--ignore-submodules=none'
-    ],
+    ['status', '--porcelain', ...(useNullTerminatedStatus ? ['-z'] : []), '--untracked-files=all'],
     {
       ...gitExecOptions(worktreePath, gitOptions),
       timeout: gitOptions.timeout ?? WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS
@@ -42,53 +32,15 @@ export async function assertWorktreeCleanForRemoval(
     return
   }
 
-  const blockingStatus = blockingEntries ? blockingEntries.join('\n') : stdout
-  if (await hasPopulatedSubmodule(worktreePath, gitOptions)) {
-    // Why: Force Delete also destroys the submodules' never-pushed commits, which the parent's
-    // status cannot show, so the refusal must say submodules. Status lines go after the detail
-    // because the formatter prefers stdout over the message.
-    throw new Error(`${SUBMODULE_DIRTY_REMOVAL_DETAIL}\n${blockingStatus.trim()}`)
-  }
-
+  const error = new Error('Worktree has uncommitted or untracked changes.')
   // Why not the raw stdout: `-z` output is NUL-delimited and `.trim()` leaves
   // interior NULs, so attaching it verbatim put raw control bytes into the
   // user-facing removal error — and listed the tolerated shared link, the one
   // entry that is not the user's work and cannot be committed away.
-  throw Object.assign(new Error('Worktree has uncommitted or untracked changes.'), {
-    stdout: blockingStatus
-  })
-}
-
-/** Git's main submodule refusal test: a `.gitmodules` path whose directory holds a `.git`. */
-async function hasPopulatedSubmodule(
-  worktreePath: string,
-  gitOptions: Omit<WorktreeRemovalPreflightOptions, 'ignoredUntrackedPaths'>
-): Promise<boolean> {
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['config', '-z', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'],
-      {
-        ...gitExecOptions(worktreePath, gitOptions),
-        timeout: gitOptions.timeout ?? WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS
-      }
-    )
-    const paths = stdout
-      .split('\0')
-      .map((entry) => entry.slice(entry.indexOf('\n') + 1))
-      .filter(Boolean)
-    const populated = await Promise.all(
-      paths.map((path) =>
-        stat(join(worktreePath, path, '.git')).then(
-          () => true,
-          () => false
-        )
-      )
-    )
-    return populated.includes(true)
-  } catch {
-    // No .gitmodules exits non-zero. Any failure keeps the plain dirty refusal, which still blocks.
-    return false
-  }
+  ;(error as Error & { stdout?: string }).stdout = blockingEntries
+    ? blockingEntries.join('\n')
+    : stdout
+  throw error
 }
 
 /** The `git status --porcelain -z` entries that genuinely block removal:

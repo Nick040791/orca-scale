@@ -38,8 +38,6 @@ export type AutomationDraft = {
   name: string
   prompt: string
   agentId: TuiAgent
-  /** Saved as-is; empty means none. */
-  extraAgentArgs: string
   projectId: string
   workspaceMode: AutomationWorkspaceMode
   workspaceId: string
@@ -59,11 +57,15 @@ export type AutomationDraft = {
   scheduleWarning: string | null
 }
 
+export type AutomationCreateTarget = 'orca' | 'hermes'
+
 type AutomationEditorDialogProps = {
   open: boolean
   isEditing: boolean
+  isEditingExternal: boolean
   isSaving: boolean
   canSave: boolean
+  createTarget: AutomationCreateTarget
   repos: readonly Repo[]
   projectHostSetups: readonly ProjectHostSetup[]
   automationYamlHooksByRepoKey: Record<string, OrcaHooks | null>
@@ -83,6 +85,7 @@ type AutomationEditorDialogProps = {
   onProjectChange: (projectId: string) => void
   getRepoHostLabel?: (repo: Repo) => string | null | undefined
   allowAddProject?: boolean
+  onCreateTargetChange: (target: AutomationCreateTarget) => void
   onOpenChange: (open: boolean) => void
   onDraftChange: (updater: (current: AutomationDraft) => AutomationDraft) => void
   onSetupDecisionTouched: () => void
@@ -93,8 +96,10 @@ type AutomationEditorDialogProps = {
 export function AutomationEditorDialog({
   open,
   isEditing,
+  isEditingExternal,
   isSaving,
   canSave,
+  createTarget,
   repos,
   projectHostSetups,
   automationYamlHooksByRepoKey,
@@ -111,6 +116,7 @@ export function AutomationEditorDialog({
   onProjectChange,
   getRepoHostLabel,
   allowAddProject,
+  onCreateTargetChange,
   onOpenChange,
   onDraftChange,
   onSetupDecisionTouched,
@@ -119,7 +125,9 @@ export function AutomationEditorDialog({
 }: AutomationEditorDialogProps): React.JSX.Element {
   const [templateOpen, setTemplateOpen] = React.useState(false)
   const dialogContentRef = React.useRef<HTMLDivElement>(null)
-  const isCreateMode = !isEditing
+  const isHermesTarget = createTarget === 'hermes'
+  const isCreateMode = !isEditing && !isEditingExternal
+  const isHermesCreate = isCreateMode && isHermesTarget
   const destination = isCreateMode ? createDestination : editDestination
   const visibleAgents = React.useMemo(() => {
     const enabledIds = new Set(
@@ -162,9 +170,15 @@ export function AutomationEditorDialog({
       >
         <AutomationEditorDialogHeader
           isEditing={isEditing}
+          isEditingExternal={isEditingExternal}
+          isHermesCreate={isHermesCreate}
           isCreateMode={isCreateMode}
+          createTarget={createTarget}
           templateOpen={templateOpen}
           templates={getAutomationTemplates()}
+          segmentedGroupClassName={AUTOMATION_EDITOR_SEGMENTED_GROUP_CLASS}
+          segmentedItemClassName={AUTOMATION_EDITOR_SEGMENTED_ITEM_CLASS}
+          onCreateTargetChange={onCreateTargetChange}
           onTemplateOpenChange={setTemplateOpen}
           onApplyTemplate={(template) => {
             onApplyTemplate(template)
@@ -180,6 +194,8 @@ export function AutomationEditorDialog({
           />
           <AutomationEditorSettingsSidebar
             destination={destination}
+            isHermesTarget={isHermesTarget}
+            isHermesCreate={isHermesCreate}
             repos={repos}
             projectHostSetups={projectHostSetups}
             automationYamlHooksByRepoKey={automationYamlHooksByRepoKey}
@@ -209,6 +225,8 @@ export function AutomationEditorDialog({
 
         <AutomationEditorDialogFooter
           isEditing={isEditing}
+          isEditingExternal={isEditingExternal}
+          isHermesCreate={isHermesCreate}
           isSaving={isSaving}
           canSave={canSave}
           hasProjects={repos.length > 0}

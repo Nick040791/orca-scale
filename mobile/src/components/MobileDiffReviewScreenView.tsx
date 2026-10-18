@@ -61,7 +61,7 @@ export function MobileDiffReviewScreenView({ controller, onBack }: Props) {
         unsentCount={controller.unsentComments.length}
         worktreeLabel={controller.worktreeLabel}
         onBack={onBack}
-        onOpenActions={() => controller.openSheet({ kind: 'actions' })}
+        onOpenActions={() => controller.setShowOverflow(true)}
         onOpenPRSidebar={controller.openPRSidebar}
         onSelectFilter={controller.selectFilter}
       />
@@ -104,7 +104,7 @@ export function MobileDiffReviewScreenView({ controller, onBack }: Props) {
               busyAction={controller.busyAction}
               item={controller.currentItem}
               onAddFileNote={() => controller.openComposer(0)}
-              onDiscard={(target) => controller.openSheet({ kind: 'discard', target })}
+              onDiscard={controller.setDiscardTarget}
               onGitMutation={(method, item) => void controller.runGitMutation(method, item)}
               onMarkReviewed={() => void controller.markReviewed()}
               onMoveFile={controller.moveFile}
@@ -124,7 +124,6 @@ export function MobileDiffReviewScreenView({ controller, onBack }: Props) {
               gitStatus={gitStatus}
               headSha={controller.prSidebarHeadSha}
               bottomInset={insets.bottom}
-              workspaceLabel={controller.worktreeLabel}
             />
           </View>
         ) : null}
@@ -145,7 +144,6 @@ export function MobileDiffReviewScreenView({ controller, onBack }: Props) {
             gitBranch={controller.prSidebarBranch}
             gitStatus={gitStatus}
             headSha={controller.prSidebarHeadSha}
-            workspaceLabel={controller.worktreeLabel}
           />
         </RightDrawer>
       ) : null}

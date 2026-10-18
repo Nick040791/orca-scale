@@ -137,19 +137,8 @@ test('durable whole-tab close removes a split tab across restart', async (// oxl
     const secondLaunch = await session.launch()
     secondApp = secondLaunch.app
     await waitForSessionReady(secondLaunch.page)
-    // Activation deliberately creates a fresh terminal; observe passive hydration first.
-    await expect
-      .poll(() =>
-        secondLaunch.page.evaluate(
-          (id) =>
-            window.__store
-              ?.getState()
-              .allWorktrees()
-              .some((worktree) => worktree.id === id),
-          worktreeId
-        )
-      )
-      .toBe(true)
+    const restoredWorktreeId = await attachRepoAndOpenTerminal(secondLaunch.page, repoPath)
+    expect(restoredWorktreeId).toBe(worktreeId)
 
     // Why: wait past initial worktree effects so this checks resurrection, not
     // only the first hydrated frame before default-tab logic has run.

@@ -390,8 +390,7 @@ describe('resolveAiVaultSessionResumeActions', () => {
         worktreeInfo: makeWorktreeInfo('active'),
         activeWorktreeId: 'repo-2::/remote/orca',
         worktrees: [
-          // A WSL-stored session's own worktree lives in that distro.
-          makeWorktree({ path: '\\\\wsl$\\Ubuntu\\repo\\orca' }),
+          makeWorktree(),
           makeWorktree({
             id: 'repo-2::/remote/orca',
             repoId: 'repo-2',

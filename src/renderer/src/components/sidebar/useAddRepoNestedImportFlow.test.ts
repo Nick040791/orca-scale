@@ -81,7 +81,6 @@ function useTestAddRepoNestedImportFlow(
     nestedConnectionId: null,
     nestedGroupName: 'platform',
     nestedImportScanId: 'scan-1',
-    nestedRuntimeEnvironmentId: null,
     activeRuntimeEnvironmentId: null,
     closeModal: mocks.state.closeModal,
     fetchWorktrees: vi.fn(),
@@ -196,8 +195,7 @@ describe('useAddRepoNestedImportFlow open folder fallback', () => {
     expect(mocks.state.closeModal).toHaveBeenCalledTimes(1)
     expect(mocks.state.openModal).toHaveBeenCalledWith('confirm-non-git-folder', {
       folderPath: '/workspace/platform',
-      connectionId: 'ssh-builder',
-      runtimeEnvironmentId: null
+      connectionId: 'ssh-builder'
     })
   })
 

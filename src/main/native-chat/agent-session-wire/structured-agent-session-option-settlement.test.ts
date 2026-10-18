@@ -7,9 +7,9 @@ import type {
   AgentSessionMutationEnvelope,
   AgentSessionStatusEvent
 } from '../../../shared/agent-session-wire'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
+import { AgentSessionOptionRejectedError } from './structured-agent-session-option-error'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
   HOST_TEST_NOW as NOW,
@@ -19,13 +19,10 @@ import {
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
 
 const CALLER = { callerKey: 'client-1' }
 const DEFAULT_MODEL = 'gpt-default'
+const PICKED_MODEL = 'gpt-picked'
 
 let root: string
 let store: AgentSessionRecordStore
@@ -54,21 +51,10 @@ function envelope(method: string, fields: Record<string, unknown>): AgentSession
 }
 
 function adapter(): StructuredAgentSessionAdapter {
-  acquire = vi.fn(async ({ fence, spawnToken, options, identity }) => {
+  acquire = vi.fn(async ({ fence, spawnToken, options }) => {
     activeModel = options?.model ?? DEFAULT_MODEL
     activeEffort = options?.effort ?? null
-    const acquisitionGeneration = `generation-${acquire.mock.calls.length}`
-    // The handshake answers at once, reporting the options the child runs with.
-    void host.handleAdapterEvent({
-      type: 'started',
-      sessionId: identity.sessionId,
-      fence,
-      acquisitionGeneration,
-      reportedOptions: { model: activeModel, ...(activeEffort ? { effort: activeEffort } : {}) }
-    })
     return {
-      providerChildPhase: 'starting' as const,
-      acquisitionGeneration,
       process: {
         hostId: 'local',
         pid: 4200 + acquire.mock.calls.length,
@@ -77,7 +63,7 @@ function adapter(): StructuredAgentSessionAdapter {
       },
       link: {
         linkId: `native-link-${fence}`,
-        handle: codexProviderHandle(THREAD),
+        handle: { provider: 'codex', threadId: THREAD },
         origin: acquire.mock.calls.length === 1 ? 'created' : 'resumed',
         mintedAtFence: fence,
         observedAt: NOW
@@ -133,14 +119,12 @@ beforeEach(async () => {
   closeSessionExit = true
   dispatchedModels.length = 0
   const accountHome = join(root, 'codex-home')
-  store = await openTestAgentSessionRecordStore(root)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   router = adapter()
   host = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     adapter: router,
-    journalDatabase: openTestJournalHostDatabase(root),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-native',
     now: () => NOW
@@ -158,7 +142,7 @@ afterEach(async () => {
 })
 
 describe('structured session options and close', () => {
-  it('keeps provider readback out of the saved next-message choice', async () => {
+  it('publishes an acknowledged model without waiting for journal traffic', async () => {
     const body = {
       kind: 'message' as const,
       role: 'user' as const,
@@ -168,21 +152,52 @@ describe('structured session options and close', () => {
       envelope: envelope('agentSession.send', { body }),
       body
     })
-    // Accepted, then handed over by the delivery loop; the status is read once it answered.
-    await vi.waitFor(() => expect(dispatchedModels).toEqual([DEFAULT_MODEL]))
-    await vi.waitFor(async () =>
-      expect((await host.journalSnapshot(SESSION)).submissions[0]?.dispatchState).toBe('accepted')
-    )
     const events: AgentSessionStatusEvent[] = []
     host.subscribeStatus({ id: 'session-list', emit: (event) => events.push(event) })
     expect(events).toEqual([
       {
         type: 'snapshot',
-        sessions: [expect.objectContaining({ status: 'idle' })]
+        sessions: [expect.objectContaining({ status: 'idle', model: DEFAULT_MODEL })]
       }
     ])
-    expect(events[0]).not.toHaveProperty('sessions.0.model')
-    expect(store.getRecord(SESSION)?.options).toBeUndefined()
+    const fields = { key: 'model', value: PICKED_MODEL }
+
+    await host.setOption(CALLER, {
+      envelope: envelope('agentSession.setOption', fields),
+      ...fields
+    })
+
+    expect(events.slice(1)).toEqual([
+      {
+        type: 'status',
+        session: expect.objectContaining({ sessionId: SESSION, model: PICKED_MODEL })
+      }
+    ])
+  })
+
+  it('settles a pre-mutation rejection so a fresh retry can succeed', async () => {
+    optionFailure = new AgentSessionOptionRejectedError('model list unavailable')
+    const fields = { key: 'model', value: PICKED_MODEL }
+    const rejected = {
+      envelope: envelope('agentSession.setOption', fields),
+      ...fields
+    }
+
+    expect(await host.setOption(CALLER, rejected)).toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_operation_invalid', message: 'model list unavailable' }
+    })
+    expect(await host.setOption(CALLER, rejected)).toMatchObject({
+      ok: false,
+      refusal: { code: 'agent_session_operation_invalid' }
+    })
+    expect(
+      await host.setOption(CALLER, {
+        envelope: envelope('agentSession.setOption', fields),
+        ...fields
+      })
+    ).toMatchObject({ ok: true, value: { options: { model: PICKED_MODEL } } })
+    expect(store.getRecord(SESSION)?.options).toEqual({ model: PICKED_MODEL })
   })
 
   // Closing a chat used to leave its provider child resident for the whole app session: the host's
@@ -190,7 +205,7 @@ describe('structured session options and close', () => {
   it('stops the provider child and forgets the session when the chat closes', async () => {
     expect(host.hasSession(SESSION)).toBe(true)
 
-    await host.close(SESSION, 'evict')
+    await host.close(SESSION)
 
     expect(closeNativeSession).toHaveBeenCalledWith(SESSION)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
@@ -200,41 +215,15 @@ describe('structured session options and close', () => {
     })
     expect(host.hasSession(SESSION)).toBe(false)
 
-    await expect(host.close(SESSION, 'evict')).resolves.toBeUndefined()
+    await expect(host.close(SESSION)).resolves.toBeUndefined()
     expect(closeNativeSession).toHaveBeenCalledOnce()
   })
 
   it('is a no-op for a session it does not hold', async () => {
-    await host.close(SESSION, 'evict')
+    await host.close(SESSION)
     closeNativeSession.mockClear()
 
-    await expect(host.close(SESSION, 'evict')).resolves.toBeUndefined()
+    await expect(host.close(SESSION)).resolves.toBeUndefined()
     expect(closeNativeSession).not.toHaveBeenCalled()
   })
-})
-
-it('applies running Codex model and effort picks to the next message', async () => {
-  await vi.waitFor(() => expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready'))
-  for (const [key, value] of [
-    ['model', 'gpt-picked'],
-    ['effort', 'high']
-  ]) {
-    expect(
-      await host.setOption(CALLER, {
-        envelope: envelope('agentSession.setOption', { key, value }),
-        key,
-        value
-      })
-    ).toMatchObject({ ok: true })
-  }
-  const body = {
-    kind: 'message' as const,
-    role: 'user' as const,
-    blocks: [{ type: 'text' as const, text: 'with the new choices' }]
-  }
-  expect(
-    await host.send(CALLER, { envelope: envelope('agentSession.send', { body }), body })
-  ).toMatchObject({ ok: true })
-  await vi.waitFor(() => expect(dispatchedModels).toEqual(['gpt-picked']))
-  expect(activeEffort).toBe('high')
 })

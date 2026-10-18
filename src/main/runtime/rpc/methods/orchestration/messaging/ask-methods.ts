@@ -10,23 +10,14 @@ import {
   runCoordinatorKey
 } from '../../../../orchestration/orchestration-caller-identity'
 import { resolveOrchestrationParty } from '../../../../orchestration/orchestration-party'
-import { assertLifecycleCallerIsNotAnotherParty } from './lifecycle-caller-fence'
-import { assertWorkerCanReport } from '../../../../orchestration/worker-report-admission'
 
 export const ORCHESTRATION_ASK_METHODS = [
   defineMethod({
     name: 'orchestration.ask',
-    permission: 'workspace',
     params: AskParams,
     handler: async (
       params,
-      {
-        runtime,
-        signal,
-        recordMutationReceipt,
-        orchestrationCaller,
-        orchestrationCompatibilityEvidence
-      }
+      { runtime, signal, orchestrationCapability, recordMutationReceipt }
     ) => {
       // Why: group addresses have no unambiguous first-answer authority.
       if (params.to && isGroupAddress(params.to)) {
@@ -41,26 +32,19 @@ export const ORCHESTRATION_ASK_METHODS = [
       // Why: echoed on every return so a clamped caller reports the budget actually waited, not the one it asked for.
       const timeoutMs = clampOrchestrationAskTimeoutMs(params.timeoutMs)
       const paneKey = runtime.getTerminalPaneKey(from) ?? undefined
-      if (!orchestrationCaller) {
-        assertLifecycleCallerIsNotAnotherParty(runtime, {
-          from,
-          fromPaneKey: paneKey,
-          evidence: orchestrationCompatibilityEvidence
-        })
-      }
       const remoteAttachment = paneKey ? db.findActiveRemoteAttachmentForPane(paneKey) : undefined
-      if (remoteAttachment && paneKey) {
+      if (remoteAttachment) {
         rejectFederatedExplicitTarget(params)
         return askRemoteRunHome({
           params: { ...params, timeoutMs },
           runtime,
           signal,
+          orchestrationCapability,
           recordMutationReceipt,
           from,
-          paneKey,
+          paneKey: paneKey as string,
           dispatchId: remoteAttachment.dispatch_id,
-          taskId: remoteAttachment.task_id,
-          workerState: remoteAttachment.state
+          taskId: remoteAttachment.task_id
         })
       }
       const activeDispatch = db.getActiveDispatchForIdentity(from, paneKey)
@@ -70,18 +54,17 @@ export const ORCHESTRATION_ASK_METHODS = [
           'ask requires an active supervised Dispatch.'
         )
       }
-      assertWorkerCanReport({
-        dispatchId: activeDispatch.id,
-        from,
-        workerState: db.getWorkerDispatch(activeDispatch.id)?.state,
-        processCurrent:
-          !activeDispatch.process_incarnation ||
-          db.isDispatchProcessCurrent({
-            dispatchId: activeDispatch.id,
-            paneKey: paneKey ?? null,
-            processIncarnation: runtime.getTerminalProcessIncarnation(from)
-          })
-      })
+      if (activeDispatch.capability_hash) {
+        const authority = db.verifyDispatchCapability({
+          dispatchId: activeDispatch.id,
+          capability: orchestrationCapability,
+          paneKey,
+          processIncarnation: runtime.getTerminalProcessIncarnation(from) ?? undefined
+        })
+        if (!authority.valid) {
+          throw new OrchestrationError('dispatch_capability_invalid', authority.reason)
+        }
+      }
       const options =
         params.options
           ?.split(',')

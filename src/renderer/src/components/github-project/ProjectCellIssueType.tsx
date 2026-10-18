@@ -1,28 +1,28 @@
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import React, { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CircleDot } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useRepoSlugIndex } from '@/lib/repo-slug-index'
-import { runtimeTargetForRepoOwner } from '@/lib/repo-runtime-owner'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import type { GitHubIssueType, GitHubProjectRow } from '../../../../shared/github/project-types'
 import type { ListIssueTypesBySlugResult } from '../../../../shared/github/project-result-types'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { chipStyle, colorHex, singleSelectChipColors } from './project-cell-chip-colors'
 
 export function ProjectIssueTypeCell({
   row,
   editable,
   sourceHost,
-  sourceTarget,
+  sourceSettings,
   onEditIssueType
 }: {
   row: GitHubProjectRow
   editable: boolean
   sourceHost?: string
-  sourceTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   onEditIssueType?: (issueType: GitHubIssueType | null) => void
 }): React.JSX.Element {
   const issueType = row.content.issueType
@@ -35,8 +35,8 @@ export function ProjectIssueTypeCell({
     () => lookupSlug(row.content.repository, sourceHost)[0] ?? null,
     [lookupSlug, row.content.repository, sourceHost]
   )
-  const ownerTarget = useAppStore(
-    useShallow((state) => (matchedRepo ? runtimeTargetForRepoOwner(state, matchedRepo.id) : null))
+  const ownerSettings = useAppStore(
+    useShallow((state) => getSettingsForRepoRuntimeOwner(state, matchedRepo?.id ?? null))
   )
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export function ProjectIssueTypeCell({
     }
     let cancelled = false
     setLoading(true)
-    const target = ownerTarget ?? sourceTarget
+    const target = getActiveRuntimeTarget(matchedRepo ? ownerSettings : sourceSettings)
     const request =
       target.kind === 'environment'
         ? callRuntimeRpc<ListIssueTypesBySlugResult>(
@@ -73,7 +73,7 @@ export function ProjectIssueTypeCell({
     return () => {
       cancelled = true
     }
-  }, [open, owner, ownerTarget, repo, sourceHost, sourceTarget])
+  }, [matchedRepo, open, owner, ownerSettings, repo, sourceHost, sourceSettings])
 
   const trigger = (
     <span className="inline-flex items-center gap-1 text-xs">

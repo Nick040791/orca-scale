@@ -161,7 +161,6 @@ async function readVerifiedWindow<T>(
 export const MOBILE_WEB_BUNDLE_METHODS = [
   defineMethod({
     name: MOBILE_WEB_BUNDLE_MANIFEST_METHOD,
-    permission: 'workspace',
     params: null,
     handler: async (): Promise<MobileWebBundleManifestResult> => ({
       manifest: requireBundle().manifest,
@@ -171,7 +170,6 @@ export const MOBILE_WEB_BUNDLE_METHODS = [
   }),
   defineMethod({
     name: MOBILE_WEB_BUNDLE_CHUNK_METHOD,
-    permission: 'workspace',
     params: MobileWebBundleChunkParamsSchema,
     handler: (params, ctx): Promise<MobileWebBundleChunkResult> =>
       readVerifiedWindow(ctx, params, MOBILE_WEB_BUNDLE_CHUNK_BYTES, async (window) => ({
@@ -181,7 +179,6 @@ export const MOBILE_WEB_BUNDLE_METHODS = [
   }),
   defineMethod({
     name: MOBILE_WEB_BUNDLE_RANGE_METHOD,
-    permission: 'workspace',
     params: MobileWebBundleRangeParamsSchema,
     handler: (params, ctx): Promise<MobileWebBundleRangeResult> =>
       readVerifiedWindow(ctx, params, MOBILE_WEB_BUNDLE_RANGE_BYTES, async (window) => {

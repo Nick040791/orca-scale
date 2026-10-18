@@ -11,7 +11,7 @@ import {
   addBackgroundMountedTerminalWorktree,
   applyBackgroundMountTabRestriction,
   canDeferColdActivationTabsForHost,
-  canAdmitTerminalTabsForStartup,
+  canMountTerminalWorkspaceForStartup,
   collectDeferredMountTabIds,
   hasRequestedBackgroundTerminalWorktreeMount,
   planColdActivationTabDeferral,
@@ -23,24 +23,24 @@ import {
   shouldMountBackgroundWorktreeTab
 } from './background-terminal-worktree-mount'
 
-describe('startup terminal tab admission gate', () => {
+describe('terminal workspace startup mount gate', () => {
   it('waits for hydration unless startup entered degraded mode', () => {
     expect(
-      canAdmitTerminalTabsForStartup({
+      canMountTerminalWorkspaceForStartup({
         workspaceSessionReady: true,
         hydrationSucceeded: false,
         startupWorktreeRefreshCompleted: false
       })
     ).toBe(false)
     expect(
-      canAdmitTerminalTabsForStartup({
+      canMountTerminalWorkspaceForStartup({
         workspaceSessionReady: true,
         hydrationSucceeded: true,
         startupWorktreeRefreshCompleted: false
       })
     ).toBe(true)
     expect(
-      canAdmitTerminalTabsForStartup({
+      canMountTerminalWorkspaceForStartup({
         workspaceSessionReady: true,
         hydrationSucceeded: false,
         startupWorktreeRefreshCompleted: true

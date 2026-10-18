@@ -39,9 +39,7 @@ export function createLinearIssueDetailActions(
       const scope = getLinearReadScope(get().settings, options?.sourceContext)
       const { contextKey } = scope
       const issueCacheKey = scopedLinearCacheKey(scope, `${workspaceId ?? 'selected'}::${id}`)
-      const cached =
-        get().linearIssueCache[issueCacheKey] ??
-        (scope.explicitSource ? undefined : get().linearIssueCache[id])
+      const cached = get().linearIssueCache[issueCacheKey] ?? get().linearIssueCache[id]
       if (isFresh(cached)) {
         return cached.data
       }

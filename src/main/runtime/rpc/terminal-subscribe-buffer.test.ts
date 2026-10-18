@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
@@ -14,11 +13,8 @@ import {
 } from '../../../shared/terminal-stream-protocol'
 
 function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
-  const registry = createSubscriptionRegistryDouble()
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This partial runtime supplies the terminal RPC methods these tests invoke.
   return {
     getRuntimeId: () => 'test-runtime',
-    registerOwnedSubscriptionCleanup: registry.registerOwnedSubscriptionCleanup,
     subscribeToPtyExit: vi.fn(() => vi.fn()),
     // Why: subscribe streams register as remote view subscribers for Phase-5
     // query-authority suppression (terminal-query-authority.md).
@@ -80,8 +76,7 @@ describe('terminal subscribe buffering', () => {
 
       expect(await outcomePromise).toBe('settled')
       expect(runtime.readTerminal).not.toHaveBeenCalled()
-      // The pending stream was registered, so its release ends it like any other.
-      expect(messages.map((msg) => JSON.parse(msg).result?.type)).toEqual(['end'])
+      expect(messages).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -307,8 +302,7 @@ describe('terminal subscribe buffering', () => {
       expect(runtime.registerOwnedSubscriptionCleanup).toHaveBeenCalledWith(
         'terminal-1:desktop-1',
         expect.any(Function),
-        'conn-legacy-json',
-        'req-1'
+        'conn-legacy-json'
       )
       expect(registry.peekCleanup('terminal-1:desktop-1')).toBeUndefined()
       expect(runtime.waitForTerminal).not.toHaveBeenCalled()

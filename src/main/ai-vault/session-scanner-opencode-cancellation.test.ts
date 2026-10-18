@@ -1,7 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import type * as workerSpawn from './session-scanner-opencode-sqlite-worker-spawn'
 import type { SessionFileDiscovery } from './session-scanner-types'
 import type { TranscriptReadOutcome } from './session-transcript-consumers'
@@ -27,7 +24,6 @@ import {
   registerTranscriptConsumer,
   resetTranscriptConsumersForTests
 } from './session-transcript-consumers'
-import { runOpenCodeSqliteScanRequest } from './session-scanner-opencode-sqlite-scan-scope'
 
 const file = {
   path: '/fixture/opencode.db#session',
@@ -44,7 +40,6 @@ beforeEach(() => {
   resetSessionParseCacheForTests()
 })
 afterEach(() => {
-  vi.useRealTimers()
   resetTranscriptConsumersForTests()
   resetSessionParseCacheForTests()
 })
@@ -53,11 +48,7 @@ function configure(agent: 'opencode' | 'opencode2') {
   readers.discover.mockResolvedValue([{ agent, rootDir: '/fixture', files: [file] }])
   const accumulator = createAccumulator({ agent, file, sessionId: 'session' })
   accumulator.title = 'SQLite session'
-  const session = finalizeSession(accumulator, 'linux')
-  if (!session) {
-    throw new Error('Configured SQLite session was empty')
-  }
-  return session
+  return finalizeSession(accumulator, 'linux')
 }
 
 function untilAborted(signal: AbortSignal | undefined): Promise<never> {
@@ -70,83 +61,6 @@ function untilAborted(signal: AbortSignal | undefined): Promise<never> {
 }
 
 describe.each(['opencode', 'opencode2'] as const)('%s scan cancellation', (agent) => {
-  it('reports a deadline while retaining completed sessions and other agents, then retries', async () => {
-    vi.useFakeTimers()
-    const root = mkdtempSync(join(tmpdir(), 'orca-scan-deadline-'))
-    try {
-      const session = configure(agent)
-      const blocked = { ...file, path: '/fixture/opencode.db#blocked' }
-      const claudePath = join(root, 'claude.jsonl')
-      writeFileSync(
-        claudePath,
-        `${JSON.stringify({
-          type: 'user',
-          sessionId: 'retained-claude',
-          timestamp: '2026-05-01T10:00:00.000Z',
-          cwd: root,
-          message: { role: 'user', content: 'Retain this other-agent session' }
-        })}\n`
-      )
-      readers.discover.mockResolvedValue([
-        { agent, rootDir: '/fixture', files: [file, blocked] },
-        { agent: 'claude', rootDir: root, files: [{ ...file, path: claudePath }] }
-      ])
-      readers.parse.mockImplementation(({ sessionId, signal }) =>
-        sessionId === 'blocked'
-          ? runOpenCodeSqliteScanRequest(signal, untilAborted)
-          : Promise.resolve(session)
-      )
-      const pending = scanAiVaultSessions({ platform: 'linux' })
-      await vi.waitFor(() => expect(readers.parse).toHaveBeenCalledTimes(2))
-      await vi.advanceTimersByTimeAsync(45_000)
-      const result = await pending
-      expect(result.sessions.map((row) => row.sessionId)).toEqual(
-        expect.arrayContaining(['session', 'retained-claude'])
-      )
-      expect(result.sessions).toHaveLength(2)
-      expect(result.issues).toEqual([
-        expect.objectContaining({
-          agent,
-          path: blocked.path,
-          message: expect.stringContaining('45s work budget')
-        })
-      ])
-      readers.parse.mockResolvedValue({ ...session, sessionId: 'blocked', filePath: blocked.path })
-      const recovered = await scanAiVaultSessions({ platform: 'linux' })
-      expect(recovered.sessions).toHaveLength(3)
-      expect(
-        readers.parse.mock.calls.filter(([args]) => args.sessionId === 'blocked')
-      ).toHaveLength(2)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('marks a deadline capture incomplete instead of caching a failed history', async () => {
-    vi.useFakeTimers()
-    const session = configure(agent)
-    const outcomes: TranscriptReadOutcome[] = []
-    registerTranscriptConsumer({
-      beginRead: () => ({ message() {}, finish: (outcome) => outcomes.push(outcome) })
-    })
-    readers.capture.mockImplementationOnce(({ signal }) =>
-      runOpenCodeSqliteScanRequest(signal, untilAborted)
-    )
-    const pending = scanAiVaultSessions({ platform: 'linux' })
-    await vi.waitFor(() => expect(readers.capture).toHaveBeenCalledOnce())
-    await vi.advanceTimersByTimeAsync(45_000)
-    const result = await pending
-    expect(result.sessions).toEqual([])
-    expect(result.issues).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('45s work budget') })
-    ])
-    expect(outcomes).toEqual([{ session: null, byteOffset: 0, incomplete: true, cancelled: false }])
-    readers.capture.mockResolvedValue({ session, messages })
-    expect((await scanAiVaultSessions({ platform: 'linux' })).sessions).toHaveLength(1)
-    expect(readers.capture).toHaveBeenCalledTimes(2)
-    expect(outcomes.at(-1)?.incomplete).toBe(false)
-  })
-
   it.each(['parse', 'capture'] as const)(
     'cancels an active %s and retries the uncached read',
     async (mode) => {
@@ -167,9 +81,7 @@ describe.each(['opencode', 'opencode2'] as const)('%s scan cancellation', (agent
       controller.abort(new Error('Cancelled SQLite scan'))
       await rejected
       if (mode === 'capture') {
-        expect(outcomes).toEqual([
-          { session: null, byteOffset: 0, incomplete: true, cancelled: true }
-        ])
+        expect(outcomes).toEqual([{ session: null, byteOffset: 0, incomplete: true }])
       }
       readers.parse.mockResolvedValue(session)
       readers.capture.mockResolvedValue({ session, messages })
@@ -201,7 +113,7 @@ describe.each(['opencode', 'opencode2'] as const)('%s scan cancellation', (agent
       scanAiVaultSessions({ platform: 'linux', signal: controller.signal })
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(received).toEqual(['First'])
-    expect(outcomes).toEqual([{ session: null, byteOffset: 0, incomplete: true, cancelled: true }])
+    expect(outcomes).toEqual([{ session: null, byteOffset: 0, incomplete: true }])
     resetTranscriptConsumersForTests()
     readers.parse.mockResolvedValue(session)
     expect((await scanAiVaultSessions({ platform: 'linux' })).sessions).toHaveLength(1)

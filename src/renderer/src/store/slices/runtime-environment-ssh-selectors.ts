@@ -15,24 +15,17 @@ type RuntimeAwareSshReadState = Pick<
 > &
   Partial<Pick<AppState, 'runtimeStatusByEnvironmentId'>>
 
-/** What a target's status reads; narrower so callers needn't carry the label maps. */
-export type RuntimeAwareSshStatusState = Pick<
-  AppState,
-  'sshConnectionStates' | 'sshStateByEnvironment'
-> &
-  Partial<Pick<AppState, 'runtimeStatusByEnvironmentId'>>
-
 // Why the shared verdict and not `entry.status`: an unverifiable probe nulls it while the
 // transport is still up, and blanking the mirrored SSH rows of a host that never went away
 // reads as "the targets vanished" (docs/reference/ssh-execution-boundary.md).
-function isEnvironmentReachable(state: RuntimeAwareSshStatusState, environmentId: string): boolean {
+function isEnvironmentReachable(state: RuntimeAwareSshReadState, environmentId: string): boolean {
   return isConnectedRuntimeHostState(
     runtimeHostConnectionStateForEntry(state.runtimeStatusByEnvironmentId?.get(environmentId))
   )
 }
 
 export function selectRuntimeAwareSshStatus(
-  state: RuntimeAwareSshStatusState,
+  state: RuntimeAwareSshReadState,
   environmentId: string | null,
   targetId: string
 ): SshConnectionStatus | null {
@@ -50,7 +43,7 @@ export function selectRuntimeAwareSshStatus(
 }
 
 export function selectRuntimeAwareSshError(
-  state: RuntimeAwareSshStatusState,
+  state: RuntimeAwareSshReadState,
   environmentId: string | null,
   targetId: string
 ): string | null {
@@ -65,24 +58,6 @@ export function selectRuntimeAwareSshError(
     return null
   }
   return bucket.connectionStates.get(targetId)?.error ?? null
-}
-
-export function selectRuntimeAwareSshConnectionGeneration(
-  state: RuntimeAwareSshReadState,
-  environmentId: string | null,
-  targetId: string
-): number | null {
-  if (environmentId === null) {
-    return state.sshConnectionStates.get(targetId)?.connectionGeneration ?? null
-  }
-  if (!isEnvironmentReachable(state, environmentId)) {
-    return null
-  }
-  const bucket = state.sshStateByEnvironment.get(environmentId)
-  if (!bucket?.targetsHydrated) {
-    return null
-  }
-  return bucket.connectionStates.get(targetId)?.connectionGeneration ?? null
 }
 
 export function selectRuntimeAwareSshTargetLabel(

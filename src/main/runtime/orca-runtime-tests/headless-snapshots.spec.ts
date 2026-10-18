@@ -381,20 +381,13 @@ describe('OrcaRuntimeService', () => {
 
   it('replaces suffix-only headless state with the recovered renderer snapshot', async () => {
     const runtime = createRuntime()
-    // A hidden desktop pane answers at its own size after a phone fit resized the PTY.
-    runtime.setPtyController({
-      write: () => true,
-      kill: () => true,
-      getForegroundProcess: async () => null,
-      getSize: () => ({ cols: 47, rows: 40 })
-    })
     syncSinglePty(runtime, 'pty-1')
-    runtime.seedHeadlessTerminal('pty-1', 'suffix-only redraw', { cols: 47, rows: 40 })
+    runtime.seedHeadlessTerminal('pty-1', 'suffix-only redraw', { cols: 80, rows: 24 })
 
     runtime.replaceHeadlessTerminalFromRendererSnapshotForRecovery('pty-1', {
       data: 'restored history\r\nprompt $ ',
-      cols: 200,
-      rows: 50,
+      cols: 80,
+      rows: 24,
       cwd: '/projects/restored'
     })
     runtime.onPtyData('pty-1', 'after recovery\r\n', 100)
@@ -406,7 +399,6 @@ describe('OrcaRuntimeService', () => {
     expect(snapshot?.data).toContain('after recovery')
     expect(snapshot?.data).not.toContain('suffix-only redraw')
     expect(snapshot?.cwd).toBe('/projects/restored')
-    expect({ cols: snapshot?.cols, rows: snapshot?.rows }).toEqual({ cols: 47, rows: 40 })
   })
 
   it('adopts OSC7 host metadata from seeded headless terminal scrollback', async () => {

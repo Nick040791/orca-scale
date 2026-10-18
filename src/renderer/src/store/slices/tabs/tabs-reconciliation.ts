@@ -1,7 +1,6 @@
 import type { AppState } from '../../types'
 import type { Tab } from '../../../../../shared/tab-types'
-import { dedupeTabOrder } from '../../../../../shared/workspace-layout/tab-order'
-import { ensureGroup, sanitizeRecentTabIds, updateGroup } from '../tab-group-state'
+import { dedupeTabOrder, ensureGroup, sanitizeRecentTabIds, updateGroup } from '../tab-group-state'
 import { pruneTabGroupLayoutForGroups } from '../tabs-hydration'
 import {
   buildOrphanTerminalCleanupPatch,

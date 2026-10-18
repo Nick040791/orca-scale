@@ -45,23 +45,14 @@ export function readClaudeBackgroundAgentTasks(hookPayload: Record<string, unkno
   tasks: ClaudeBackgroundAgentTask[]
   truncated: boolean
   hasRunningNonAgentTask: boolean
-  /** Ids of the running shell-like entries; one without an id is counted but not listed. */
-  runningNonAgentTaskIds: string[]
 } {
   const raw = hookPayload['background_tasks']
   if (!Array.isArray(raw)) {
-    return {
-      present: false,
-      tasks: [],
-      truncated: false,
-      hasRunningNonAgentTask: false,
-      runningNonAgentTaskIds: []
-    }
+    return { present: false, tasks: [], truncated: false, hasRunningNonAgentTask: false }
   }
   const tasks: ClaudeBackgroundAgentTask[] = []
   let truncated = false
   let hasRunningNonAgentTask = false
-  const runningNonAgentTaskIds: string[] = []
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) {
       truncated = true
@@ -82,10 +73,6 @@ export function readClaudeBackgroundAgentTasks(hookPayload: Record<string, unkno
     // Why: future non-agent types and nonterminal labels must fail active; only typed agent rows or explicit terminal states can safely retire work.
     if (!isAgentTask && !isTerminal) {
       hasRunningNonAgentTask = true
-      const id = typeof obj.id === 'string' ? obj.id.trim() : ''
-      if (id.length > 0) {
-        runningNonAgentTaskIds.push(id)
-      }
     }
     if (!isAgentTask) {
       continue
@@ -108,5 +95,5 @@ export function readClaudeBackgroundAgentTasks(hookPayload: Record<string, unkno
       teammate: taskType === 'teammate'
     })
   }
-  return { present: true, tasks, truncated, hasRunningNonAgentTask, runningNonAgentTaskIds }
+  return { present: true, tasks, truncated, hasRunningNonAgentTask }
 }

@@ -7,7 +7,9 @@ import { recordRendererCrashBreadcrumb } from '@/lib/crash-breadcrumb-recorder'
 import { RemoteRuntimeTerminalBinaryController } from './remote-runtime-terminal-binary-controller'
 import {
   CONTROL_STREAM_ID,
-  disposeRemoteTerminalStreamState
+  clearResyncTimer,
+  discardOutputAcknowledgements,
+  rejectPendingSnapshotRequest
 } from './remote-runtime-terminal-snapshot-state'
 import type {
   RemoteRuntimeMultiplexedTerminal,
@@ -21,8 +23,6 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
     terminal: string
     client: { id: string; type: 'desktop' | 'mobile' }
     viewport?: { cols: number; rows: number }
-    /** Stable across this pane's reattaches so the host can dedupe replayed input. */
-    inputSessionId?: string
     callbacks: RemoteRuntimeMultiplexedTerminalCallbacks
   }): Promise<RemoteRuntimeMultiplexedTerminal> {
     const streamId = this.allocateStreamId()
@@ -34,10 +34,6 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
       acknowledgeOutput: true,
       acknowledgeOutputSourceRanges: false,
       supportsOutputPause: false,
-      supportsPausedOutputDropNotice: false,
-      pausedOutputGapExpected: false,
-      supportsInputAck: false,
-      inputLedgerId: null,
       outputPaused: false,
       streamGeneration: null,
       sourceAckedEndByte: 0,
@@ -58,7 +54,6 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
       resyncPendingSend: false,
       resyncTimer: null,
       resyncAttempts: 0,
-      resyncUnansweredTimeouts: 0,
       capacityRejected: false,
       watchdog: createRemoteTerminalStreamWatchdog((stall) => {
         if (e2eDisableRemoteTerminalStallRecovery) {
@@ -88,10 +83,7 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
 
     const stream: RemoteRuntimeMultiplexedTerminal = {
       streamId,
-      sendInput: (text, inputSeq) =>
-        this.isRegisteredStream(state) && this.sendInput(state, text, inputSeq),
-      acknowledgesInput: () => this.isRegisteredStream(state) && state.supportsInputAck,
-      inputLedgerId: () => (this.isRegisteredStream(state) ? state.inputLedgerId : null),
+      sendInput: (text) => this.isRegisteredStream(state) && this.sendInput(state, text),
       resize: (cols, rows) =>
         this.isRegisteredStream(state) &&
         this.sendFrame(
@@ -119,15 +111,15 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
         return claimed && resized
       },
       setOutputPaused: (paused) => this.setOutputPaused(state, paused),
-      reportsPausedOutputDrops: () =>
-        this.isRegisteredStream(state) && state.supportsPausedOutputDropNotice,
       serializeBuffer: (opts) => this.requestSnapshot(state, opts),
       serializeBufferOutcome: (opts) => this.requestSnapshotOutcome(state, opts),
       close: () => {
-        if (this.isRegisteredStream(state)) {
-          // Why after: a failed write closes the transport, whose message the pending snapshot must carry.
+        if (this.streams.get(streamId) === state) {
+          discardOutputAcknowledgements(state)
+          state.watchdog.dispose()
           this.sendFrame(streamId, TerminalStreamOpcode.Unsubscribe)
-          disposeRemoteTerminalStreamState(state, 'Remote terminal stream closed.')
+          clearResyncTimer(state)
+          rejectPendingSnapshotRequest(state, 'Remote terminal stream closed.')
           this.streams.delete(streamId)
           this.closeIfIdle()
         }
@@ -151,14 +143,9 @@ export class RemoteRuntimeTerminalMultiplexer extends RemoteRuntimeTerminalBinar
             ackOutput: 1,
             ackOutputSourceRanges: 1,
             outputPause: 1,
-            outputPauseDropNotice: 1,
             writeUnavailable: 1,
-            ...(args.client.type === 'desktop'
-              ? { desktopViewportClaims: 1, endpointLossNotice: 1 }
-              : {}),
-            ...(args.inputSessionId ? { inputAck: 1 } : {})
-          },
-          ...(args.inputSessionId ? { inputSessionId: args.inputSessionId } : {})
+            ...(args.client.type === 'desktop' ? { desktopViewportClaims: 1 } : {})
+          }
         })
       )
       if (!sent) {

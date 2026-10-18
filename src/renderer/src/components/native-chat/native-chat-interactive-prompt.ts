@@ -1,7 +1,6 @@
-import { nativeChatApprovalAcceptKey } from '../../../../shared/native-chat-agent-support'
 import { translate } from '@/i18n/i18n'
 import type {
-  AgentJournalApprovalItem,
+  AgentJournalApprovalMatchedAskRule,
   AgentJournalApprovalSubject
 } from '../../../../shared/agent-session-journal-types'
 import {
@@ -40,23 +39,10 @@ export type ChatApproval = {
   description?: string
   decisionReason?: string
   blockedPath?: string
+  matchedAskRule?: AgentJournalApprovalMatchedAskRule
   subject?: AgentJournalApprovalSubject
   detail?: string
   options: { label: string; send: string }[]
-}
-
-/** A journal approval prompt as its card reads it; each option sends its id. */
-export function chatApprovalFromJournal(body: AgentJournalApprovalItem): ChatApproval {
-  return {
-    title: body.title,
-    ...(body.displayName ? { displayName: body.displayName } : {}),
-    ...(body.description ? { description: body.description } : {}),
-    ...(body.decisionReason ? { decisionReason: body.decisionReason } : {}),
-    ...(body.blockedPath ? { blockedPath: body.blockedPath } : {}),
-    ...(body.subject ? { subject: body.subject } : {}),
-    ...(body.detail ? { detail: body.detail } : {}),
-    options: body.options.map((option) => ({ label: option.label, send: option.id }))
-  }
 }
 
 export type InteractivePromptCard =
@@ -68,8 +54,7 @@ const ESCAPE = String.fromCharCode(27)
 
 /** Parse the desktop-only approval envelope; question parsing stays cross-platform. */
 export function parseApprovalFromStatus(
-  interactivePrompt: string | undefined | null,
-  agent?: string
+  interactivePrompt: string | undefined | null
 ): ChatApproval | null {
   if (!interactivePrompt) {
     return null
@@ -98,10 +83,7 @@ export function parseApprovalFromStatus(
     }),
     detail: typeof summary === 'string' && summary.length > 0 ? summary : undefined,
     options: [
-      {
-        label: translate('components.native-chat.approval.allow', 'Allow'),
-        send: nativeChatApprovalAcceptKey(agent)
-      },
+      { label: translate('components.native-chat.approval.allow', 'Allow'), send: '1' },
       { label: translate('components.native-chat.approval.deny', 'Deny'), send: ESCAPE }
     ]
   }
@@ -109,13 +91,12 @@ export function parseApprovalFromStatus(
 
 export function parseInteractivePrompt(
   interactivePrompt: string | undefined | null,
-  toolName?: string,
-  agent?: string
+  toolName?: string
 ): InteractivePromptCard {
   const prompt = parseAskFromStatus(interactivePrompt, toolName)
   if (prompt) {
     return { kind: 'question', prompt }
   }
-  const approval = parseApprovalFromStatus(interactivePrompt, agent)
+  const approval = parseApprovalFromStatus(interactivePrompt)
   return approval ? { kind: 'approval', approval } : null
 }

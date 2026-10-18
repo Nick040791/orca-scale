@@ -2,10 +2,12 @@ import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { dedupeTabOrder } from '../../../shared/workspace-layout/tab-order'
+import { dedupeTabOrder } from '@/store/slices/tab-group-state'
 import type { Tab } from '../../../shared/tab-types'
-import { activateWebRuntimeSessionTab } from '@/runtime/web-runtime-session-tab-lifecycle'
-import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session-environment'
+import {
+  activateWebRuntimeSessionTab,
+  isWebRuntimeSessionActive
+} from '@/runtime/web-runtime-session'
 
 type TabNumberShortcutState = Pick<
   AppState,

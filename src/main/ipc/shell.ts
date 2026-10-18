@@ -16,14 +16,7 @@ import {
   resolveExternalEditorLaunchSpec,
   resolveVsCodeRemoteSshLaunchSpec
 } from '../external-editor-launch'
-import { resolveVsCodeSshAuthority } from '../ssh/config/vscode-ssh-authority'
-import { toSshExecutionHostId } from '../../shared/execution-host'
-import {
-  isLocallyOwned,
-  pathExists,
-  resolveOwnedPathTarget,
-  validateLocalPathTarget
-} from './shell-owned-path-target'
+import { resolveVsCodeSshAuthority } from '../ssh/vscode-ssh-authority'
 
 export { EXTERNAL_EDITOR_CLI_COMMAND }
 
@@ -31,11 +24,40 @@ const REPO_ICON_IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png'
 }
 
+async function pathExists(pathValue: string): Promise<boolean> {
+  try {
+    await stat(pathValue)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function validateLocalPathTarget(
+  pathValue: string
+): Promise<{ ok: true; path: string } | { ok: false; reason: 'not-absolute' | 'not-found' }> {
+  const normalizedPath = normalize(pathValue)
+  if (!isAbsolute(normalizedPath)) {
+    return { ok: false, reason: 'not-absolute' }
+  }
+  if (!(await pathExists(normalizedPath))) {
+    return { ok: false, reason: 'not-found' }
+  }
+  return { ok: true, path: normalizedPath }
+}
+
+function hasActiveRuntime(store: Store): boolean {
+  return Boolean(store.getSettings().activeRuntimeEnvironmentId?.trim())
+}
+
 async function openInFileManager(
-  pathValue: string,
-  ownerHostId: unknown
+  store: Store,
+  pathValue: string
 ): Promise<ShellOpenLocalPathResult> {
-  const target = await resolveOwnedPathTarget(pathValue, ownerHostId)
+  if (hasActiveRuntime(store)) {
+    return { ok: false, reason: 'remote-runtime-unsupported' }
+  }
+  const target = await validateLocalPathTarget(pathValue)
   if (!target.ok) {
     return target
   }
@@ -50,14 +72,15 @@ async function openInFileManager(
 }
 
 async function openInExternalEditor(
-  store: Pick<Store, 'getSshTarget'>,
+  store: Store,
   request: ShellOpenExternalEditorRequest
 ): Promise<ShellOpenExternalEditorResult> {
+  if (hasActiveRuntime(store)) {
+    return { ok: false, reason: 'remote-runtime-unsupported' }
+  }
+
   const connectionId = request.connectionId?.trim()
   if (connectionId) {
-    if (request.ownerHostId !== toSshExecutionHostId(connectionId)) {
-      return { ok: false, reason: 'remote-runtime-unsupported' }
-    }
     const sshTarget = store.getSshTarget(connectionId)
     if (!sshTarget) {
       return { ok: false, reason: 'ssh-target-not-found' }
@@ -88,12 +111,11 @@ async function openInExternalEditor(
     }
   }
 
-  const target = await resolveOwnedPathTarget(request.path, request.ownerHostId)
+  const target = await validateLocalPathTarget(request.path)
   if (!target.ok) {
     return target
   }
   try {
-    // Why the UNC path for a WSL owner: VS Code and Cursor turn it into `--remote wsl+<distro>`.
     await launchExternalEditor(resolveExternalEditorLaunchSpec(request.command, target.path))
     return { ok: true }
   } catch {
@@ -101,10 +123,7 @@ async function openInExternalEditor(
   }
 }
 
-async function openWithSystemDefault(pathValue: string, ownerHostId: unknown): Promise<boolean> {
-  if (!isLocallyOwned(ownerHostId)) {
-    return false
-  }
+async function openWithSystemDefault(pathValue: string): Promise<boolean> {
   const target = await validateLocalPathTarget(pathValue)
   if (!target.ok) {
     return false
@@ -117,20 +136,16 @@ async function openWithSystemDefault(pathValue: string, ownerHostId: unknown): P
   }
 }
 
-export function registerShellHandlers(store: Pick<Store, 'getSshTarget'>): void {
-  ipcMain.handle(
-    'shell:openPath',
-    async (_event, path: string, ownerHostId: unknown): Promise<void> => {
-      // Why: keep the legacy fire-and-forget renderer contract while reusing the
-      // same absolute/existing path validation as the explicit file-manager API.
-      void (await openInFileManager(path, ownerHostId))
-    }
-  )
+export function registerShellHandlers(store: Store): void {
+  ipcMain.handle('shell:openPath', async (_event, path: string): Promise<void> => {
+    // Why: keep the legacy fire-and-forget renderer contract while reusing the
+    // same absolute/existing path validation as the explicit file-manager API.
+    void (await openInFileManager(store, path))
+  })
 
   ipcMain.handle(
     'shell:openInFileManager',
-    (_event, path: string, ownerHostId: unknown): Promise<ShellOpenLocalPathResult> =>
-      openInFileManager(path, ownerHostId)
+    (_event, path: string): Promise<ShellOpenLocalPathResult> => openInFileManager(store, path)
   )
 
   ipcMain.handle(
@@ -154,16 +169,11 @@ export function registerShellHandlers(store: Pick<Store, 'getSshTarget'>): void 
     return shell.openExternal(parsed.toString())
   })
 
-  ipcMain.handle(
-    'shell:openFilePath',
-    async (_event, filePath: string, ownerHostId: unknown): Promise<boolean> =>
-      openWithSystemDefault(filePath, ownerHostId)
-  )
+  ipcMain.handle('shell:openFilePath', async (_event, filePath: string): Promise<boolean> => {
+    return openWithSystemDefault(filePath)
+  })
 
-  ipcMain.handle('shell:openFileUri', async (_event, rawUri: string, ownerHostId: unknown) => {
-    if (!isLocallyOwned(ownerHostId)) {
-      return
-    }
+  ipcMain.handle('shell:openFileUri', async (_event, rawUri: string) => {
     let parsed: URL
     try {
       parsed = new URL(rawUri)
@@ -192,7 +202,7 @@ export function registerShellHandlers(store: Pick<Store, 'getSshTarget'>): void 
       return
     }
 
-    await openWithSystemDefault(target.path, ownerHostId)
+    await openWithSystemDefault(target.path)
   })
 
   ipcMain.handle('shell:pathsExist', async (_event, paths: string[]): Promise<boolean[]> => {
@@ -230,15 +240,6 @@ export function registerShellHandlers(store: Pick<Store, 'getSshTarget'>): void 
       return null
     }
     return result.filePaths[0]
-  })
-
-  // Why: a separate plural handler, like repos:pickFolder/pickFolders — callers that
-  // must take exactly one file (the notebook interpreter picker) keep pickAttachment.
-  ipcMain.handle('shell:pickAttachments', async (): Promise<string[]> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile', 'multiSelections']
-    })
-    return result.canceled ? [] : result.filePaths
   })
 
   // Why: window.prompt() and <input type="file"> are unreliable in Electron,

@@ -1,16 +1,17 @@
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
+import { useAppStore } from '@/store'
 import type { SessionRestoredBannerReason } from '../session-restored-banner-pane-state'
 import { hasPtySerializer } from '../pty-buffer-serializer'
 import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
 import { waitForTerminalOutputParsed } from '@/lib/pane-manager/pane-terminal-output-scheduler'
+import { getSettingsForWorktreeRuntimeOwner } from '@/lib/worktree-runtime-owner'
 import { isExpectedAgentProcess } from '../../../../../shared/agent-process-recognition'
 import { resolveDraftPasteReadyTimeoutMs } from '../../../../../shared/draft-paste-ready-timeout'
 import { createDraftPasteReadyScanner } from '../../../../../shared/draft-paste-ready-scanner'
 import { sendAgentDraftPasteContent } from '@/lib/agent-draft-paste-content'
 import { writeTerminalPastePtyInput } from '../terminal-pty-paste-writer'
-import { createPasteReadinessTimeoutNotice } from '@/lib/launch-agent-paste-timeout-notice'
 
 import { STARTUP_DRAFT_PASTE_QUIET_MS } from './pty-connect-limits'
+import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
@@ -57,8 +58,8 @@ export function bindSettlePaneSerializer(session: ConnectPanePtySession): void {
       .catch(() => {})
   }
 
-  // Why: startup commands are provider-owned so delivery survives renderer
-  // replacement. Only explicit terminal-paste stays renderer-owned.
+  // Why: local and ordinary SSH startup commands are provider-owned so delivery
+  // survives renderer replacement. Only explicit terminal-paste stays renderer-owned.
   session.pendingStartupCommand = session.shouldDeliverStartupViaTerminalPaste
     ? session.paneStartup?.command
       ? { command: session.paneStartup.command }
@@ -115,10 +116,14 @@ export function bindSettlePaneSerializer(session: ConnectPanePtySession): void {
     startupDraftPasteSettled = true
     session.startupDraftPasteAttempted = true
     session.cleanupStartupDraftPasteTimers()
+    const settings = getSettingsForWorktreeRuntimeOwner(
+      useAppStore.getState(),
+      session.deps.worktreeId
+    )
     // Why: xterm focus reports share this transport queue. Bypassing it can
     // race CSI I against the draft on ConPTY and expose a literal `[I` prefix.
-    void sendAgentDraftPasteContent(ptyId, session.startupDraftPrompt, 'launch', async (data) => {
-      const accepted = await writeTerminalPastePtyInput(session.transport, data, 'launch')
+    void sendAgentDraftPasteContent(settings, ptyId, session.startupDraftPrompt, async (data) => {
+      const accepted = await writeTerminalPastePtyInput(session.transport, data)
       if (accepted && !startupDraftInputRecorded) {
         // Why: this transport write bypasses xterm's user-input signal; keep
         // the composed draft from being discarded by later hibernation.
@@ -140,8 +145,12 @@ export function bindSettlePaneSerializer(session: ConnectPanePtySession): void {
     if (!ptyId) {
       return
     }
+    const settings = getSettingsForWorktreeRuntimeOwner(
+      useAppStore.getState(),
+      session.deps.worktreeId
+    )
     try {
-      const process = await inspectRuntimeTerminalProcess(ptyId)
+      const process = await inspectRuntimeTerminalProcess(settings, ptyId)
       const foreground = process.foregroundProcess?.toLowerCase() ?? ''
       if (
         getStartupDraftPtyId() === ptyId &&
@@ -159,19 +168,6 @@ export function bindSettlePaneSerializer(session: ConnectPanePtySession): void {
     }
     startupDraftHardTimer = setTimeout(() => {
       startupDraftHardTimer = null
-      if (session.startupDraftAgent === 'codex') {
-        startupDraftPasteSettled = true
-        // A timed-out launch stays consumed across pane disposal and remount.
-        session.startupDraftPasteAttempted = true
-        session.cleanupStartupDraftPasteTimers()
-        createPasteReadinessTimeoutNotice({
-          worktreeId: session.deps.worktreeId,
-          tabId: session.deps.tabId,
-          agent: 'codex',
-          submitted: false
-        }).onTimeout()
-        return
-      }
       void deliverStartupDraftIfAgentOwnsPty()
     }, resolveDraftPasteReadyTimeoutMs(session.startupDraftAgent))
   }
@@ -209,7 +205,7 @@ export function bindSettlePaneSerializer(session: ConnectPanePtySession): void {
   }
   if (
     session.ownsStartupDraftPaste &&
-    !session.unservedSshTargetId &&
+    !session.connectionId &&
     !session.shouldDeliverStartupViaTerminalPaste
   ) {
     session.armStartupDraftReadinessObservation()

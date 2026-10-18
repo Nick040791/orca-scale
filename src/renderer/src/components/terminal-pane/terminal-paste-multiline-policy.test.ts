@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { executeTerminalPastePlan } from './terminal-paste-executor'
-import { planTerminalPaste } from './terminal-paste-coordinator'
-import type { TerminalPasteTarget } from './terminal-paste-model'
+import {
+  executeTerminalPastePlan,
+  planTerminalPaste,
+  type TerminalPasteTarget
+} from './terminal-paste-coordinator'
 
 function terminalTarget(): TerminalPasteTarget {
   return {

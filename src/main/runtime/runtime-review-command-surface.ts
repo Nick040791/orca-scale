@@ -68,7 +68,6 @@ export function installRuntimeReviewCommandSurface(
     diagnoseGitLabAuth: glq.diagnoseGitLabAuth.bind(glq),
     getGitLabRateLimit: glq.getGitLabRateLimit.bind(glq),
     listGitLabRepoLabels: glq.listGitLabRepoLabels.bind(glq),
-    listGitLabRepoAssignableUsers: glq.listGitLabRepoAssignableUsers.bind(glq),
     getGitLabRepoWorkItemDetails: glq.getGitLabRepoWorkItemDetails.bind(glq),
     getGitLabRepoWorkItemByPath: glq.getGitLabRepoWorkItemByPath.bind(glq),
     createGitLabRepoIssue: glm.createGitLabRepoIssue.bind(glm),

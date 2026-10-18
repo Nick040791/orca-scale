@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 // A lost mutation response must be answerable without mutating again: these cover
 // `orchestration.requestShow` reading the same durable receipt --retry-request replays.
 import { describe, expect, it, vi } from 'vitest'
@@ -30,7 +29,6 @@ function createHarness() {
     methods: [
       defineMethod({
         name: 'orchestration.send',
-        permission: 'workspace',
         params: Params,
         handler: ({ subject }) => ({ message: effect(subject) })
       }),
@@ -119,7 +117,6 @@ describe('orchestration.requestShow', () => {
       methods: [
         defineMethod({
           name: 'orchestration.send',
-          permission: 'workspace',
           params: Params,
           handler: async () => {
             reportStarted?.()

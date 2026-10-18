@@ -88,8 +88,8 @@ describe('web session terminal orphan recovery regressions', () => {
       expect.objectContaining({
         parentTabId: tabId,
         leafId: 'leaf-hold',
-        status: 'pending-handle',
-        terminal: null
+        status: 'ready',
+        terminal: 'term-hold'
       })
     ])
     expect(call).toHaveBeenCalledOnce()
@@ -329,8 +329,8 @@ describe('web session terminal orphan recovery regressions', () => {
       expect.objectContaining({
         parentTabId: 'host-tab',
         leafId: 'leaf-1',
-        status: 'pending-handle',
-        terminal: null
+        status: 'ready',
+        terminal: 'term-live'
       }),
       editor
     ])
@@ -362,8 +362,8 @@ describe('web session terminal orphan recovery regressions', () => {
     expect(recovered?.tabs.slice(0, 2)).toEqual(snapshot.tabs.slice(0, 2))
     expect(recovered?.tabs[2]).toMatchObject({
       leafId: 'leaf-1',
-      status: 'pending-handle',
-      terminal: null
+      status: 'ready',
+      terminal: 'term-live'
     })
   })
 
@@ -569,7 +569,7 @@ describe('web session terminal orphan recovery regressions', () => {
     expect(recovered?.tabs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ leafId: 'leaf-claim', terminal: 'term-claim', status: 'ready' }),
-        expect.objectContaining({ leafId: 'leaf-hold', terminal: null, status: 'pending-handle' })
+        expect.objectContaining({ leafId: 'leaf-hold', terminal: 'term-hold', status: 'ready' })
       ])
     )
     expect(call).toHaveBeenNthCalledWith(
@@ -669,8 +669,7 @@ describe('web session terminal orphan recovery regressions', () => {
         expect.objectContaining({
           parentTabId: 'hold-tab',
           leafId: 'leaf-hold',
-          status: 'pending-handle',
-          terminal: null
+          terminal: 'term-hold'
         })
       ])
     )

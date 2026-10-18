@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   GENERAL_CAP,
   GitAdmissionScheduler,
+  MAX_GIT_CHILDREN,
+  NETWORK_CAP,
   _gitAdmissionSnapshotForTests,
   _resetGitAdmissionForTests,
   acquireGitAdmission
 } from './git-subprocess-admission'
-import type { GitAdmissionEvent } from '../../../shared/git-admission-state'
+import type { GitAdmissionEvent } from './git-admission-state'
 
 const local = (tier: 'interactive' | 'status' | 'background' = 'status') => ({
   args: ['status'],
@@ -31,9 +33,11 @@ afterEach(() => {
 })
 
 describe('GitAdmissionScheduler', () => {
-  it('pins the global base budget bounds', () => {
+  it('pins the global base budgets and absolute maximum', () => {
     expect(GENERAL_CAP).toBeGreaterThanOrEqual(2)
     expect(GENERAL_CAP).toBeLessThanOrEqual(4)
+    expect(NETWORK_CAP).toBe(3)
+    expect(MAX_GIT_CHILDREN).toBe(10)
   })
 
   it('keeps base and headroom counters separate and grants interactive all-headroom', async () => {

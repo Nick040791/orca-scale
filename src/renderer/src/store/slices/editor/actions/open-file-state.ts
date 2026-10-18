@@ -1,6 +1,5 @@
 import type { EditorGet, EditorSet } from '../types/editor-set-get'
 import type { EditorSlice } from '../types/editor-slice'
-import { ownsGlobalSelection } from '../../../global-selection-owner'
 
 export function createOpenFileState(
   set: EditorSet,
@@ -26,7 +25,7 @@ export function createOpenFileState(
     // main window while acting on a tab that lives elsewhere (e.g. the floating workspace).
     setActiveTabType: (type, worktreeId) =>
       set((s) => ({
-        ...(ownsGlobalSelection(s, worktreeId) ? { activeTabType: type } : {}),
+        ...(worktreeId === s.activeWorktreeId ? { activeTabType: type } : {}),
         activeTabTypeByWorktree: worktreeId
           ? { ...s.activeTabTypeByWorktree, [worktreeId]: type }
           : s.activeTabTypeByWorktree

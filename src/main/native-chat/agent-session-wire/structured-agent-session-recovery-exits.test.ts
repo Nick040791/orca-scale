@@ -4,15 +4,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { spawnProcess } from '@orca/process-host'
-import { ORCA_AGENT_SESSION_SPAWN_TOKEN_ENV } from '../../../shared/agent-session-caller-env'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { spawnProcess } from '../../../shared/child-process/run-process'
+import { CODEX_SPAWN_TOKEN_ENV } from '../../codex/codex-structured-owner-identity'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { readProcessStartTimeMs } from '../../runtime/agent-session-process-identity-probe'
 import { createStructuredAgentSessionOwnerProbe } from '../../runtime/structured-agent-session-owner-probe'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
-import { abandonStructuredAgentSessionHost } from './structured-agent-session-host-test-abandon'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
 import {
   HOST_TEST_NOW as NOW,
@@ -21,10 +19,6 @@ import {
   hostTestAttachParams,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
 
 const CALLER = { callerKey: 'client-1' }
 
@@ -39,7 +33,7 @@ async function spawnOwner(spawnToken: string) {
   const child = spawnProcess({
     program: process.execPath,
     args: ['-e', 'setInterval(() => {}, 1_000)'],
-    env: { ...process.env, [ORCA_AGENT_SESSION_SPAWN_TOKEN_ENV]: spawnToken }
+    env: { ...process.env, [CODEX_SPAWN_TOKEN_ENV]: spawnToken }
   })
   spawnedOwners.add(child)
   const pid = child.pid
@@ -65,12 +59,6 @@ async function stopOwner(child: ReturnType<typeof spawnProcess>): Promise<void> 
   spawnedOwners.delete(child)
 }
 
-/** What a send's delivery or `agentSession.ensure` does: attach at the record's current fence. */
-async function startAgent(): Promise<void> {
-  const fence = store.getRecord(SESSION)?.lease.runtimeFence ?? null
-  expect((await host.attach(CALLER, hostTestAttachParams(fence))).ok).toBe(true)
-}
-
 function adapter(): StructuredAgentSessionAdapter {
   return {
     acquire,
@@ -84,11 +72,9 @@ function adapter(): StructuredAgentSessionAdapter {
 
 function openHost(overrides: Partial<StructuredAgentSessionHostDeps> = {}): void {
   host = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     adapter: adapter(),
-    journalDatabase: openTestJournalHostDatabase(root),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
     now: () => NOW,
@@ -96,9 +82,18 @@ function openHost(overrides: Partial<StructuredAgentSessionHostDeps> = {}): void
   })
 }
 
+async function abandonHost(abandonedHost: StructuredAgentSessionHost): Promise<void> {
+  abandonedHost['runtimeState'].stopLeaseRenewal()
+  abandonedHost['holds'].dispose()
+  await Promise.all(
+    [...abandonedHost['sessions'].values()].map((session) => session.journal.close())
+  )
+  abandonedHost['sessions'].clear()
+}
+
 async function reopenStore(): Promise<void> {
-  await abandonStructuredAgentSessionHost(host)
-  store = await openTestAgentSessionRecordStore(root)
+  await abandonHost(host)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
 }
 
 beforeEach(async () => {
@@ -113,19 +108,19 @@ beforeEach(async () => {
     },
     link: {
       linkId: `link-${fence}`,
-      handle: codexProviderHandle(THREAD),
+      handle: { provider: 'codex', threadId: THREAD },
       origin: store.getRecord(SESSION)?.providerHandleChain.length ? 'resumed' : 'created',
       mintedAtFence: fence,
       observedAt: NOW
     }
   }))
-  store = await openTestAgentSessionRecordStore(root)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   openHost()
 })
 
 afterEach(async () => {
-  await abandonStructuredAgentSessionHost(host)
-  await Promise.all([...supersededHosts].map(abandonStructuredAgentSessionHost))
+  await abandonHost(host)
+  await Promise.all([...supersededHosts].map(abandonHost))
   supersededHosts.clear()
   await Promise.all([...spawnedOwners].map((child) => stopOwner(child)))
   await rm(root, { recursive: true, force: true })
@@ -200,8 +195,8 @@ describe('recovery exits', () => {
       runtimeFence: 4
     })
 
-    // The ordinary native recovery path remains: the next start resumes it.
-    await startAgent()
+    // The ordinary native recovery path remains: the first surface hold resumes it.
+    await host.hold(SESSION, 'surface-1')
     expect(acquire).toHaveBeenCalledTimes(3)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'live',
@@ -245,7 +240,7 @@ describe('recovery exits', () => {
     })
   })
 
-  it('heals a stranded native owner during startup restore, and spawns nothing until work asks', async () => {
+  it('heals a stranded native owner during startup restore, and spawns nothing until a surface asks', async () => {
     expect((await host.attach(CALLER, hostTestAttachParams(null))).ok).toBe(true)
     await reopenStore()
 
@@ -265,7 +260,7 @@ describe('recovery exits', () => {
     await host.restoreReadableSessions()
 
     // Healing is startup's job; spawning is not. The orphan is stopped and the lease is free, but
-    // nothing has asked this session for work, so no replacement child exists yet.
+    // nothing has asked to look at this session, so no replacement child exists yet.
     expect(stopOwnerProcess).toHaveBeenCalledWith(4242, 'SIGTERM')
     expect(acquire).toHaveBeenCalledTimes(1)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
@@ -274,7 +269,7 @@ describe('recovery exits', () => {
       ownerProcess: null
     })
 
-    await startAgent()
+    await host.hold(SESSION, 'surface-1')
 
     expect(acquire).toHaveBeenCalledTimes(2)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
@@ -291,7 +286,7 @@ describe('recovery exits', () => {
       process: outgoing.process,
       link: {
         linkId: 'link-outgoing',
-        handle: codexProviderHandle(THREAD),
+        handle: { provider: 'codex', threadId: THREAD },
         origin: 'created',
         mintedAtFence: 1,
         observedAt: NOW
@@ -302,7 +297,7 @@ describe('recovery exits', () => {
     const outgoingHost = host
     const outgoingStore = store
     supersededHosts.add(outgoingHost)
-    store = await openTestAgentSessionRecordStore(root)
+    store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
     const realProbe = createStructuredAgentSessionOwnerProbe('local')
     let overlapDriven = false
     openHost({
@@ -336,14 +331,14 @@ describe('recovery exits', () => {
       process: replacement.process,
       link: {
         linkId: 'link-replacement',
-        handle: codexProviderHandle(THREAD),
+        handle: { provider: 'codex', threadId: THREAD },
         origin: 'resumed',
         mintedAtFence: 3,
         observedAt: NOW + 2
       }
     })
 
-    await startAgent()
+    await host.hold(SESSION, 'surface-overlap')
 
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       runtimeFence: 3,
@@ -351,6 +346,6 @@ describe('recovery exits', () => {
       handoffStage: null,
       ownerProcess: { pid: replacement.process.pid, spawnToken: 'spawn-b' }
     })
-    expect((await host.history({ sessionId: SESSION, direction: 'tail' })).ok).toBe(true)
+    expect(host.history({ sessionId: SESSION, direction: 'tail' }).ok).toBe(true)
   })
 })

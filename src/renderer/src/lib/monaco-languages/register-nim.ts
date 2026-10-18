@@ -1,5 +1,5 @@
 import type * as Monaco from 'monaco-editor'
-import type { LanguageRegistration } from 'shiki/core'
+import type { IRawGrammar } from 'vscode-textmate'
 import { registerTextMateLanguage } from './textmate-language-registration'
 
 type MonacoModule = typeof Monaco
@@ -33,13 +33,15 @@ export const nimLanguageConfiguration: Monaco.languages.LanguageConfiguration = 
   ]
 }
 
-export async function loadNimTextMateGrammar(): Promise<LanguageRegistration> {
+export async function loadNimTextMateGrammar(scopeName: string): Promise<IRawGrammar | null> {
+  if (scopeName !== NIM_TEXTMATE_SCOPE) {
+    return null
+  }
+
   // Why: Nim highlighting uses the maintained VS Code TextMate grammar from
   // nim-lang/vscode-nim (MIT; see textmate-grammars/nim-LICENSE.txt).
   const grammarModule = await import('./textmate-grammars/nim.tmLanguage.json')
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: TextMate injects the $self/$base repository entries a registration's type requires; real tokenization tests validate this vendored JSON.
-  const grammar = grammarModule.default as unknown as LanguageRegistration
-  return { ...grammar, name: NIM_LANGUAGE_ID }
+  return grammarModule.default as unknown as IRawGrammar
 }
 
 export function registerNimLanguage(monaco: MonacoModule): void {
@@ -50,6 +52,7 @@ export function registerNimLanguage(monaco: MonacoModule): void {
       aliases: ['Nim', 'nim']
     },
     configuration: nimLanguageConfiguration,
+    scopeName: NIM_TEXTMATE_SCOPE,
     loadGrammar: loadNimTextMateGrammar
   })
 }

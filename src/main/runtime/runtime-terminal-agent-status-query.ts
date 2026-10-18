@@ -11,11 +11,7 @@ import type { RuntimePtyController } from './runtime-pty-controller-contract'
 import type { RuntimeLeafRecord, RuntimePtyWorktreeRecord } from './runtime-terminal-state-records'
 import {
   terminalTitleBlocksExplicitAgentStatus,
-  getDisplayPromptLifecycle,
-  getLatestAgentCandidateTitleInfo,
-  getLeafDisplayRecord,
-  getPtyDisplayRecord,
-  type TitleDisplayClear
+  getLatestAgentCandidateTitleInfo
 } from './runtime-worktree-status-projection'
 import { detectTerminalWaitBlockedReason } from './terminal-wait-detection'
 import { getTerminalState } from './terminal-wait-results'
@@ -42,7 +38,6 @@ type Dependencies = {
     ptyId: string
   ): { status: AgentStatus | null; updatedAt: number } | null | undefined
   isRunning(handle: string): Promise<boolean>
-  getTitleDisplayClear(ptyId: string): TitleDisplayClear | null
 }
 
 export class RuntimeTerminalAgentStatusQuery {
@@ -68,13 +63,9 @@ export class RuntimeTerminalAgentStatusQuery {
 
   private async readStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
     const ptyId = this.getPtyId(handle)
-    // Why display: whether an agent is here is read off what the pane shows, as before the
-    // stale-working clear stopped rewriting records; a cwd spinner clears to a neutral title,
-    // so the foreground process decides for an agent that exited behind it.
-    const clear = this.deps.getTitleDisplayClear(ptyId)
-    const terminal = this.getSnapshot(handle, ptyId, clear)
+    const terminal = this.getSnapshot(handle, ptyId)
     const explicitStatus = this.deps.getExplicitStatus(handle)
-    const lifecycle = getDisplayPromptLifecycle(this.deps.getLifecycleStatus(ptyId), clear)
+    const lifecycle = this.deps.getLifecycleStatus(ptyId)
     const blockedByWaitText = detectTerminalWaitBlockedReason(terminal.waitText)
     const liveTitleClearsBlockedText =
       terminal.titleStatusIsLive &&
@@ -165,20 +156,22 @@ export class RuntimeTerminalAgentStatusQuery {
     throw new Error('terminal_handle_stale')
   }
 
-  /** `displayClear` projects the snapshot as display shows it; evidence callers omit it. */
   getSnapshot(
     handle: string,
-    expectedPtyId: string,
-    displayClear: TitleDisplayClear | null = null
-  ): RuntimeTerminalAgentStatusSnapshot {
-    const live = this.deps.getLivePty(handle)
-    if (live) {
-      if (!live.pty.connected || live.pty.ptyId !== expectedPtyId) {
+    expectedPtyId: string
+  ): {
+    waitText: string
+    waitBlockedAt: number | null
+    title: string | null
+    titleStatus: AgentStatus | null
+    titleStatusIsLive: boolean
+  } {
+    const pty = this.deps.getLivePty(handle)
+    if (pty) {
+      if (!pty.pty.connected || pty.pty.ptyId !== expectedPtyId) {
         throw new Error('terminal_not_writable')
       }
-      const pty = { pty: getPtyDisplayRecord(live.pty, displayClear) }
-      const primaryLeaf = this.deps.getPrimaryLeaf(live.pty.ptyId)
-      const leaf = primaryLeaf ? getLeafDisplayRecord(primaryLeaf, displayClear) : null
+      const leaf = this.deps.getPrimaryLeaf(pty.pty.ptyId)
       const leafTitle = leaf
         ? getLatestAgentCandidateTitleInfo(
             { title: leaf.paneTitle, updatedAt: leaf.paneTitleUpdatedAt },
@@ -207,7 +200,7 @@ export class RuntimeTerminalAgentStatusQuery {
       }
     }
 
-    const leaf = getLeafDisplayRecord(this.deps.getLiveLeaf(handle).leaf, displayClear)
+    const { leaf } = this.deps.getLiveLeaf(handle)
     if (getTerminalState(leaf) !== 'running') {
       throw new Error('terminal_exited')
     }

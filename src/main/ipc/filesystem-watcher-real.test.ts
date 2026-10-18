@@ -25,8 +25,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: handleMock }
 }))
 
-import { closeAllWatchers } from './filesystem-watcher-shutdown'
-import { registerFilesystemWatcherHandlers } from './filesystem-watcher-handlers'
+import { closeAllWatchers, registerFilesystemWatcherHandlers } from './filesystem-watcher'
 import {
   createAliasedWatcherRoot,
   removeAliasedWatcherRoot,
@@ -76,6 +75,15 @@ describe('filesystem-watcher real @parcel/watcher integration', () => {
     await removeAliasedWatcherRoot(aliasedRoot)
     aliasedRoot = null
     vi.clearAllMocks()
+  })
+
+  // Why: a clear, separate failure mode — if the native addon is missing from
+  // the bundle the watcher silently no-ops (doInstallLocalWatcher swallows the
+  // import error), so the wiring assertion below would time out with a vague
+  // message. This makes "addon absent" distinct from "wiring broken".
+  it('loads the real @parcel/watcher native addon', async () => {
+    const watcher = await import('@parcel/watcher')
+    expect(typeof watcher.subscribe).toBe('function')
   })
 
   // Why: this integration targets the Linux native watcher path described

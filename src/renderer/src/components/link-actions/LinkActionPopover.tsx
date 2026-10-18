@@ -18,20 +18,17 @@ type LinkActionPopoverProps<TRequest extends LinkActionRequest> = {
 
 function ActionRow({
   action,
-  shortcut,
+  alternate,
   onRun
 }: {
   action: LinkAction
-  shortcut: 'primary' | 'alternate' | null
+  alternate: boolean
   onRun: () => void
 }): React.JSX.Element {
   const isMac = navigator.userAgent.includes('Mac')
-  const keys =
-    shortcut === 'alternate'
-      ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
-      : shortcut === 'primary'
-        ? [isMac ? '⌘' : 'Ctrl', 'Click']
-        : null
+  const keys = alternate
+    ? [isMac ? '⇧' : 'Shift', isMac ? '⌘' : 'Ctrl', 'Click']
+    : [isMac ? '⌘' : 'Ctrl', 'Click']
 
   return (
     <Button
@@ -44,9 +41,7 @@ function ActionRow({
       <span className="min-w-0 flex-1 truncate text-left" title={action.label}>
         {action.label}
       </span>
-      {keys ? (
-        <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
-      ) : null}
+      <ShortcutKeyCombo keys={keys} keyCapClassName="min-w-5 px-1 py-0 text-[11px]" />
     </Button>
   )
 }
@@ -185,24 +180,16 @@ export function LinkActionPopover<TRequest extends LinkActionRequest>({
           </div>
           <ActionRow
             action={request.primary}
-            shortcut="primary"
+            alternate={false}
             onRun={() => runAction(request.primary)}
           />
           {request.alternate ? (
             <ActionRow
               action={request.alternate}
-              shortcut="alternate"
+              alternate
               onRun={() => runAction(request.alternate!)}
             />
           ) : null}
-          {request.secondaryActions?.map((action) => (
-            <ActionRow
-              key={action.label}
-              action={action}
-              shortcut={null}
-              onRun={() => runAction(action)}
-            />
-          ))}
         </PopoverContent>
       ) : null}
     </Popover>

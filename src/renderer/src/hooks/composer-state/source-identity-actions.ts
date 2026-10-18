@@ -29,7 +29,7 @@ type SourceIdentityActionsInput = Pick<
   | 'setPushTarget'
   | 'setReuseEligibleBranch'
   | 'setReuseSelectedBranch'
-  | 'smartSourceSelectionRef'
+  | 'smartGitHubPrStartPointSelectionRef'
 >
 
 import { useCallback } from 'react'
@@ -69,13 +69,13 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
     setPushTarget,
     setReuseEligibleBranch,
     setReuseSelectedBranch,
-    smartSourceSelectionRef
+    smartGitHubPrStartPointSelectionRef
   } = input
 
   // Why: review routing prefers one provider identity — clear the opposite provider slots so stale hidden fields can't win later.
   const applyLinkedGitLabWorkItem = useCallback(
     (item: GitLabWorkItem): void => {
-      smartSourceSelectionRef.current = null
+      smartGitHubPrStartPointSelectionRef.current = null
       if (item.type === 'issue') {
         setLinkedGitLabIssue(item.number)
         setLinkedGitLabMR(null)
@@ -111,8 +111,7 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
         nextName &&
         shouldApplyWorkspaceSourceAutoName({
           currentName: name,
-          lastAutoName: lastAutoNameRef.current,
-          lookupTextIsQuery: !linkedWorkItem
+          lastAutoName: lastAutoNameRef.current
         })
       ) {
         setName(nextName)
@@ -124,7 +123,6 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
     },
     [
       name,
-      linkedWorkItem,
       branchAutoNameRef,
       lastAutoNameRef,
       setBranchNameOverride,
@@ -136,13 +134,13 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
       setLinkedTaskSourceContext,
       setLinkedWorkItem,
       setName,
-      smartSourceSelectionRef
+      smartGitHubPrStartPointSelectionRef
     ]
   )
 
   const handleSelectLinkedItem = useCallback(
     (item: GitHubWorkItem): void => {
-      smartSourceSelectionRef.current = null
+      smartGitHubPrStartPointSelectionRef.current = null
       applyLinkedWorkItem(item)
       setLinkPopoverOpen(false)
       setLinkQuery('')
@@ -155,7 +153,7 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
       setLinkDirectItem,
       setLinkPopoverOpen,
       setLinkQuery,
-      smartSourceSelectionRef
+      smartGitHubPrStartPointSelectionRef
     ]
   )
 
@@ -172,7 +170,7 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
   )
 
   const handleRemoveLinkedWorkItem = useCallback((): void => {
-    smartSourceSelectionRef.current = null
+    smartGitHubPrStartPointSelectionRef.current = null
     const removedLinearItem = isLinearLinkedWorkItem(linkedWorkItem)
     setLinkedWorkItem(null)
     setLinkedTaskSourceContext(null)
@@ -200,14 +198,11 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
     setLinkedPR,
     setLinkedTaskSourceContext,
     setLinkedWorkItem,
-    smartSourceSelectionRef
+    smartGitHubPrStartPointSelectionRef
   ])
 
   const handleNameValueChange = useCallback(
     (nextName: string): void => {
-      if (nextName !== name && smartSourceSelectionRef.current?.kind === 'github-submit-lookup') {
-        smartSourceSelectionRef.current = null
-      }
       // Why: linked items keep refreshing the suggested name only while it's auto-managed; a manual edit stops later picks from clobbering it until cleared.
       if (!nextName.trim()) {
         lastAutoNameRef.current = ''
@@ -233,16 +228,12 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
       lastAutoNameRef,
       setBranchNameOverride,
       setCreateError,
-      setName,
-      smartSourceSelectionRef
+      setName
     ]
   )
 
   const handleBranchNameOverrideChange = useCallback(
     (value: string | undefined): void => {
-      if (smartSourceSelectionRef.current?.kind === 'github-submit-lookup') {
-        smartSourceSelectionRef.current = null
-      }
       const next = resolveComposerManualBranchNameChange({
         value,
         pushTarget,
@@ -265,8 +256,7 @@ export function useSourceIdentityActions(input: SourceIdentityActionsInput) {
       setForkPushWarning,
       setPushTarget,
       setReuseEligibleBranch,
-      setReuseSelectedBranch,
-      smartSourceSelectionRef
+      setReuseSelectedBranch
     ]
   )
 

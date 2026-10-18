@@ -12,7 +12,6 @@ import {
   type ProtectedSecretRetentionUpdate
 } from '../../protected-secret-persistence'
 import { stripRetiredGlobalSettings } from '../applying-settings/terminal-settings-migrations'
-import { LEGACY_OPENCODE_GO_API_KEY_SLOT } from './legacy-opencode-go-api-key-migration'
 import { omitDefaultWorktreeMetaFieldsInMap } from '../../../shared/worktree/meta-persisted-defaults'
 import { projectWorktreeMetaByIdentityOntoLocators } from './worktree-meta-alias-projection'
 import { withoutRedundantPartitionGlobals } from '../../../shared/workspace-session-host-field-ownership'
@@ -108,10 +107,7 @@ export class StateSerializationSecretHandlingOperations {
           }
           break
         case 'sshRemotePtyLeases':
-        case 'remoteLayoutSnapshots':
-        case 'legacyPaneKeyAliasEntries':
-        case 'migrationUnsupportedPtyEntries':
-          stateToSave[domain] = this.runtime.state[domain]
+          stateToSave[domain] = this.runtime.state.sshRemotePtyLeases
           break
         default:
           return undefined
@@ -264,9 +260,10 @@ export class StateSerializationSecretHandlingOperations {
         PROTECTED_SECRET_SLOT.opencodeSessionCookie,
         this.runtime.state.settings.opencodeSessionCookie
       ),
-      ...(this.runtime.protectedSecrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)
-        ? { opencodeGoApiKey: encrypt(LEGACY_OPENCODE_GO_API_KEY_SLOT, '') }
-        : {}),
+      opencodeGoApiKey: encrypt(
+        PROTECTED_SECRET_SLOT.opencodeGoApiKey,
+        this.runtime.state.settings.opencodeGoApiKey ?? ''
+      ),
       httpProxyUrl: encrypt(
         PROTECTED_SECRET_SLOT.httpProxyUrl,
         this.runtime.state.settings.httpProxyUrl ?? ''

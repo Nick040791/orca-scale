@@ -24,16 +24,14 @@ import {
 import {
   getTerminalRightClickToPasteSearchEntry,
   getTerminalWindowsPowershellImplementationSearchEntry,
-  getTerminalWindowsShellSearchEntry,
-  getTerminalWindowsAdministratorSearchEntry
+  getTerminalWindowsShellSearchEntry
 } from './terminal-windows-search'
 import {
   getManageSessionsSearchEntries,
+  getTerminalSetupScriptSearchEntries,
   getTerminalWindowSearchEntries
 } from './terminal-window-setup-search'
 import { createLocalizedCatalog } from '@/i18n/localized-catalog'
-import { translate } from '@/i18n/i18n'
-import { translateSearchKeyword } from './settings-search-keywords'
 
 export {
   getTerminalAdvancedTypographySearchEntries,
@@ -60,7 +58,8 @@ export {
 } from './terminal-advanced-platform-search'
 export {
   getManageSessionsSearchEntries,
-  getTerminalWindowSearchEntries
+  getTerminalWindowSearchEntries,
+  getTerminalSetupScriptSearchEntries
 } from './terminal-window-setup-search'
 
 type TerminalAppearanceSearchOptions = {
@@ -109,63 +108,23 @@ export function getTerminalPaneSearchEntries(platform: {
   return [
     ...getTerminalRenderingSearchEntries(),
     ...getTerminalPaneInteractionSearchEntries(),
-    ...(platform.isWindows ? getTerminalWindowsAdministratorSearchEntry() : []),
     ...(!isWindowsTerminalHost
       ? [
           {
-            title: translate(
-              'auto.components.settings.terminal.search.1733ccd3e9',
-              'Terminal shell'
-            ),
-            description: translate(
-              'auto.components.settings.terminal.search.3de504994c',
-              'Shell and arguments used for new local interactive terminal panes'
-            ),
+            title: 'Terminal shell',
+            description: 'Shell and arguments used for new local interactive terminal panes',
             keywords: [
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.ddd5efe113',
-                'shell'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.f66a7cf715',
-                'terminal'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.454df22a5e',
-                'fish'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.d26257a80d',
-                'zsh'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.bf09070e31',
-                'bash'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.7c3ede6f12',
-                'nushell'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.5304b12d5c',
-                'arguments'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.36ba1a1357',
-                'args'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.50ba80b6dd',
-                'login'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.d9e29543a1',
-                'wrapper'
-              ),
-              ...translateSearchKeyword(
-                'auto.components.settings.terminal.search.d31ed1ac1c',
-                'rcfile'
-              )
+              'shell',
+              'terminal',
+              'fish',
+              'zsh',
+              'bash',
+              'nushell',
+              'arguments',
+              'args',
+              'login',
+              'wrapper',
+              'rcfile'
             ]
           }
         ]
@@ -177,6 +136,7 @@ export function getTerminalPaneSearchEntries(platform: {
         ]
       : []),
     ...getTerminalRightClickToPasteSearchEntry(),
+    ...getTerminalSetupScriptSearchEntries(),
     ...getManageSessionsSearchEntries(),
     ...getTerminalAdvancedSearchEntries(),
     ...(platform.isMac

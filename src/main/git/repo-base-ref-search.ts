@@ -12,7 +12,6 @@ import { isRemoteHeadRef } from '../../shared/hosted-review-refs'
 import { getLocalGitCapabilityCache } from './git-capability-state'
 import { gitExecOptions, type LocalGitExecOptions } from './repo-default-base-ref'
 import { gitExecFileAsync } from './runner'
-import { isQualifiedBaseRef, resolveBaseRefSearchSelector } from './base-ref-search-selector'
 
 const REF_SEARCH_CANDIDATE_MULTIPLIER = 4
 const REF_SEARCH_LEGACY_HEADROOM = 100
@@ -177,8 +176,7 @@ export async function searchBaseRefs(
 export async function searchBaseRefDetails(
   path: string,
   query: string,
-  limit = REPO_SEARCH_REFS_DEFAULT_LIMIT,
-  includeQualifiedRefs = true
+  limit = REPO_SEARCH_REFS_DEFAULT_LIMIT
 ): Promise<BaseRefSearchResult[]> {
   if (!isRepoSearchRefsRequestLimit(limit)) {
     return []
@@ -202,12 +200,7 @@ export async function searchBaseRefDetails(
       ])
       return mergeBaseRefSearchResultGroups(
         results.map((entry) =>
-          parseAndFilterSearchRefDetails(
-            entry.stdout,
-            boundedScanLimit,
-            remotes,
-            includeQualifiedRefs
-          )
+          parseAndFilterSearchRefDetails(entry.stdout, boundedScanLimit, remotes)
         ),
         boundedScanLimit
       )
@@ -216,12 +209,7 @@ export async function searchBaseRefDetails(
     const result = await runSearchBaseRefsGit(path, normalizedQuery, boundedScanLimit, {
       remoteNames: remotes
     })
-    return parseAndFilterSearchRefDetails(
-      result.stdout,
-      boundedScanLimit,
-      remotes,
-      includeQualifiedRefs
-    )
+    return parseAndFilterSearchRefDetails(result.stdout, boundedScanLimit, remotes)
   } catch (err) {
     console.warn('[searchBaseRefs] for-each-ref failed', { path, err })
     return []
@@ -246,11 +234,25 @@ export async function listRemoteNames(
 export function parseAndFilterSearchRefDetails(
   stdout: string,
   limit: number,
-  remotes: string[] = [],
-  includeQualifiedRefs = true
+  remotes: string[] = []
 ): BaseRefSearchResult[] {
   const seen = new Set<string>()
   const sortedRemotes = [...remotes].sort((a, b) => b.length - a.length)
+
+  const canonicalShortRef = (fullRef: string, gitShortRef: string): string => {
+    // Git's refname:short DWIM rule can strip a trailing `/HEAD` (for example,
+    // `refs/remotes/origin/feature/HEAD` becomes `origin/feature`). Derive the
+    // display name only for that case; otherwise Git's disambiguation prefixes
+    // (such as `heads/` and `remotes/`) are significant and must be retained.
+    if (
+      fullRef.startsWith('refs/remotes/') &&
+      fullRef.endsWith('/HEAD') &&
+      !gitShortRef.endsWith('/HEAD')
+    ) {
+      return fullRef.slice('refs/remotes/'.length)
+    }
+    return gitShortRef
+  }
 
   return stdout
     .split('\n')
@@ -263,11 +265,10 @@ export function parseAndFilterSearchRefDetails(
       }
       const full = line.slice(0, nul)
       const gitShort = line.slice(nul + 1)
-      return { full, short: resolveBaseRefSearchSelector(full, gitShort) }
+      return { full, short: canonicalShortRef(full, gitShort) }
     })
     .filter((entry): entry is { full: string; short: string } => entry !== null)
-    .filter(({ full }) => isSafeGitRefName(full) && !isRemoteHeadRef(full, sortedRemotes))
-    .filter(({ short }) => includeQualifiedRefs || !isQualifiedBaseRef(short))
+    .filter(({ full }) => !isRemoteHeadRef(full, sortedRemotes))
     .filter(({ short }) => {
       if (seen.has(short)) {
         return false
@@ -302,10 +303,6 @@ export function resolveLocalBranchName(
   shortRef: string,
   remotes: string[]
 ): string {
-  const localRefPrefix = 'refs/heads/'
-  if (fullRef.startsWith(localRefPrefix)) {
-    return fullRef.slice(localRefPrefix.length) || shortRef
-  }
   const remoteRefPrefix = 'refs/remotes/'
   if (!fullRef.startsWith(remoteRefPrefix)) {
     return shortRef

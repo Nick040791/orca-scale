@@ -1,7 +1,6 @@
 import type { GitCommandRunner } from './git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from './git-remote-branch-name'
 import { findGitRemoteNameByFetchUrl } from './git-remote-url-index'
-import { createGitConfigSnapshotRunner } from './git-config-snapshot-runner'
 
 export type ResolvedGitPushTarget = {
   remote: string
@@ -110,28 +109,22 @@ function canPushConfiguredMergeBranch(
  * for the same repository — they differ only in how `runGit` reaches the Git binary.
  */
 export async function resolveConfiguredGitPushTarget(
-  execGit: GitCommandRunner
+  runGit: GitCommandRunner
 ): Promise<ResolvedGitPushTarget | null> {
-  const runGit = createGitConfigSnapshotRunner(execGit)
   try {
     const { stdout: branchStdout } = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'])
     const branch = branchStdout.trim()
     if (!branch) {
       return null
     }
-    const [pushRemote, mergeRef] = await Promise.all([
+    const [pushRemote, { stdout: mergeStdout }] = await Promise.all([
       getConfiguredPushRemote(runGit, branch),
-      getConfigValue(runGit, `branch.${branch}.merge`)
+      runGit(['config', '--get', `branch.${branch}.merge`])
     ])
     const remote = pushRemote?.remote
-    if (!remote || remote === '.') {
-      return null
-    }
-    if (!mergeRef) {
-      return { remote, refspec: 'HEAD' }
-    }
+    const mergeRef = mergeStdout.trim()
     const branchRef = mergeRef.replace(/^refs\/heads\//, '')
-    if (!branchRef || branchRef === mergeRef) {
+    if (!remote || !branchRef || remote === '.' || branchRef === mergeRef) {
       return null
     }
     if (await branchMergeTargetsConfiguredBase(runGit, branch, remote, branchRef)) {

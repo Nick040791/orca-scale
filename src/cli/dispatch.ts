@@ -32,7 +32,8 @@ function buildRoutes(groups: readonly HandlerGroup[]): Map<string, HandlerGroup>
 
 const ROUTES = buildRoutes(HANDLER_GROUPS)
 
-// Why: exposes only the canonical command keys, not the handler internals.
+// Why: exposes only the canonical command keys (not the handler internals) so the
+// registry-parity guard can check specs↔handlers without rebuilding the table.
 export const HANDLER_COMMAND_KEYS: ReadonlySet<string> = new Set(ROUTES.keys())
 
 export async function dispatch(commandPath: string[], ctx: HandlerContext): Promise<void> {

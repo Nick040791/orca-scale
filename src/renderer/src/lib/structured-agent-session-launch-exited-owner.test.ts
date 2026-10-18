@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The launch client against the create wire contract: a failed create whose provider is proven
-// gone reads as failed (with its refusal) and Retry starts it again; any other verdict stays unknown.
+// gone reads as failed (with its reason) and Retry starts it again; any other verdict stays unknown.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -24,7 +24,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
 }))
-vi.mock('@/runtime/local-structured-session-tabs-sync/inventory-refresh', () => ({
+vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
   refreshLocalStructuredSessionTabs: mocks.refresh
 }))
 vi.mock('@/runtime/web-session-focus-intent', () => ({
@@ -46,26 +46,21 @@ vi.mock('@/lib/agent-catalog', () => ({
 import {
   getStructuredAgentSessionLaunchLifecycle,
   retryStructuredAgentSessionLaunch,
-  shouldRetainStructuredAgentSessionLaunchTab,
   startStructuredAgentLaunch
 } from './structured-agent-session-launch'
 import {
-  getStructuredAgentSessionLaunchFailure,
+  getStructuredAgentSessionLaunchFailureReason,
   resetStructuredAgentLaunchRegistryForTests
 } from './structured-agent-session-launch-registry'
 import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
-import { structuredSessionNotices } from '@/components/native-chat/native-chat-structured-session-notices'
 
 const WORKTREE = 'wt-1'
 const EXIT_REASON = 'claude stream-json exited (code 1): stderr tail'
-const HOST_REFUSAL = { kind: 'refused', code: 'agent_session_operation_invalid' }
 
 /** The verdict the host puts on the failed operation's replay; undefined models an older host. */
 let replayVerdict: AgentSessionOwnerVerdict | undefined
 /** A host that answers the proven exit on the first call, not only on replay. */
 let refuseFirstCall = false
-let missingHistory: boolean | 'legacy' = false
-let ownershipRefusal: AgentSessionWireRefusal | null = null
 let failedOperation: string | null = null
 let publishedSessionId: string | null = null
 const createdOperations: string[] = []
@@ -83,17 +78,11 @@ function hostCreate(envelope: AgentSessionMutationEnvelope): unknown {
     throw new Error(EXIT_REASON)
   }
   const refusal: AgentSessionWireRefusal = {
-    ...(missingHistory
-      ? {
-          code: 'agent_session_identity_required' as const,
-          details: { reason: 'transcriptNotFound' as const },
-          ...(missingHistory === true ? { createAttemptRefusedBeforeCommit: true as const } : {})
-        }
-      : { code: 'agent_session_operation_invalid' as const }),
+    code: 'agent_session_operation_invalid',
     message: EXIT_REASON,
     ...(replayVerdict ? { ownerVerdict: replayVerdict } : {})
   }
-  return { ok: false, refusal: ownershipRefusal ?? refusal }
+  return { ok: false, refusal }
 }
 
 async function settle(sessionId: string): Promise<void> {
@@ -104,7 +93,7 @@ async function settle(sessionId: string): Promise<void> {
 }
 
 function launch(): string {
-  const started = startStructuredAgentLaunch(WORKTREE, 'codex', { requestId: 'request-1' })
+  const started = startStructuredAgentLaunch(WORKTREE, 'codex')
   void started.launchResult.catch(() => undefined)
   return started.sessionId
 }
@@ -116,8 +105,6 @@ beforeEach(() => {
   resetStructuredAgentLaunchRegistryForTests()
   replayVerdict = 'exited'
   refuseFirstCall = false
-  missingHistory = false
-  ownershipRefusal = null
   failedOperation = null
   publishedSessionId = null
   createdOperations.length = 0
@@ -138,13 +125,12 @@ beforeEach(() => {
 })
 
 describe('structured launch after a host-failed create', () => {
-  it('fails with the host refusal when the provider is proven gone, and Retry starts it under a new operation', async () => {
+  it('fails with the host reason when the provider is proven gone, and Retry starts it under a new operation', async () => {
     const sessionId = launch()
     await settle(sessionId)
 
     expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, sessionId)).toBe('failed')
-    // The host's message is for its log; the Retry line words the refusal.
-    expect(getStructuredAgentSessionLaunchFailure(WORKTREE, sessionId)).toEqual(HOST_REFUSAL)
+    expect(getStructuredAgentSessionLaunchFailureReason(WORKTREE, sessionId)).toBe(EXIT_REASON)
     expect(createdOperations.every((operation) => operation === failedOperation)).toBe(true)
 
     expect(retryStructuredAgentSessionLaunch(WORKTREE, sessionId)).toBe(true)
@@ -156,48 +142,12 @@ describe('structured launch after a host-failed create', () => {
     expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, sessionId)).toBeNull()
   })
 
-  it.each(['agent_session_conflict', 'agent_session_ownership_unknown'] as const)(
-    'settles a proven first-attempt %s with its owner, but keeps an earlier lost reply unknown',
-    async (code) => {
-      const details = {
-        reason: 'conversationHeldElsewhere' as const,
-        owner: { sessionId: 'owner-chat', workspaceId: 'owner-workspace' }
-      }
-      ownershipRefusal = { code, details, message: code, createAttemptRefusedBeforeCommit: true }
-      refuseFirstCall = true
-      const started = startStructuredAgentLaunch(WORKTREE, 'codex', { requestId: 'owned-click' })
-      await expect(started.launchResult).rejects.toMatchObject({ refusal: { code, details } })
-      await settle(started.sessionId)
-      expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, started.sessionId)).toBe('failed')
-      refuseFirstCall = false
-      createdOperations.length = 0
-      failedOperation = null
-      const unknown = launch()
-      await settle(unknown)
-      expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, unknown)).toBe('visibility-unknown')
-    }
-  )
-
-  it('retains a missing-history failed tab with Retry, then starts a new attempt', async () => {
+  it('fails on the first answer when the host already refuses with the proven exit', async () => {
     refuseFirstCall = true
-    missingHistory = true
-    replayVerdict = undefined
     const sessionId = launch()
     await settle(sessionId)
     expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, sessionId)).toBe('failed')
-    expect(shouldRetainStructuredAgentSessionLaunchTab(WORKTREE, sessionId)).toBe(true)
-    expect(
-      structuredSessionNotices({
-        launch: {
-          lifecycle: 'failed',
-          failure: getStructuredAgentSessionLaunchFailure(WORKTREE, sessionId),
-          retry: () => {}
-        },
-        agentLabel: 'Codex',
-        sessionError: null,
-        composerError: null
-      })
-    ).toMatchObject([{ text: 'Chat could not be started.', action: { label: 'Retry' } }])
+    expect(getStructuredAgentSessionLaunchFailureReason(WORKTREE, sessionId)).toBe(EXIT_REASON)
     expect(createdOperations).toEqual([failedOperation])
     expect(retryStructuredAgentSessionLaunch(WORKTREE, sessionId)).toBe(true)
     await settle(sessionId)
@@ -207,20 +157,13 @@ describe('structured launch after a host-failed create', () => {
 
   it.each([
     ['the host could not prove the process gone', 'unverifiable'],
-    ['the host predates the missing-history proof', undefined, 'legacy'],
-    ['an earlier reply was lost before the missing-history refusal', undefined, true]
-  ] as const)(
-    'stays unknown when %s',
-    async (_label, verdict, transcriptRefusal: boolean | 'legacy' = false) => {
-      replayVerdict = verdict
-      missingHistory = transcriptRefusal
-      const sessionId = launch()
-      await settle(sessionId)
+    ['the host predates the verdict', undefined]
+  ] as const)('stays unknown when %s', async (_label, verdict) => {
+    replayVerdict = verdict
+    const sessionId = launch()
+    await settle(sessionId)
 
-      expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, sessionId)).toBe(
-        'visibility-unknown'
-      )
-      expect(createdOperations.every((operation) => operation === failedOperation)).toBe(true)
-    }
-  )
+    expect(getStructuredAgentSessionLaunchLifecycle(WORKTREE, sessionId)).toBe('visibility-unknown')
+    expect(createdOperations.every((operation) => operation === failedOperation)).toBe(true)
+  })
 })

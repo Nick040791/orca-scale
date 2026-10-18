@@ -4,7 +4,7 @@ import { isClaudeManagementTitle } from '../../../../shared/agent-detection'
 import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
 import { isWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
 import type { Tab } from '../../../../shared/tab-types'
-import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../runtime-terminal-stream'
 import {
   isNativeChatTabWideFallbackSafe,
   nativeChatLaunchAgentForLeaf,
@@ -14,6 +14,10 @@ import type { MobileSessionWorktreeInputs, MountedTerminalSurfaceCapture } from 
 
 export function mobileTerminalSurfaceId(parentTabId: string, leafId: string): string {
   return `${parentTabId}::${leafId}`
+}
+
+export function isRemoteRuntimePtyId(ptyId: string | null | undefined): boolean {
+  return typeof ptyId === 'string' && parseRemoteRuntimePtyId(ptyId) !== null
 }
 
 export function isWebOnlyMirroredTerminalTab(
@@ -43,7 +47,7 @@ export function getRuntimeLeafIdsForTerminal(
   if (persistedLeafIds.length > 0) {
     return persistedLeafIds
   }
-  // Only a tab with no saved layout, or an older rootless one, gets here; do not fabricate pane:1.
+  // A new tab can predate TerminalPane mount; do not fabricate a stale pane:1.
   return []
 }
 

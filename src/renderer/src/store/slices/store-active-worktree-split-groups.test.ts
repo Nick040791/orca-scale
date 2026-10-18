@@ -368,6 +368,7 @@ describe('setActiveWorktree', () => {
       'terminalLayoutsByTabId',
       'pendingStartupByTabId',
       'pendingInitialCwdByTabId',
+      'pendingSetupSplitByTabId',
       'pendingIssueCommandSplitByTabId',
       'automaticAgentResumeClaimsByTabId',
       'tabBarOrderByWorktree',
@@ -441,11 +442,7 @@ describe('setActiveWorktree', () => {
     expect(s.automaticAgentResumeClaimsByTabId[orphanId]).toBeUndefined()
     expect(s.pendingInitialCwdByTabId[orphanId]).toBeUndefined()
     expect(s.cacheTimerByKey[`${orphanId}:seed`]).toBeUndefined()
-    const replacementLayout = s.terminalLayoutsByTabId[replacement.id]
-    expect(replacementLayout?.root).toEqual({
-      type: 'leaf',
-      leafId: replacementLayout?.activeLeafId
-    })
+    expect(s.terminalLayoutsByTabId[replacement.id]).toEqual(makeLayout())
   })
 
   it('clears orphan active terminal state while creating an inactive replacement tab', () => {

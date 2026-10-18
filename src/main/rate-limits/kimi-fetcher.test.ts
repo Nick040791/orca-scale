@@ -1,8 +1,7 @@
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setMainHttpClient } from '../network/http-client'
 
-const fetchMock = vi.fn()
+const netFetchMock = vi.hoisted(() => vi.fn())
 const fsState = vi.hoisted<{
   credentials: string | null
   readError: Error | null
@@ -11,6 +10,10 @@ const fsState = vi.hoisted<{
   credentials: null,
   readError: null,
   readPaths: []
+}))
+
+vi.mock('electron', () => ({
+  net: { fetch: netFetchMock }
 }))
 
 vi.mock('node:fs/promises', () => ({
@@ -31,8 +34,6 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('node:os', () => ({ homedir: () => '/home/test' }))
 
 import { fetchKimiRateLimits } from './kimi-fetcher'
-
-setMainHttpClient({ fetch: fetchMock, proxySession: () => null })
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -67,7 +68,7 @@ function freshCredentials(): string {
 
 describe('fetchKimiRateLimits', () => {
   beforeEach(() => {
-    fetchMock.mockReset()
+    netFetchMock.mockReset()
     fsState.credentials = null
     fsState.readError = null
     fsState.readPaths = []
@@ -83,12 +84,12 @@ describe('fetchKimiRateLimits', () => {
     expect(result.status).toBe('unavailable')
     expect(result.session).toBeNull()
     expect(result.weekly).toBeNull()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
   })
 
   it('maps the usages payload to session (5h) and weekly windows', async () => {
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
+    netFetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
 
     const result = await fetchKimiRateLimits()
 
@@ -101,36 +102,17 @@ describe('fetchKimiRateLimits', () => {
     expect(result.weekly?.windowMinutes).toBe(10080)
     expect(result.weekly?.usedPercent).toBeCloseTo(0)
     // Bearer token from the credentials file is sent.
-    const [, init] = fetchMock.mock.calls[0]
+    const [, init] = netFetchMock.mock.calls[0]
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-abc')
   })
 
   it('surfaces an error when the usage request fails', async () => {
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse({}, 500))
+    netFetchMock.mockResolvedValueOnce(jsonResponse({}, 500))
 
     const result = await fetchKimiRateLimits()
     expect(result.status).toBe('error')
     expect(result.session).toBeNull()
-  })
-
-  it('tags a request that throws before a response as a network failure', async () => {
-    fsState.credentials = freshCredentials()
-    fetchMock.mockRejectedValueOnce(new Error('net::ERR_PROXY_CONNECTION_FAILED'))
-
-    const result = await fetchKimiRateLimits()
-    expect(result.error).toBe('net::ERR_PROXY_CONNECTION_FAILED')
-    expect(result.usageMetadata?.failureKind).toBe('network')
-  })
-
-  it('tags a malformed usage body as a parse failure, not a network one', async () => {
-    fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(
-      new Response('not json', { status: 200, headers: { 'content-type': 'application/json' } })
-    )
-
-    const result = await fetchKimiRateLimits()
-    expect(result.usageMetadata?.failureKind).toBe('parse')
   })
 
   it('surfaces an error when the credentials file cannot be parsed', async () => {
@@ -139,7 +121,7 @@ describe('fetchKimiRateLimits', () => {
     const result = await fetchKimiRateLimits()
     expect(result.status).toBe('error')
     expect(result.error).toMatch(/json/i)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
   })
 
   it('surfaces an error when the credentials file cannot be read', async () => {
@@ -149,12 +131,12 @@ describe('fetchKimiRateLimits', () => {
     const result = await fetchKimiRateLimits()
     expect(result.status).toBe('error')
     expect(result.error).toMatch(/EACCES/)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
   })
 
   it('treats an empty usage payload as an error', async () => {
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse({}))
+    netFetchMock.mockResolvedValueOnce(jsonResponse({}))
 
     const result = await fetchKimiRateLimits()
     expect(result.status).toBe('error')
@@ -175,12 +157,12 @@ describe('fetchKimiRateLimits', () => {
       failureKind: 'delegated-refresh-required',
       source: 'oauth'
     })
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
   })
 
   it('reads the host ~/.kimi-code credentials by default', async () => {
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
+    netFetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
 
     const result = await fetchKimiRateLimits()
 
@@ -191,7 +173,7 @@ describe('fetchKimiRateLimits', () => {
   it('honors KIMI_CODE_HOME for the host home', async () => {
     vi.stubEnv('KIMI_CODE_HOME', '/custom/kimi-home')
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
+    netFetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
 
     const result = await fetchKimiRateLimits()
 
@@ -202,7 +184,7 @@ describe('fetchKimiRateLimits', () => {
   it('ignores a blank KIMI_CODE_HOME instead of reading from the process cwd', async () => {
     vi.stubEnv('KIMI_CODE_HOME', '   ')
     fsState.credentials = freshCredentials()
-    fetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
+    netFetchMock.mockResolvedValueOnce(jsonResponse(USAGE_RESPONSE))
 
     await fetchKimiRateLimits()
 

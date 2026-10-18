@@ -11,10 +11,9 @@ import type { ProjectGroup } from '../../../../shared/project-group-types'
 import type { Project, ProjectHostSetup } from '../../../../shared/project-types'
 import type { Repo } from '../../../../shared/repo-types'
 import { translate } from '@/i18n/i18n'
-import { getProjectGroupHeaderKey } from '../../../../shared/sidebar-list/group-keys'
-import { getDistinctProjectGroups } from '../../../../shared/project-groups'
-import { getProjectHeaderRevealTarget } from '../../../../shared/project-section-grouping'
-import type { ProjectGroupingModel } from '../../../../shared/project-section-grouping'
+import { getProjectGroupHeaderKey } from '../sidebar/worktree-list/grouping/group-keys'
+import { getProjectHeaderRevealTarget } from '../sidebar/worktree-list/grouping/project-grouping'
+import type { ProjectGroupingModel } from '../sidebar/worktree-list/grouping/project-grouping'
 
 export type CmdJProjectGroupResult = {
   id: string
@@ -82,7 +81,7 @@ function buildCmdJProjectSearchCandidates({
   const repoMap = new Map(repos.map((repo) => [repo.id, repo]))
   const candidates: CmdJProjectSearchResult[] = []
 
-  getDistinctProjectGroups(projectGroups).forEach((group, order) => {
+  projectGroups.forEach((group, order) => {
     candidates.push({
       id: `project-group:${group.id}`,
       kind: 'project-group',

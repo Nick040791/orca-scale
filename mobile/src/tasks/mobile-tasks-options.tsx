@@ -60,18 +60,6 @@ export const PROVIDER_OPTIONS: PickerOption<TaskProvider>[] = [
         color={selected ? colors.textPrimary : colors.textSecondary}
       />
     )
-  },
-  {
-    value: 'jira',
-    label: 'Jira',
-    subtitle: 'Assigned and reported issues',
-    renderIcon: (selected) => (
-      <TaskProviderLogo
-        provider="jira"
-        size={16}
-        color={selected ? colors.textPrimary : colors.textSecondary}
-      />
-    )
   }
 ]
 
@@ -97,9 +85,6 @@ export const LINEAR_VIEW_OPTIONS: PickerOption<LinearViewMode>[] = [
 export function taskWorkspaceFallback(item: ActionableTaskItem): string {
   if (item.provider === 'github' || item.provider === 'gitlab') {
     return `${item.source.type}-${item.source.number}`
-  }
-  if (item.provider === 'jira') {
-    return item.source.key.toLowerCase()
   }
   return item.source.identifier.toLowerCase()
 }

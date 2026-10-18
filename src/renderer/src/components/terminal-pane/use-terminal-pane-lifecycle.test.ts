@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyTerminalPaneCloseRequest,
-  retireMountedTerminalPaneSurface,
-  suppressIntentionalPaneCloseExit
-} from './terminal-pane-lifecycle-close'
-import {
   applyTerminalScrollbackRowsToMountedPanes,
   clearQueuedInitialCwdAfterFirstPane,
   createQueuedStartupConsumer,
@@ -16,9 +12,12 @@ import {
   resolvePaneSeedCwd,
   resolveQueuedInitialCwd,
   replayLayoutWithOneShotParkIntent,
+  resetTerminalKeyboardProtocolAfterInterrupt,
+  retireMountedTerminalPaneSurface,
   shouldDetachPaneTransportOnUnmount,
-  splitPaneWithOneShotStartup
-} from './terminal-pane-lifecycle-primitives'
+  splitPaneWithOneShotStartup,
+  suppressIntentionalPaneCloseExit
+} from './use-terminal-pane-lifecycle'
 
 describe('applyTerminalPaneCloseRequest', () => {
   it('detaches a rolled-back split surface without closing its PTY', () => {
@@ -166,6 +165,23 @@ describe('applyTerminalPaneCloseRequest', () => {
     expect(clearTabPtyId).toHaveBeenCalledWith('legacy-worker', 'pty-legacy')
     expect(transport.detach).toHaveBeenCalledOnce()
     expect(transport.destroy).not.toHaveBeenCalled()
+  })
+})
+
+describe('resetTerminalKeyboardProtocolAfterInterrupt', () => {
+  it('does not write to an xterm whose pipeline is certified dead', async () => {
+    const { _resetWritePipelineHealthForTests, notifyUndeliverableWrite } =
+      await import('@/lib/pane-manager/terminal-write-pipeline-health')
+    const terminal = { write: vi.fn() }
+    try {
+      notifyUndeliverableWrite(terminal, 'replay-wedged')
+
+      resetTerminalKeyboardProtocolAfterInterrupt(terminal as never)
+
+      expect(terminal.write).not.toHaveBeenCalled()
+    } finally {
+      _resetWritePipelineHealthForTests(terminal)
+    }
   })
 })
 

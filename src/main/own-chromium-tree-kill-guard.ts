@@ -4,7 +4,7 @@ import {
   type SelfInitiatedTreeKillScope
 } from './crash-reporting/self-initiated-tree-kill-log'
 import { readOrcaChromiumProcessPids } from './orca-chromium-process-pids'
-import { setProcessTreeKillGate } from '@orca/process-host/process-tree-kill-gate'
+import { setProcessTreeKillGate } from '../shared/child-process/process-tree-kill-gate'
 
 /**
  * Gate every main-process tree-kill through one decision: refuse a pid-addressed
@@ -16,7 +16,8 @@ import { setProcessTreeKillGate } from '@orca/process-host/process-tree-kill-gat
  * lifetimes (sync, fire-and-forget, timeout ladder), and three more live in
  * `src/shared` and reach this through `process-tree-kill-gate`, so a guard that
  * only lived in the tree-kill helper would cover one of nine.
- * Returns false
+ * `main-process-tree-kill-gate.test.ts` holds that set closed by counting `/pid`
+ * call sites against gate admissions per file, not by file. Returns false
  * when the caller must not walk that pid's tree; the caller still kills its own
  * root through the child handle (`refused-tree-kill-root-termination.test.ts`),
  * so a refusal is never a process leak.

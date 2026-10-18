@@ -1,11 +1,9 @@
 import type { BrowserScreencastResult } from '../../shared/runtime-types'
-import type { RuntimeBrowserCommandHost } from './browser/browser-command-contracts'
-import type { RuntimeBrowserCommands } from './browser/browser-commands'
+import type { RuntimeBrowserCommands, RuntimeBrowserCommandHost } from './orca-runtime-browser'
 import { RuntimeEmulatorCommands } from './orca-runtime-emulator'
 import { RuntimeBrowserScreencastController } from './runtime-browser-screencast-controller'
 import { createRuntimeBrowserCommands } from './runtime-browser-commands-factory'
 import { RuntimeJiraCommands } from './runtime-jira-commands'
-import type { RpcBinarySender } from './rpc/rpc-binary-sender'
 
 type PublicMethods<T> = Pick<T, keyof T>
 type BrowserSurface = Omit<PublicMethods<RuntimeBrowserCommands>, 'browserScreencast'> & {
@@ -15,7 +13,7 @@ type BrowserSurface = Omit<PublicMethods<RuntimeBrowserCommands>, 'browserScreen
       connectionId?: string
       pairedDeviceId?: string
       clientKind?: 'mobile' | 'runtime'
-      sendBinary?: RpcBinarySender
+      sendBinary?: (bytes: Uint8Array<ArrayBufferLike>) => boolean | void
       signal?: AbortSignal
       emit: (result: BrowserScreencastResult) => void
     }
@@ -137,7 +135,7 @@ function bindNamedMethods<T extends object>(
 }
 
 export class RuntimeEdgeCommandController {
-  private readonly jira: RuntimeJiraCommands
+  private readonly jira = new RuntimeJiraCommands()
   private readonly browser: RuntimeBrowserCommands
   private readonly screencasts: RuntimeBrowserScreencastController
   private readonly emulator: RuntimeEmulatorCommands
@@ -145,12 +143,10 @@ export class RuntimeEdgeCommandController {
 
   constructor(args: {
     browserHost: RuntimeBrowserCommandHost
-    jiraHost: ConstructorParameters<typeof RuntimeJiraCommands>[0]
     screencast: Omit<ScreencastDependencies, 'getCommands'>
     emulatorHost: EmulatorHost
     getBrowserCommands?: () => RuntimeBrowserCommands
   }) {
-    this.jira = new RuntimeJiraCommands(args.jiraHost)
     this.browser = createRuntimeBrowserCommands(args.browserHost)
     this.screencasts = new RuntimeBrowserScreencastController({
       ...args.screencast,

@@ -5,13 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Repo } from '../shared/repo-types'
 import type { Store } from './persistence'
 
-const { listRepoWorktreesMock, getLocalProjectWorktreeGitOptionsMock, workerState } = vi.hoisted(
-  () => ({
-    listRepoWorktreesMock: vi.fn(),
-    getLocalProjectWorktreeGitOptionsMock: vi.fn(),
-    workerState: { fail: false }
-  })
-)
+const {
+  listRepoWorktreesMock,
+  getLocalProjectWorktreeGitOptionsMock,
+  getSshFilesystemProviderMock,
+  getSshGitProviderMock
+} = vi.hoisted(() => ({
+  listRepoWorktreesMock: vi.fn(),
+  getLocalProjectWorktreeGitOptionsMock: vi.fn(),
+  getSshFilesystemProviderMock: vi.fn(),
+  getSshGitProviderMock: vi.fn()
+}))
 
 vi.mock('./repo-worktrees', () => ({
   createFolderWorktree: (repo: Repo) => ({
@@ -24,29 +28,17 @@ vi.mock('./repo-worktrees', () => ({
   listRepoWorktrees: listRepoWorktreesMock
 }))
 
+vi.mock('./providers/ssh-filesystem-dispatch', () => ({
+  getSshFilesystemProvider: getSshFilesystemProviderMock
+}))
+
+vi.mock('./providers/ssh-git-dispatch', () => ({
+  getSshGitProvider: getSshGitProviderMock
+}))
+
 vi.mock('./project-runtime-git-options', () => ({
   getLocalProjectWorktreeGitOptions: getLocalProjectWorktreeGitOptionsMock
 }))
-
-vi.mock('./worker-thread-child-process/worker-thread-child-process', () => ({
-  spawnProcessOnWorkerThread: () => {
-    throw new Error('Use portable traversal in this test')
-  }
-}))
-
-vi.mock('./workspace-space-scan-worker-client', async () => {
-  const { scanLocalWorkspaceSpaceWorktree } = await import('./workspace-space-local-scan')
-  return {
-    scanLocalWorkspaceSpaceWorktreeViaWorker: (
-      ...args: Parameters<typeof scanLocalWorkspaceSpaceWorktree>
-    ) => {
-      if (workerState.fail) {
-        throw new Error('Scan worker unavailable')
-      }
-      return scanLocalWorkspaceSpaceWorktree(...args)
-    }
-  }
-})
 
 import { analyzeWorkspaceSpace, WorkspaceSpaceScanCancelledError } from './workspace-space-analysis'
 
@@ -75,7 +67,8 @@ describe('analyzeWorkspaceSpace', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'orca-space-'))
     listRepoWorktreesMock.mockReset()
     getLocalProjectWorktreeGitOptionsMock.mockReset().mockReturnValue({})
-    workerState.fail = false
+    getSshFilesystemProviderMock.mockReset()
+    getSshGitProviderMock.mockReset()
   })
 
   afterEach(async () => {
@@ -356,35 +349,162 @@ describe('analyzeWorkspaceSpace', () => {
     expect(result.worktrees[0]?.sizeBytes).toBe(0)
   })
 
-  it('reports a failed scan worker without traversing the workspace on the main thread', async () => {
-    const repoPath = join(tempDir!, 'repo')
-    await mkdir(repoPath)
-    await writeSizedFile(join(repoPath, 'file.txt'), 128)
+  it('scans SSH worktrees through the remote filesystem provider without following symlinks', async () => {
     const repo: Repo = {
-      id: 'repo-1',
-      path: repoPath,
-      displayName: 'orca',
+      id: 'repo-remote',
+      path: '/remote/repo',
+      displayName: 'remote',
       badgeColor: '#000',
-      addedAt: 0
+      addedAt: 0,
+      connectionId: 'ssh-1'
     }
-    listRepoWorktreesMock.mockResolvedValue([
-      {
-        path: repoPath,
-        head: 'a',
-        branch: 'refs/heads/main',
-        isBare: false,
-        isMainWorktree: true
-      }
+    getSshGitProviderMock.mockReturnValue({
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/feature',
+          head: 'c',
+          branch: 'refs/heads/feature',
+          isBare: false,
+          isMainWorktree: false
+        }
+      ])
+    })
+
+    const statByPath = new Map([
+      ['/remote/feature', { size: 10, type: 'directory' as const, mtime: 0 }],
+      ['/remote/feature/node_modules', { size: 5, type: 'directory' as const, mtime: 0 }],
+      ['/remote/feature/node_modules/pkg.js', { size: 1000, type: 'file' as const, mtime: 0 }],
+      ['/remote/feature/file.log', { size: 200, type: 'file' as const, mtime: 0 }]
     ])
-    workerState.fail = true
+    const readDirMock = vi.fn(async (dirPath: string) => {
+      if (dirPath === '/remote/feature') {
+        return [
+          { name: 'node_modules', isDirectory: true, isSymlink: false },
+          { name: 'linked-cache', isDirectory: true, isSymlink: true },
+          { name: 'file.log', isDirectory: false, isSymlink: false }
+        ]
+      }
+      if (dirPath === '/remote/feature/node_modules') {
+        return [{ name: 'pkg.js', isDirectory: false, isSymlink: false }]
+      }
+      return []
+    })
+    const statMock = vi.fn(async (filePath: string) => {
+      const stat = statByPath.get(filePath)
+      if (!stat) {
+        throw Object.assign(new Error(`missing ${filePath}`), { code: 'ENOENT' })
+      }
+      return stat
+    })
+    getSshFilesystemProviderMock.mockReturnValue({
+      readDir: readDirMock,
+      stat: statMock
+    })
 
     const result = await analyzeWorkspaceSpace(createStore([repo]))
 
-    expect(result.worktrees[0]).toMatchObject({
-      status: 'error',
-      sizeBytes: 0,
-      error: 'Scan worker unavailable'
+    expect(result.worktrees[0]?.status).toBe('ok')
+    expect(result.worktrees[0]?.sizeBytes).toBe(1215)
+    expect(result.worktrees[0]?.topLevelItems.map((item) => item.name)).toEqual([
+      'node_modules',
+      'file.log',
+      'linked-cache'
+    ])
+    expect(statMock).not.toHaveBeenCalledWith('/remote/feature/linked-cache')
+  })
+
+  it('uses the SSH bulk Space scan provider when available', async () => {
+    const repo: Repo = {
+      id: 'repo-remote',
+      path: '/remote/repo',
+      displayName: 'remote',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'ssh-1'
+    }
+    getSshGitProviderMock.mockReturnValue({
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/feature',
+          head: 'c',
+          branch: 'refs/heads/feature',
+          isBare: false,
+          isMainWorktree: false
+        }
+      ])
     })
+    const scanWorkspaceSpace = vi.fn().mockResolvedValue({
+      sizeBytes: 4096,
+      skippedEntryCount: 0,
+      topLevelItems: [
+        {
+          name: 'node_modules',
+          path: '/remote/feature/node_modules',
+          kind: 'directory',
+          sizeBytes: 4096
+        }
+      ],
+      omittedTopLevelItemCount: 0,
+      omittedTopLevelSizeBytes: 0
+    })
+    const readDir = vi.fn().mockResolvedValue([])
+    const stat = vi.fn()
+    getSshFilesystemProviderMock.mockReturnValue({ scanWorkspaceSpace, readDir, stat })
+
+    const result = await analyzeWorkspaceSpace(createStore([repo]))
+
+    expect(scanWorkspaceSpace).toHaveBeenCalledWith(
+      '/remote/feature',
+      expect.objectContaining({ signal: undefined })
+    )
+    expect(readDir).not.toHaveBeenCalled()
+    expect(stat).not.toHaveBeenCalled()
+    expect(result.worktrees[0]?.sizeBytes).toBe(4096)
+  })
+
+  it('bounds concurrent SSH fallback traversals in the main process', async () => {
+    // Why: each fallback traversal holds its own admission budget, so repo ×
+    // worktree concurrency alone would stack six of them on the desktop heap.
+    const repos: Repo[] = ['ssh-1', 'ssh-2'].map((connectionId) => ({
+      id: `repo-${connectionId}`,
+      path: `/remote/${connectionId}`,
+      displayName: connectionId,
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId
+    }))
+    getSshGitProviderMock.mockReturnValue({
+      listWorktrees: vi.fn(async (repoPath: string) =>
+        [0, 1, 2].map((index) => ({
+          path: `${repoPath}/worktree-${index}`,
+          head: 'c',
+          branch: `refs/heads/worktree-${index}`,
+          isBare: false,
+          isMainWorktree: false
+        }))
+      )
+    })
+
+    const releases: (() => void)[] = []
+    let active = 0
+    let peak = 0
+    const stat = vi.fn(async () => {
+      active += 1
+      peak = Math.max(peak, active)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      active -= 1
+      return { size: 0, type: 'directory' as const, mtime: 0 }
+    })
+    getSshFilesystemProviderMock.mockReturnValue({ readDir: vi.fn(async () => []), stat })
+
+    const scan = analyzeWorkspaceSpace(createStore(repos))
+    for (let index = 0; index < 6; index += 1) {
+      await vi.waitFor(() => expect(releases.length).toBeGreaterThan(index))
+      releases[index]!()
+    }
+
+    await expect(scan).resolves.toMatchObject({ scannedWorktreeCount: 6 })
+    expect(peak).toBe(2)
   })
 
   it('reports disconnected SSH repos without failing the whole analysis', async () => {
@@ -396,6 +516,7 @@ describe('analyzeWorkspaceSpace', () => {
       addedAt: 0,
       connectionId: 'ssh-1'
     }
+    getSshGitProviderMock.mockReturnValue(undefined)
 
     const result = await analyzeWorkspaceSpace(createStore([repo]))
 

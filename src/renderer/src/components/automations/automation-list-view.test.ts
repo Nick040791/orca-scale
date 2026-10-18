@@ -52,8 +52,8 @@ function makeExternalEntry(
 ): ExternalAutomationListEntry {
   const manager: ExternalAutomationManager = {
     id: 'manager-1',
-    provider: 'openclaw',
-    label: 'Local OpenClaw',
+    provider: 'hermes',
+    label: 'Local Hermes',
     targetLabel: 'Local',
     target: { type: 'local' },
     status: 'available',
@@ -64,7 +64,7 @@ function makeExternalEntry(
   const job: ExternalAutomationJob = {
     id: 'job-1',
     managerId: manager.id,
-    provider: 'openclaw',
+    provider: 'hermes',
     name: 'Alpha digest',
     schedule: '0 9 * * 1-5',
     rawSchedule: null,

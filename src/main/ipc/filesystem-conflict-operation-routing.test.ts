@@ -21,6 +21,10 @@ vi.mock(
   async () => (await import('./filesystem-test-harness')).crashBreadcrumbMock
 )
 vi.mock(
+  '../local-downloaded-folder-promotion',
+  async () => (await import('./filesystem-test-harness')).folderPromotionMock
+)
+vi.mock(
   '../git/status',
   async () => (await import('./filesystem-test-harness')).gitStatusModuleMock
 )
@@ -32,6 +36,10 @@ vi.mock('../git/worktree', async () => (await import('./filesystem-test-harness'
 vi.mock(
   '../providers/ssh-filesystem-dispatch',
   async () => (await import('./filesystem-test-harness')).sshFilesystemDispatchMock
+)
+vi.mock(
+  '../providers/ssh-git-dispatch',
+  async () => (await import('./filesystem-test-harness')).sshGitDispatchMock
 )
 vi.mock('./local-worktree-runtime-options', () => ({
   getLocalGitOptionsForRegisteredWorktree: getLocalGitOptionsForRegisteredWorktreeMock,
@@ -73,24 +81,5 @@ describe('git:conflictOperation local routing', () => {
     expect(detectConflictOperationMock).toHaveBeenCalledWith(WORKTREE_FEATURE_PATH, {
       wslDistro: 'Ubuntu'
     })
-  })
-})
-
-describe('git:conflictOperation ssh routing', () => {
-  beforeEach(() => {
-    resetFilesystemIpcMocks()
-    detectConflictOperationMock.mockReset()
-  })
-
-  it('reports an SSH host as not served instead of falling back to this machine', async () => {
-    registerFilesystemHandlers(store as never)
-
-    await expect(
-      handlers.get('git:conflictOperation')!(null, {
-        worktreePath: '/remote/wt',
-        connectionId: 'ssh-1'
-      })
-    ).rejects.toThrow('Remote connection dropped')
-    expect(detectConflictOperationMock).not.toHaveBeenCalled()
   })
 })

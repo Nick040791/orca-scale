@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ArrowUp, Check, CircleHelp } from 'lucide-react-native'
-import { MobileNativeChatCardHeaderAction } from './MobileNativeChatCardHeaderAction'
+import { ArrowUp, Check, CircleHelp, X } from 'lucide-react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import { mobileNativeChatInputStyles } from './mobile-native-chat-input-styles'
 import {
@@ -15,8 +14,6 @@ type Props = {
   question: MobileChatQuestion
   onAnswer: (text: string) => Promise<boolean>
   onCancel?: (prompt?: NonNullable<MobileChatQuestion['prompt']>) => Promise<boolean>
-  /** Fold the card to a strip and free Send, writing nothing. */
-  onCollapse?: () => void
 }
 
 /** Renders an agent's choice prompt as a tappable card. Single-select answers
@@ -26,17 +23,16 @@ type Props = {
 export function MobileNativeChatQuestion({
   question,
   onAnswer,
-  onCancel,
-  onCollapse
+  onCancel
 }: Props): React.JSX.Element {
   const [selectedOptionIndexes, setSelectedOptionIndexes] = useState<number[]>([])
-  const [freeText, setFreeText] = useState(() => question.freeTextInput?.initialValue ?? '')
+  const [freeText, setFreeText] = useState('')
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   const allowOther = question.allowOther !== false
 
   const hasOptions = question.options.length > 0
-  const answerText = question.freeTextInput?.allowEmpty ? freeText : freeText.trim()
+  const trimmedFreeText = freeText.trim()
 
   const toggle = (optionIndex: number): void => {
     setSelectedOptionIndexes((prev) =>
@@ -72,8 +68,8 @@ export function MobileNativeChatQuestion({
       return
     }
     const answer =
-      question.freeTextToken && answerText.length > 0
-        ? formatQuestionAnswerWithOtherByIndexes(question, selectedOptionIndexes, answerText)
+      question.freeTextToken && trimmedFreeText.length > 0
+        ? formatQuestionAnswerWithOtherByIndexes(question, selectedOptionIndexes, trimmedFreeText)
         : formatQuestionAnswerByIndexes(question, selectedOptionIndexes)
     if (await sendAnswer(answer)) {
       setFreeText('')
@@ -81,21 +77,20 @@ export function MobileNativeChatQuestion({
   }
 
   const submitFreeText = async (): Promise<void> => {
-    if (!allowOther || (answerText.length === 0 && !question.freeTextInput?.allowEmpty)) {
+    if (trimmedFreeText.length === 0) {
       return
     }
     const answer =
       question.multiSelect && question.freeTextToken && selectedOptionIndexes.length > 0
-        ? formatQuestionAnswerWithOtherByIndexes(question, selectedOptionIndexes, answerText)
-        : formatQuestionFreeTextAnswer(question, answerText)
+        ? formatQuestionAnswerWithOtherByIndexes(question, selectedOptionIndexes, trimmedFreeText)
+        : formatQuestionFreeTextAnswer(question, trimmedFreeText)
     if (await sendAnswer(answer)) {
       setFreeText('')
     }
   }
 
   const canSubmitMulti = selectedOptionIndexes.length > 0 && !sending
-  const canSendFreeText =
-    allowOther && (answerText.length > 0 || question.freeTextInput?.allowEmpty === true) && !sending
+  const canSendFreeText = allowOther && trimmedFreeText.length > 0 && !sending
 
   // Stable keys for option rows even if an agent repeats a label.
   const optionRows = useMemo(
@@ -113,12 +108,17 @@ export function MobileNativeChatQuestion({
       <View style={styles.header}>
         <CircleHelp size={15} color={colors.accentBlue} strokeWidth={2.2} />
         <Text style={styles.question}>{question.question}</Text>
-        <MobileNativeChatCardHeaderAction
-          prompt={question.prompt}
-          onCancel={onCancel}
-          onCollapse={onCollapse}
-          disabled={sending}
-        />
+        {onCancel ? (
+          <Pressable
+            accessibilityLabel="Cancel"
+            hitSlop={8}
+            style={styles.cancel}
+            onPress={() => void onCancel(question.prompt)}
+            disabled={sending}
+          >
+            <X size={16} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
       </View>
 
       {hasOptions ? (
@@ -179,16 +179,12 @@ export function MobileNativeChatQuestion({
             style={mobileNativeChatInputStyles.freeInput}
             value={freeText}
             onChangeText={setFreeText}
-            placeholder={
-              question.freeTextInput?.placeholder ??
-              (hasOptions ? 'Or type a reply…' : 'Type your reply…')
-            }
+            placeholder={hasOptions ? 'Or type a reply…' : 'Type your reply…'}
             placeholderTextColor={colors.textMuted}
             selectionColor={colors.accentBlue}
             onSubmitEditing={submitFreeText}
             returnKeyType="send"
-            // A declared input (Pi's `input`) is one line unless it asks for more, as on desktop.
-            multiline={question.freeTextInput ? question.freeTextInput.multiline === true : true}
+            multiline
           />
           <Pressable
             accessibilityLabel="Send reply"
@@ -234,6 +230,12 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySize + 1,
     fontWeight: '600',
     lineHeight: typography.bodySize + 7
+  },
+  cancel: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   options: {
     gap: spacing.xs

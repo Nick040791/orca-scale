@@ -7,7 +7,6 @@ import {
   isExpiredActivePRRefreshState
 } from '../github/pr-refresh-state'
 import { evictStaleEntries } from '../github/cache-policy'
-import { persistGitHubCacheChanges } from '../github/cache-persistence'
 import { createProjectActions } from '../github/project-actions'
 import { createProjectRowActions } from '../github/project-row-actions'
 import { createWorkItemFetchActions } from '../github/work-item-fetch-actions'
@@ -26,11 +25,7 @@ import { createRefreshEventActions } from '../github/refresh-event-actions'
 import { createRefreshSweepActions } from '../github/refresh-sweep-actions'
 export type GitHubSlice = GitHubSliceContract
 
-export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (
-  set,
-  get,
-  store
-) => ({
+export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (set, get) => ({
   prCache: {},
   issueCache: {},
   checksCache: {},
@@ -38,8 +33,6 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (
   prRefreshSequences: {},
   prRefreshStates: {},
   prVisibleRefreshGeneration: 0,
-  visibleReviewWorktreeIds: [],
-  visibleReviewCardWorktreeIds: [],
   workItemsCache: {},
   workItemsInvalidationNonce: 0,
   projectViewCache: {},
@@ -96,20 +89,16 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (
   ...createWorkItemMutationActions(set, get),
 
   initGitHubCache: async () => {
-    let persisted: Awaited<ReturnType<typeof window.api.cache.getGitHub>> | null = null
     try {
-      persisted = await window.api.cache.getGitHub()
+      const persisted = await window.api.cache.getGitHub()
+      if (persisted) {
+        set({
+          prCache: evictStaleEntries(persisted.pr || {}),
+          issueCache: evictStaleEntries(persisted.issue || {})
+        })
+      }
     } catch (err) {
       console.error('Failed to load GitHub cache from disk:', err)
-    }
-    // Why after the read: an earlier write would replace main's copy with a partial cache.
-    // Before hydrating, so main also drops entries hydration evicts.
-    persistGitHubCacheChanges(store)
-    if (persisted) {
-      set({
-        prCache: evictStaleEntries(persisted.pr || {}),
-        issueCache: evictStaleEntries(persisted.issue || {})
-      })
     }
   }
 })

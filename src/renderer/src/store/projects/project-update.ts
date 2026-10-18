@@ -4,8 +4,8 @@ import type { Project } from '../../../../shared/project-types'
 import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
 import { notifyInstalledAgentSkillsChanged } from '@/hooks/installed-agent-skill-discovery'
 import type { RepoSlice } from '../repos/repo-state'
-import { getProjectSetupRuntimeTarget } from './project-host-routing'
-import { mergeUpdatedProjectCompatibilityProject } from '../../../../shared/project-compatibility-merge'
+import { getProjectUpdateRuntimeTarget } from './project-host-routing'
+import { mergeUpdatedProjectCompatibilityProject } from './project-compatibility-core'
 import { normalizeProjectRow } from '../../../../shared/project-catalog-row-normalization'
 
 export function createProjectUpdateActions(
@@ -13,10 +13,9 @@ export function createProjectUpdateActions(
   get: Parameters<StateCreator<AppState>>[1]
 ): Pick<RepoSlice, 'updateProject'> {
   return {
-    updateProject: async (projectId, updates, hostId) => {
+    updateProject: async (projectId, updates) => {
       try {
-        // Why: the caller names the host whose project row it edits; focus never picks it.
-        const target = getProjectSetupRuntimeTarget(hostId)
+        const target = getProjectUpdateRuntimeTarget(get(), projectId)
         const updatedProject =
           target.kind === 'local'
             ? await window.api.projects.update({ projectId, updates })

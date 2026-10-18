@@ -2,10 +2,6 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { translate } from '@/i18n/i18n'
-import {
-  resolveWorktreeOperationRoute,
-  resolveWorktreeOperationRouteForHost
-} from '@/lib/worktree-operation-route'
 import type { WorktreeRemovalTarget } from '../../../../shared/worktree/removal'
 import { prepareActiveWorktreeFocusAfterDelete } from './active-worktree-focus-after-delete'
 import { showDeleteWorktreeFailureToast } from './delete-worktree-failure-toast'
@@ -46,10 +42,6 @@ export function runWorktreeDeleteWithToast(
     error: string,
     state: ReturnType<typeof getDeleteStateForWorktreeHost>
   ): void => {
-    const currentState = useAppStore.getState()
-    const route = target.executionHostId
-      ? resolveWorktreeOperationRouteForHost(currentState, worktreeId, target.executionHostId)
-      : resolveWorktreeOperationRoute(currentState, worktreeId)
     const hasKnownChanges =
       (useAppStore.getState().gitStatusByWorktree[worktreeId]?.length ?? 0) > 0
     showDeleteWorktreeFailureToast({
@@ -60,8 +52,6 @@ export function runWorktreeDeleteWithToast(
       lockReason: state?.lockReason ?? null,
       hasKnownChanges,
       onViewChanges: () => viewWorktreeDiff(worktreeId, target.executionHostId),
-      onAlwaysForceDelete: () =>
-        useAppStore.getState().updateSettingsOrThrow({ alwaysForceDeleteWorktrees: true }),
       // Why (#19334): re-runs the archive hook and waives the failure this time, so the waiver
       // is an informed choice made after reading the refusal -- not something `force` implied.
       onDeleteAnyway: () =>
@@ -78,10 +68,7 @@ export function runWorktreeDeleteWithToast(
           withViewAction: true
         }),
       worktreeId,
-      executionHostId: target.executionHostId,
-      worktreeName,
-      nestedRemovalTarget: route && !route.runtimeEnvironmentId ? target : undefined,
-      onNestedDeleted: () => options.onForceDeleted?.(target)
+      worktreeName
     })
   }
 

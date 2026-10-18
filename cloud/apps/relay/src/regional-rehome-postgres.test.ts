@@ -415,10 +415,9 @@ describePostgres('PostgreSQL regional rehoming', () => {
     const claim = context.store.commitIdleRegionalRehome(request!, safety(context.now()))
 
     await expect(claim).resolves.toEqual({ outcome: 'deferred', reason: 'fleet-safety' })
-    // A sql spike alone pauses the claim; only the director's sustained check latches.
     expect(await context.store.inspectRegionalRehomeControl()).toMatchObject({
-      generation: 1,
-      enabled: true
+      generation: 2,
+      enabled: false
     })
     expect(
       await primary.query(

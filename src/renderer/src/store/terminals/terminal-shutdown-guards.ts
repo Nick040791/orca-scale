@@ -1,9 +1,8 @@
-import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import {
   restorePtyDataHandlersAfterFailedShutdown,
   unregisterPtyDataHandlers
-} from '@/components/terminal-pane/pty-dispatcher'
+} from '@/components/terminal-pane/pty-transport'
 import type { PtyDataHandlerShutdownSnapshot } from '@/components/terminal-pane/pty-shutdown-data-suspension'
 import { disposeParkedTerminalWatchersForPtyIds } from '@/components/terminal-pane/terminal-parked-watcher-registry'
 import {
@@ -34,7 +33,7 @@ export function createTerminalShutdownGuardController({
   get,
   keepIdentifiers,
   rendererShutdownPtyIds,
-  runtimeOwnsRemotePtys,
+  runtimeEnvironmentId,
   set,
   tabs
 }: {
@@ -42,8 +41,7 @@ export function createTerminalShutdownGuardController({
   get: TerminalStoreGet
   keepIdentifiers: boolean
   rendererShutdownPtyIds: readonly string[]
-  /** A runtime host stops the `remote:` PTYs, so the renderer counts them stopped. */
-  runtimeOwnsRemotePtys: boolean
+  runtimeEnvironmentId: string | null
   set: TerminalStoreSet
   tabs: readonly TerminalTab[]
 }): TerminalShutdownGuardController {
@@ -136,13 +134,13 @@ export function createTerminalShutdownGuardController({
     stoppedPtyIds: string[]
     failure?: PromiseRejectedResult
   }> => {
-    const localPtyIds = rendererShutdownPtyIds.filter((ptyId) => !isRemoteRuntimePtyId(ptyId))
+    const localPtyIds = rendererShutdownPtyIds.filter((ptyId) => !ptyId.startsWith('remote:'))
     const results = await Promise.allSettled(
       localPtyIds.map((ptyId) => window.api.pty.kill(ptyId, { keepHistory: keepIdentifiers }))
     )
     const stoppedPtyIds = [
-      ...(runtimeOwnsRemotePtys
-        ? rendererShutdownPtyIds.filter((ptyId) => isRemoteRuntimePtyId(ptyId))
+      ...(runtimeEnvironmentId
+        ? rendererShutdownPtyIds.filter((ptyId) => ptyId.startsWith('remote:'))
         : []),
       ...localPtyIds.filter((_, index) => results[index]?.status === 'fulfilled')
     ]

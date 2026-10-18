@@ -11,24 +11,18 @@ import {
   attachAiVaultServiceChild,
   cancelAiVaultServiceCall,
   clearAiVaultServiceCall,
-  createAiVaultServicePendingCall,
   createAiVaultServiceReadyWaiter,
   rejectAiVaultServiceCall,
   requeueOrRejectAiVaultServiceStart,
   retireAiVaultServiceChild,
-  stopAiVaultServiceChild,
+  sendAiVaultServiceCall,
   type AiVaultServiceClientOptions,
   type AiVaultServicePendingCall,
   type AiVaultServiceReadyWaiter
 } from './session-scanner-service-client-state'
-import {
-  noteAiVaultServiceScanProgress,
-  sendAiVaultServiceCall,
-  type AiVaultServiceScanListener
-} from './session-scanner-service-request-deadline'
-import { answerAiVaultServiceSessionSearchRoots } from './session-scanner-service-root-answer'
 import { AiVaultServiceRestartPolicy } from './session-scanner-service-restart-policy'
 import {
+  aiVaultServiceLane,
   isAiVaultServiceChildMessage,
   type AiVaultSessionSearchInit,
   type AiVaultServiceRequest,
@@ -50,11 +44,7 @@ export class AiVaultScannerServiceClient {
 
   constructor(private readonly options: AiVaultServiceClientOptions) {}
 
-  request<T>(
-    body: AiVaultServiceRequestBody,
-    signal?: AbortSignal,
-    scanListener?: AiVaultServiceScanListener
-  ): Promise<T> {
+  request<T>(body: AiVaultServiceRequestBody, signal?: AbortSignal): Promise<T> {
     if (this.disposed) {
       return Promise.reject(new Error('AI Vault service client was disposed.'))
     }
@@ -66,15 +56,22 @@ export class AiVaultScannerServiceClient {
     }
     const request = { ...body, id: this.nextId++ } as AiVaultServiceRequest
     return new Promise<T>((resolve, reject) => {
-      const call = createAiVaultServicePendingCall(
+      const call: AiVaultServicePendingCall = {
         request,
+        lane: aiVaultServiceLane(request.operation),
         signal,
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: callers choose T as the result value of the operation they send, which is what the child answers with.
-        resolve as (value: unknown) => void,
+        resolve: resolve as (value: unknown) => void,
         reject,
-        (aborted) => this.cancel(aborted),
-        scanListener
-      )
+        timer: null,
+        onAbort: null,
+        cancelled: false,
+        sent: false,
+        startRetried: false
+      }
+      if (signal) {
+        call.onAbort = () => this.cancel(call)
+        signal.addEventListener('abort', call.onAbort, { once: true })
+      }
       this.queue.push(call)
       this.idleRetirement.clear()
       this.pump()
@@ -148,7 +145,7 @@ export class AiVaultScannerServiceClient {
             child,
             call,
             () => this.active.get(call.lane) === call,
-            this.onDeadline
+            (error) => this.onFault(error)
           ),
         (error: Error) => {
           if (this.active.get(lane) !== call) {
@@ -225,7 +222,16 @@ export class AiVaultScannerServiceClient {
       return
     }
     if (message.type === 'sessionSearchRoots') {
-      answerAiVaultServiceSessionSearchRoots(this.child, message.id, this.options, () => this.child)
+      const child = this.child
+      const resolve = this.options.resolveSessionSearchRoots
+      void Promise.resolve()
+        .then(() => (resolve ? resolve() : (this.options.init().sessionSearch?.roots ?? null)))
+        .catch(() => null)
+        .then((roots) => {
+          if (child && this.child === child && child.connected) {
+            child.send({ type: 'sessionSearchRoots', id: message.id, roots }, () => undefined)
+          }
+        })
       return
     }
     if (message.type === 'ready') {
@@ -246,10 +252,6 @@ export class AiVaultScannerServiceClient {
     }
     const call = [...this.active.values()].find((entry) => entry.request.id === message.id)
     if (!call) {
-      return
-    }
-    if (message.type === 'progress') {
-      noteAiVaultServiceScanProgress(call, message.work)
       return
     }
     this.active.delete(call.lane)
@@ -274,15 +276,14 @@ export class AiVaultScannerServiceClient {
     })
   }
 
-  private readonly onDeadline = (error: Error): void => this.onFault(error, true)
-
-  private onFault(error: Error, retire = false): void {
+  private onFault(error: Error): void {
     const child = this.child
     if (!child) {
       return
     }
     this.child = null
-    stopAiVaultServiceChild(child, retire)
+    child.removeAllListeners()
+    child.kill()
     if (this.readyWaiter) {
       clearTimeout(this.readyWaiter.timer)
       this.readyWaiter.reject(error)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CommandSpec } from './args'
-import { suggestCommands, unknownCommandData } from './command-suggestion'
+import { levenshtein, suggestCommands, unknownCommandData } from './command-suggestion'
 
 const specs: CommandSpec[] = [
   {
@@ -44,6 +44,21 @@ const specs: CommandSpec[] = [
     allowedFlags: []
   }
 ]
+
+describe('levenshtein', () => {
+  it('returns 0 for identical strings', () => {
+    expect(levenshtein('rm', 'rm')).toBe(0)
+  })
+
+  it('counts single-edit distance', () => {
+    expect(levenshtein('remov', 'remove')).toBe(1)
+  })
+
+  it('handles empty operands', () => {
+    expect(levenshtein('', 'abc')).toBe(3)
+    expect(levenshtein('abc', '')).toBe(3)
+  })
+})
 
 describe('suggestCommands', () => {
   it('suggests the closest command for a near-miss verb', () => {

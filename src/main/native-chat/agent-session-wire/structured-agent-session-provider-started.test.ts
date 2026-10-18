@@ -1,43 +1,28 @@
 // A publish-first create proves nothing about the model until Claude answers startup. The record
 // must never hold the catalog's default in the meantime: an owner handoff or a reopen would
-// launch it as `--model` and silently move a user whose CLI default is not Sonnet.
+// replay it as a `set_model` and silently move a user whose CLI default is not Sonnet.
 
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentModelCatalogLiveListing } from '../agent-model-catalog/agent-model-catalog-store'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionStatusEvent } from '../../../shared/agent-session-wire'
 import { ClaudeStructuredSessionAdapter } from '../../claude/claude-structured-session-adapter'
 import {
   fakeClaude,
   PROVIDER_SESSION_ID
 } from '../../claude/claude-structured-session-test-support'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { structuredClaudeLifecycleEvent } from '../../runtime/structured-claude-runtime-adapter'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
   HOST_TEST_NOW as NOW,
   HOST_TEST_SESSION as SESSION,
   hostTestAttachParams,
-  hostTestMessage,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
-import { createTestParams } from './structured-agent-session-create-test-fixture'
 
 const CALLER = { callerKey: 'client-1' }
-const CLAUDE_MODELS = [
-  { value: 'claude-sonnet', displayName: 'Sonnet' },
-  { value: 'claude-opus-9', displayName: 'Opus 9' }
-]
-const LISTED = [
-  expect.objectContaining({ id: 'claude-sonnet' }),
-  expect.objectContaining({ id: 'claude-opus-9' })
-]
 const INIT_DELAY_MS = 40
 
 let root: string
@@ -46,28 +31,13 @@ let host: StructuredAgentSessionHost
 let adapter: ClaudeStructuredSessionAdapter
 let lifecycle: Promise<void>[]
 let statuses: AgentSessionStatusEvent[]
-let savedListings: { sessionId: string; listing: AgentModelCatalogLiveListing }[]
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-provider-started-'))
   resetHostTestOperationIds()
   lifecycle = []
   statuses = []
-  savedListings = []
-  // A CLI whose own default is not the catalog's: startup reports it through get_settings,
-  // since system/init arrives only with the first command.
-  const claude = fakeClaude({
-    initDelayMs: INIT_DELAY_MS,
-    initModel: 'claude-opus-9',
-    settings: {
-      applied: { model: 'claude-opus-9', effort: 'high', advisor: null, ultracode: false },
-      effective: { model: 'claude-opus-9', effortLevel: 'high', env: {} },
-      sources: {}
-    },
-    // Startup lists from initialize, and a chat's options read from list_models: the same rows.
-    initModels: CLAUDE_MODELS,
-    routes: { list_models: () => CLAUDE_MODELS }
-  })
+  const claude = fakeClaude({ initDelayMs: INIT_DELAY_MS, initModel: 'claude-opus-9' })
   adapter = new ClaudeStructuredSessionAdapter({
     resolveLaunch: async () => ({
       pathToClaudeCodeExecutable: 'claude',
@@ -91,24 +61,14 @@ beforeEach(async () => {
     readProcessStartTime: async () => 1_700_000_000_000,
     now: () => NOW
   })
-  store = await openTestAgentSessionRecordStore(root)
+  store = await AgentSessionRecordStore.open({ directory: join(root, 'store'), hostId: 'local' })
   host = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     // The production router is what declares create support; the bare adapter only knows locations.
     adapter: Object.assign(adapter, { supportsCreate: () => true }),
-    journalDatabase: openTestJournalHostDatabase(root),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
-    modelCatalog: {
-      read: async () => ({ origin: 'unknown' }),
-      retainedLiveModelIds: vi.fn(() => []),
-      recordLiveListing: (sessionId, listing) => savedListings.push({ sessionId, listing }),
-      prewarm: async () => {},
-      stop: () => {},
-      providerStarted: () => {}
-    },
     now: () => NOW
   })
   host.subscribeStatus({ id: 'status-1', emit: (event) => statuses.push(event) })
@@ -120,8 +80,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-function claudeParams(expectedRuntimeFence: number | null = null) {
-  return hostTestAttachParams(expectedRuntimeFence, {
+function claudeParams() {
+  return hostTestAttachParams(null, {
     provider: 'claude',
     agent: 'claude',
     accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: join(root, 'claude-home') },
@@ -135,19 +95,17 @@ function lastPhase(): string | undefined {
 }
 
 describe('a publish-first Claude create whose init is slow', () => {
-  it('keeps provider defaults out of saved picks after starting', async () => {
+  it('never persists the catalog default, and persists the reported model once started', async () => {
     await expect(host.attach(CALLER, claudeParams())).resolves.toMatchObject({ ok: true })
 
     // Published, not yet answering: the record holds no model rather than a guessed one.
     expect(store.getRecord(SESSION)?.options?.model).toBeUndefined()
     expect(lastPhase()).toBe('starting')
 
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
+    await adapter.drainStartup(SESSION)
     await Promise.all(lifecycle)
 
-    expect(store.getRecord(SESSION)?.options?.model).toBeUndefined()
+    expect(store.getRecord(SESSION)?.options?.model).toBe('claude-opus-9')
     expect(lastPhase()).toBe('ready')
   })
 
@@ -158,9 +116,7 @@ describe('a publish-first Claude create whose init is slow', () => {
     ).resolves.toMatchObject({ ok: true })
     expect(store.getRecord(SESSION)?.options?.model).toBe('opus')
 
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
+    await adapter.drainStartup(SESSION)
     await Promise.all(lifecycle)
 
     expect(store.getRecord(SESSION)?.options?.model).toBe('opus')
@@ -170,100 +126,22 @@ describe('a publish-first Claude create whose init is slow', () => {
   it('keeps the picked model across a resume whose new child starts on its own default', async () => {
     const params = claudeParams()
     await host.attach(CALLER, { ...params, options: { model: 'opus' } })
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
+    await adapter.drainStartup(SESSION)
     await Promise.all(lifecycle)
-    await host.close(SESSION, 'evict')
+    await host.close(SESSION)
     const releasedFence = store.getRecord(SESSION)?.lease.runtimeFence ?? 0
 
-    // Starting the chat again resumes the session under a new fence.
-    await expect(host.attach(CALLER, claudeParams(releasedFence))).resolves.toMatchObject({
-      ok: true
-    })
+    // Reopening the chat: the surface's first hold resumes the session.
+    await host.hold(SESSION, 'chat-1')
     expect(store.getRecord(SESSION)?.lease.runtimeFence).toBeGreaterThan(releasedFence)
-    // The new child is launched with the saved pick, whatever its CLI default.
+    // The new child's init reports its CLI default; the saved pick is restored over it.
     expect(store.getRecord(SESSION)?.options?.model).toBe('opus')
     expect(lastPhase()).toBe('starting')
 
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
+    await adapter.drainStartup(SESSION)
     await Promise.all(lifecycle)
 
     expect(store.getRecord(SESSION)?.options?.model).toBe('opus')
     expect(lastPhase()).toBe('ready')
-  })
-  it('saves the account listing the child read at startup, though no view asks for options', async () => {
-    await host.attach(CALLER, claudeParams())
-    expect(savedListings).toEqual([])
-
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    await Promise.all(lifecycle)
-
-    // `started` hands over the listing; the settings readback after it, what the config resolved.
-    expect(savedListings).toEqual([
-      { sessionId: SESSION, listing: expect.objectContaining({ models: LISTED }) },
-      {
-        sessionId: SESSION,
-        listing: expect.objectContaining({
-          models: LISTED,
-          configuredDefault: expect.objectContaining({ modelId: 'claude-opus-9' })
-        })
-      }
-    ])
-    expect(savedListings[0]?.listing).not.toHaveProperty('configuredDefault')
-  })
-  it('reports the configured default from a chat created with its first message and no pick', async () => {
-    const first = { clientMessageId: 'opening', body: hostTestMessage('hello') }
-    await expect(
-      host.create(CALLER, createTestParams(first, claudeParams()), { firstMessage: first })
-    ).resolves.toMatchObject({ ok: true })
-
-    // Delivery, not create, starts the CLI. Its `started` event carries the account listing; the
-    // settings read after it (`options-reported`) resolves the configured model and says so once.
-    await vi.waitFor(() => expect(savedListings.length).toBeGreaterThanOrEqual(1))
-    expect(savedListings[0]).toEqual({
-      sessionId: SESSION,
-      listing: expect.objectContaining({ models: LISTED })
-    })
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    await Promise.all(lifecycle)
-    expect(store.getRecord(SESSION)?.options?.model).toBeUndefined()
-    expect(savedListings.at(-1)).toEqual({
-      sessionId: SESSION,
-      listing: expect.objectContaining({
-        configuredDefault: expect.objectContaining({ modelId: 'claude-opus-9' })
-      })
-    })
-    // A later read refreshes the listing without re-learning the configured default.
-    const saved = savedListings.length
-    await host.readOptions(SESSION)
-    expect(savedListings).toHaveLength(saved + 1)
-    expect(savedListings.at(-1)?.listing).not.toHaveProperty('configuredDefault')
-  })
-
-  it('saves the configured default when the settings readback beats the attach', async () => {
-    // The attach is slow to prove the owner, so the child's readback lands before the host indexes it.
-    const proveOwner = store.proveOwner.bind(store)
-    store.proveOwner = async (input) => {
-      await new Promise((resolve) => setTimeout(resolve, 200))
-      return proveOwner(input)
-    }
-    await expect(host.attach(CALLER, claudeParams())).resolves.toMatchObject({ ok: true })
-    await vi.waitFor(() =>
-      expect(host.readStatusSummary(SESSION)?.hostExecutionPhase).toBe('ready')
-    )
-    await Promise.all(lifecycle)
-
-    await vi.waitFor(() =>
-      expect(savedListings.at(-1)?.listing).toMatchObject({
-        configuredDefault: expect.objectContaining({ modelId: 'claude-opus-9' })
-      })
-    )
   })
 })

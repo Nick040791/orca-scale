@@ -32,7 +32,6 @@ type ProjectTargetActionsInput = Pick<
   | 'setSparseEnabled'
   | 'setSparseSelectedPresetId'
   | 'setStartFromResetHint'
-  | 'smartSourceSelectionRef'
   | 'selectedWorkspaceTarget'
   | 'workspaceHostScope'
 >
@@ -79,7 +78,6 @@ export function useProjectTargetActions(input: ProjectTargetActionsInput) {
     setSparseEnabled,
     setSparseSelectedPresetId,
     setStartFromResetHint,
-    smartSourceSelectionRef,
     selectedWorkspaceTarget,
     workspaceHostScope
   } = input
@@ -105,7 +103,6 @@ export function useProjectTargetActions(input: ProjectTargetActionsInput) {
           return
         }
         const nextSourceRepo = getFolderSourceRepos(repos, projectGroups, nextProjectGroup)[0]
-        smartSourceSelectionRef.current = null
         setSelectedProjectGroupId(nextProjectGroup.id)
         setProjectError(null)
         setRepoId(nextSourceRepo?.id ?? '')
@@ -181,8 +178,7 @@ export function useProjectTargetActions(input: ProjectTargetActionsInput) {
       setSparseDirectories,
       setSparseEnabled,
       setSparseSelectedPresetId,
-      setStartFromResetHint,
-      smartSourceSelectionRef
+      setStartFromResetHint
     ]
   )
 

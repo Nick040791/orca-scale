@@ -1,5 +1,5 @@
 import type { Socket } from 'node:net'
-import { NDJSON_MAX_LINE_BYTES } from './ndjson'
+import { encodeNdjson, NDJSON_MAX_LINE_BYTES } from './ndjson'
 import { recordDaemonStreamBacklogEvent } from './daemon-stream-backlog-probe'
 import { DaemonStreamBackpressure } from './daemon-stream-backpressure'
 import {
@@ -7,7 +7,7 @@ import {
   releaseDaemonStreamEntry
 } from './daemon-stream-entry-accounting'
 import { DaemonStreamHeldRefill } from './daemon-stream-held-refill'
-import { clampToSafeBulkWriteSplitIndex, streamFramesFor } from './daemon-stream-data-split'
+import { clampToSafeSplitIndex, writeStreamDataEvents } from './daemon-stream-data-split'
 import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import type { DaemonEvent } from './types'
 import {
@@ -20,10 +20,10 @@ import {
   refreshDroppableSessionMembership
 } from './daemon-stream-droppable-membership'
 import type { DaemonStreamDataBatcherOptions } from './daemon-stream-data-batcher-options'
-import type { ConnectedDaemonClient } from './daemon-client-connections'
 
-// Why framing rides the client: frames are encoded at flush time, so a replacement stream gets its own.
-type StreamDataClient = Pick<ConnectedDaemonClient, 'streamSocket' | 'streamFraming'>
+type StreamDataClient = {
+  streamSocket: Socket | null
+}
 
 // 2ms: each chunk waits a half-window here AND again in main's PTY batch; a smaller interval still coalesces bursts while cutting the fixed latency tax (~8ms of the measured ~19ms DSR-under-load latency).
 const STREAM_DATA_BATCH_INTERVAL_MS = 2
@@ -168,7 +168,6 @@ export class DaemonStreamDataBatcher {
     }
 
     const socket = client.streamSocket
-    const frames = streamFramesFor(client.streamFraming)
     // A session that held an entry must hold all its later entries this pass — writing around a held entry would reorder that session's bytes.
     const heldSessions = new Set<string>()
     const retained: PendingStreamDataBatch['queue'] = []
@@ -188,7 +187,7 @@ export class DaemonStreamDataBatcher {
         }
         batch.queue.shift()
         releaseDaemonStreamEntry(batch, entry)
-        this.write(clientId, entry.sessionId, socket, frames.control(entry.control))
+        this.write(clientId, entry.sessionId, socket, encodeNdjson(entry.control))
         continue
       }
       if (socketDeep && batch.queuedChars <= HELD_WRITE_THROUGH_TOTAL_CHARS) {
@@ -214,7 +213,7 @@ export class DaemonStreamDataBatcher {
       const end =
         entry.transformed || entry.data.length <= BULK_WRITE_SLICE_CHARS
           ? entry.data.length
-          : clampToSafeBulkWriteSplitIndex(entry.data, BULK_WRITE_SLICE_CHARS)
+          : clampToSafeSplitIndex(entry.data, 0, BULK_WRITE_SLICE_CHARS)
       const slice = entry.data.slice(0, end)
       const entrySequenceChars = entry.sequenceChars ?? entry.data.length
       const sliceSequenceChars = entry.transformed
@@ -240,7 +239,7 @@ export class DaemonStreamDataBatcher {
       } else {
         batch.queuedCharsBySession.set(entry.sessionId, sessionHeldAfter)
       }
-      frames.data(
+      writeStreamDataEvents(
         { write: (line) => this.write(clientId, entry.sessionId, socket, line) },
         entry.sessionId,
         slice,
@@ -256,7 +255,7 @@ export class DaemonStreamDataBatcher {
       // 'drain' only fires when the buffer fully empties (one gate-depth/turn = seconds for multi-MB backlogs); arm a no-op data event whose flush callback re-flushes while bytes are still in flight.
       if (!socket.destroyed) {
         const sessionId = retained[0].sessionId
-        this.heldRefill.arm(clientId, frames.noop(sessionId), (line, complete) =>
+        this.heldRefill.arm(clientId, sessionId, (line, complete) =>
           this.write(clientId, sessionId, socket, line, complete)
         )
       }
@@ -269,7 +268,7 @@ export class DaemonStreamDataBatcher {
     clientId: string,
     sessionId: string,
     socket: Socket,
-    line: string | Buffer,
+    line: string,
     onComplete?: () => void
   ): void {
     if (this.backpressure) {
@@ -300,8 +299,7 @@ export class DaemonStreamDataBatcher {
     }
 
     const socket = client.streamSocket
-    const frames = streamFramesFor(client.streamFraming)
-    flushDaemonStreamSession(batch, sessionId, this.maxLineBytes, frames, (line) =>
+    flushDaemonStreamSession(batch, sessionId, this.maxLineBytes, (line) =>
       this.write(clientId, sessionId, socket, line)
     )
     if (batch.queue.length === 0) {

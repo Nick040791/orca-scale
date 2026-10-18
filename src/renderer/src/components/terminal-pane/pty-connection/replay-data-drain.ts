@@ -1,12 +1,8 @@
-import { RELEASE_SYNCHRONIZED_OUTPUT } from '../../../../../shared/terminal-mode-reset-profiles'
 import { waitForTerminalOutputParsed } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 import { safeFit, safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
 import { getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
 
-import {
-  buildFoldedImageReplayWrites,
-  resolvePositiveTerminalDimensions
-} from '../terminal-snapshot-replay-paint'
+import { resolvePositiveTerminalDimensions } from '../terminal-snapshot-replay-paint'
 
 import {
   CURSOR_SHOW_SEQUENCE,
@@ -67,7 +63,7 @@ export function bindReplayDataDrain(session: ConnectPanePtySession): void {
       if (!session.shouldSendFocusedAgentReattachFocusIn() || !sendFocusMode) {
         return
       }
-      session.transport.sendInput(TERMINAL_FOCUS_IN_SEQUENCE, 'query-reply')
+      session.transport.sendInput(TERMINAL_FOCUS_IN_SEQUENCE)
     })
   }
 
@@ -104,9 +100,7 @@ export function bindReplayDataDrain(session: ConnectPanePtySession): void {
         alternateScreen,
         terminalOwner,
         snapshotCols,
-        snapshotRows,
-        carriesNormalBuffer,
-        carriesHistory
+        snapshotRows
       } = payload
       session.pendingReplayData = null
       const isCurrentPayload = (): boolean =>
@@ -120,32 +114,11 @@ export function bindReplayDataDrain(session: ConnectPanePtySession): void {
       // Relay replay buffers may overlap with content already rendered in
       // xterm. Local eager replay decides this earlier so metadata-only frames
       // can keep restored scrollback while still using the replay guard.
-      // Why ahead of the source-grid resize: the clear is grid-independent, so a
-      // clear that drops the scrollback spares a reflow of history the very next
+      // Why ahead of the source-grid resize: the clear is grid-independent, so
+      // dropping the scrollback first spares a reflow of history the very next
       // sequence discards (see use-terminal-container-fit-sync.ts on its cost).
-      let replayPayload = data
       if (clearBeforeReplay) {
-        if (carriesNormalBuffer) {
-          // Why after queued output parses: a TUI's own ?1049h may still be
-          // queued, and a stale read would paint the image into the wrong buffer.
-          await waitForTerminalOutputParsed(session.pane.terminal)
-          if (!isCurrentPayload()) {
-            continue
-          }
-          const image = buildFoldedImageReplayWrites(
-            data,
-            session.isPaneOnAlternateScreen(),
-            carriesHistory === true
-          )
-          replayPayload = image.payload
-          await session.writeReplayDataAsync(image.preamble)
-        } else {
-          // RELEASE_SYNCHRONIZED_OUTPUT: a reconnect is exactly the event that severs a
-          // frame mid-flight, so this xterm may hold an open 2026 latch — and \x1b[2J does
-          // not clear it, so the pane would stay frozen on its last painted frame and the
-          // whole replay would go unseen until xterm's 1s timeout.
-          await session.writeReplayDataAsync(`${RELEASE_SYNCHRONIZED_OUTPUT}\x1b[2J\x1b[3J\x1b[H`)
-        }
+        await session.writeReplayDataAsync('\x1b[2J\x1b[3J\x1b[H')
         if (!isCurrentPayload()) {
           continue
         }
@@ -180,14 +153,13 @@ export function bindReplayDataDrain(session: ConnectPanePtySession): void {
       // semantics: relay reconnects redeliver the same window, so pushes
       // apply as sets to keep the mirrored stack from accumulating frames.
       session.applySnapshotKittyKeyboardModes(data, payload)
-      await session.writeReplayDataAsync(replayPayload)
+      await session.writeReplayDataAsync(data)
       if (!isCurrentPayload()) {
         continue
       }
       if (clearBeforeReplay || data.length > 0) {
-        await session.writeReplayEpilogue(
-          session.chooseReattachReplayReset(data, false, alternateScreen, terminalOwner),
-          session.writeReplayDataAsync
+        await session.writeReplayDataAsync(
+          session.reattachReplayResetSequence(data, false, alternateScreen, terminalOwner)
         )
         if (!isCurrentPayload()) {
           continue

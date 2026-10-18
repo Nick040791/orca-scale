@@ -13,7 +13,6 @@ const SEARCH_VIRTUAL_OVERSCAN = 12
 
 type SearchResultsPaneProps = {
   results: SearchResult | null
-  error?: string | null
   hasCommittedResults: boolean
   query: string
   loading: boolean
@@ -26,7 +25,6 @@ type SearchResultsPaneProps = {
 export function SearchResultsPane({
   results,
   hasCommittedResults,
-  error,
   query,
   loading,
   rows,
@@ -70,7 +68,7 @@ export function SearchResultsPane({
     <>
       {/* Why: the summary is rendered outside the virtualizer so it stays
          pinned at the top while the user scrolls through results. */}
-      {!error && results && (rows.length > 0 || results.truncated) && (
+      {results && rows.length > 0 && (
         <div className="px-2 py-1 text-[10px] text-muted-foreground border-b border-border">
           {results.totalMatches}{' '}
           {translate('auto.components.right.sidebar.Search.6aeda362ed', 'result')}
@@ -85,15 +83,7 @@ export function SearchResultsPane({
       )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-sleek">
-        {error && (
-          <div
-            role="alert"
-            className="p-2 text-xs text-destructive whitespace-pre-wrap break-words"
-          >
-            {error}
-          </div>
-        )}
-        {!error && rows.length > 0 && (
+        {rows.length > 0 && (
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const row = rows[virtualRow.index]
@@ -127,7 +117,7 @@ export function SearchResultsPane({
           </div>
         )}
 
-        {!error && !hasCommittedResults && query && !loading && (
+        {!hasCommittedResults && query && !loading && (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-xs">
             {translate('auto.components.right.sidebar.Search.d56d140747', 'Press Enter to search')}
           </div>

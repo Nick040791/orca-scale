@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { getLocalPreflightContext, localPreflightContextKey } from '@/lib/local-preflight-context'
-import { isEnvironmentRuntimeContextKey } from '@/lib/provider-runtime-context'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { PreflightStatus } from '../../../../preload/api-types'
@@ -50,8 +49,6 @@ export function useAutomationSourceHostAvailability(
     ReadonlyMap<TaskSourceContext['hostId'], RuntimeProviderPreflightStatus>
   >(() => new Map())
   const preflightStatusCurrent = preflightStatusContextKey === expectedPreflightContextKey
-  // Why: the shared preflight follows the focused host; only a local one answers for desktop-owned repos.
-  const preflightDescribesDesktop = !isEnvironmentRuntimeContextKey(expectedPreflightContextKey)
 
   const sourceContexts = useMemo(
     () =>
@@ -149,8 +146,7 @@ export function useAutomationSourceHostAvailability(
           provider: context.provider,
           contexts: [context],
           preflightStatus,
-          preflightReady:
-            preflightStatusCurrent && preflightStatusChecked && preflightDescribesDesktop,
+          preflightReady: preflightStatusCurrent && preflightStatusChecked,
           runtimePreflightStatusByHostId: statusByHostId
         })
       ]
@@ -164,7 +160,6 @@ export function useAutomationSourceHostAvailability(
     preflightStatus,
     preflightStatusChecked,
     preflightStatusCurrent,
-    preflightDescribesDesktop,
     runtimeStatusByEnvironmentId,
     statusByHostId
   ])

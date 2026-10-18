@@ -1,7 +1,8 @@
-import type {
-  AgentChildWorkId,
-  AgentChildWorkInvocationFence,
-  AgentChildWorkKind
+import {
+  agentChildWorkFencesEqual,
+  type AgentChildWorkId,
+  type AgentChildWorkInvocationFence,
+  type AgentChildWorkKind
 } from './agent-status-child-work'
 import { parseAgentChildWorkInvocationFence } from './agent-status-child-work-codec'
 import {
@@ -15,17 +16,11 @@ const CHILD_ALIAS_KEY_PREFIX = 'agent-child-work-alias-v1:'
 const MAX_ALIAS_PART_LENGTH = 512
 
 /**
- * `thread_id` names a child by its own provider thread (a Codex subagent); `turn_id` names one run
- * of such a child, as `tool_use_id` names one run of a task. The hook lane registers a Claude
- * `agent_id` under `task_id` (it is the same registry id) and a Codex `agent_id` under `thread_id`;
- * no `agent_id` kind exists on purpose.
+ * `thread_id` names a child by its own provider thread (a Codex subagent). The hook lane registers
+ * a Claude `agent_id` under `task_id` (it is the same registry id) and a Codex `agent_id` under
+ * `thread_id`; no `agent_id` kind exists on purpose.
  */
-export const AGENT_CHILD_WORK_ALIAS_KINDS = [
-  'task_id',
-  'tool_use_id',
-  'thread_id',
-  'turn_id'
-] as const
+export const AGENT_CHILD_WORK_ALIAS_KINDS = ['task_id', 'tool_use_id', 'thread_id'] as const
 export type AgentChildWorkAliasKind = (typeof AGENT_CHILD_WORK_ALIAS_KINDS)[number]
 const ALIAS_KIND_SET: ReadonlySet<string> = new Set(AGENT_CHILD_WORK_ALIAS_KINDS)
 
@@ -216,4 +211,15 @@ export function deserializeAgentChildWorkAliasKey(
     alias: parsed.alias
   }
   return serializeAgentChildWorkAliasKey(identity) === value ? identity : null
+}
+
+export function agentChildWorkAliasesMatch(
+  left: AgentChildWorkAliasInput,
+  right: AgentChildWorkAliasInput
+): boolean {
+  return (
+    serializeAgentChildWorkAliasKey(left) === serializeAgentChildWorkAliasKey(right) &&
+    left.childWorkId === right.childWorkId &&
+    agentChildWorkFencesEqual(left.fence, right.fence)
+  )
 }

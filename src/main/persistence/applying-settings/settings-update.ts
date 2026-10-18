@@ -1,16 +1,12 @@
-import { normalizeNativeChatAppearanceSettings } from '../../../shared/native-chat-appearance-settings'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import { normalizeDisabledTuiAgents } from '../../../shared/tui-agent-selection'
-import { normalizeNativeChatProviderChoices } from '../../../shared/native-chat-providers'
 import { resolveNestedWorkerMaxDepth } from '../../../shared/nested-worker-depth'
 import {
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord
 } from '../../../shared/tui-agent-launch-defaults'
 import { normalizeTerminalQuickCommands } from '../../../shared/terminal-quick-commands'
-import { assertTerminalQuickCommandsStorable } from '../../../shared/terminal-quick-command-prompt-limit'
 import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
-import { normalizeTerminalDefaultShell } from '../../../shared/terminal-default-shell'
 import { normalizeTerminalCursorStyleDefault } from '../../../shared/terminal-cursor-style-settings'
 import { normalizeDesktopTerminalScrollbackRows } from '../../../shared/terminal-scrollback-policy'
 import { normalizeTerminalMinimumContrastRatio } from '../../../shared/terminal-minimum-contrast-settings'
@@ -61,10 +57,14 @@ export function updateSettings(
   options: { notifyListeners?: boolean; originWebContentsId?: number } = {}
 ): GlobalSettings {
   const sanitizedUpdates = stripRetiredGlobalSettings(updates)
-  const linkBehavior = updates.terminalLinkClickBehavior
-  if (linkBehavior === 'actions' || linkBehavior === 'open' || linkBehavior === 'none') {
-    // Loaded defaults are ambiguous; synchronize the legacy switch only on an explicit write.
-    sanitizedUpdates.terminalLinkActionPopoverEnabled = linkBehavior === 'actions'
+  if ('opencodeSessionCookie' in updates && !updates.opencodeSessionCookie) {
+    operations.removeRetainedBlob(PROTECTED_SECRET_SLOT.opencodeSessionCookie)
+  }
+  if ('opencodeGoApiKey' in updates && !updates.opencodeGoApiKey) {
+    operations.removeRetainedBlob(PROTECTED_SECRET_SLOT.opencodeGoApiKey)
+  }
+  if ('httpProxyUrl' in updates && !updates.httpProxyUrl) {
+    operations.removeRetainedBlob(PROTECTED_SECRET_SLOT.httpProxyUrl)
   }
   // Why: coerce to boolean here (not the IPC edge) so every write path is covered and a truthy non-bool can't persist as "tray-minimize on".
   if ('minimizeToTrayOnClose' in updates) {
@@ -85,18 +85,8 @@ export function updateSettings(
       nestedWorkerMaxDepth: updates.nestedWorkerMaxDepth
     })
   }
-  if ('nativeChatAppearance' in updates) {
-    sanitizedUpdates.nativeChatAppearance = normalizeNativeChatAppearanceSettings(
-      updates.nativeChatAppearance
-    )
-  }
   if ('disabledTuiAgents' in updates) {
     sanitizedUpdates.disabledTuiAgents = normalizeDisabledTuiAgents(updates.disabledTuiAgents)
-  }
-  if ('nativeChatProviders' in updates) {
-    sanitizedUpdates.nativeChatProviders = normalizeNativeChatProviderChoices(
-      updates.nativeChatProviders
-    )
   }
   if ('worktreeVisibilityDefaults' in updates) {
     sanitizedUpdates.worktreeVisibilityDefaults = {
@@ -115,14 +105,8 @@ export function updateSettings(
     sanitizedUpdates.agentYoloDefaultsMigrated = true
   }
   if ('terminalQuickCommands' in updates) {
-    const terminalQuickCommands = normalizeTerminalQuickCommands(updates.terminalQuickCommands)
-    // Every local and paired save lands here, so this is where an unstorable list is refused.
-    assertTerminalQuickCommandsStorable(terminalQuickCommands)
-    sanitizedUpdates.terminalQuickCommands = terminalQuickCommands
-  }
-  if ('terminalDefaultShell' in updates) {
-    sanitizedUpdates.terminalDefaultShell = normalizeTerminalDefaultShell(
-      updates.terminalDefaultShell
+    sanitizedUpdates.terminalQuickCommands = normalizeTerminalQuickCommands(
+      updates.terminalQuickCommands
     )
   }
   if ('terminalCustomThemes' in updates) {
@@ -275,12 +259,6 @@ export function updateSettings(
       ...sanitizedUpdates.notifications
     }),
     ...(mergedTelemetry !== undefined ? { telemetry: mergedTelemetry } : {})
-  }
-  if ('opencodeSessionCookie' in updates && !updates.opencodeSessionCookie) {
-    operations.removeRetainedBlob(PROTECTED_SECRET_SLOT.opencodeSessionCookie)
-  }
-  if ('httpProxyUrl' in updates && !updates.httpProxyUrl) {
-    operations.removeRetainedBlob(PROTECTED_SECRET_SLOT.httpProxyUrl)
   }
   if (
     !Object.is(

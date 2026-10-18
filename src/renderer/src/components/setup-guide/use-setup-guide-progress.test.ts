@@ -215,16 +215,18 @@ describe('getSetupGuideProgressReady', () => {
 })
 
 describe('setup script probe readiness', () => {
-  it('derives the probe signature from each repo host and order', () => {
+  it('derives the probe signature from runtime and ordered git repo inputs', () => {
     const localSignature = getSetupScriptProbeSignature({ activeRuntimeEnvironmentId: null }, [
       { id: 'repo-a', hookSettings: undefined },
       { id: 'repo-b', hookSettings: undefined }
     ])
-    // Why: hooks are probed on each repo's own host, so a repo moving host changes the signature.
-    const remoteSignature = getSetupScriptProbeSignature({ activeRuntimeEnvironmentId: null }, [
-      { id: 'repo-a', hookSettings: undefined, executionHostId: 'runtime:runtime-1' },
-      { id: 'repo-b', hookSettings: undefined }
-    ])
+    const remoteSignature = getSetupScriptProbeSignature(
+      { activeRuntimeEnvironmentId: 'runtime-1' },
+      [
+        { id: 'repo-a', hookSettings: undefined },
+        { id: 'repo-b', hookSettings: undefined }
+      ]
+    )
     const reorderedSignature = getSetupScriptProbeSignature({ activeRuntimeEnvironmentId: null }, [
       { id: 'repo-b', hookSettings: undefined },
       { id: 'repo-a', hookSettings: undefined }

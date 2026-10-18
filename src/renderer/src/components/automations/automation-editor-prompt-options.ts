@@ -11,7 +11,6 @@ export function buildAutomationPromptEditorOptions(args: {
     ariaLabel: args.ariaLabel,
     automaticLayout: true,
     contextmenu: true,
-    dropIntoEditor: { enabled: false },
     folding: false,
     fontFamily: args.fontFamily,
     fontSize: args.fontSize,

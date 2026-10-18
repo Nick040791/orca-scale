@@ -18,11 +18,7 @@ export function getDiscardAllPaths(
         entry.conflictStatus !== 'unresolved' &&
         entry.conflictStatus !== 'resolved_locally'
     )
-    .flatMap((entry) =>
-      area === 'staged' && entry.status === 'renamed' && entry.oldPath
-        ? [entry.path, entry.oldPath]
-        : [entry.path]
-    )
+    .map((entry) => entry.path)
 }
 
 export type StageAllArea = 'unstaged' | 'untracked'
@@ -64,11 +60,7 @@ export function isSubmoduleWorktreeOnlyChange(entry: GitStatusEntry): boolean {
  * row is safe and mirrors the per-row Unstage action.
  */
 export function getUnstageAllPaths(entries: readonly GitStatusEntry[]): string[] {
-  return entries
-    .filter((entry) => entry.area === 'staged' && !entry.submoduleRoot)
-    .flatMap((entry) =>
-      entry.status === 'renamed' && entry.oldPath ? [entry.path, entry.oldPath] : [entry.path]
-    )
+  return entries.filter((entry) => entry.area === 'staged').map((entry) => entry.path)
 }
 
 export type DiscardAllDeps = {
@@ -79,7 +71,7 @@ export type DiscardAllDeps = {
    * keep the legacy per-file sequence in tests or older surfaces.
    */
   discardMany?: (paths: string[]) => Promise<void>
-  /** Discard a single path (restore from the index, or remove an untracked file). */
+  /** Discard a single path (restore working-tree to HEAD, or rm if untracked). */
   discardOne: (path: string) => Promise<void>
   /**
    * Called when either the pre-step (bulkUnstage) rejects OR an individual
@@ -107,9 +99,12 @@ export type DiscardAllResult = {
  * Run the "Discard all" sequence for a given area.
  *
  * For 'staged', this first bulk-unstages the paths — without that step,
- * restoring from the index would preserve the staged changes. If the unstage
- * fails, skip discard so it cannot remove working edits while leaving that
- * staged delta behind.
+ * `discardOne` (which maps to `git restore --worktree --source=HEAD`) would
+ * reset the working tree to HEAD but leave the index carrying the staged
+ * delta, producing phantom inverse "Changes" rows the user thought they just
+ * discarded. If the unstage fails we MUST skip the discard loop entirely for
+ * the same reason: a stale index with a clean worktree is a worse state than
+ * the one the user started in.
  *
  * Per-file `discardOne` failures are best-effort: we continue past a failed
  * file so a single stuck path does not block the rest of the bulk action.

@@ -7,10 +7,7 @@ import {
   canOpenWorkspaceBrowserTabOnSsh
 } from '@/lib/workspace-browser-tab-open'
 import { resolvePaneWslDistro } from './terminal-pane-wsl-distro'
-import {
-  resolveTerminalHttpLinkSourceOwner,
-  resolveTerminalRuntimeHandle
-} from './terminal-http-link-source-owner'
+import { resolveTerminalHttpLinkSourceOwner } from './terminal-http-link-source-owner'
 import {
   getTerminalFileOpenHint,
   getTerminalUrlOpenHint,
@@ -23,7 +20,7 @@ import type { PtyConnectionDeps } from './pty-connection-types'
 import type { UseTerminalPaneLifecycleDeps } from './terminal-pane-lifecycle-types'
 import type { TerminalPaneLifecycleRefs } from './use-terminal-pane-lifecycle-refs'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
-import { registerRuntimeTerminalTab } from '@/runtime/mounted-terminal-tab-registry'
+import { registerRuntimeTerminalTab } from '@/runtime/sync-runtime-graph'
 import { normalizeTerminalLayoutSnapshot } from './layout-serialization'
 import { applyTerminalAppearance } from './terminal-appearance'
 import { terminalLinkClickBehaviorFor } from './terminal-link-click-behavior'
@@ -47,6 +44,7 @@ export type TerminalPaneMountPreparation = {
   startupCwd: string
   terminalHomePath: string | null
   wslDistro: string | null
+  startupWithSetupSplitWait: PtyConnectionDeps['startup']
   ptyDeps: PtyConnectionDeps
   deferredSplitHandoffs: Map<number, DeferredSplitPaneHandoffHandle>
   unregisterRuntimeTab: () => void
@@ -152,8 +150,7 @@ export function prepareTerminalPaneMount(
       request: deps.requestTerminalLinkAction,
       focusTerminal: () => pane.terminal.focus(),
       plainClickBehavior,
-      middleClickBehavior,
-      sourceOwner: getHttpLinkSourceOwnerForPane(paneId)
+      middleClickBehavior
     }
   }
   const pathExistsCache = new Map<string, boolean>()
@@ -171,7 +168,6 @@ export function prepareTerminalPaneMount(
       const sourceOwner = getHttpLinkSourceOwnerForPane(paneId)
       return sourceOwner.kind === 'runtime' ? sourceOwner.runtimeEnvironmentId : null
     },
-    getRuntimeTerminalHandleForPane: (id) => resolveTerminalRuntimeHandle(paneTransports.get(id)),
     getLinkActionContext
   }
   let resizeRaf: number | null = null
@@ -217,6 +213,13 @@ export function prepareTerminalPaneMount(
   if (hydratedInitialScrollback.hydrated) {
     deps.initialLayoutRef.current = hydratedInitialScrollback.layout
   }
+  const startupWithSetupSplitWait =
+    deps.startup && deps.setupSplit
+      ? {
+          ...deps.startup,
+          waitForSetupSplitDirection: deps.setupSplit.direction
+        }
+      : deps.startup
   // Numeric pane ids are mount-local; the handle itself is keyed by the
   // durable tab/leaf identity so a whole-tab remount can reclaim it.
   const deferredSplitHandoffs = new Map<number, DeferredSplitPaneHandoffHandle>()
@@ -224,6 +227,7 @@ export function prepareTerminalPaneMount(
     deps,
     refs,
     startupCwd,
+    startupWithSetupSplitWait,
     mountFollowsTerminalPark,
     restoredPtyIdByLeafId: deps.initialLayoutRef.current.ptyIdsByLeafId ?? {},
     deferredSplitHandoffs
@@ -256,6 +260,7 @@ export function prepareTerminalPaneMount(
     startupCwd,
     terminalHomePath,
     wslDistro,
+    startupWithSetupSplitWait,
     ptyDeps,
     deferredSplitHandoffs,
     unregisterRuntimeTab,

@@ -3,12 +3,8 @@ import type { StoreApi } from 'zustand'
 import type { AppState } from '@/store'
 import type { OpenFile } from '@/store/slices/editor'
 import { getConnectionIdForFile } from '@/lib/connection-context'
-import { editorTabFileAccess } from '@/lib/local-file-access'
-import { readRuntimeFileContent } from '@/runtime/runtime-file-read-client'
-import {
-  getRuntimeTargetForFileOwner,
-  requireRuntimeTargetForFileOwner
-} from '@/lib/file-owner-runtime-target'
+import { readRuntimeFileContent } from '@/runtime/runtime-file-client'
+import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { canAutoSaveOpenFile } from './editor-autosave'
 import { getDiskBaselineSignature } from './diff-content-signature'
 import { markFileChangedOnDisk } from './editor-changed-on-disk-mark'
@@ -43,22 +39,14 @@ export function attachRestoredTabConflictScan(store: AppStoreApi): () => void {
 
   // Only local/SSH paths can be probed: for runtime-owned files window.api.fs would stat the client path and misreport it as gone.
   const probeFileMissing = async (file: OpenFile): Promise<boolean> => {
-    const owner = getRuntimeTargetForFileOwner(
-      store.getState(),
-      file.worktreeId,
-      file.runtimeEnvironmentId
-    )
-    // Why `!owner`: with no single owner, a client stat cannot prove the file gone.
-    if (owner?.kind !== 'local') {
+    const settings = settingsForRuntimeOwner(store.getState().settings, file.runtimeEnvironmentId)
+    if (settings?.activeRuntimeEnvironmentId?.trim()) {
       return false
     }
     try {
-      const connectionId = getFileConnectionId(file)
-      const access = connectionId ? undefined : editorTabFileAccess(store.getState(), file)
       const exists = await globalThis.window?.api?.fs?.pathExists?.({
         filePath: file.filePath,
-        connectionId,
-        ...(access ? { access } : {})
+        connectionId: getFileConnectionId(file)
       })
       return exists === false
     } catch {
@@ -73,13 +61,12 @@ export function attachRestoredTabConflictScan(store: AppStoreApi): () => void {
     try {
       const state = store.getState()
       const result = await readRuntimeFileContent({
-        target: requireRuntimeTargetForFileOwner(state, file.worktreeId, file.runtimeEnvironmentId),
+        settings: settingsForRuntimeOwner(state.settings, file.runtimeEnvironmentId),
         filePath: file.filePath,
         relativePath: file.relativePath,
         worktreeId: file.worktreeId,
         connectionId: getFileConnectionId(file),
-        expectedExternalSshTargetId: file.externalSshTargetId,
-        access: editorTabFileAccess(state, file)
+        expectedExternalSshTargetId: file.externalSshTargetId
       })
       if (disposed) {
         return

@@ -6,7 +6,6 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
-import { runProcess } from '@orca/process-host'
 const piCli = process.argv[2] && resolve(process.argv[2])
 assert.ok(piCli, 'Pass the installed Pi CLI entrypoint')
 const scratch = await mkdtemp(join(tmpdir(), 'orca-pi-provider-'))
@@ -45,7 +44,8 @@ try {
   const bundle = join(scratch, 'orca.cjs')
   await build({
     stdin: {
-      contents: "export {planCommitMessageGeneration} from './src/shared/commit-message-plan';",
+      contents:
+        "export {planCommitMessageGeneration} from './src/shared/commit-message-plan'; export {runProcess} from './src/shared/child-process/run-process';",
       resolveDir: process.cwd()
     },
     bundle: true,
@@ -54,7 +54,7 @@ try {
     outfile: bundle,
     packages: 'external'
   })
-  const { planCommitMessageGeneration } = createRequire(import.meta.url)(bundle)
+  const { planCommitMessageGeneration, runProcess } = createRequire(import.meta.url)(bundle)
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   const dir = join(scratch, 'agent')

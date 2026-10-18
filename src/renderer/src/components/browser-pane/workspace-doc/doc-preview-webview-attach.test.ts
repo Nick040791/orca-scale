@@ -22,8 +22,7 @@ it('restores pointer input when a drag ends after attaching a document preview',
     onLoadStopped: vi.fn(),
     onLoadFailed: vi.fn(),
     onNavigated: vi.fn(),
-    onTitleUpdated: vi.fn(),
-    onViewportMessage: vi.fn()
+    onTitleUpdated: vi.fn()
   })
 
   try {

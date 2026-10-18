@@ -44,12 +44,10 @@ function createPane(): ManagedPaneInternal {
     id: 1,
     leafId,
     stablePaneId: leafId,
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: stand-in for xterm's Terminal exposing only the members these lifecycle paths touch.
     terminal: {
       loadAddon: vi.fn(),
       attachCustomWheelEventHandler: vi.fn(),
       refresh: vi.fn(),
-      onRender: vi.fn(() => ({ dispose: vi.fn() })),
       cols: 80,
       rows: 24
     } as never,

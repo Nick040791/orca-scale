@@ -18,15 +18,11 @@ export type ClearCompletedActivityPlan = {
   clearedThreadCount: number
 }
 
-/** A thread is clearable when it needs nothing from the user: any finished outcome, with no fresh
- *  live working/monitoring/blocked/waiting state. */
+/** A thread is clearable when it needs nothing from the user: completed or interrupted,
+ *  with no fresh live working/monitoring/blocked/waiting state. */
 export function isClearableActivityThread(thread: AgentPaneThread): boolean {
   const id = activityThreadStatusId(thread)
-  // Why: a failed main agent reads failed while its subagents still run; that thread is still live.
-  if (thread.currentAgentState) {
-    return false
-  }
-  return id === 'done' || id === 'failed' || id === 'interrupted' || id === 'unconfirmed'
+  return id === 'done' || id === 'interrupted'
 }
 
 export function planClearCompletedActivity(
@@ -149,14 +145,15 @@ export function clearCompletedActivity(threads: readonly AgentPaneThread[]): boo
   // Why turn timestamps, not entry identity: a runtime orchestration merge replaces the live
   // entry object without a state change (setRuntimeAgentOrchestrationByPaneKey), and an
   // identity check would then strand the clear-planted suppressor past Undo, losing the run.
-  const introducedSuppressorLiveTurns = new Map<string, number>()
-  for (const retained of plan.retainedSnapshots) {
-    const paneKey = retained.entry.paneKey
-    const liveEntry = state.agentStatusByPaneKey[paneKey]
-    if (liveEntry && !state.retentionSuppressedPaneKeys[paneKey]) {
-      introducedSuppressorLiveTurns.set(paneKey, liveEntry.stateStartedAt)
-    }
-  }
+  const introducedSuppressorLiveTurns = new Map(
+    plan.retainedSnapshots.flatMap((retained) => {
+      const paneKey = retained.entry.paneKey
+      const liveEntry = state.agentStatusByPaneKey[paneKey]
+      return liveEntry && !state.retentionSuppressedPaneKeys[paneKey]
+        ? ([[paneKey, liveEntry.stateStartedAt]] as const)
+        : []
+    })
+  )
   state.dismissRetainedAgents(plan.retainedSnapshots.map((retained) => retained.entry.paneKey))
 
   let undone = false

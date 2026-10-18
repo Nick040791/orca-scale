@@ -6,7 +6,7 @@ import {
   filterAvailableTaskProviders,
   normalizeVisibleTaskProviders,
   type TaskProvider
-} from '../../../src/shared/task-providers'
+} from '../tasks/mobile-task-providers'
 import type { RpcClient } from '../transport/rpc-client'
 import { homeHostAccountsRead, homeHostStatsRead } from './mobile-home-host-operations'
 

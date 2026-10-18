@@ -1,24 +1,42 @@
-import { terminalImageViewerSupported } from '../../terminal-image-viewer-env'
-import type { RuntimeAgentSessionRpcCaller } from '../../../../shared/agent-session-host-authority'
+import type {
+  RuntimeAgentSessionRpcCaller,
+  RuntimeCreateAgentSessionRequest,
+  RuntimeCreateAgentSessionResult,
+  RuntimeEnsureAgentSessionRequest,
+  RuntimeEnsureAgentSessionResult
+} from '../../../../shared/agent-session-host-authority'
 import {
   AGENT_SESSION_OPERATION_FUTURE_SKEW_MS,
   parseAgentSessionOperationTimestamp
 } from '../../../../shared/agent-session-host-authority'
-import { defineMethod, type RpcContext } from '../core'
+import type { OrcaRuntimeService } from '../../orca-runtime'
+import { defineMethod } from '../core'
 import {
   CreateAgentSessionParams,
   EnsureAgentSessionParams
 } from '../../../../shared/rpc-contract/agent-session-params'
 export { CreateAgentSessionParams, EnsureAgentSessionParams }
 
-function callerContext(context: RpcContext): RuntimeAgentSessionRpcCaller {
-  const { pairedDeviceId, clientId, clientKind, signal } = context
-  const viewerSupported = terminalImageViewerSupported(context)
+type AgentSessionRuntime = OrcaRuntimeService & {
+  ensureAgentSession(
+    request: RuntimeEnsureAgentSessionRequest,
+    caller?: RuntimeAgentSessionRpcCaller
+  ): Promise<RuntimeEnsureAgentSessionResult>
+  createAgentSession(
+    request: RuntimeCreateAgentSessionRequest,
+    caller?: RuntimeAgentSessionRpcCaller
+  ): Promise<RuntimeCreateAgentSessionResult>
+}
+
+function callerContext(
+  clientId: string | undefined,
+  clientKind: 'mobile' | 'runtime' | undefined,
+  signal: AbortSignal | undefined
+): RuntimeAgentSessionRpcCaller {
   return {
-    ...((pairedDeviceId ?? clientId) !== undefined ? { clientId: pairedDeviceId ?? clientId } : {}),
+    ...(clientId !== undefined ? { clientId } : {}),
     ...(clientKind !== undefined ? { clientKind } : {}),
-    ...(signal ? { signal } : {}),
-    ...(viewerSupported !== undefined ? { terminalImageViewerSupported: viewerSupported } : {})
+    ...(signal ? { signal } : {})
   }
 }
 
@@ -43,23 +61,21 @@ function assertOperationTimestampWithinFutureSkew(clientOperationId: string): vo
 export const AGENT_SESSION_METHODS = [
   defineMethod({
     name: 'terminal.ensureAgentSession',
-    permission: 'workspace',
     params: EnsureAgentSessionParams,
-    handler: (params, context) =>
-      context.runtime.ensureAgentSession(
-        withExecutionHostAgentPresentation(params, context.clientKind),
-        callerContext(context)
+    handler: (params, { runtime, pairedDeviceId, clientId, clientKind, signal }) =>
+      (runtime as AgentSessionRuntime).ensureAgentSession(
+        withExecutionHostAgentPresentation(params, clientKind),
+        callerContext(pairedDeviceId ?? clientId, clientKind, signal)
       )
   }),
   defineMethod({
     name: 'terminal.createAgentSession',
-    permission: 'workspace',
     params: CreateAgentSessionParams,
-    handler: (params, context) => {
+    handler: (params, { runtime, pairedDeviceId, clientId, clientKind, signal }) => {
       assertOperationTimestampWithinFutureSkew(params.clientOperationId)
-      return context.runtime.createAgentSession(
-        withExecutionHostAgentPresentation(params, context.clientKind),
-        callerContext(context)
+      return (runtime as AgentSessionRuntime).createAgentSession(
+        withExecutionHostAgentPresentation(params, clientKind),
+        callerContext(pairedDeviceId ?? clientId, clientKind, signal)
       )
     }
   })

@@ -15,11 +15,12 @@ import { translate } from '@/i18n/i18n'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../../../../shared/execution-host'
 import type { RepoSlice } from '../repos/repo-state'
 import { ERROR_TOAST_DURATION } from '../repos/repo-state'
-import { adoptFromEndpoint } from '../adopt-from-endpoint'
+import { repoWithFetchedOwner } from '../repos/owner-routing'
 import { normalizeProjectRow } from '../../../../shared/project-catalog-row-normalization'
 import {
   assertProjectHostSetupMutationRuntimeCapabilities,
-  getProjectSetupRuntimeTarget
+  getProjectSetupRuntimeTarget,
+  setupWithFetchedOwner
 } from './project-host-routing'
 
 export function createProjectHostSetupActions(
@@ -54,15 +55,9 @@ export function createProjectHostSetupActions(
                   { timeoutMs: 15_000 }
                 )
               ).result
-        const repo = adoptFromEndpoint(target, {
-          kind: 'repo',
-          row: result.repo
-        })
+        const repo = repoWithFetchedOwner(result.repo, target)
         const repoHostId = getRepoExecutionHostId(repo)
-        const setup = adoptFromEndpoint(target, {
-          kind: 'projectHostSetup',
-          row: result.setup
-        })
+        const setup = setupWithFetchedOwner(result.setup, target)
         const project = normalizeProjectRow(result.project)
         set((s) => {
           const nextRepos = s.repos.some((entry) =>
@@ -114,10 +109,7 @@ export function createProjectHostSetupActions(
                   { timeoutMs: 15_000 }
                 )
               ).result
-        const setup = adoptFromEndpoint(target, {
-          kind: 'projectHostSetup',
-          row: result.setup
-        })
+        const setup = setupWithFetchedOwner(result.setup, target)
         const project = normalizeProjectRow(result.project)
         set((s) => ({
           projects: s.projects.some((entry) => entry.id === project.id)
@@ -157,14 +149,9 @@ export function createProjectHostSetupActions(
                   { timeoutMs: 15_000 }
                 )
               ).result
-        const setup = adoptFromEndpoint(target, {
-          kind: 'projectHostSetup',
-          row: result.setup
-        })
+        const setup = setupWithFetchedOwner(result.setup, target)
         const project = normalizeProjectRow(result.project)
-        const repo = result.repo
-          ? adoptFromEndpoint(target, { kind: 'repo', row: result.repo })
-          : undefined
+        const repo = result.repo ? repoWithFetchedOwner(result.repo, target) : undefined
         const repoHostId = repo ? getRepoExecutionHostId(repo) : null
         set((s) => ({
           repos: repo
@@ -211,9 +198,7 @@ export function createProjectHostSetupActions(
                   { timeoutMs: 15_000 }
                 )
               ).result
-        const repo = result.repo
-          ? adoptFromEndpoint(target, { kind: 'repo', row: result.repo })
-          : undefined
+        const repo = result.repo ? repoWithFetchedOwner(result.repo, target) : undefined
         const repoHostId = repo ? getRepoExecutionHostId(repo) : null
         set((s) => {
           const projectHostSetups = s.projectHostSetups.filter(
@@ -254,29 +239,33 @@ export function createProjectHostSetupActions(
     setupProjectClone: async (args) => {
       try {
         const parsedHost = parseExecutionHostId(args.hostId)
-        // Why: an SSH host clones only through its paired server; never fall back to this computer.
-        if (parsedHost?.kind === 'ssh') {
-          throw new Error(`SSH connection "${parsedHost.targetId}" not found or not connected`)
-        }
         const target = getProjectSetupRuntimeTarget(args.hostId)
-        await assertProjectHostSetupMutationRuntimeCapabilities(target)
+        if (parsedHost?.kind !== 'ssh') {
+          await assertProjectHostSetupMutationRuntimeCapabilities(target)
+        }
         const repo =
-          target.kind === 'local'
-            ? await window.api.repos.clone({
+          parsedHost?.kind === 'ssh'
+            ? await window.api.repos.cloneRemote({
+                connectionId: parsedHost.targetId,
                 url: args.url,
                 destination: args.destination
               })
-            : (
-                await callRuntimeRpc<{ repo: Repo }>(
-                  target,
-                  'repo.clone',
-                  {
-                    url: args.url,
-                    destination: args.destination
-                  },
-                  { timeoutMs: 10 * 60_000 }
-                )
-              ).repo
+            : target.kind === 'local'
+              ? await window.api.repos.clone({
+                  url: args.url,
+                  destination: args.destination
+                })
+              : (
+                  await callRuntimeRpc<{ repo: Repo }>(
+                    target,
+                    'repo.clone',
+                    {
+                      url: args.url,
+                      destination: args.destination
+                    },
+                    { timeoutMs: 10 * 60_000 }
+                  )
+                ).repo
         return await get().setupProjectExistingFolder({
           projectId: args.projectId,
           hostId: args.hostId,

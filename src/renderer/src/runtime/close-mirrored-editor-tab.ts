@@ -1,11 +1,13 @@
-import { runtimeEnvironmentIdUnlessTwin } from '@/lib/resolve-owner'
-import type { WorktreeOperationRouteState } from '@/lib/worktree-operation-route'
+import {
+  getRuntimeEnvironmentIdForWorktree,
+  type WorktreeRuntimeOwnerState
+} from '@/lib/worktree-runtime-owner'
 import { recordWebSessionCloseIntent } from './web-session-close-intent'
 import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import type { OpenFile } from '@/store/slices/editor'
 import type { Tab } from '../../../shared/tab-types'
 
-export type MirroredEditorCloseState = WorktreeOperationRouteState & {
+export type MirroredEditorCloseState = WorktreeRuntimeOwnerState & {
   openFiles: readonly OpenFile[]
   unifiedTabsByWorktree: Record<string, Tab[]>
 }
@@ -25,45 +27,34 @@ export function notifyHostOfMirroredEditorClose(
   if (!file?.mirroredFromRuntimeSession) {
     return false
   }
-  // Only legacy records need catalog inference; snapshots capture their authoritative runtime owner.
-  const runtimeEnvironmentId =
-    file.runtimeEnvironmentId === undefined
-      ? // Why: closing on a guessed twin would retire the other host's tab; the local close still runs.
-        runtimeEnvironmentIdUnlessTwin(state, worktreeId, 'close a mirrored editor tab on its host')
-      : file.runtimeEnvironmentId
+  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
   if (!runtimeEnvironmentId?.trim()) {
     return false
   }
   // A mirrored unified tab carries the host's tab id as `id` and the local file id as `entityId`; the host close RPC resolves by id.
-  const unifiedTabs = (state.unifiedTabsByWorktree[worktreeId] ?? []).filter(
+  const unifiedTab = (state.unifiedTabsByWorktree[worktreeId] ?? []).find(
     (tab) => tab.contentType === 'editor' && tab.entityId === fileId
   )
-  if (unifiedTabs.length === 0) {
+  if (!unifiedTab) {
     return false
   }
   // Record the close intent SYNCHRONOUSLY so a host snapshot landing before the dynamic import below resolves can't
   // flash the old-path tab back. closeWebRuntimeSessionTab re-records it idempotently.
-  for (const tab of unifiedTabs) {
-    recordWebSessionCloseIntent(
-      { environmentId: runtimeEnvironmentId },
-      worktreeId,
-      toHostSessionTabId(tab.id),
-      Date.now()
-    )
-  }
+  recordWebSessionCloseIntent(
+    { environmentId: runtimeEnvironmentId },
+    worktreeId,
+    toHostSessionTabId(unifiedTab.id),
+    Date.now()
+  )
   // Dynamic import: this helper is imported by the editor slice during store creation, so importing
   // web-runtime-session eagerly imports the store back and trips cyclic init in full-suite import order.
-  void import('./web-runtime-session-tab-lifecycle').then(({ closeWebRuntimeSessionTab }) =>
-    Promise.all(
-      unifiedTabs.map((tab) =>
-        closeWebRuntimeSessionTab({
-          worktreeId,
-          tabId: tab.id,
-          environmentId: runtimeEnvironmentId,
-          reason: 'user'
-        })
-      )
-    )
+  void import('./web-runtime-session').then(({ closeWebRuntimeSessionTab }) =>
+    closeWebRuntimeSessionTab({
+      worktreeId,
+      tabId: unifiedTab.id,
+      environmentId: runtimeEnvironmentId,
+      reason: 'user'
+    })
   )
   return true
 }

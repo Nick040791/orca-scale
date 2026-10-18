@@ -45,6 +45,14 @@ export function getBrowserWorkspaceRemoteOwnership(
   return { kind: 'exact', environmentId: environmentIds[0]! }
 }
 
+export function getBrowserWorkspaceRemoteOwnerEnvironmentId(
+  state: RemoteBrowserTabOwnershipState,
+  workspaceId: string
+): string | null {
+  const ownership = getBrowserWorkspaceRemoteOwnership(state, workspaceId)
+  return ownership.kind === 'exact' ? ownership.environmentId : null
+}
+
 export function browserWorkspaceHasRemoteOwner(
   state: RemoteBrowserTabOwnershipState,
   workspaceId: string,

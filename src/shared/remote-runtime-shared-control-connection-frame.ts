@@ -1,9 +1,6 @@
-import type WebSocket from 'ws'
-import { sendRemoteRuntimeTokenAuth } from './remote-runtime-client-handshake'
-import { toRemoteRuntimeClientError } from './remote-runtime-shared-control-protocol'
-import type { PairedE2EEClientHandshake } from './paired-e2ee-client-handshake'
 import { handleSharedControlTextFrame } from './remote-runtime-shared-control-frame-handler'
 import type { RemoteRuntimeClientError } from './remote-runtime-client-error'
+import type { RuntimeCapability } from './protocol-version'
 import type {
   SharedControlConnectionState,
   SharedControlLogicalSubscription,
@@ -17,9 +14,10 @@ export function handleRuntimeControlTextFrame(args: {
   socketGeneration: number
   isCurrent: (generation: number) => boolean
   getState: () => SharedControlConnectionState
-  getHandshake: () => PairedE2EEClientHandshake | null
+  getSharedKey: () => Uint8Array | null
   environmentId?: string
   deviceToken: string
+  clientCapabilities: readonly RuntimeCapability[]
   pendingRequests: Map<string, SharedControlPendingRequest<unknown>>
   subscriptions: Map<string, SharedControlLogicalSubscription<unknown>>
   retiredRequestIds: SharedControlRetiredRequestIds
@@ -27,8 +25,6 @@ export function handleRuntimeControlTextFrame(args: {
   setState: (state: SharedControlConnectionState) => void
   handleSocketClosed: (error: RemoteRuntimeClientError) => void
   sendEncrypted: (payload: unknown) => boolean
-  clientCapabilities: readonly string[]
-  getSocket: () => WebSocket | null
   markReady: () => void
   replaySubscriptions: () => void
   publishDiagnostics: () => void
@@ -39,9 +35,10 @@ export function handleRuntimeControlTextFrame(args: {
   handleSharedControlTextFrame({
     frame: args.frame,
     state: args.getState(),
-    handshake: args.getHandshake(),
+    sharedKey: args.getSharedKey(),
     environmentId: args.environmentId,
     deviceToken: args.deviceToken,
+    clientCapabilities: args.clientCapabilities,
     pendingRequests: args.pendingRequests,
     subscriptions: args.subscriptions,
     retiredRequestIds: args.retiredRequestIds,
@@ -52,18 +49,6 @@ export function handleRuntimeControlTextFrame(args: {
     },
     handleSocketClosed: args.handleSocketClosed,
     sendEncrypted: args.sendEncrypted,
-    sendAuth: (handshake) =>
-      void sendRemoteRuntimeTokenAuth({
-        handshake,
-        deviceToken: args.deviceToken,
-        clientCapabilities: args.clientCapabilities,
-        stillAwaiting: () =>
-          args.getHandshake() === handshake &&
-          args.getState() === 'awaiting_authenticated' &&
-          args.getSocket()?.readyState === 1,
-        send: (frame) => args.getSocket()?.send(frame),
-        fail: (error) => args.handleSocketClosed(toRemoteRuntimeClientError(error))
-      }),
     markReady: args.markReady,
     replaySubscriptions: args.replaySubscriptions
   })

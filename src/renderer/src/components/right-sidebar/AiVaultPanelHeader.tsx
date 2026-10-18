@@ -1,4 +1,3 @@
-import { ImeInput } from '@/lib/ime-text-field'
 import { useEffect, useRef } from 'react'
 import { LoaderCircle, RefreshCw, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -126,7 +125,7 @@ export function AiVaultPanelHeader({
               'Refresh Session History'
             )}
             onClick={onRefresh}
-            disabled={searching && loading}
+            disabled={loading}
             aria-busy={loading}
             className="size-6"
           >
@@ -150,7 +149,7 @@ export function AiVaultPanelHeader({
 
       <div className="mt-2 flex h-8 items-center gap-1.5 rounded-md border border-sidebar-border bg-input/50 px-2 focus-within:border-sidebar-ring focus-within:ring-[2px] focus-within:ring-sidebar-ring/30">
         <Search className="size-3.5 shrink-0 text-muted-foreground" />
-        <ImeInput
+        <input
           ref={searchInputRef}
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}

@@ -18,9 +18,8 @@ export function useSourceControlCreateReviewComposer({
   activePullRequestGenerationRecord,
   activePullRequestGenerationSeedRestoreKey,
   activeRepo,
-  activeRepoTarget,
+  activeRepoSettings,
   activeWorktreeId,
-  activeWorktree,
   branchName,
   effectiveBaseRef,
   fetchHostedReviewForBranch,
@@ -42,9 +41,8 @@ export function useSourceControlCreateReviewComposer({
   activePullRequestGenerationRecord: SourceControlPullRequestGeneration['activePullRequestGenerationRecord']
   activePullRequestGenerationSeedRestoreKey: SourceControlPullRequestGeneration['activePullRequestGenerationSeedRestoreKey']
   activeRepo: SourceControlWorktreeContext['activeRepo']
-  activeRepoTarget: SourceControlWorktreeContext['activeRepoTarget']
+  activeRepoSettings: SourceControlWorktreeContext['activeRepoSettings']
   activeWorktreeId: string | null
-  activeWorktree?: SourceControlWorktreeContext['activeWorktree']
   branchName: string
   effectiveBaseRef: string | null
   fetchHostedReviewForBranch: SourceControlStoreActions['fetchHostedReviewForBranch']
@@ -72,8 +70,6 @@ export function useSourceControlCreateReviewComposer({
     setBody: setPrBody,
     draft: prDraft,
     setDraft: setPrDraft,
-    fieldRevisions: prFieldRevisions,
-    fieldsAreSeedPlaceholders: prFieldsAreSeedPlaceholders,
     stackedCreationSupported: prStackedCreationSupported,
     repoDefaultBaseRef: prRepoDefaultBaseRef,
     baseQuery: prBaseQuery,
@@ -96,12 +92,10 @@ export function useSourceControlCreateReviewComposer({
     worktreeId: activeWorktreeId,
     worktreePath: worktreePath ?? '',
     branch: branchName,
-    workspace: activeWorktree,
     eligibility: hostedReviewCreation,
     currentBaseRef: effectiveBaseRef,
     repo: activeRepo ?? null,
-    settings,
-    target: activeRepoTarget,
+    settings: activeRepoSettings,
     submitting: isCreatingPr,
     prCreationDefaults: resolvedPrCreationDefaults,
     sourceControlAiActionsVisible,
@@ -110,16 +104,12 @@ export function useSourceControlCreateReviewComposer({
       generating: activePullRequestGenerationRecord?.status === 'running',
       generateError: activePullRequestGenerationRecord?.error ?? null,
       seedRestoreKey: activePullRequestGenerationSeedRestoreKey,
-      seed:
-        activePullRequestGenerationRecord?.editedFields?.fields ??
-        activePullRequestGenerationRecord?.seed ??
-        null,
-      seedFieldRevisions:
-        activePullRequestGenerationRecord?.editedFields?.revisions ??
-        activePullRequestGenerationRecord?.seedFieldRevisions ??
-        null,
+      seed: activePullRequestGenerationRecord?.seed ?? null,
+      seedFieldRevisions: activePullRequestGenerationRecord?.seedFieldRevisions ?? null,
       onSeedRestored: handlePullRequestGenerationSeedRestored,
-      onGenerate: handleGeneratePullRequestFieldsForActive,
+      onGenerate: (fields, fieldRevisions, overrides) => {
+        void handleGeneratePullRequestFieldsForActive(fields, fieldRevisions, overrides)
+      },
       onCancelGenerate: handleCancelGeneratePullRequestFieldsForActive
     }
   })
@@ -212,8 +202,6 @@ export function useSourceControlCreateReviewComposer({
     prBaseSearchPending,
     prBody,
     prDraft,
-    prFieldRevisions,
-    prFieldsAreSeedPlaceholders,
     prGenerateDisabled,
     prGenerateDisabledReason,
     prGenerateError,

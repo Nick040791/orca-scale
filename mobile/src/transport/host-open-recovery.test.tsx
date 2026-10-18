@@ -31,18 +31,15 @@ vi.mock('./connection-revival-triggers', () => ({
     }
   }
 }))
-vi.mock('./connection-log-background-flush', () => ({
-  subscribeConnectionLogBackgroundFlush: () => () => {}
-}))
 
-import { RpcClientProvider } from './client-context'
 import {
   useDisconnectHostClient,
+  RpcClientProvider,
   useForgetHostClient,
   useForceReconnect,
   useHostClient,
   useRefreshHostClient
-} from './host-client-hooks'
+} from './client-context'
 
 const HOST = {
   id: 'host-1',

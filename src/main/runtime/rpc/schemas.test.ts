@@ -7,7 +7,7 @@ import {
   OptionalPlainString,
   OptionalPositiveInt,
   OptionalString
-} from '../../../shared/rpc-contract/rpc-param-primitives'
+} from './schemas'
 import {
   InterceptEnable,
   Screenshot,
@@ -15,7 +15,7 @@ import {
   TabClose,
   TabSwitch,
   Wait
-} from '../../../shared/rpc-contract/browser-params'
+} from './methods/browser-schemas'
 import { TERMINAL_METHODS } from './methods/terminal'
 import { TERMINAL_ORPHAN_METHODS } from './methods/terminal-orphan'
 import { WORKTREE_METHODS } from './methods/worktree'

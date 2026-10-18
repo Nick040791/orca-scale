@@ -1,17 +1,38 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../store'
+import { clearLocalStructuredSessionTabs } from './local-structured-session-tabs-sync/snapshot-apply'
 import { startLocalStructuredSessionTabsSync } from './local-structured-session-tabs-sync/subscription'
-import { useLocalStructuredChatsInUse } from './local-structured-chats'
 
-/** Mirrors this machine's structured chats whenever they can exist, whatever the chat setting says:
- *  the setting picks what new agents open as, and chats that already exist keep showing. */
+export {
+  isCurrentLocalStructuredSessionGeneration,
+  localStructuredSessionGeneration,
+  resetLocalStructuredSessionVersionForTests
+} from './local-structured-session-tabs-sync/inventory-generation-fence'
+export {
+  refreshLocalStructuredSessionTabs,
+  restoreLocalStructuredSessionTabsOnce
+} from './local-structured-session-tabs-sync/inventory-refresh'
+export {
+  applyLocalStructuredSessionTabSnapshots,
+  applyStructuredSessionTabSnapshots,
+  clearLocalStructuredSessionTabs,
+  removeLocalStructuredSessionTabs
+} from './local-structured-session-tabs-sync/snapshot-apply'
+export { LOCAL_STRUCTURED_SESSION_OWNER } from './local-structured-session-owner'
+export { projectLocalStructuredSessionTabs } from './local-structured-session-tabs-sync/snapshot-projection'
+export { startLocalStructuredSessionTabsSync } from './local-structured-session-tabs-sync/subscription'
+
 export function useLocalStructuredSessionTabsSync(): void {
   const ready = useAppStore(
     (state) => state.workspaceSessionReady && state.terminalStartupRestorationReady
   )
-  const inUse = useLocalStructuredChatsInUse()
+  const enabled = useAppStore((state) => state.settings?.experimentalStructuredNativeChat === true)
   useEffect(() => {
-    if (!ready || !inUse) {
+    if (!ready) {
+      return
+    }
+    if (!enabled) {
+      clearLocalStructuredSessionTabs()
       return
     }
     let disposed = false
@@ -26,5 +47,5 @@ export function useLocalStructuredSessionTabsSync(): void {
       disposed = true
       unsubscribe()
     }
-  }, [inUse, ready])
+  }, [enabled, ready])
 }

@@ -15,7 +15,31 @@ import {
 import type { UseTerminalPaneLifecycleDeps } from './terminal-pane-lifecycle-types'
 import { useTerminalPaneMountLifecycle } from './use-terminal-pane-mount-lifecycle'
 import { useTerminalPaneLifecycleRefs } from './use-terminal-pane-lifecycle-refs'
-import { listenForHibernatedAgentWake } from './hibernated-agent-wake-listener'
+
+export {
+  applyTerminalScrollbackRowsToMountedPanes,
+  clearQueuedInitialCwdAfterFirstPane,
+  createQueuedStartupConsumer,
+  getPreviousVisibleForTerminalPane,
+  isTerminalPaneVisibilityResume,
+  mapRestoredPaneTitlesByPaneId,
+  paneOwnsQueuedStartup,
+  replayLayoutWithOneShotParkIntent,
+  resetTerminalKeyboardProtocolAfterInterrupt,
+  resolvePaneLinkCwd,
+  resolvePaneSeedCwd,
+  resolveQueuedInitialCwd,
+  recordRuntimeCreatedTerminalPaneSplit,
+  shouldDetachPaneTransportOnUnmount,
+  terminalSelectionExceedsPrimaryLimit,
+  splitPaneWithOneShotStartup
+} from './terminal-pane-lifecycle-primitives'
+export {
+  applyTerminalPaneCloseRequest,
+  retireMountedTerminalPaneSurface,
+  suppressIntentionalPaneCloseExit
+} from './terminal-pane-lifecycle-close'
+export type { UseTerminalPaneLifecycleDeps } from './terminal-pane-lifecycle-types'
 
 /** Coordinates mount, visibility, and live appearance effects for terminal panes. */
 export function useTerminalPaneLifecycle(deps: UseTerminalPaneLifecycleDeps): void {
@@ -28,11 +52,26 @@ export function useTerminalPaneLifecycle(deps: UseTerminalPaneLifecycleDeps): vo
   const systemPrefersDarkRef = refs.systemPrefersDarkRef
   systemPrefersDarkRef.current = deps.systemPrefersDark
 
-  useEffect(
-    () =>
-      listenForHibernatedAgentWake(deps.worktreeId, () => deps.panePtyBindingsRef.current.values()),
-    [deps.worktreeId, deps.panePtyBindingsRef]
-  )
+  useEffect(() => {
+    const onWakeHibernatedAgents = (event: Event): void => {
+      const detail = (event as CustomEvent<{ worktreeId: string; wokenClaimKeys?: Set<string> }>)
+        .detail
+      if (!detail || detail.worktreeId !== deps.worktreeId) {
+        return
+      }
+      for (const panePtyBinding of deps.panePtyBindingsRef.current.values()) {
+        const claimKey = (panePtyBinding as IDisposableWithWake).wakeHibernatedAgentIfArmed?.(
+          detail.wokenClaimKeys
+        )
+        if (claimKey) {
+          detail.wokenClaimKeys?.add(claimKey)
+        }
+      }
+    }
+    window.addEventListener('orca:wake-hibernated-agents-worktree', onWakeHibernatedAgents)
+    return () =>
+      window.removeEventListener('orca:wake-hibernated-agents-worktree', onWakeHibernatedAgents)
+  }, [deps.worktreeId, deps.panePtyBindingsRef])
 
   useEffect(() => {
     const previousIsVisible = getPreviousVisibleForTerminalPane({
@@ -153,6 +192,10 @@ export function useTerminalPaneLifecycle(deps: UseTerminalPaneLifecycleDeps): vo
       }
     }
   }, [deps.settings?.terminalMouseHideWhileTyping, deps.managerRef, refs.mouseHideDisposablesRef])
+}
+
+type IDisposableWithWake = IDisposable & {
+  wakeHibernatedAgentIfArmed?: (claimedProviderSessions?: Set<string>) => string | null
 }
 
 type IDisposableWithVisibility = IDisposable & {

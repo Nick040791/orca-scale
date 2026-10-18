@@ -87,10 +87,7 @@ export function parseClaudeModels(stdout: string): CommitMessageModel[] {
                 : thinkingLevels[0].id
             }
           : {}),
-        ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
-        ...(model.supportsAutoMode !== undefined
-          ? { supportsAutoMode: model.supportsAutoMode }
-          : {})
+        ...(model.supportsFastMode ? { supportsFastMode: true } : {})
       }
     })
   )

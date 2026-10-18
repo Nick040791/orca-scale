@@ -69,7 +69,7 @@ export const CHROMIUM_BROWSERS: ChromiumBrowserDef[] = [
     keychainService: 'Comet Safe Storage',
     keychainAccount: 'Comet',
     macRoot: 'Comet',
-    winRoot: 'Perplexity/Comet/User Data'
+    winRoot: 'Comet/User Data'
     // linuxRoot intentionally omitted — Comet does not ship a Linux build as of 2026-05-15
   },
   {

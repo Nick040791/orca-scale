@@ -2,10 +2,17 @@ import type { Stats } from 'node:fs'
 import { join } from 'node:path'
 import type {
   SkillCurrentBundleEntry,
-  SkillFreshnessInstallation
+  SkillFreshnessInstallation,
+  SkillFreshnessStatus,
+  SkillKnownSnapshot
 } from '../../shared/skill-freshness'
 import type { SkillScanRoot } from './skill-discovery-sources'
-import { matchesBundledSkillFiles, observeSkillPackage } from './skill-package-identity'
+import type { SkillBundleArtifacts } from './skill-bundle-artifacts'
+import {
+  matchingKnownSnapshot,
+  observeSkillPackage,
+  officialPathsGitTreeSha
+} from './skill-package-identity'
 import {
   classifyHomeSkillTopology,
   classifyUnsupportedSkillTopology,
@@ -16,13 +23,46 @@ import {
 
 export type CandidateLstat = (path: string) => Promise<Stats>
 
+function freshnessStatus(
+  snapshot: SkillKnownSnapshot | null,
+  current: SkillCurrentBundleEntry
+): SkillFreshnessStatus {
+  if (!snapshot) {
+    return 'unrecognized'
+  }
+  if (snapshot.releaseRevision > current.releaseRevision) {
+    return 'newer-known'
+  }
+  return snapshot.packageDigest === current.packageDigest ? 'current' : 'outdated'
+}
+
 function errorCategory(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+function isInaccessibleError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error.code === 'EACCES' || error.code === 'EPERM')
+  )
+}
+
+function knownSnapshots(
+  artifacts: SkillBundleArtifacts,
+  current: SkillCurrentBundleEntry
+): SkillKnownSnapshot[] {
+  const snapshots = artifacts.knownSnapshots[current.name] ?? []
+  return snapshots.some((snapshot) => snapshot.packageDigest === current.packageDigest)
+    ? snapshots
+    : [...snapshots, current]
+}
+
 export async function observeSkillFreshnessInstallation(args: {
   current: SkillCurrentBundleEntry
-  lockSource: string | null
+  currentAppVersion: string
+  artifacts: SkillBundleArtifacts
   rootId: string
   providers: SkillFreshnessInstallation['providers']
   sourceKind: SkillFreshnessInstallation['sourceKind']
@@ -41,27 +81,56 @@ export async function observeSkillFreshnessInstallation(args: {
     resolvedPath: args.topology.resolvedPath,
     physicalIdentity: args.topology.identity,
     topology: args.topology.topology,
+    currentReleaseRevision: args.current.releaseRevision,
     currentPackageDigest: args.current.packageDigest,
-    lockSource: args.lockSource,
+    currentAppVersion: args.currentAppVersion,
     errorCategory: args.topology.errorCategory
   }
   if (!args.topology.resolvedPath || !args.topology.identity) {
-    return { ...base, status: 'inaccessible' }
+    return {
+      ...base,
+      status: 'inaccessible',
+      installedReleaseRevision: null,
+      installedAppVersion: null,
+      observedPackageDigest: null,
+      observedGitTreeSha: null
+    }
   }
 
   try {
     const observed = await observeSkillPackage(args.topology.resolvedPath)
-    // Why: the only question is whether this is the version this build ships. Any
-    // difference, older release, unreleased commit or local edit alike, is outdated.
+    const snapshots = knownSnapshots(args.artifacts, args.current)
+    const officialPaths = new Set(args.current.files.map((file) => file.path))
+    const matchedSnapshot = matchingKnownSnapshot(observed, snapshots, officialPaths)
+    // Why: a later release can reintroduce identical bytes. Exact current
+    // identity is still current, and cannot honestly be attributed to the later tag.
+    const snapshot =
+      observed.observedDigest === args.current.packageDigest ? args.current : matchedSnapshot
     return {
       ...base,
-      status: matchesBundledSkillFiles(observed, args.current.files) ? 'current' : 'outdated'
+      status: freshnessStatus(snapshot, args.current),
+      installedReleaseRevision: snapshot?.releaseRevision ?? null,
+      // Why: the current revision may be unreleased (or trail the newest tag),
+      // so its label is the running build's version; only historical revisions
+      // resolve through the release mapping.
+      installedAppVersion: snapshot
+        ? snapshot.releaseRevision === args.current.releaseRevision
+          ? args.currentAppVersion
+          : (args.artifacts.releasedAppVersions[args.current.name]?.[snapshot.releaseRevision] ??
+            null)
+        : null,
+      observedPackageDigest: observed.observedDigest,
+      observedGitTreeSha: observed.observedGitTreeSha,
+      observedOfficialGitTreeSha: officialPathsGitTreeSha(observed, officialPaths)
     }
   } catch (error) {
-    // Why: a package Orca could not read is never offered for overwrite on a guess.
     return {
       ...base,
-      status: 'inaccessible',
+      status: isInaccessibleError(error) ? 'inaccessible' : 'unrecognized',
+      installedReleaseRevision: null,
+      installedAppVersion: null,
+      observedPackageDigest: null,
+      observedGitTreeSha: null,
       errorCategory: errorCategory(error, 'skill-package-read-failed')
     }
   }
@@ -70,7 +139,8 @@ export async function observeSkillFreshnessInstallation(args: {
 export async function classifyHomeSkillCandidate(args: {
   root: SkillScanRoot
   current: SkillCurrentBundleEntry
-  lockSource: string | null
+  currentAppVersion: string
+  artifacts: SkillBundleArtifacts
   canonicalRootPath: string
   candidateLstat: CandidateLstat
 }): Promise<SkillFreshnessInstallation | null> {
@@ -83,7 +153,8 @@ export async function classifyHomeSkillCandidate(args: {
     }
     return observeSkillFreshnessInstallation({
       current: args.current,
-      lockSource: args.lockSource,
+      currentAppVersion: args.currentAppVersion,
+      artifacts: args.artifacts,
       rootId: args.root.id,
       providers: args.root.providers,
       sourceKind: args.root.sourceKind,
@@ -111,7 +182,8 @@ export async function classifyHomeSkillCandidate(args: {
   }
   return observeSkillFreshnessInstallation({
     current: args.current,
-    lockSource: args.lockSource,
+    currentAppVersion: args.currentAppVersion,
+    artifacts: args.artifacts,
     rootId: args.root.id,
     providers: args.root.providers,
     sourceKind: args.root.sourceKind,
@@ -124,7 +196,8 @@ export async function classifyHomeSkillCandidate(args: {
 export async function classifyUnsupportedSkillCandidate(args: {
   root: SkillScanRoot
   current: SkillCurrentBundleEntry
-  lockSource: string | null
+  currentAppVersion: string
+  artifacts: SkillBundleArtifacts
   unresolvedPath: string
   candidateLstat: CandidateLstat
 }): Promise<SkillFreshnessInstallation | null> {
@@ -136,7 +209,8 @@ export async function classifyUnsupportedSkillCandidate(args: {
     }
     return observeSkillFreshnessInstallation({
       current: args.current,
-      lockSource: args.lockSource,
+      currentAppVersion: args.currentAppVersion,
+      artifacts: args.artifacts,
       rootId: args.root.id,
       providers: args.root.providers,
       sourceKind: args.root.sourceKind,
@@ -152,7 +226,8 @@ export async function classifyUnsupportedSkillCandidate(args: {
   }
   return observeSkillFreshnessInstallation({
     current: args.current,
-    lockSource: args.lockSource,
+    currentAppVersion: args.currentAppVersion,
+    artifacts: args.artifacts,
     rootId: args.root.id,
     providers: args.root.providers,
     sourceKind: args.root.sourceKind,

@@ -1,5 +1,4 @@
 /* oxlint-disable react-doctor/no-adjust-state-on-prop-change -- Why: slug dialog details are loaded through GitHub IPC and must clear stale request state before each lookup. */
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleDot, ExternalLink, GitPullRequest, LoaderCircle, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -7,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import CommentMarkdown from '@/components/sidebar/CommentMarkdown'
 import { useAppStore } from '@/store'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import type { GitHubWorkItemDetails } from '../../../../../shared/github/work-item-types'
+import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 import type { GitHubItemDialogProjectOrigin } from '@/components/GitHubItemDialog'
 import { LabelsEditor } from './LabelsEditor'
 import { AssigneesEditor } from './AssigneesEditor'
@@ -17,11 +17,11 @@ import { translate } from '@/i18n/i18n'
 
 export function SlugDialogBody({
   projectOrigin,
-  sourceTarget,
+  sourceSettings,
   onClose
 }: {
   projectOrigin: GitHubItemDialogProjectOrigin
-  sourceTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   onClose: () => void
 }): React.JSX.Element {
   const { owner, repo, host, number, type, cacheKey } = projectOrigin
@@ -56,7 +56,7 @@ export function SlugDialogBody({
     setLoading(true)
     setError(null)
     setDetails(null)
-    const target = sourceTarget
+    const target = getActiveRuntimeTarget(sourceSettings)
     const request =
       target.kind === 'environment'
         ? callRuntimeRpc<
@@ -91,7 +91,7 @@ export function SlugDialogBody({
         }
         setLoading(false)
       })
-  }, [owner, repo, host, number, type, sourceTarget])
+  }, [owner, repo, host, number, type, sourceSettings])
 
   const title = row?.content.title ?? details?.item.title ?? ''
   const url = row?.content.url ?? details?.item.url ?? null
@@ -224,7 +224,7 @@ export function SlugDialogBody({
             host={host}
             selected={labels}
             disabled={!row}
-            sourceTarget={sourceTarget}
+            sourceSettings={sourceSettings}
             onChange={async (add, remove) => {
               // Why: bail rather than call the helper with an empty id —
               // see commitTitle above. Trigger is also disabled when !row.
@@ -246,7 +246,7 @@ export function SlugDialogBody({
             host={host}
             selected={assignees}
             disabled={!row}
-            sourceTarget={sourceTarget}
+            sourceSettings={sourceSettings}
             onChange={async (add, remove) => {
               if (!row) {
                 return
@@ -341,7 +341,7 @@ export function SlugDialogBody({
                 repo={repo}
                 host={host}
                 comments={details.comments}
-                sourceTarget={sourceTarget}
+                sourceSettings={sourceSettings}
                 onChange={(next) => setDetails((d) => (d ? { ...d, comments: next } : d))}
               />
               <NewCommentForm
@@ -349,7 +349,7 @@ export function SlugDialogBody({
                 repo={repo}
                 host={host}
                 number={number}
-                sourceTarget={sourceTarget}
+                sourceSettings={sourceSettings}
                 onAdded={(c) => setDetails((d) => (d ? { ...d, comments: [...d.comments, c] } : d))}
               />
             </section>

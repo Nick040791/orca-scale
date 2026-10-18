@@ -113,19 +113,16 @@ export function registerDashboardPopoutHandlers(
   // Seen-sync: opening a card's terminal dialog acknowledges the agent in the
   // main renderer's store — the same ack that mutes its sidebar row.
   ipcMain.handle('dashboardPopout:ackAgent', (event, args: unknown): void => {
-    const ack = args && typeof args === 'object' ? args : {}
-    const paneKey = 'paneKey' in ack ? ack.paneKey : undefined
     if (
       !isDashboardPopoutRenderer(event.sender) ||
       !isDashboardEnabled(store) ||
-      !isDashboardPaneKey(paneKey)
+      !args ||
+      typeof args !== 'object' ||
+      !isDashboardPaneKey((args as { paneKey?: unknown }).paneKey)
     ) {
       return
     }
-    sendToTrustedUIRenderer('ui:ackDashboardAgent', {
-      paneKey,
-      intent: 'intent' in ack && ack.intent === 'explicit' ? 'explicit' : 'view'
-    })
+    sendToTrustedUIRenderer('ui:ackDashboardAgent', (args as { paneKey: string }).paneKey)
   })
 
   // Click-to-focus: raise the main window and route it to the agent's pane.

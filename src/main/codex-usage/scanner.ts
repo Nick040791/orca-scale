@@ -61,19 +61,12 @@ export async function scanCodexUsageFiles(
     const previous = previousByPath.get(filePath)
     // When an owner disappears, only deferred-claim files need reparse.
     const mustReclaimDeferred = lostOwnerPath && previous?.hasDeferredClaims !== false
-    const hasGenerationMetadata =
-      previous &&
-      typeof previous.ctimeMs === 'number' &&
-      (typeof previous.physicalFileId === 'string' || previous.physicalFileId === null)
     const canReuse =
       !mustReclaimDeferred &&
       legacySourceSkipBytes === 0 &&
       previous &&
-      hasGenerationMetadata &&
       previous.mtimeMs === fileInfo.mtimeMs &&
       previous.size === fileInfo.size &&
-      previous.ctimeMs === fileInfo.ctimeMs &&
-      previous.physicalFileId === fileInfo.physicalFileId &&
       Array.isArray(previous.ownedEventKeys) &&
       typeof previous.hasDeferredClaims === 'boolean'
     if (canReuse) {
@@ -82,13 +75,7 @@ export async function scanCodexUsageFiles(
       // Why: rollouts are append-only and grow all day, so re-reading each one
       // from byte 0 dominated scans (#20940). A reclaim or a legacy suffix
       // offset still needs the whole file, so neither may resume.
-      if (
-        !mustReclaimDeferred &&
-        legacySourceSkipBytes === 0 &&
-        previous &&
-        hasGenerationMetadata &&
-        fileInfo.size > previous.size
-      ) {
+      if (!mustReclaimDeferred && legacySourceSkipBytes === 0 && previous) {
         const state = await resolveCodexRolloutResume(filePath, previous)
         if (state) {
           resumeByPath.set(filePath, { state, previous })
@@ -110,7 +97,7 @@ export async function scanCodexUsageFiles(
   // stay deterministic.
   const eventOwnerByKey = new Map<string, string>()
   for (const filePath of files) {
-    const retained = previousByPath.get(filePath)
+    const retained = reusedByPath.get(filePath) ?? resumeByPath.get(filePath)?.previous
     for (const eventKey of retained?.ownedEventKeys ?? []) {
       // First retained claim wins so conflicting projections stay deterministic.
       if (!eventOwnerByKey.has(eventKey)) {
@@ -120,37 +107,20 @@ export async function scanCodexUsageFiles(
   }
 
   const parsedByPath = new Map<string, CodexUsagePersistedFile>()
-  let lostOwnerKeys = lostOwnerPath
-  const parseAndPublish = async (
-    filePath: string,
-    resume?: CodexRolloutResumePlan
-  ): Promise<void> => {
-    const previous =
-      parsedByPath.get(filePath) ?? reusedByPath.get(filePath) ?? previousByPath.get(filePath)
+  for (const [index, filePath] of pathsToParse.entries()) {
     const processed = await parseCodexUsageFile(filePath, resolveWorktree, {
       legacySourceSkipBytes: legacySourceSkipBytesByPath.get(filePath) ?? 0,
-      resume,
-      canClaimEventKey: (eventKey) => {
+      resume: resumeByPath.get(filePath),
+      claimEventKey: (eventKey) => {
         const owner = eventOwnerByKey.get(eventKey)
-        return owner === undefined || owner === filePath
-      },
-      commitEventKey: (eventKey) => {
+        if (owner !== undefined && owner !== filePath) {
+          return false
+        }
         eventOwnerByKey.set(eventKey, filePath)
+        return true
       }
     })
-    const currentKeys = new Set(processed.ownedEventKeys)
-    for (const key of previous?.ownedEventKeys ?? []) {
-      if (eventOwnerByKey.get(key) === filePath && !currentKeys.has(key)) {
-        eventOwnerByKey.delete(key)
-        lostOwnerKeys = true
-      }
-    }
-    reusedByPath.delete(filePath)
     parsedByPath.set(filePath, processed)
-  }
-
-  for (const [index, filePath] of pathsToParse.entries()) {
-    await parseAndPublish(filePath, resumeByPath.get(filePath))
 
     // Why: Codex session history can grow large, and scans run on the Electron
     // main process. Yield regularly so opening Settings does not stall while
@@ -158,21 +128,6 @@ export async function scanCodexUsageFiles(
     onFilesScanned?.(1)
     if ((index + 1) % YIELD_EVERY_FILES === 0) {
       await yieldToEventLoop()
-    }
-  }
-
-  // A replaced owner can release records that an unchanged fork previously deferred.
-  while (lostOwnerKeys) {
-    lostOwnerKeys = false
-    for (const [index, filePath] of files.entries()) {
-      const current = parsedByPath.get(filePath) ?? reusedByPath.get(filePath)
-      if (current?.hasDeferredClaims) {
-        await parseAndPublish(filePath)
-        onFilesScanned?.(1)
-      }
-      if ((index + 1) % YIELD_EVERY_FILES === 0) {
-        await yieldToEventLoop()
-      }
     }
   }
 

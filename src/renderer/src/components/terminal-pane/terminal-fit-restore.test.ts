@@ -6,7 +6,9 @@ import {
 } from '@/runtime/runtime-terminal-stream'
 import { restoreTerminalFitToDesktop, restoreTerminalFitsToDesktop } from './terminal-fit-restore'
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: vi.fn()
+}))
 
 vi.mock('@/runtime/runtime-terminal-stream', () => ({
   getRemoteRuntimePtyEnvironmentId: vi.fn(),

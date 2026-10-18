@@ -178,7 +178,6 @@ function budgetedPublication(
     seq: budget.frame.seq ?? serialized.seq ?? Number.MAX_SAFE_INTEGER,
     truncated: WIDEST_BOOLEAN,
     truncatedByByteBudget: WIDEST_BOOLEAN,
-    scrollbackRows: MOBILE_SUBSCRIBE_SCROLLBACK_ROWS,
     cols: serialized.cols,
     rows: serialized.rows,
     cwd: serialized.cwd,
@@ -241,12 +240,23 @@ function publishedCandidate<T extends SnapshotVariableMeta & { cols: number; row
 export async function serializeBudgetedMobileSnapshot(
   runtime: TerminalBufferSource,
   ptyId: string,
+  isMobile: boolean,
   snapshotByteBudget?: MobileSnapshotByteBudget
 ): Promise<SerializedSnapshot> {
   if (isTerminalSnapshotForcedUnavailable()) {
     return null
   }
-  // Why desktop shares the ladder: a screen-only image left a remounted or reconnected pane with no history (#20158).
+  if (!isMobile) {
+    const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: 0 })
+    return serialized
+      ? {
+          ...serialized,
+          data: (serialized.scrollbackAnsi ?? '') + serialized.data,
+          scrollbackRows: 0,
+          truncatedByByteBudget: false
+        }
+      : null
+  }
   const candidates = [MOBILE_SUBSCRIBE_SCROLLBACK_ROWS, 500, 250, 100, 25, 0]
   for (const rows of candidates) {
     const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: rows })
@@ -318,7 +328,7 @@ export async function sendMobileResizeRestream(
   if (event.reason !== 'apply-layout' || runtime.isTerminalAlternateScreen(ptyId)) {
     return false
   }
-  const serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, snapshotByteBudget)
+  const serialized = await serializeBudgetedMobileSnapshot(runtime, ptyId, true, snapshotByteBudget)
   if (!serialized) {
     return false
   }

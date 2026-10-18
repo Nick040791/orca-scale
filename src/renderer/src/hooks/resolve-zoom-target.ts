@@ -1,24 +1,12 @@
-import type { TopLevelView } from '../../../shared/ui-chrome-types'
-import type { WorkspaceVisibleTabType } from '../../../shared/tab-types'
-
-function closestFocusedElement(element: unknown, selector: string): unknown {
-  if (
-    typeof element === 'object' &&
-    element !== null &&
-    'closest' in element &&
-    typeof element.closest === 'function'
-  ) {
-    return element.closest(selector)
-  }
-  return null
-}
-
-/** Zoom belongs to the focused surface within the current workspace. */
+/**
+ * Determine which zoom domain (terminal, editor, simulator, or UI) should be adjusted
+ * based on current view, tab type, and focused element.
+ */
 export function resolveZoomTarget(args: {
   activeView: TopLevelView
   activeTabType: WorkspaceVisibleTabType
   activeElement: unknown
-}): 'terminal' | 'editor' | 'simulator' | 'chat' | 'ui' {
+}): 'terminal' | 'editor' | 'simulator' | 'ui' {
   const { activeView, activeTabType, activeElement } = args
   const terminalInputFocused =
     typeof activeElement === 'object' &&
@@ -29,13 +17,20 @@ export function resolveZoomTarget(args: {
     (activeElement as { classList: { contains: (token: string) => boolean } }).classList.contains(
       'xterm-helper-textarea'
     )
-  const chatFocused = Boolean(closestFocusedElement(activeElement, '[data-native-chat-root]'))
-  const editorFocused = Boolean(
-    closestFocusedElement(
-      activeElement,
-      '.monaco-editor, .diff-editor, .markdown-preview, .rich-markdown-editor, .rich-markdown-editor-shell'
+  const editorFocused =
+    typeof activeElement === 'object' &&
+    activeElement !== null &&
+    'closest' in activeElement &&
+    typeof (activeElement as { closest?: unknown }).closest === 'function' &&
+    Boolean(
+      (
+        activeElement as {
+          closest: (selector: string) => Element | null
+        }
+      ).closest(
+        '.monaco-editor, .diff-editor, .markdown-preview, .rich-markdown-editor, .rich-markdown-editor-shell'
+      )
     )
-  )
 
   if (activeView !== 'terminal') {
     return 'ui'
@@ -48,9 +43,6 @@ export function resolveZoomTarget(args: {
   if (activeTabType === 'browser') {
     return 'ui'
   }
-  if (chatFocused) {
-    return 'chat'
-  }
   if (activeTabType === 'editor' || editorFocused) {
     return 'editor'
   }
@@ -62,3 +54,5 @@ export function resolveZoomTarget(args: {
   }
   return 'ui'
 }
+import type { TopLevelView } from '../../../shared/ui-chrome-types'
+import type { WorkspaceVisibleTabType } from '../../../shared/tab-types'

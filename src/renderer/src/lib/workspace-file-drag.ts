@@ -5,11 +5,7 @@ import {
   validateNativeFileDropPaths
 } from '../../../shared/native-file-drop'
 import { measureClipboardTextByteLength } from '../../../shared/clipboard-text'
-import {
-  isUnresolvedOwnerHostId,
-  normalizeExecutionHostId,
-  type ExecutionHostId
-} from '../../../shared/execution-host'
+import { normalizeExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 
 export const WORKSPACE_FILE_PATH_MIME = 'text/x-orca-file-path'
 export const WORKSPACE_FILE_PATHS_MIME = 'text/x-orca-file-paths'
@@ -20,13 +16,12 @@ const WORKSPACE_FILE_DRAG_SOURCE_MAX_BYTES = 4096
 export type WorkspaceFileDragSource = {
   executionHostId: ExecutionHostId
   workspaceId: string
-  runtimeEnvironmentId?: string
 }
 
 export function isResolvedWorkspaceFileDragExecutionHost(
   executionHostId: ExecutionHostId
 ): boolean {
-  return !isUnresolvedOwnerHostId(executionHostId)
+  return executionHostId !== 'runtime:unresolved-owner'
 }
 
 export type WorkspaceFileDragRejectionReason = 'paths-too-large' | 'too-many-paths'
@@ -65,8 +60,7 @@ export function writeWorkspaceFileDragSource(
 export function writeWorkspaceFileDragSourceIfResolved(
   dataTransfer: Pick<DataTransfer, 'setData'>,
   workspaceId: string | null | undefined,
-  executionHostId: ExecutionHostId | null | undefined,
-  runtimeEnvironmentId?: string | null
+  executionHostId: ExecutionHostId | null | undefined
 ): void {
   if (
     !workspaceId ||
@@ -75,11 +69,7 @@ export function writeWorkspaceFileDragSourceIfResolved(
   ) {
     return
   }
-  writeWorkspaceFileDragSource(dataTransfer, {
-    executionHostId,
-    workspaceId,
-    ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {})
-  })
+  writeWorkspaceFileDragSource(dataTransfer, { executionHostId, workspaceId })
 }
 
 export function readWorkspaceFileDragSource(
@@ -109,12 +99,6 @@ export function readWorkspaceFileDragSource(
     const version = 'version' in parsed ? parsed.version : null
     if (version !== 1 || !executionHostId || !workspaceId) {
       return null
-    }
-    if ('runtimeEnvironmentId' in parsed) {
-      if (typeof parsed.runtimeEnvironmentId !== 'string' || !parsed.runtimeEnvironmentId.trim()) {
-        return null
-      }
-      return { executionHostId, workspaceId, runtimeEnvironmentId: parsed.runtimeEnvironmentId }
     }
     return { executionHostId, workspaceId }
   } catch {

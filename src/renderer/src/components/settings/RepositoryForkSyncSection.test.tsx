@@ -6,7 +6,7 @@ import { RepositoryForkSyncSection } from './RepositoryForkSyncSection'
 
 const syncRuntimeGitForkDefaultBranch = vi.fn()
 
-vi.mock('../../runtime/runtime-git-sync-client', () => ({
+vi.mock('../../runtime/runtime-git-client', () => ({
   syncRuntimeGitForkDefaultBranch: (...args: unknown[]) => syncRuntimeGitForkDefaultBranch(...args)
 }))
 

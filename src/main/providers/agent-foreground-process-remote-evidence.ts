@@ -1,4 +1,3 @@
-import { hasControllingTty } from '../../shared/posix-controlling-terminal'
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
 import type {
   PosixFence,
@@ -59,7 +58,7 @@ export function resolveRemoteForegroundEvidenceFromRows(
   if (!root || root.pgid === undefined || root.tpgid === undefined) {
     return { ...metadata, verdict: 'unverifiable', reason: 'anchor_missing' }
   }
-  if (!hasControllingTty(root.tty) || root.tpgid <= 0 || !root.startTime) {
+  if (!root.tty || root.tty === '?' || root.tpgid <= 0 || !root.startTime) {
     return { ...metadata, verdict: 'unverifiable', reason: 'fence_incomplete' }
   }
   const index = buildProcessTableIndex(rows)
@@ -74,7 +73,7 @@ export function resolveRemoteForegroundEvidenceFromRows(
   const descendants = collectDescendantRows(index, root.pid)
   // A child that owns another terminal/session is outside this PTY's
   // authority. Do not silently treat it as an idle shell.
-  if (descendants.some((row) => hasControllingTty(row.tty) && row.tty !== root.tty)) {
+  if (descendants.some((row) => row.tty !== undefined && row.tty !== '?' && row.tty !== root.tty)) {
     return { ...metadata, verdict: 'unverifiable', reason: 'tty_boundary' }
   }
   // Multiplexers can make a descendant appear foreground while the user is
@@ -83,7 +82,9 @@ export function resolveRemoteForegroundEvidenceFromRows(
   if ([root, ...descendants].some((row) => /(?:^|\s)(?:tmux|screen)(?:\s|$)/i.test(row.command))) {
     return { ...metadata, verdict: 'unverifiable', reason: 'multiplexer_boundary' }
   }
-  if (descendants.some((row) => row.pgid === root.tpgid && !hasControllingTty(row.tty))) {
+  if (
+    descendants.some((row) => row.pgid === root.tpgid && (row.tty === undefined || row.tty === '?'))
+  ) {
     return { ...metadata, verdict: 'unverifiable', reason: 'fence_incomplete' }
   }
   const foreground = descendants.filter((row) => row.pgid === root.tpgid && row.tty === root.tty)

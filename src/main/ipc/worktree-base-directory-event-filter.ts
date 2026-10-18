@@ -27,9 +27,6 @@ export type WorktreeBaseChangeClass = {
   // Which slice of the common dir's head identities this event can have moved.
   // Every classification must state one; `EMPTY` is a claim that no head moved.
   headIdentityScope: WorktreeHeadIdentityScope
-  // Whose status the gitStatus/headIdentity repo ids can have changed, so only
-  // that worktree's Source Control refreshes; `FULL` means unattributable.
-  gitStatusScope: WorktreeHeadIdentityScope
 }
 
 export type WorktreeBaseWatchKind = 'base' | 'git-common'
@@ -123,6 +120,10 @@ const GIT_COMMON_PRIMARY_STRUCTURAL_SCOPES = new Map<string, WorktreeHeadIdentit
   ['packed-refs', FULL_HEAD_IDENTITY_SCOPE],
   ['config.worktree', EMPTY_HEAD_IDENTITY_SCOPE]
 ])
+// `config` is status-tier: an external `git push -u` writes only
+// branch.<name>.remote/merge there, and a config write can move neither HEAD
+// nor the worktree listing.
+const GIT_COMMON_PRIMARY_STATUS_FILES = new Set(['index', 'config'])
 const GIT_COMMON_LINKED_STRUCTURAL_FILES = new Set(['HEAD', 'gitdir', 'locked', 'config.worktree'])
 // `HEAD` carries the branch and `gitdir` the checkout path; `locked` and
 // `config.worktree` are written by `git worktree lock` / sparse toggles, neither
@@ -161,8 +162,7 @@ const NO_CHANGE: WorktreeBaseChangeClass = {
   structureRepoIds: [],
   gitStatusRepoIds: [],
   headIdentityRepoIds: [],
-  headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-  gitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE
+  headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE
 }
 
 function structuralChange(
@@ -173,21 +173,16 @@ function structuralChange(
     structureRepoIds: repoIds,
     gitStatusRepoIds: [],
     headIdentityRepoIds: [],
-    headIdentityScope,
-    gitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE
+    headIdentityScope
   }
 }
 
-function gitStatusChange(
-  repoIds: string[],
-  gitStatusScope: WorktreeHeadIdentityScope
-): WorktreeBaseChangeClass {
+function gitStatusChange(repoIds: string[]): WorktreeBaseChangeClass {
   return {
     structureRepoIds: [],
     gitStatusRepoIds: repoIds,
     headIdentityRepoIds: [],
-    headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-    gitStatusScope
+    headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE
   }
 }
 
@@ -199,10 +194,7 @@ function headIdentityChange(
     structureRepoIds: [],
     gitStatusRepoIds: [],
     headIdentityRepoIds: repoIds,
-    headIdentityScope,
-    // A head move rewrites a shared branch ref (e.g. a commit to `main`), which
-    // is any checkout's local upstream; refs/heads leaves are not polled, so fan out.
-    gitStatusScope: FULL_HEAD_IDENTITY_SCOPE
+    headIdentityScope
   }
 }
 
@@ -227,13 +219,8 @@ function classifyGitCommonEvent(
     if (primaryScope) {
       return structuralChange(repoIds, primaryScope)
     }
-    if (parts[0] === 'index') {
-      return gitStatusChange(repoIds, PRIMARY_HEAD_IDENTITY_SCOPE)
-    }
-    if (parts[0] === 'config') {
-      // Status-tier: an external `git push -u` writes only branch upstreams here,
-      // which can move no HEAD or listing but can change any checkout's status.
-      return gitStatusChange(repoIds, FULL_HEAD_IDENTITY_SCOPE)
+    if (GIT_COMMON_PRIMARY_STATUS_FILES.has(parts[0])) {
+      return gitStatusChange(repoIds)
     }
     return NO_CHANGE
   }
@@ -241,9 +228,8 @@ function classifyGitCommonEvent(
     if (isHeadLogParts(parts, 0)) {
       return headIdentityChange(repoIds, PRIMARY_HEAD_IDENTITY_SCOPE)
     }
-    // Bound to the active status result, so it must reach it whoever wrote it.
     if (isBoundUpstreamRef(target, event.path, parts)) {
-      return gitStatusChange(repoIds, FULL_HEAD_IDENTITY_SCOPE)
+      return gitStatusChange(repoIds)
     }
     return NO_CHANGE
   }
@@ -268,7 +254,7 @@ function classifyGitCommonEvent(
       )
     }
     if (GIT_COMMON_LINKED_STATUS_FILES.has(parts[2])) {
-      return gitStatusChange(repoIds, headIdentityScopeForEntry(parts[1]))
+      return gitStatusChange(repoIds)
     }
   }
   if (isHeadLogParts(parts, 2)) {

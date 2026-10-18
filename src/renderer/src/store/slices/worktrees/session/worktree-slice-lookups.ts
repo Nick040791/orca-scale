@@ -14,7 +14,6 @@ import type {
   TerminalRecoveryRemountRequest,
   TerminalRecoveryRemountResult
 } from '../../../terminals/terminal-tab-recovery-ledger'
-import { settleAttentionRemovedBy } from '../../workspace-attention/attention-removal-follow-up'
 
 export function createSetRenamingWorktreeId(
   set: WorktreeSliceSet,
@@ -141,7 +140,7 @@ export function createGetKnownWorktreeById(
 
 export function createPurgeWorktreeTerminalState(
   set: WorktreeSliceSet,
-  get: WorktreeSliceGet
+  _get: WorktreeSliceGet
 ): WorktreeSlice['purgeWorktreeTerminalState'] {
   return (worktreeTargets) => {
     const purgeableWorktreeTargets = worktreeTargets.filter((target) => {
@@ -151,8 +150,6 @@ export function createPurgeWorktreeTerminalState(
     if (purgeableWorktreeTargets.length === 0) {
       return
     }
-    settleAttentionRemovedBy(set, get, () =>
-      set((s) => buildWorktreePurgeState(s, purgeableWorktreeTargets))
-    )
+    set((s) => buildWorktreePurgeState(s, purgeableWorktreeTargets))
   }
 }

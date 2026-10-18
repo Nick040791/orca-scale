@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   mintStructuredWorkerHandle,
@@ -92,30 +91,13 @@ describe('a structured chat coordinates through the same verbs as a terminal', (
       to: WORKER_HANDLE,
       subject: 'more'
     })
-    expect(outbound).toMatchObject({
-      from_handle: ADDRESS_X,
-      to_handle: `dispatch:${idOf(dispatch)}`,
-      run_id: runId
-    })
+    expect(outbound).toMatchObject({ from_handle: ADDRESS_X, run_id: runId })
 
     const replied = await as(SESSION_X, 'orchestration.reply', {
       id: idOf(inbound),
       body: 'ack'
     })
-    expect(replied).toMatchObject({
-      message: {
-        from_handle: ADDRESS_X,
-        to_handle: `dispatch:${idOf(dispatch)}`,
-        run_id: runId,
-        thread_id: idOf(inbound)
-      }
-    })
-    expect(await as(undefined, 'orchestration.check', { terminal: WORKER_HANDLE })).toMatchObject({
-      runId,
-      dispatchId: idOf(dispatch),
-      count: 2,
-      messages: [{ id: idOf(outbound) }, { id: idOf(replied.message) }]
-    })
+    expect(replied).toMatchObject({ message: { from_handle: ADDRESS_X, to_handle: WORKER_HANDLE } })
 
     const { gate } = await as(SESSION_X, 'orchestration.gateCreate', {
       task: taskId,
@@ -273,55 +255,16 @@ describe('a structured chat coordinates through the same verbs as a terminal', (
       )
     )
     await vi.waitFor(() => expect(waiter).toHaveBeenCalledWith(`run:${runId}`, expect.anything()))
-    const deliver = vi.spyOn(h.db, 'getOrCreateRunDelivery')
-    const acknowledge = vi.spyOn(h.db, 'acknowledgeRunDelivery')
 
     await as(SESSION_Y, 'orchestration.runUse', { id: runId })
 
-    const fenced = await waiting
-    expect(fenced).toMatchObject({ ok: false, error: { code: 'consumer_fenced' } })
-    expect(fenced).not.toHaveProperty('result')
-
-    const { message } = await as(undefined, 'orchestration.send', {
-      from: WORKER_HANDLE,
-      to: ADDRESS_Y,
-      subject: 'after takeover',
-      run: runId
+    expect(await waiting).toMatchObject({
+      ok: false,
+      error: {
+        code: 'consumer_fenced',
+        message: 'This mailbox consumer was replaced while waiting.'
+      }
     })
-    expect(
-      await h.dispatch(
-        orchestrationRequest('orchestration.check', { run: runId }, { sessionId: SESSION_X })
-      )
-    ).toMatchObject({ ok: false, error: { code: 'consumer_fenced' } })
-    expect(deliver).not.toHaveBeenCalled()
-
-    const replacement = await as(SESSION_Y, 'orchestration.check', {})
-    expect(replacement).toMatchObject({
-      runId,
-      count: 1,
-      messages: [{ id: idOf(message), to_handle: `run:${runId}`, run_id: runId }]
-    })
-    const ack = replacement.deliveryId
-    if (typeof ack !== 'string') {
-      throw new Error('Expected a Run Delivery')
-    }
-    expect(
-      await h.dispatch(
-        orchestrationRequest('orchestration.check', { run: runId, ack }, { sessionId: SESSION_X })
-      )
-    ).toMatchObject({ ok: false, error: { code: 'consumer_fenced' } })
-    expect(acknowledge).not.toHaveBeenCalled()
-    expect(h.db.getDeliveryRaw(ack)?.acknowledged_at).toBeNull()
-    expect(await as(SESSION_Y, 'orchestration.check', {})).toMatchObject({
-      deliveryId: ack,
-      replayed: true,
-      messages: [{ id: idOf(message) }]
-    })
-    expect(await as(SESSION_Y, 'orchestration.check', { ack })).toMatchObject({
-      acknowledged: ack,
-      count: 0
-    })
-    expect(h.db.getDeliveryRaw(ack)?.status).toBe('acknowledged')
   })
 
   it('stops counting a coordinator Orca session id once an older binary rebinds the Run to a terminal', async () => {

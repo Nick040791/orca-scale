@@ -6,10 +6,10 @@ const WORKTREE = 'repo-9::/w'
 const BRANCH_COMPARE = {
   summary: {
     baseRef: 'origin/main',
-    baseOid: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+    baseOid: 'base-oid',
     compareRef: 'feature',
-    headOid: 'f0e1d2c3b4a5968778695a4b3c2d1e0f98765432',
-    mergeBase: '0123456789abcdef0123456789abcdef01234567',
+    headOid: 'head-oid',
+    mergeBase: 'merge-base',
     changedFiles: 1,
     status: 'ready'
   },

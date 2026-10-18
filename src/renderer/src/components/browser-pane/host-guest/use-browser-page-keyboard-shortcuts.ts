@@ -64,44 +64,31 @@ export function useBrowserPageKeyboardShortcuts({
       if (isEditableKeyboardTarget(e.target)) {
         return
       }
-      const intent: GrabIntent | null = keybindingMatchesAction(
-        'browser.grabElement',
-        e,
-        shortcutPlatform,
-        keybindings
-      )
-        ? 'copy'
-        : keybindingMatchesAction('browser.annotateElement', e, shortcutPlatform, keybindings)
-          ? 'annotate'
-          : null
       if (
-        intent === null ||
-        // Why: startGrabIntent toggles, so a held chord would flicker the picker on and off.
-        e.repeat ||
         // Why: don't start the in-guest picker behind an open markup overlay (matches the disabled toolbar buttons).
         markupIsActive ||
+        !keybindingMatchesAction('browser.grabElement', e, shortcutPlatform, keybindings) ||
         !browserChromeShortcutOwnsEvent(chromeShortcutScope, e, workspaceId) ||
         // Why: a live selection means copy; selecting in the floating panel or a sidebar keeps scope.
-        (intent === 'copy' && window.getSelection()?.isCollapsed === false)
+        window.getSelection()?.isCollapsed === false
       ) {
         return
       }
       e.preventDefault()
-      startGrabIntent(intent)
+      startGrabIntent('copy')
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [chromeShortcutScope, keybindings, markupIsActive, startGrabIntent, workspaceId])
 
-  // Why: a focused guest keeps its key events; main forwards the grab/annotate chords back with their intent.
+  // Why: a focused guest gets Cmd/Ctrl+C inside Chromium; main forwards it back only when the page wouldn't use it for native copy.
   useEffect(() => {
-    return window.api.browser.onGrabModeToggle((tabId, intent) => {
-      // Why: a guest can hold keyboard focus under the markup overlay, whose toolbar disables both tools.
-      if (tabId === browserTabId && !markupIsActive) {
-        startGrabIntent(intent)
+    return window.api.browser.onGrabModeToggle((tabId) => {
+      if (tabId === browserTabId) {
+        startGrabIntent('copy')
       }
     })
-  }, [browserTabId, markupIsActive, startGrabIntent])
+  }, [browserTabId, startGrabIntent])
 
   useEffect(() => {
     if (!grabIsInteractive) {

@@ -3,15 +3,13 @@ import {
   applyBinderOwnerships,
   defaultOpenCodeDbPath,
   listBinderPaneSnapshots,
+  listOpenCodeDbSessions,
   OPENCODE_SESSION_CURSOR_START,
   runOpenCodeBinderRound,
-  type BinderPaneSnapshot
+  type BinderPaneSnapshot,
+  type BinderSessionRow,
+  type OpenCodeSessionCursor
 } from '../../opencode/opencode-session-binder'
-import type {
-  BinderSessionRow,
-  OpenCodeSessionCursor
-} from '../../foreign-sqlite-readers/opencode-binder-sessions-result'
-import { readOpenCodeBinderSessions } from '../../foreign-sqlite-readers/foreign-sqlite-reader-spawn'
 import {
   sweepProcessIdentities,
   type ProcessIdentityRow
@@ -31,15 +29,13 @@ const OPENCODE_BINDER_UNBOUND_MAX = 500
 export type OpenCodeBinderLoopDeps = {
   now: () => number
   dbPath: () => string
-  /** Resolves `[]` when the store or its worker cannot answer; never rejects. */
-  listSessions: (dbPath: string, cursor: OpenCodeSessionCursor) => Promise<BinderSessionRow[]>
+  listSessions: (dbPath: string, cursor: OpenCodeSessionCursor) => BinderSessionRow[]
   listPanes: () => BinderPaneSnapshot[]
   sweep: () => Promise<ProcessIdentityRow[]>
 }
 
 /**
- * Session→pane binder loop for the OpenCode 1 `serve` process shared by
- * `attach` panes (#21359). OpenCode-1-only: remove with OpenCode 1 support.
+ * Session→pane binder loop for the shared OpenCode server (#21359).
  *
  * Sits just above persistence in the chain so ingest layers can kick a round
  * when a birth arrives early, and lifecycle can start/stop the timer. All
@@ -57,7 +53,7 @@ export abstract class AgentHookServerOpenCodeBinder extends AgentHookServerPersi
   private openCodeBinderDeps: OpenCodeBinderLoopDeps = {
     now: () => Date.now(),
     dbPath: () => defaultOpenCodeDbPath(),
-    listSessions: (dbPath, cursor) => readOpenCodeBinderSessions(dbPath, cursor),
+    listSessions: (dbPath, sinceMs) => listOpenCodeDbSessions(dbPath, sinceMs),
     listPanes: () => listBinderPaneSnapshots(),
     sweep: () => sweepProcessIdentities()
   }
@@ -134,11 +130,7 @@ export abstract class AgentHookServerOpenCodeBinder extends AgentHookServerPersi
     try {
       const deps = this.openCodeBinderDeps
       const nowMs = deps.now()
-      const fresh = await deps.listSessions(deps.dbPath(), this.openCodeBinderWatermark)
-      // Why: stop() may land while the worker reads; its state and watermark were reset.
-      if (generation !== this.openCodeBinderGeneration) {
-        return 0
-      }
+      const fresh = deps.listSessions(deps.dbPath(), this.openCodeBinderWatermark)
       const sessions = [...fresh]
       for (const [id, entry] of this.openCodeBinderUnbound) {
         if (nowMs - entry.firstSeenMs > OPENCODE_BINDER_UNBOUND_RETRY_MS) {

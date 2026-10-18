@@ -1,9 +1,9 @@
 import { runRelayBackgroundOperation } from './relay-background-operation.js'
 
-// The twelve periodic assignment sweeps the director runs every 30s. Each step
+// The eleven periodic assignment sweeps the director runs every 30s. Each step
 // re-derives its state from the database and is idempotent, so they carry no
 // intra-tick ordering dependency — which is what makes per-step isolation
-// sound: one failing sweep costs one tick of itself, never the other eleven.
+// sound: one failing sweep costs one tick of itself, never the other ten.
 // (A single poisoned rehome row once silenced the whole chained form
 // fleet-wide.) Sweep failures are logged, never fed into the rehome worker's
 // dispatch-failure budget: a sweep exception is not a dispatch failure and
@@ -17,13 +17,12 @@ export type AssignmentCleanupStore = {
   abortExpiredRegionalRehomes(): Promise<unknown>
   reapRegionalRehomeAttempts(): Promise<unknown>
   releaseExpiredActivityLeases(): Promise<unknown>
-  pruneReleasedControlReservations(): Promise<unknown>
   releaseExpiredActivity(): Promise<unknown>
   releaseExpiredRegionPreferences(): Promise<unknown>
   evacuateDeadCells(): Promise<unknown>
 }
 
-function assignmentCleanupSteps(
+export function assignmentCleanupSteps(
   assignments: AssignmentCleanupStore
 ): ReadonlyArray<readonly [string, () => Promise<unknown>]> {
   return [
@@ -35,10 +34,6 @@ function assignmentCleanupSteps(
     ['abort-expired-regional-rehomes', () => assignments.abortExpiredRegionalRehomes()],
     ['reap-regional-rehome-attempts', () => assignments.reapRegionalRehomeAttempts()],
     ['release-expired-activity-leases', () => assignments.releaseExpiredActivityLeases()],
-    [
-      'prune-released-control-reservations',
-      () => assignments.pruneReleasedControlReservations()
-    ],
     ['release-expired-activity', () => assignments.releaseExpiredActivity()],
     ['release-expired-region-preferences', () => assignments.releaseExpiredRegionPreferences()],
     ['evacuate-dead-cells', () => assignments.evacuateDeadCells()]

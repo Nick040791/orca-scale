@@ -3,9 +3,8 @@ import {
   createFakeSpawnedChild,
   fakeSpawnDispatch,
   fakeSpawnReturning
-} from '../../shared/__fixtures__/fake-spawned-child'
+} from '../../shared/child-process/__fixtures__/fake-spawned-child'
 import type * as WslModule from '../wsl'
-import { windowsSystem32Binary } from '@orca/process-host/windows-system-binary'
 
 const { execFileSyncMock, spawnMock, getDefaultWslDistroMock } = vi.hoisted(() => ({
   execFileSyncMock: vi.fn(),
@@ -435,7 +434,7 @@ describe('ghExecFileAsync WSL fallback', () => {
     expect(spawnMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1)
     expect(spawnMock).toHaveBeenCalledWith(
-      windowsSystem32Binary('taskkill.exe'),
+      'taskkill',
       ['/pid', '2400', '/t', '/f'],
       expect.objectContaining({ stdio: 'ignore', windowsHide: true })
     )
@@ -469,7 +468,7 @@ describe('ghExecFileAsync WSL fallback', () => {
       expect.not.objectContaining({ signal: controller.signal })
     )
     expect(spawnMock).toHaveBeenCalledWith(
-      windowsSystem32Binary('taskkill.exe'),
+      'taskkill',
       ['/pid', '2400', '/t', '/f'],
       expect.objectContaining({ stdio: 'ignore', windowsHide: true })
     )

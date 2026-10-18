@@ -1,6 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { FeatureInteractionId } from '../../../../shared/feature-interaction-catalog'
-import type { SecretAtRestProtection } from '../../../../shared/secret-at-rest-protection'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 
@@ -8,11 +7,9 @@ type MiniMaxCredentialActionContext = {
   miniMaxApiKeyDraft: string
   setMiniMaxApiKeyDraft: Dispatch<SetStateAction<string>>
   setMiniMaxApiKeyConfigured: Dispatch<SetStateAction<boolean>>
-  setMiniMaxApiKeyProtection: Dispatch<SetStateAction<SecretAtRestProtection | null>>
   miniMaxCookieDraft: string
   setMiniMaxCookieDraft: Dispatch<SetStateAction<string>>
   setMiniMaxConfigured: Dispatch<SetStateAction<boolean>>
-  setMiniMaxCookieProtection: Dispatch<SetStateAction<SecretAtRestProtection | null>>
   setMiniMaxCredentialBusy: Dispatch<SetStateAction<boolean>>
   recordFeatureInteraction: (featureId: FeatureInteractionId) => void
 }
@@ -27,11 +24,9 @@ export function createMiniMaxCredentialActions(context: MiniMaxCredentialActionC
     miniMaxApiKeyDraft,
     setMiniMaxApiKeyDraft,
     setMiniMaxApiKeyConfigured,
-    setMiniMaxApiKeyProtection,
     miniMaxCookieDraft,
     setMiniMaxCookieDraft,
     setMiniMaxConfigured,
-    setMiniMaxCookieProtection,
     setMiniMaxCredentialBusy,
     recordFeatureInteraction
   } = context
@@ -54,7 +49,6 @@ export function createMiniMaxCredentialActions(context: MiniMaxCredentialActionC
         )
       }
       setMiniMaxConfigured(status.cookieConfigured)
-      setMiniMaxCookieProtection(status.cookieProtection)
       setMiniMaxCookieDraft('')
       recordFeatureInteraction('usage-tracking')
       toast.success(
@@ -78,7 +72,6 @@ export function createMiniMaxCredentialActions(context: MiniMaxCredentialActionC
     try {
       const status = await window.api.minimaxCredentials.clearCookie()
       setMiniMaxConfigured(status.cookieConfigured)
-      setMiniMaxCookieProtection(status.cookieProtection)
       setMiniMaxCookieDraft('')
       recordFeatureInteraction('usage-tracking')
     } catch (error) {
@@ -116,7 +109,6 @@ export function createMiniMaxCredentialActions(context: MiniMaxCredentialActionC
         )
       }
       setMiniMaxApiKeyConfigured(status.apiKeyConfigured)
-      setMiniMaxApiKeyProtection(status.apiKeyProtection)
       setMiniMaxApiKeyDraft('')
       recordFeatureInteraction('usage-tracking')
       toast.success(
@@ -140,7 +132,6 @@ export function createMiniMaxCredentialActions(context: MiniMaxCredentialActionC
     try {
       const status = await window.api.minimaxCredentials.clearApiKey()
       setMiniMaxApiKeyConfigured(status.apiKeyConfigured)
-      setMiniMaxApiKeyProtection(status.apiKeyProtection)
       setMiniMaxApiKeyDraft('')
       recordFeatureInteraction('usage-tracking')
     } catch (error) {

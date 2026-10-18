@@ -6,108 +6,89 @@ import type {
 } from '../../../../shared/folder-workspace-path-status'
 import { getProjectGroupSubtreeIds } from '../../../../shared/project-groups'
 import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
-import { getRepoExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
-import type {
-  FolderWorkspacePathStatusCacheEntry,
-  FolderWorkspacePathStatusRouteOptions
-} from '../repos/repo-state'
-import {
-  getRuntimeTargetHostId,
-  runtimeTargetForOwnerEnvironment
-} from '../../runtime/runtime-client-target'
-import { catalogOwnsHost, getProjectGroupHostId } from '../slices/project-group-owner-routing'
-import { getFolderWorkspaceHostId } from '../../../../shared/folder-workspace-execution-host'
-
-type FolderPathStatusSnapshotState = Pick<
-  AppState,
-  'projectGroups' | 'folderWorkspaces' | 'repos' | 'sshConnectionStates'
->
-
-type FolderPathStatusScope = {
-  path: string
-  projectGroupId: string | null
-  connectionId: string | null
-  executionHostId: ExecutionHostId
-}
-
-function getFolderPathStatusScope(
-  state: FolderPathStatusSnapshotState,
-  request: FolderWorkspacePathStatusRequest,
-  ownerHostId: ExecutionHostId
-): FolderPathStatusScope | null {
-  if (request.scope === 'path') {
-    return {
-      path: request.path,
-      projectGroupId: null,
-      connectionId: request.connectionId ?? null,
-      executionHostId: ownerHostId
-    }
-  }
-  if (request.scope === 'project-group') {
-    const groups = state.projectGroups.filter(
-      (group) =>
-        group.id === request.projectGroupId &&
-        catalogOwnsHost(ownerHostId, getProjectGroupHostId(group))
-    )
-    const group = groups.length === 1 ? groups[0] : null
-    return group?.parentPath
-      ? {
-          path: group.parentPath,
-          projectGroupId: group.id,
-          connectionId: group.connectionId ?? null,
-          executionHostId: getProjectGroupHostId(group)
-        }
-      : null
-  }
-  const folders = state.folderWorkspaces.filter(
-    (workspace) =>
-      workspace.id === request.folderWorkspaceId &&
-      catalogOwnsHost(ownerHostId, getFolderWorkspaceHostId(workspace, state.projectGroups))
-  )
-  const folder = folders.length === 1 ? folders[0] : null
-  if (!folder?.folderPath || !folder.projectGroupId) {
-    return null
-  }
-  const executionHostId = getFolderWorkspaceHostId(folder, state.projectGroups)
-  const group = state.projectGroups.find(
-    (candidate) =>
-      candidate.id === folder.projectGroupId && getProjectGroupHostId(candidate) === executionHostId
-  )
-  return {
-    path: folder.folderPath,
-    projectGroupId: folder.projectGroupId,
-    connectionId: folder.connectionId ?? group?.connectionId ?? null,
-    executionHostId
-  }
-}
+import type { FolderWorkspacePathStatusCacheEntry } from '../repos/repo-state'
 
 export function getFolderWorkspaceStatusRequestSnapshot(
-  state: FolderPathStatusSnapshotState,
-  request: FolderWorkspacePathStatusRequest,
-  options: FolderWorkspacePathStatusRouteOptions
+  state: Pick<AppState, 'projectGroups' | 'folderWorkspaces' | 'repos' | 'sshConnectionStates'>,
+  request: FolderWorkspacePathStatusRequest
 ): string | null {
-  const ownerHostId = getRuntimeTargetHostId(
-    runtimeTargetForOwnerEnvironment(options.runtimeEnvironmentId)
-  )
-  const scope = getFolderPathStatusScope(state, request, ownerHostId)
-  if (!scope) {
+  if (request.scope === 'path') {
+    const candidateRepos = state.repos.filter((repo) =>
+      isPathInsideOrEqual(request.path, repo.path)
+    )
+    const relevantConnectionIds = new Set<string>()
+    if (request.connectionId) {
+      relevantConnectionIds.add(request.connectionId)
+    }
+    for (const repo of candidateRepos) {
+      if (repo.connectionId) {
+        relevantConnectionIds.add(repo.connectionId)
+      }
+    }
+    const sshFingerprint = [...relevantConnectionIds]
+      .map(
+        (connectionId) =>
+          `${connectionId}:${state.sshConnectionStates.get(connectionId)?.status ?? 'missing'}`
+      )
+      .sort()
+      .join('|')
+    const repoFingerprint = candidateRepos
+      .map(
+        (repo) => `${repo.id}:${repo.path}:${repo.projectGroupId ?? ''}:${repo.connectionId ?? ''}`
+      )
+      .sort()
+      .join('|')
+    return [request.path, '', request.connectionId ?? '', sshFingerprint, repoFingerprint].join(
+      '\0'
+    )
+  }
+
+  const scope =
+    request.scope === 'project-group'
+      ? state.projectGroups.find((group) => group.id === request.projectGroupId)
+      : state.folderWorkspaces.find((workspace) => workspace.id === request.folderWorkspaceId)
+  const projectGroup =
+    request.scope === 'project-group'
+      ? scope && 'parentPath' in scope
+        ? scope
+        : null
+      : scope && 'projectGroupId' in scope
+        ? state.projectGroups.find((group) => group.id === scope.projectGroupId)
+        : null
+  const folderPath =
+    request.scope === 'project-group'
+      ? scope && 'parentPath' in scope
+        ? scope.parentPath
+        : null
+      : scope && 'folderPath' in scope
+        ? scope.folderPath
+        : null
+  const projectGroupId =
+    request.scope === 'project-group'
+      ? request.projectGroupId
+      : scope && 'projectGroupId' in scope
+        ? scope.projectGroupId
+        : null
+  const scopeConnectionId =
+    request.scope === 'project-group'
+      ? scope && 'parentPath' in scope
+        ? scope.connectionId
+        : null
+      : scope && 'folderPath' in scope
+        ? (scope.connectionId ?? projectGroup?.connectionId)
+        : null
+  if (!folderPath || !projectGroupId) {
     return null
   }
-  const projectGroups = state.projectGroups.filter((group) =>
-    catalogOwnsHost(ownerHostId, getProjectGroupHostId(group))
-  )
-  const groupIds = scope.projectGroupId
-    ? getProjectGroupSubtreeIds(projectGroups, scope.projectGroupId)
-    : new Set<string>()
+  const groupIds = getProjectGroupSubtreeIds(state.projectGroups, projectGroupId)
   const candidateRepos = state.repos.filter(
     (repo) =>
-      catalogOwnsHost(ownerHostId, getRepoExecutionHostId(repo)) &&
-      ((typeof repo.projectGroupId === 'string' && groupIds.has(repo.projectGroupId)) ||
-        isPathInsideOrEqual(scope.path, repo.path))
+      (typeof repo.projectGroupId === 'string' && groupIds.has(repo.projectGroupId)) ||
+      isPathInsideOrEqual(folderPath, repo.path)
   )
   const relevantConnectionIds = new Set<string>()
-  if (scope.connectionId) {
-    relevantConnectionIds.add(scope.connectionId)
+  if (scopeConnectionId) {
+    relevantConnectionIds.add(scopeConnectionId)
   }
   for (const repo of candidateRepos) {
     if (repo.connectionId) {
@@ -123,16 +104,14 @@ export function getFolderWorkspaceStatusRequestSnapshot(
     .join('|')
   const repoFingerprint = candidateRepos
     .map(
-      (repo) =>
-        `${repo.id}:${repo.path}:${repo.projectGroupId ?? ''}:${repo.connectionId ?? ''}:${getRepoExecutionHostId(repo)}`
+      (repo) => `${repo.id}:${repo.path}:${repo.projectGroupId ?? ''}:${repo.connectionId ?? ''}`
     )
     .sort()
     .join('|')
   return [
-    scope.path,
-    scope.projectGroupId ?? '',
-    scope.connectionId ?? '',
-    scope.executionHostId,
+    folderPath,
+    projectGroupId,
+    scopeConnectionId ?? '',
     sshFingerprint,
     repoFingerprint
   ].join('\0')
@@ -147,4 +126,11 @@ export function getFreshFolderWorkspacePathStatusFromCache(args: {
     return null
   }
   return Date.now() - entry.checkedAt < FOLDER_WORKSPACE_PATH_STATUS_TTL_MS ? entry.status : null
+}
+
+export function getFolderWorkspacePathStatusRequestSnapshotForRead(
+  state: AppState,
+  request: FolderWorkspacePathStatusRequest
+): string | null {
+  return getFolderWorkspaceStatusRequestSnapshot(state, request)
 }

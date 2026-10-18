@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectGroup } from '../../../../shared/project-group-types'
 import { useAppStore } from '@/store'
-import { getFolderWorkspaceStatusRequestSnapshot } from '@/store/folder-workspaces/folder-path-status'
 import { useFolderWorkspaceComposerPathStatus } from './folder-workspace-composer-path-status'
 
 const initialState = useAppStore.getInitialState()
@@ -23,20 +22,13 @@ const projectGroup: ProjectGroup = {
   createdAt: 1,
   updatedAt: 1
 }
-const projectGroupRequestSnapshot = getFolderWorkspaceStatusRequestSnapshot(
-  { ...initialState, projectGroups: [projectGroup] },
-  { scope: 'project-group', projectGroupId: projectGroup.id },
-  { runtimeEnvironmentId: null }
-)
-if (projectGroupRequestSnapshot === null) {
-  throw new Error('Project group fixture must have a path status snapshot')
-}
+const projectGroupRequestSnapshot = '/workspace/platform\0group-1\0\0\0'
 
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
 function HookProbe(): null {
-  const result = useFolderWorkspaceComposerPathStatus(projectGroup, true, null)
+  const result = useFolderWorkspaceComposerPathStatus(projectGroup, true)
   ;(
     globalThis as { __folderWorkspaceComposerPathStatusResult?: typeof result }
   ).__folderWorkspaceComposerPathStatusResult = result
@@ -61,9 +53,7 @@ describe('useFolderWorkspaceComposerPathStatus', () => {
     vi.useFakeTimers()
     vi.setSystemTime(20_000)
     const request = { scope: 'project-group' as const, projectGroupId: projectGroup.id }
-    const cacheKey = useAppStore
-      .getState()
-      .getFolderWorkspacePathStatusCacheKey(request, { runtimeEnvironmentId: null })
+    const cacheKey = useAppStore.getState().getFolderWorkspacePathStatusCacheKey(request)
     const fetchFolderWorkspacePathStatus = vi.fn().mockResolvedValue(null)
     useAppStore.setState({
       projectGroups: [projectGroup],
@@ -122,10 +112,7 @@ describe('useFolderWorkspaceComposerPathStatus', () => {
         }
       ).__folderWorkspaceComposerPathStatusResult?.pathStatusProjectError
     ).toContain('/workspace/platform')
-    expect(fetchFolderWorkspacePathStatus).toHaveBeenCalledWith(request, {
-      force: true,
-      runtimeEnvironmentId: null
-    })
+    expect(fetchFolderWorkspacePathStatus).toHaveBeenCalledWith(request, { force: true })
   })
 
   it('unblocks creation when the first path status check settles without cache', async () => {
@@ -164,19 +151,40 @@ describe('useFolderWorkspaceComposerPathStatus', () => {
         }
       ).__folderWorkspaceComposerPathStatusResult?.pathStatusBlocksCreate
     ).toBe(false)
-    expect(fetchFolderWorkspacePathStatus).toHaveBeenCalledWith(request, {
-      force: true,
-      runtimeEnvironmentId: null
+    expect(fetchFolderWorkspacePathStatus).toHaveBeenCalledWith(request, { force: true })
+  })
+
+  it('blocks creation while the first path status check is unknown', () => {
+    const request = { scope: 'project-group' as const, projectGroupId: projectGroup.id }
+    const fetchFolderWorkspacePathStatus = vi.fn()
+    useAppStore.setState({
+      projectGroups: [projectGroup],
+      fetchFolderWorkspacePathStatus,
+      folderWorkspacePathStatuses: {}
     })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(<HookProbe />)
+    })
+
+    expect(
+      (
+        globalThis as {
+          __folderWorkspaceComposerPathStatusResult?: { pathStatusBlocksCreate: boolean }
+        }
+      ).__folderWorkspaceComposerPathStatusResult?.pathStatusBlocksCreate
+    ).toBe(true)
+    expect(fetchFolderWorkspacePathStatus).toHaveBeenCalledWith(request, { force: true })
   })
 
   it('does not block creation for an unavailable path status', () => {
     vi.useFakeTimers()
     vi.setSystemTime(20_000)
     const request = { scope: 'project-group' as const, projectGroupId: projectGroup.id }
-    const cacheKey = useAppStore
-      .getState()
-      .getFolderWorkspacePathStatusCacheKey(request, { runtimeEnvironmentId: null })
+    const cacheKey = useAppStore.getState().getFolderWorkspacePathStatusCacheKey(request)
     useAppStore.setState({
       projectGroups: [projectGroup],
       fetchFolderWorkspacePathStatus: vi.fn().mockResolvedValue(null),
@@ -213,9 +221,7 @@ describe('useFolderWorkspaceComposerPathStatus', () => {
     vi.useFakeTimers()
     vi.setSystemTime(20_000)
     const request = { scope: 'project-group' as const, projectGroupId: projectGroup.id }
-    const cacheKey = useAppStore
-      .getState()
-      .getFolderWorkspacePathStatusCacheKey(request, { runtimeEnvironmentId: null })
+    const cacheKey = useAppStore.getState().getFolderWorkspacePathStatusCacheKey(request)
     useAppStore.setState({
       projectGroups: [projectGroup],
       fetchFolderWorkspacePathStatus: vi.fn(),
@@ -270,5 +276,17 @@ describe('useFolderWorkspaceComposerPathStatus', () => {
         }
       ).__folderWorkspaceComposerPathStatusResult?.pathStatusBlocksCreate
     ).toBe(true)
+  })
+
+  it('tracks settled path status refreshes by cache key and expiry generation', () => {
+    const source = useFolderWorkspaceComposerPathStatus.toString()
+    expect(source).toContain('activePathStatusRefreshIdRef')
+    expect(source).toContain('activePathStatusRefreshIdRef.current !== refreshId')
+    expect(source).toContain('completedPathStatusRefreshKeys')
+    expect(source).toContain('`${pathStatusCacheKey}:${cacheExpiryTick}`')
+    expect(source).toContain('new Set(current).add(pathStatusRefreshKey)')
+    expect(source).toContain('!completedPathStatusRefreshKeys.has(pathStatusRefreshKey)')
+    expect(source).toContain('cachedBlockingPathStatus')
+    expect(source).toContain('cachedPathStatusEntry.status.reason === "ambiguous-connection"')
   })
 })

@@ -8,16 +8,16 @@ import {
   getWorktreeHostIdentity
 } from '../../../../../../shared/worktree/host-qualified-identity'
 import WorktreeCard, { type ActiveSurfaceVariant } from '../../WorktreeCard'
-import { PINNED_GROUP_KEY } from '../../../../../../shared/sidebar-list/group-keys'
-import type { WorktreeGroupBy } from '../../../../../../shared/sidebar-list/row-types'
+import { PINNED_GROUP_KEY } from '../grouping/group-keys'
+import type { WorktreeGroupBy } from '../grouping/row-types'
 import {
   getFolderBackedRepoWorktreeCardContentIndent,
   getFolderBackedRepoWorktreeCardSurfaceInset,
   getLineageChildrenInlineStyle,
+  getLineageNestedRowGeometry,
   getWorktreeCardContentIndent,
   getWorktreeCardSurfaceInset,
-  LINEAGE_CHILDREN_INLINE_OFFSET,
-  LINEAGE_NESTED_ROW_SURFACE_INSET
+  LINEAGE_CHILDREN_INLINE_OFFSET
 } from './indentation'
 import type { LineageToggleHandler } from '../../worktree-lineage-toggle-handler-cache'
 import { stopNestedWorktreeCardBubble } from './header-event-guards'
@@ -69,16 +69,13 @@ function getWorktreeItemRowGeometry(
   ctx: WorktreeItemRowContext,
   itemRow: WorktreeItemRow,
   nested: boolean
-): { surfaceInset: number; cardContentIndent: number } {
-  // Why: the shared child wrapper already inherits the parent's group and content offsets.
-  if (nested) {
-    return { surfaceInset: LINEAGE_NESTED_ROW_SURFACE_INSET, cardContentIndent: 0 }
-  }
-
+): { surfaceInset: number; cardContentIndent: number; lineageChildrenInlineOffset?: number } {
   const projectGroupId = itemRow.repo?.projectGroupId
   const isFolderBackedRepoChild =
     ctx.groupBy === 'repo' &&
     Boolean(projectGroupId && ctx.folderBackedProjectGroupIds.has(projectGroupId))
+  // Why: experimental in-card lineage inherits the parent surface; legacy cards keep depth-based nested geometry.
+  const paddingDepth = nested ? Math.max(0, itemRow.depth - 1) : itemRow.depth
   const getCardContentIndent = (lineageDepth: number): number =>
     isFolderBackedRepoChild
       ? getFolderBackedRepoWorktreeCardContentIndent({
@@ -90,19 +87,39 @@ function getWorktreeItemRowGeometry(
           groupDepth: itemRow.groupDepth,
           lineageDepth
         })
-  const paddingLeft = getCardContentIndent(itemRow.depth)
-  const surfaceInset = isFolderBackedRepoChild
-    ? getFolderBackedRepoWorktreeCardSurfaceInset({
-        groupDepth: itemRow.groupDepth,
+  const nestedLineageGeometry = nested
+    ? getLineageNestedRowGeometry({
+        experimentalNewWorktreeCardStyle: ctx.settings?.experimentalNewWorktreeCardStyle === true,
+        inheritedCardContentIndent: getCardContentIndent(0),
         lineageDepth: itemRow.depth
       })
-    : getWorktreeCardSurfaceInset({
-        isGrouped: ctx.groupBy !== 'none',
-        groupDepth: itemRow.groupDepth
-      })
+    : null
+  // Why: grouped rows inherit their header depth, but the card surface still spans the full row.
+  const paddingLeft =
+    nested && ctx.groupBy !== 'none'
+      ? getWorktreeCardContentIndent({
+          isGrouped: false,
+          groupDepth: itemRow.groupDepth,
+          lineageDepth: paddingDepth
+        })
+      : getCardContentIndent(paddingDepth)
+  const surfaceInset = nestedLineageGeometry
+    ? nestedLineageGeometry.surfaceInset
+    : isFolderBackedRepoChild
+      ? getFolderBackedRepoWorktreeCardSurfaceInset({
+          groupDepth: itemRow.groupDepth,
+          lineageDepth: paddingDepth
+        })
+      : getWorktreeCardSurfaceInset({
+          isGrouped: ctx.groupBy !== 'none',
+          groupDepth: itemRow.groupDepth
+        })
   return {
     surfaceInset,
-    cardContentIndent: Math.max(0, paddingLeft - surfaceInset)
+    cardContentIndent: nestedLineageGeometry
+      ? nestedLineageGeometry.cardContentIndent
+      : Math.max(0, paddingLeft - surfaceInset),
+    lineageChildrenInlineOffset: nestedLineageGeometry?.lineageChildrenInlineOffset
   }
 }
 
@@ -113,9 +130,10 @@ export function renderWorktreeItemRow(
   lineageChildren?: React.ReactNode,
   forceActiveSurface = false
 ): React.JSX.Element {
-  const { surfaceInset, cardContentIndent } = getWorktreeItemRowGeometry(ctx, itemRow, nested)
+  const { surfaceInset, cardContentIndent, lineageChildrenInlineOffset } =
+    getWorktreeItemRowGeometry(ctx, itemRow, nested)
   const lineageChildrenStyle = lineageChildren
-    ? getLineageChildrenInlineStyle(LINEAGE_CHILDREN_INLINE_OFFSET)
+    ? getLineageChildrenInlineStyle(lineageChildrenInlineOffset ?? LINEAGE_CHILDREN_INLINE_OFFSET)
     : undefined
   const worktreeDragGroupKey = ctx.groupKeyByRowKey.get(itemRow.rowKey)
   const worktreeIdentity = getWorktreeHostIdentity(itemRow.worktree)
@@ -194,10 +212,9 @@ export function renderWorktreeItemRow(
         onContextMenuSelect={ctx.onContextMenuSelect}
         onCardDragStart={ctx.onCardDragStart}
         onCardDragEnd={ctx.onCardDragEnd}
-        hideRepoBadge={ctx.groupBy === 'repo' && !itemRow.showProjectName}
-        // Why: pinned worktrees mix repos; cross-repo children opt into the existing project-name badge.
+        hideRepoBadge={ctx.groupBy === 'repo'}
+        // Why: pinned worktrees mix repos in one section, so only it needs the leading repo identity chip.
         hostContextLabel={itemRow.hostContextLabel}
-        showProjectName={itemRow.showProjectName}
         inPinnedSection={itemRow.sectionKey === PINNED_GROUP_KEY}
         renameRowKey={itemRow.rowKey}
         lineageChildCount={itemRow.lineageChildCount}

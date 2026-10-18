@@ -19,8 +19,11 @@ function mockSubprocess(): SubprocessHandle {
   } as SubprocessHandle
 }
 
-// Why: without CR (Enter) the startup command sits typed at the prompt but
-// unexecuted (#23250). A caller-supplied terminator is replaced, not doubled.
+// Why: Windows shells (PowerShell/cmd.exe) submit on CR, not LF. Without CR
+// the startup command sits typed at the prompt but unexecuted — forcing the
+// user to press Enter after "claude" (or a setup script) is injected.
+// POSIX shells (bash/zsh) keep the LF behaviour. A caller-supplied terminator
+// must not be doubled.
 describe('TerminalHost startup command terminator', () => {
   const origPlatform = process.platform
   afterEach(() => {
@@ -36,11 +39,9 @@ describe('TerminalHost startup command terminator', () => {
 
   it.each([
     ['win32', 'claude', 'claude\r'],
-    ['darwin', 'claude', 'claude\r'],
-    ['linux', 'claude', 'claude\r'],
+    ['darwin', 'claude', 'claude\n'],
     ['win32', 'claude\r', 'claude\r'],
-    ['darwin', 'claude\n', 'claude\r'],
-    ['win32', 'claude\r\n', 'claude\r']
+    ['darwin', 'claude\n', 'claude\n']
   ])('submits startup with correct terminator on %s', async (platform, cmd, sent) => {
     Object.defineProperty(process, 'platform', { value: platform })
     await host.createOrAttach({
@@ -127,6 +128,6 @@ describe('TerminalHost startup command delivery logging', () => {
         streamClient: { onData: vi.fn(), onExit: vi.fn() }
       })
     ).resolves.toMatchObject({ isNew: true })
-    expect(sub.write).toHaveBeenCalledWith('codex\r')
+    expect(sub.write).toHaveBeenCalledWith(`codex${process.platform === 'win32' ? '\r' : '\n'}`)
   })
 })

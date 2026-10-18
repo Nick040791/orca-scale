@@ -22,12 +22,9 @@ import {
   REVISION,
   WT
 } from './host-session-mirror-frame-fixtures'
-import {
-  hasHostSessionMirrorHydrated,
-  resetHostSessionMirrorHydrationForTests
-} from './host-session-mirror-hydration'
+import { resetHostSessionMirrorHydrationForTests } from './host-session-mirror-hydration'
 import { replaceRuntimeEnvironmentRevisions } from './runtime-environment-revision'
-import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
+import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync'
 
 const initialState = useAppStore.getInitialState()
 
@@ -100,7 +97,7 @@ export function seedState(): void {
           ptyIdsByLeafId: { [LEAF_ID]: 'pty-host-old-2' }
         }
       },
-      settings: { agentCmdOverrides: {} }
+      settings: { agentCmdOverrides: {}, setupScriptLaunchMode: 'new-tab' }
     } as never,
     true
   )
@@ -162,19 +159,20 @@ export function tabIds(worktreeId: string): string[] {
   return (useAppStore.getState().tabsByWorktree[worktreeId] ?? []).map((tab) => tab.id)
 }
 
-export function expectHostOwnedRecordNotResumed(
-  paneKey: string,
-  worktreeId: string,
-  sessionId: string
-): void {
+/** A drained waiter has to land a claiming replacement tab; a replay that only
+ *  consumed the record launched nothing. */
+export function expectReplayedResume(paneKey: string, worktreeId: string, sessionId: string): void {
   const state = useAppStore.getState()
-  expect(hasHostSessionMirrorHydrated(ENV, worktreeId)).toBe(true)
-  expect(state.sleepingAgentSessionsByPaneKey[paneKey]).toMatchObject({
-    worktreeId,
+  expect(state.sleepingAgentSessionsByPaneKey[paneKey]).toBeUndefined()
+  const claimedTabIds = Object.keys(state.automaticAgentResumeClaimsByTabId)
+  expect(claimedTabIds).toHaveLength(1)
+  const replacementTabId = claimedTabIds[0]!
+  expect(replacementTabId).not.toBe(MIRROR_TAB_ID)
+  expect(tabIds(worktreeId)).toContain(replacementTabId)
+  expect(state.automaticAgentResumeClaimsByTabId[replacementTabId]).toMatchObject({
+    launchAgent: 'codex',
     providerSession: { key: 'session_id', id: sessionId }
   })
-  expect(Object.keys(state.automaticAgentResumeClaimsByTabId)).toHaveLength(0)
-  expect(Object.keys(state.pendingStartupByTabId)).toHaveLength(0)
 }
 
 /** Registers the shared harness reset for the receipt-era describe blocks. */

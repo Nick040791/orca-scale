@@ -1,6 +1,7 @@
 import type React from 'react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { useAppStore } from '../../store'
+import { Separator } from '../ui/separator'
 import { CliSection } from './CliSection'
 import { GeneralEditorSettingsSection } from './GeneralEditorSettingsSection'
 import { GeneralSupportSection } from './GeneralSupportSection'
@@ -17,13 +18,12 @@ import {
 } from './general-search'
 import { getGeneralProjectRuntimeSearchEntries } from './general-project-runtime-search'
 import { RecentTabOrderControl } from './RecentTabOrderControl'
-import { SettingsSectionStack } from './SettingsSectionStack'
 import { matchesSettingsSearch, type SettingsSearchEntry } from './settings-search'
 import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader, SettingsSwitchRow } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
 import { DefaultWindowsProjectRuntimeSetting } from './DefaultWindowsProjectRuntimeSetting'
-import { defaultScopeHost } from '@/lib/default-creation-host'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 
 export {
   createAutoSaveDelayDraftState,
@@ -107,8 +107,7 @@ export function GeneralPane({
   const defaultsSupportedRuntimeEnvironmentId = useAppStore(
     (s) => s.worktreeVisibilityDefaultsSupportedRuntimeEnvironmentId
   )
-  // Why: the store mirrors the default scope host's visibility defaults until Settings picks a host.
-  const activeRuntimeTarget = defaultScopeHost(settings)
+  const activeRuntimeTarget = getActiveRuntimeTarget(settings)
   const defaultsSupported =
     activeRuntimeTarget.kind === 'local' ||
     activeRuntimeTarget.environmentId === defaultsSupportedRuntimeEnvironmentId
@@ -280,15 +279,18 @@ export function GeneralPane({
     // its own loading placeholder and its own collapsing Separator. Without
     // that separation, a dangling divider would remain above the collapsed
     // section.
-  ]
+  ].filter(Boolean)
 
   return (
     <div className="space-y-6">
-      <SettingsSectionStack sections={visibleSections} spacing="section" />
+      {visibleSections.map((section, index) => (
+        <div key={index} className="space-y-6">
+          {index > 0 ? <Separator /> : null}
+          {section}
+        </div>
+      ))}
       {matchesSettingsSearch(searchQuery, getGeneralSupportSearchEntries()) ? (
-        <GeneralSupportSection
-          hasPrecedingSections={visibleSections.some((section) => section !== null)}
-        />
+        <GeneralSupportSection hasPrecedingSections={visibleSections.length > 0} />
       ) : null}
     </div>
   )

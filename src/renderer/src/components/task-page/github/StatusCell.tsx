@@ -1,7 +1,10 @@
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { GitHubIssueUpdate } from '../../../../../shared/issue-mutation-types'
 import type { Repo } from '../../../../../shared/repo-types'
-import type { TaskSourceContext } from '../../../../../shared/task-source-context'
+import {
+  type TaskSourceContext,
+  getTaskSourceRuntimeSettings
+} from '../../../../../shared/task-source-context'
 import React, { useState, useMemo, useCallback } from 'react'
 import {
   createTaskPageGitHubStatusStateDraft,
@@ -10,7 +13,7 @@ import {
 } from '@/components/task-page-github-status-state'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { parseGitHubIssueOrPRLink } from '@/lib/github-links'
 import {
   getTaskPageGitHubDuplicateCandidates,
@@ -20,7 +23,7 @@ import {
   getTaskPageGitHubDuplicateTargetErrorMessage
 } from '@/components/task-page-github-status-actions'
 import { translate } from '@/i18n/i18n'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getActiveRuntimeTarget, callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { githubProjectHost } from '../../../../../shared/github/project-identity'
 import { TaskPageGitHubWorkItemStateBadge } from '@/components/task-page-github-work-item-status-badge'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -50,8 +53,18 @@ export function GHStatusCell({
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
   const duplicateIssueCandidates = useGitHubDuplicateIssueCandidates(item, duplicatePickerOpen)
-  const ownerTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, repo?.id ?? null, sourceContext))
+  const repoOwnerSettings = useAppStore(
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repo?.id ?? null))
+  )
+  const sourceSettings = useMemo(
+    () =>
+      sourceContext?.provider === 'github'
+        ? ({
+            ...repoOwnerSettings,
+            ...getTaskSourceRuntimeSettings(sourceContext)
+          } as typeof repoOwnerSettings)
+        : repoOwnerSettings,
+    [repoOwnerSettings, sourceContext]
   )
   const parsedIssueLink = useMemo(() => parseGitHubIssueOrPRLink(item.url), [item.url])
   const filteredDuplicateCandidates = useMemo(
@@ -132,7 +145,7 @@ export function GHStatusCell({
           sourceContext,
           errorToast: translate('auto.components.TaskPage.1c893195ac', 'Failed to update state'),
           mutate: async () => {
-            const target = ownerTarget
+            const target = getActiveRuntimeTarget(sourceSettings)
             // Why: issue rows can be sourced by owner/repo URL instead of the local
             // repo context; slug-aware writes preserve close reasons and duplicates.
             if (parsedOwnerRepo) {
@@ -208,7 +221,7 @@ export function GHStatusCell({
       parsedIssueLink,
       repo,
       sourceContext,
-      ownerTarget,
+      sourceSettings,
       stateMutationPending,
       statusUpdating,
       updateLocalState,

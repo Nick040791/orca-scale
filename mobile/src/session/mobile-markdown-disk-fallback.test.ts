@@ -75,20 +75,17 @@ describe('buildMarkdownDiskFallbackDoc', () => {
     })
   })
 
-  it('marks a truncated disk read so the status line names it', () => {
+  it('warns when the disk read is truncated', () => {
     expect(
       buildMarkdownDiskFallbackDoc({
         content: '# Partial',
         truncated: true,
-        byteLength: 700_000,
         tabIsDirty: true
       })
     ).toMatchObject({
       editable: false,
       stale: true,
-      readOnlyReason: 'Desktop has unsaved changes. Showing disk content.',
-      truncated: true,
-      byteLength: 700_000
+      readOnlyReason: 'File too large for mobile preview'
     })
   })
 })

@@ -1,15 +1,12 @@
 import { StringDecoder } from 'node:string_decoder'
-import type {
-  PipedChildProcess,
-  PipedProcessSpawner,
-  PipedProcessSpec
-} from '@orca/process-host/process-spec'
+import type { ProcessSpec } from '../../shared/child-process/process-spec'
+import type { spawnProcess } from '../../shared/child-process/run-process'
 import { ownRetainedString } from '../../shared/own-retained-string'
 
-/** The child streams required by the serve protocol; avoids a node:child_process import. */
-export type RuntimeChildProcess = PipedChildProcess
+/** The all-pipes child `spawnProcess` returns; avoids a node:child_process import. */
+export type RuntimeChildProcess = ReturnType<typeof spawnProcess>
 
-export type RuntimeProcessSpawn = PipedProcessSpawner
+export type RuntimeProcessSpawn = (spec: ProcessSpec) => RuntimeChildProcess
 
 /** UTF-16 units, not bytes — this bounds the buffer, it is not a payload contract. */
 const MAX_RESPONSE_CHARS = 20 * 1024 * 1024
@@ -150,7 +147,7 @@ export class DesktopScriptServeChannel {
 }
 
 export function startServeChannel(
-  spec: PipedProcessSpec,
+  spec: ProcessSpec,
   spawn: RuntimeProcessSpawn,
   handlers: ServeChannelHandlers
 ): DesktopScriptServeChannel {

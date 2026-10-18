@@ -1,8 +1,4 @@
-import {
-  getRepoExecutionHostId,
-  toSshExecutionHostId,
-  type ExecutionHostId
-} from '../../../../../../shared/execution-host'
+import { toSshExecutionHostId, type ExecutionHostId } from '../../../../../../shared/execution-host'
 import type { AppState } from '../../../types'
 
 // Why: an SSH per-workspace-env project's host is the runtime-owned SSH target; once that runtime is destroyed, remove the project or it lingers as a dead, never-connectable one.
@@ -34,12 +30,14 @@ export async function purgeOrphanedRuntimeSshProjects(
     }
   }
   // A repo whose only host was the destroyed runtime can outlive its setup (pruned first by a projection refresh); remove it directly so no dead project lingers.
-  const orphanedRepos = get().repos.filter(
-    (repo) => destroyedTargetIds.has(repo.connectionId ?? '') && !purgedRepoIds.has(repo.id)
-  )
-  for (const repo of orphanedRepos) {
+  const orphanedRepoIds = get()
+    .repos.filter(
+      (repo) => destroyedTargetIds.has(repo.connectionId ?? '') && !purgedRepoIds.has(repo.id)
+    )
+    .map((repo) => repo.id)
+  for (const repoId of orphanedRepoIds) {
     try {
-      await get().removeProject(repo.id, { hostId: getRepoExecutionHostId(repo) })
+      await get().removeProject(repoId)
     } catch (error) {
       console.error('Failed to purge orphaned per-workspace-env repo:', error)
     }

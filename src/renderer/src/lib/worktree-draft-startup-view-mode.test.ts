@@ -30,7 +30,8 @@ beforeEach(() => {
   useAppStore.setState({
     settings: {
       ...initialSettings,
-      experimentalNativeChat: true
+      experimentalNativeChat: true,
+      openAgentTabsInChatByDefault: true
     }
   })
 })
@@ -40,9 +41,13 @@ afterEach(() => {
 })
 
 describe('resolveBackendDraftStartup', () => {
-  it('keeps a local omp terminal startup in terminal view', () => {
+  // Why: omp discloses no hook transcript path, so it joins Grok in requiring a
+  // locally readable sessions root. This call site must SUPPLY that flag for omp
+  // too — gating on Grok alone left it undefined and parked every omp draft in
+  // the terminal view, local workspace or not.
+  it('opens a local omp draft in chat', () => {
     setRepoConnection(null)
-    expect(viewModeFor('omp')).toBe('terminal')
+    expect(viewModeFor('omp')).toBe('chat')
   })
 
   it('keeps a Model-A SSH omp draft in the terminal view', () => {
@@ -50,8 +55,15 @@ describe('resolveBackendDraftStartup', () => {
     expect(viewModeFor('omp')).toBe('terminal')
   })
 
-  it('keeps a runtime-owned SSH omp terminal startup in terminal view', () => {
+  it('opens a runtime-owned SSH omp draft in chat, which reads the transcript locally', () => {
     setRepoConnection('runtime-ssh-env-1')
-    expect(viewModeFor('omp')).toBe('terminal')
+    expect(viewModeFor('omp')).toBe('chat')
+  })
+
+  it('preserves the same split for Grok', () => {
+    setRepoConnection(null)
+    expect(viewModeFor('grok')).toBe('chat')
+    setRepoConnection('ssh-target-1')
+    expect(viewModeFor('grok')).toBe('terminal')
   })
 })

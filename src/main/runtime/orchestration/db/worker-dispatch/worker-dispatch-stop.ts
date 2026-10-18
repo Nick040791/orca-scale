@@ -32,14 +32,6 @@ export function isDispatchProcessCurrent(
   )
 }
 
-/** A `stopping` row whose stop belongs to a runtime that can no longer report its outcome. */
-export function isStopStrandedByAnotherRuntime(
-  worker: WorkerDispatchRow,
-  runtimeEpoch: string
-): boolean {
-  return worker.state === 'stopping' && worker.runtime_epoch !== runtimeEpoch
-}
-
 export function beginWorkerStop(
   this: OrchestrationDb,
   dispatchId: string,
@@ -77,10 +69,9 @@ export function beginWorkerStop(
     // follows claims a clean stop only from `stopping` under its own epoch
     // (failActiveDispatchOnExit), so it would then read the operator's stop as a crash and
     // escalate it. Same predicate as that reader, so both agree on whose stop this is.
-    if (
-      !['ready', 'start_unknown'].includes(worker.state) &&
-      !isStopStrandedByAnotherRuntime(worker, runtimeEpoch)
-    ) {
+    const stopStrandedByAnotherRuntime =
+      worker.state === 'stopping' && worker.runtime_epoch !== runtimeEpoch
+    if (!['ready', 'start_unknown'].includes(worker.state) && !stopStrandedByAnotherRuntime) {
       throw new OrchestrationError(
         'dispatch_inactive',
         `Dispatch ${dispatchId} cannot stop from ${worker.state}.`

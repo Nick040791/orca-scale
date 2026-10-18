@@ -1,7 +1,6 @@
-import { jwtVerify, type JWTVerifyGetKey } from 'jose'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { z } from 'zod'
 import type { RelayConfig } from './config.js'
-import { createStaleIfErrorJWKSet } from './stale-if-error-jwks.js'
 
 const ClaimsSchema = z.object({
   sub: z.string().min(1),
@@ -14,10 +13,8 @@ const ClaimsSchema = z.object({
 
 export type RelayTokenClaims = z.infer<typeof ClaimsSchema>
 
-export function createRelayTokenVerifier(
-  config: RelayConfig,
-  jwks: JWTVerifyGetKey = createStaleIfErrorJWKSet(new URL(config.jwksUrl))
-): (token: string) => Promise<RelayTokenClaims | null> {
+export function createRelayTokenVerifier(config: RelayConfig): (token: string) => Promise<RelayTokenClaims | null> {
+  const jwks = createRemoteJWKSet(new URL(config.jwksUrl))
   return async (token) => {
     try {
       const verified = await jwtVerify(token, jwks, {

@@ -17,14 +17,9 @@ import {
   saveStoredWebRuntimeEnvironment
 } from './web-runtime-environment'
 import { installWebPreloadApi } from './web-preload-api'
-import { initWebDeviceKeySupport } from './web-device-key-support'
-import { WebPairingSecurityNotice } from './WebPairingSecurityNotice'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { translate } from '../i18n/i18n'
-import { installOsFileDropCancellationGuard } from '../lib/os-file-drop-cancellation-guard'
 
-const disposeOsFileDropGuard = installOsFileDropCancellationGuard()
-import.meta.hot?.dispose(disposeOsFileDropGuard)
 const App = lazy(() => import('../App'))
 
 function WebRoot(): React.JSX.Element {
@@ -71,12 +66,9 @@ function WebRoot(): React.JSX.Element {
 
   installWebPreloadApi()
   return (
-    <>
-      <Suspense fallback={<div className="min-h-dvh bg-background" />}>
-        <App />
-      </Suspense>
-      <WebPairingSecurityNotice />
-    </>
+    <Suspense fallback={<div className="min-h-dvh bg-background" />}>
+      <App />
+    </Suspense>
   )
 }
 
@@ -97,16 +89,11 @@ function WebRootBoundary(): React.JSX.Element {
   )
 }
 
-// Why await: where a new pairing may be stored depends on what this browser can keep secret.
-void initWebDeviceKeySupport()
-  .catch((error: unknown) => console.warn('[web] Device key probe failed', error))
-  .finally(() => {
-    ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-      <I18nProvider>
-        <WebRootBoundary />
-      </I18nProvider>
-    )
-  })
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <I18nProvider>
+    <WebRootBoundary />
+  </I18nProvider>
+)
 
 // Why: the web client is its own entry point and hosts terminals too, so it has
 // to start the deferred WebGL addon load itself (see main.tsx). Dynamic because

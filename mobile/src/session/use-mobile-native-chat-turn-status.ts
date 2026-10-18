@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import {
-  NATIVE_CHAT_UNANCHORED_TURN_KEY,
   reduceNativeChatTurnTiming,
   selectNativeChatTurnStatuses,
   type NativeChatSettledTurns,
@@ -10,6 +10,7 @@ import {
 
 export type { NativeChatTurnStatus }
 
+export const MOBILE_UNANCHORED_TURN_KEY = '__unanchored__'
 const EMPTY_TURN_TIMING_BY_TURN: NativeChatTurnTimingByTurn = Object.freeze({})
 
 type ScopedTurnTiming = {
@@ -20,8 +21,7 @@ type ScopedTurnTiming = {
 /** Per-turn "Thinking / Working for N / Worked for N" timing, on the same shared
  *  state machine the desktop renderer uses so the two surfaces stamp turns alike. */
 export function useMobileNativeChatTurnStatus({
-  turnKeys,
-  liveTurnKey,
+  messages,
   enabled,
   isWorking,
   workingStartedAt,
@@ -29,10 +29,7 @@ export function useMobileNativeChatTurnStatus({
   thinking = false,
   scopeKey
 }: {
-  /** Each row's turn, as `nativeChatTurnMembership` places it. */
-  turnKeys: readonly (string | undefined)[]
-  /** The live turn, whose bar carries the running clock (`nativeChatTurnMembership`). */
-  liveTurnKey: string | undefined
+  messages: readonly NativeChatMessage[]
   enabled: boolean
   isWorking: boolean
   workingStartedAt?: number | null
@@ -47,7 +44,11 @@ export function useMobileNativeChatTurnStatus({
   completedByTurn: Readonly<Record<string, NativeChatTurnStatus>>
   activeTurnKey: string
 } {
-  const activeTurnKey = (enabled ? liveTurnKey : undefined) ?? NATIVE_CHAT_UNANCHORED_TURN_KEY
+  const latestUserIndex = enabled
+    ? messages.findLastIndex((message) => message.role === 'user')
+    : -1
+  const latestUserId = latestUserIndex !== -1 ? (messages[latestUserIndex]?.id ?? null) : null
+  const activeTurnKey = latestUserId ?? MOBILE_UNANCHORED_TURN_KEY
   const [scopedTiming, setScopedTiming] = useState<ScopedTurnTiming>(() => ({
     scopeKey,
     timingByTurn: {}
@@ -58,15 +59,17 @@ export function useMobileNativeChatTurnStatus({
     enabled && scopedTiming.scopeKey === scopeKey
       ? scopedTiming.timingByTurn
       : EMPTY_TURN_TIMING_BY_TURN
-  // A running turn can move to a new key (unanchored until its row is drawn), so the
-  // clock must survive the swap.
+  // An accepted send renders as `pending-N` until the transcript echo lands under
+  // its real id. That is one turn under two keys, so the clock must survive the swap.
   const previousActiveTurn = useRef<{ scopeKey: string; turnKey: string } | null>(null)
 
   useEffect(() => {
     if (!enabled) {
       return
     }
-    const validTurnKeys = new Set(turnKeys.filter((turnKey) => turnKey !== undefined))
+    const validTurnKeys = new Set(
+      messages.filter((message) => message.role === 'user').map((message) => message.id)
+    )
     const previousActiveTurnKey =
       previousActiveTurn.current?.scopeKey === scopeKey
         ? previousActiveTurn.current.turnKey
@@ -87,7 +90,7 @@ export function useMobileNativeChatTurnStatus({
         ? current
         : { scopeKey, timingByTurn: nextTiming }
     })
-  }, [activeTurnKey, enabled, isWorking, scopeKey, turnKeys, workingStartedAt])
+  }, [activeTurnKey, enabled, isWorking, messages, scopeKey, workingStartedAt])
 
   // Why: the selection rebuilds its status objects on every call, and a streaming
   // turn re-renders ~20x/s. Without this, every settled turn's row gets fresh

@@ -1,7 +1,3 @@
-import {
-  pairedRuntimeConnectionFromOffer,
-  type PairedRuntimeConnection
-} from './paired-runtime-connection'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -13,7 +9,7 @@ import {
   publicKeyFromBase64,
   publicKeyToBase64
 } from './e2ee-crypto'
-import { encodePairingOffer, parsePairingCode } from './pairing'
+import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing'
 import {
   subscribeRemoteRuntimeRequest,
   type RemoteRuntimeSubscription
@@ -248,7 +244,7 @@ function requireSender(subscription: RemoteRuntimeSubscription) {
 }
 
 async function subscribe(
-  pairing: PairedRuntimeConnection,
+  pairing: PairingOffer,
   callbacks: {
     onResponse?: (response: unknown) => void
     onError?: (error: unknown) => void
@@ -278,7 +274,7 @@ type ServerOptions = {
 }
 
 async function createServer(options: ServerOptions = {}): Promise<{
-  pairing: PairedRuntimeConnection
+  pairing: PairingOffer
   nextRequest: Promise<unknown>
 }> {
   const keyPair = generateKeyPair()
@@ -362,7 +358,7 @@ async function createServer(options: ServerOptions = {}): Promise<{
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing), nextRequest }
+  return { pairing, nextRequest }
 }
 
 function sendEncrypted(ws: WebSocket, sharedKey: Uint8Array, message: unknown): void {

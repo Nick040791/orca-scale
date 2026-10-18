@@ -1,4 +1,3 @@
-import { AGENT_JOURNAL_THREAD_SCOPE } from '../../shared/agent-session-journal-types'
 // Shared fixtures and the sink harness the background-task row suites drive.
 //
 // Moved out of claude-background-task-rows.test.ts verbatim when that suite
@@ -86,8 +85,7 @@ export function harness(
     sink,
     isForwardedParentTool: (toolUseId) => forwardedTools.has(toolUseId),
     openOutputTurn: () => turnOpens.push(1),
-    now: () => (clock += 10),
-    turnScope: () => AGENT_JOURNAL_THREAD_SCOPE
+    now: () => (clock += 10)
   })
   const keys = (): string[] =>
     items.map((item) =>
