@@ -1,4 +1,3 @@
-import { RELEASE_SYNCHRONIZED_OUTPUT } from '../../../../shared/terminal-mode-reset-profiles'
 import { ensurePtyDispatcher, getEagerPtyBufferHandle } from './pty-dispatcher'
 import {
   hasTerminalDisplayContent,
@@ -54,10 +53,7 @@ function replayEagerPtyBuffer(options: PtyAttachOptions, context: IpcPtyAttachCo
     const shouldClearBeforeReplay =
       !options.isAlternateScreen && hasTerminalDisplayContent(replayData)
     if (shouldClearBeforeReplay && !options.callbacks.onReplayData) {
-      // RELEASE_SYNCHRONIZED_OUTPUT: trimIncompleteTerminalControlTail can have cut a
-      // half-written \x1b[?2026l off the replayed payload while its opening \x1b[?2026h
-      // survives, and \x1b[2J does not clear the mode.
-      options.callbacks.onData?.(`${RELEASE_SYNCHRONIZED_OUTPUT}\x1b[2J\x1b[3J\x1b[H`)
+      options.callbacks.onData?.('\x1b[2J\x1b[3J\x1b[H')
     }
 
     context.setSuppressAttentionEvents(true)

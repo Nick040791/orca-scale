@@ -6,6 +6,10 @@ vi.mock('../git/runner', () => ({
     stderr: ''
   }))
 }))
+vi.mock('../providers/ssh-git-dispatch', () => ({
+  getSSHGitProvider: vi.fn(() => undefined),
+  getSSHGitProviderGeneration: () => 0
+}))
 vi.mock('../source-control/pull-request-template', () => ({
   readHostedPullRequestTemplate: vi.fn(async () => '')
 }))

@@ -6,42 +6,23 @@ import {
   getWorkspaceSpaceScanDateTimeLabel,
   getWorkspaceSpaceScanTimeLabel
 } from './workspace-space-format'
-import { formatShortTimeAgo } from '@/lib/short-time-ago'
 
 export function Metric({
   label,
   value,
-  title,
-  shortLabel,
-  shortValue
+  title
 }: {
   label: string
   value: string
   title?: string
-  shortLabel?: string
-  shortValue?: string
 }): React.JSX.Element {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 md:px-3">
-      <div className="min-w-0 truncate text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-        {shortLabel ? (
-          <>
-            <span className="md:hidden">{shortLabel}</span>
-            <span className="hidden md:inline">{label}</span>
-          </>
-        ) : (
-          label
-        )}
+    <div className="min-w-0 px-4 py-3">
+      <div className="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
       </div>
-      <div className="shrink-0 text-sm font-semibold tabular-nums" title={title}>
-        {shortValue ? (
-          <>
-            <span className="md:hidden">{shortValue}</span>
-            <span className="hidden md:inline">{value}</span>
-          </>
-        ) : (
-          value
-        )}
+      <div className="mt-1 truncate text-lg font-semibold tabular-nums" title={title}>
+        {value}
       </div>
     </div>
   )
@@ -74,7 +55,6 @@ export function UpdatedMetric({
         'Updated'
       )}
       title={scannedAt === null ? undefined : getWorkspaceSpaceScanDateTimeLabel(scannedAt)}
-      shortValue={scannedAt === null ? undefined : formatShortTimeAgo(scannedAt, now)}
       value={
         scannedAt === null
           ? isScanning

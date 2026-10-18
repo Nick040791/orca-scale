@@ -1,11 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-import { normalizeCheckRunDetailsLogTails } from '@/lib/check-run-details-log-normalization'
-import * as sanitation from '../../../../shared/check-job-log-excerpt'
-import {
-  captured,
-  checkLogDetails,
-  checkLogJob
-} from '@/lib/check-run-details-log-normalization-test-fixture'
+import { describe, expect, it } from 'vitest'
 import type { PRCheckAnnotation, PRCheckJob } from '../../../../shared/github/check-types'
 import {
   formatAnnotationsForClipboard,
@@ -14,26 +7,6 @@ import {
 } from './check-run-clipboard-text'
 
 describe('check run clipboard text', () => {
-  it('formats the already normalized captured diagnostic and stack without sanitizing again', () => {
-    const sanitize = vi.spyOn(sanitation, 'sanitizeCheckJobLogExcerpt')
-    try {
-      const loaded = normalizeCheckRunDetailsLogTails(
-        checkLogDetails([checkLogJob(captured.rawLog)])
-      )
-      if (!loaded) {
-        throw new Error('Expected details')
-      }
-      const copied = formatJobsForClipboard(loaded.jobs, 'unknown')
-      expect(copied).toContain('job-1: failure\nTest shard: failure\n')
-      expect(copied).toContain(captured.expectedDiagnostic)
-      expect(copied).toContain(captured.expectedStackFrame)
-      expect(copied).not.toContain('\x1b')
-      expect(sanitize).toHaveBeenCalledOnce()
-    } finally {
-      sanitize.mockRestore()
-    }
-  })
-
   it('formats all output sections in display order', () => {
     expect(
       formatCheckRunOutputForClipboard({

@@ -1,17 +1,13 @@
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { OnboardingState } from '../../../shared/onboarding-state-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
-import type { useAppStore } from '@/store'
-import { resolveAgentLaunchExecutionContext } from '@/lib/launch-agent-execution-context'
+import type { AgentLaunchRouteStore } from '@/lib/agent-launch-route-input'
 import {
   planAgentSessionLaunch,
   type AgentSessionLaunchPlan
 } from '@/lib/agent-session-launch-plan'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 import {
-  buildOnboardingFolderAgentStartup,
-  onboardingFolderDefaultAgent,
-  shouldSeedFolderAgentAfterDismissedOnboarding,
+  buildDismissedOnboardingFolderAgentStartup,
   type OnboardingFolderAgentStartup
 } from '@/lib/onboarding-folder-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -19,7 +15,7 @@ import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-a
 
 export type OnboardingFolderAgentLaunch = {
   agent: TuiAgent | null
-  /** Null when no default agent applies. */
+  /** Planned before the folder workspace row exists; null when no default agent applies. */
   plan: AgentSessionLaunchPlan | null
   startup?: OnboardingFolderAgentStartup
 }
@@ -27,42 +23,32 @@ export type OnboardingFolderAgentLaunch = {
 /** Why: lives beside the launch, not the startup builder, because the store root imports that
  *  builder eagerly and the planner's launch graph reaches back to the store root. */
 export function resolveDismissedOnboardingFolderAgentLaunch(args: {
-  store: ReturnType<typeof useAppStore.getState>
+  store: AgentLaunchRouteStore
   onboarding: OnboardingState | null
   hasExistingProject: boolean
   executionHostId: string
-  worktreeId: string
+  nativeChatTranscriptIsLocalReadable?: boolean
 }): OnboardingFolderAgentLaunch {
-  const agent = onboardingFolderDefaultAgent(args.store.settings)
-  if (
-    !agent ||
-    !shouldSeedFolderAgentAfterDismissedOnboarding(args.onboarding, args.hasExistingProject)
-  ) {
+  const startup = buildDismissedOnboardingFolderAgentStartup(
+    args.store.settings ?? null,
+    args.onboarding,
+    args.hasExistingProject,
+    args.nativeChatTranscriptIsLocalReadable
+  )
+  const agent = startup?.launchAgent ?? null
+  if (!startup || !agent) {
     return { agent: null, plan: null }
   }
-  // Resolved once per added folder: adding it is the one action this chat serves.
   const plan = planAgentSessionLaunch(args.store, {
-    requestId: newAgentLaunchRequestId(),
     agent,
-    workspace: {
-      kind: 'folder',
-      worktreeId: args.worktreeId,
-      executionHostId: args.executionHostId
-    }
+    workspace: { kind: 'folder', executionHostId: args.executionHostId },
+    initialSessionOptions: startup.sessionOptions
   })
-  if (plan.route === 'structured-native-chat') {
-    return { agent, plan }
+  return {
+    agent,
+    plan,
+    ...(plan.route === 'structured-native-chat' ? {} : { startup })
   }
-  const context = resolveAgentLaunchExecutionContext(args.store, { worktreeId: args.worktreeId })
-  if (!context) {
-    return { agent, plan }
-  }
-  const startup = buildOnboardingFolderAgentStartup(args.store.settings, {
-    platform: context.resolvedLaunchPlatform,
-    shell: context.queuedShell,
-    isRemote: context.isRemote
-  })
-  return { agent, plan, startup }
 }
 
 /** Reveal a folder just added after dismissed onboarding and start its default agent on the

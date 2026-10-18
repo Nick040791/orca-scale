@@ -1,5 +1,4 @@
 import { useAppStore } from '../store'
-import { toRuntimeExecutionHostId } from '../../../shared/execution-host'
 
 /** Local rows minted for a browser tab whose host create RPC has not answered yet. */
 export type StagedWebRuntimeBrowserTab = {
@@ -22,7 +21,6 @@ export function stageWebRuntimeBrowserTab(args: {
   title?: string
   profileId?: string | null
   targetGroupId?: string
-  afterTabId?: string
   activate: boolean
   focusAddressBar?: boolean
   clientHosted?: boolean
@@ -33,9 +31,6 @@ export function stageWebRuntimeBrowserTab(args: {
       activate: args.activate,
       browserPageId: args.remotePageId,
       browserRuntimeEnvironmentId: args.environmentId,
-      // Why: the paired runtime owns this row; placement must not borrow the globally selected host.
-      executionHostId: toRuntimeExecutionHostId(args.environmentId),
-      ...(args.afterTabId ? { afterTabId: args.afterTabId } : {}),
       ...(args.title !== undefined ? { title: args.title } : {}),
       ...(args.profileId !== undefined && args.profileId !== null
         ? { sessionProfileId: args.profileId }

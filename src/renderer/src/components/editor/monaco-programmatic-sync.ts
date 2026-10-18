@@ -1,37 +1,37 @@
-const programmaticContentSyncDepthByModelKey = new Map<string, number>()
+const programmaticContentSyncDepthByFilePath = new Map<string, number>()
 
-export function beginProgrammaticContentSync(modelKey: string): void {
-  programmaticContentSyncDepthByModelKey.set(
-    modelKey,
-    (programmaticContentSyncDepthByModelKey.get(modelKey) ?? 0) + 1
+export function beginProgrammaticContentSync(filePath: string): void {
+  programmaticContentSyncDepthByFilePath.set(
+    filePath,
+    (programmaticContentSyncDepthByFilePath.get(filePath) ?? 0) + 1
   )
 }
 
-export function endProgrammaticContentSync(modelKey: string): void {
-  const depth = programmaticContentSyncDepthByModelKey.get(modelKey) ?? 0
+export function endProgrammaticContentSync(filePath: string): void {
+  const depth = programmaticContentSyncDepthByFilePath.get(filePath) ?? 0
   if (depth <= 1) {
-    programmaticContentSyncDepthByModelKey.delete(modelKey)
+    programmaticContentSyncDepthByFilePath.delete(filePath)
     return
   }
-  programmaticContentSyncDepthByModelKey.set(modelKey, depth - 1)
+  programmaticContentSyncDepthByFilePath.set(filePath, depth - 1)
 }
 
-export function isProgrammaticContentSyncInFlight(modelKey: string): boolean {
-  return (programmaticContentSyncDepthByModelKey.get(modelKey) ?? 0) > 0
+export function isProgrammaticContentSyncInFlight(filePath: string): boolean {
+  return (programmaticContentSyncDepthByFilePath.get(filePath) ?? 0) > 0
 }
 
 export function shouldIgnoreMonacoContentChange(args: {
-  modelKey: string
+  filePath: string
   isApplyingProgrammaticContent: boolean
 }): boolean {
-  const { modelKey, isApplyingProgrammaticContent } = args
+  const { filePath, isApplyingProgrammaticContent } = args
 
-  // Why: split panes can share one retained model. If any
+  // Why: split panes can share one retained Monaco model by file path. If any
   // pane is currently reconciling prop content into that shared model, every
   // pane sees the echoed change event and must treat it as programmatic.
-  return isApplyingProgrammaticContent || isProgrammaticContentSyncInFlight(modelKey)
+  return isApplyingProgrammaticContent || isProgrammaticContentSyncInFlight(filePath)
 }
 
 export function resetProgrammaticContentSyncForTests(): void {
-  programmaticContentSyncDepthByModelKey.clear()
+  programmaticContentSyncDepthByFilePath.clear()
 }

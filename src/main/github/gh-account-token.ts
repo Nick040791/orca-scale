@@ -5,7 +5,6 @@
  * via `gh auth token --user --hostname`. Tokens are never logged.
  */
 import { ghExecFileAsync } from '../git/runner'
-import type { GhCaptureLifetimeHooks } from '../git/command-runner/gh-capture-lifetime'
 import { addWslEnvKeys } from '../../shared/wsl-env'
 import {
   ghTokenEnvVarForHost,
@@ -115,8 +114,7 @@ export function createGhBoundAccountHostMismatchError(
 export async function resolveGhAccountToken(
   bindingInput: GhAccountBinding,
   target: GhCapabilityTarget = {},
-  nowMs = Date.now(),
-  hooks?: GhCaptureLifetimeHooks
+  nowMs = Date.now()
 ): Promise<string> {
   const binding = normalizeGhAccountBinding(bindingInput)
   if (!binding) {
@@ -124,7 +122,7 @@ export async function resolveGhAccountToken(
   }
 
   const normalizedTarget = normalizeGhCapabilityTarget(target)
-  const capability = await getGhMultiAccountCapability(normalizedTarget, nowMs, hooks)
+  const capability = await getGhMultiAccountCapability(normalizedTarget, nowMs)
   if (capability === 'unsupported') {
     throw createGhMultiAccountUnsupportedError()
   }
@@ -154,8 +152,7 @@ export async function resolveGhAccountToken(
         wslDistro: normalizedTarget.wslDistro,
         timeout: TOKEN_RESOLVE_TIMEOUT_MS,
         env: resolveEnv
-      },
-      hooks
+      }
     )
     const token = stdout.replace(/\r?\n/g, '').trim()
     if (!token) {
@@ -178,14 +175,6 @@ export async function resolveGhAccountToken(
       throw error
     }
     const unavailable = createGhBoundAccountUnavailableError(binding)
-    if (
-      error &&
-      typeof error === 'object' &&
-      'outputTruncated' in error &&
-      typeof error.outputTruncated === 'boolean'
-    ) {
-      Object.assign(unavailable, { outputTruncated: error.outputTruncated })
-    }
     const stderr = stderrFromUnknown(error)
     if (stderr) {
       unavailable.stderr = stderr

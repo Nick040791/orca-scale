@@ -1,8 +1,6 @@
 import { DEFAULT_WORKSPACE_STATUS_ID } from '../../shared/workspace-statuses'
 import type { RuntimeWorktreePsSummary } from '../../shared/runtime-types'
 import { folderWorkspaceToWorktree } from '../../shared/folder-workspace-worktree'
-import { getWorkspaceAttachments } from '../../shared/workspace-attachments'
-import { getWorkspaceRowKindFacts } from '../../shared/worktree/workspace-kinds'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 
@@ -18,15 +16,14 @@ export function buildRuntimeWorktreePsSummaries(args: {
     const meta =
       args.store?.getWorktreeMeta?.(worktree.id) ?? args.store?.getAllWorktreeMeta()[worktree.id]
     const repo = repoById.get(worktree.repoId)
-    let linkedPR: RuntimeWorktreePsSummary['linkedPR'] = null
+    let linkedPR: { number: number; state: string } | null = null
     const branch = worktree.branch.replace(/^refs\/heads\//, '')
     if (branch && ghCache) {
       const cached =
         (repo?.id ? ghCache.pr[`${repo.id}::${branch}`] : undefined) ??
         (repo?.path ? ghCache.pr[`${repo.path}::${branch}`] : undefined)
       if (cached?.data) {
-        const { number, state, title, url, checksStatus } = cached.data
-        linkedPR = { number, state, title, url, checksStatus }
+        linkedPR = { number: cached.data.number, state: cached.data.state }
       }
     }
     if (!linkedPR && meta?.linkedPR != null) {
@@ -45,8 +42,6 @@ export function buildRuntimeWorktreePsSummaries(args: {
       isArchived: worktree.isArchived,
       isMainWorktree: worktree.isMainWorktree,
       hasHostSidebarActivity: false,
-      ...getWorkspaceRowKindFacts(worktree, repo),
-      ...(worktree.removalError ? { removalError: worktree.removalError } : {}),
       ...(worktree.instanceId !== undefined ? { worktreeInstanceId: worktree.instanceId } : {}),
       ...(lineage?.worktreeInstanceId !== undefined
         ? { lineageWorktreeInstanceId: lineage.worktreeInstanceId }
@@ -68,14 +63,12 @@ export function buildRuntimeWorktreePsSummaries(args: {
       linkedLinearIssue: meta?.linkedLinearIssue ?? null,
       linkedGitLabMR: meta?.linkedGitLabMR ?? null,
       linkedGitLabIssue: meta?.linkedGitLabIssue ?? null,
-      linkedItems: getWorkspaceAttachments(meta ?? worktree),
       comment: meta?.comment ?? '',
       isPinned: meta?.isPinned ?? false,
       isActive: false,
       unread: meta?.isUnread ?? false,
       liveTerminalCount: 0,
       hasAttachedPty: false,
-      unverifiableTerminalCount: 0,
       lastOutputAt: null,
       preview: '',
       status: 'inactive',
@@ -101,7 +94,6 @@ export function buildRuntimeWorktreePsSummaries(args: {
       isArchived: worktree.isArchived,
       isMainWorktree: worktree.isMainWorktree,
       hasHostSidebarActivity: false,
-      ...getWorkspaceRowKindFacts(worktree, undefined),
       ...(worktree.instanceId !== undefined ? { worktreeInstanceId: worktree.instanceId } : {}),
       parentWorktreeId: null,
       childWorktreeIds: [],
@@ -117,14 +109,12 @@ export function buildRuntimeWorktreePsSummaries(args: {
       linkedLinearIssue: worktree.linkedLinearIssue ?? null,
       linkedGitLabMR: worktree.linkedGitLabMR ?? null,
       linkedGitLabIssue: worktree.linkedGitLabIssue ?? null,
-      linkedItems: getWorkspaceAttachments(worktree),
       comment: worktree.comment,
       isPinned: worktree.isPinned,
       isActive: false,
       unread: worktree.isUnread,
       liveTerminalCount: 0,
       hasAttachedPty: false,
-      unverifiableTerminalCount: 0,
       lastOutputAt: null,
       preview: '',
       status: 'inactive',

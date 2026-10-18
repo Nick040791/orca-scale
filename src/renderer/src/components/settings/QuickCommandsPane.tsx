@@ -8,7 +8,6 @@ import {
 } from '@/components/terminal-quick-commands/TerminalQuickCommandDialog'
 import { searchTerminalQuickCommands } from '@/lib/terminal-quick-command-search'
 import { useAppStore } from '../../store'
-import { getTerminalQuickCommandHostPromptMaxLength } from '@/lib/terminal-quick-command-host-prompt-limit'
 import { Button } from '../ui/button'
 import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import { getSettingOwnershipSummary } from './setting-ownership'
@@ -239,7 +238,7 @@ export function QuickCommandsPane({
     setScopeSelection(null)
   }
 
-  const saveCommand = async (next: TerminalQuickCommand): Promise<boolean> => {
+  const saveCommand = (next: TerminalQuickCommand): void => {
     if (
       !editor ||
       !isQuickCommandEditorHostCurrent(
@@ -250,10 +249,10 @@ export function QuickCommandsPane({
       )
     ) {
       setEditor(null)
-      return false
+      return
     }
     useAppStore.getState().recordFeatureInteraction('quick-commands')
-    return await useAppStore.getState().upsertTerminalQuickCommand(editor.hostId, next)
+    void useAppStore.getState().upsertTerminalQuickCommand(editor.hostId, next)
   }
 
   const removeCommand = async (command: TerminalQuickCommand): Promise<void> => {
@@ -397,10 +396,6 @@ export function QuickCommandsPane({
           command={editor.command}
           repos={hostRepos}
           defaultAdvancedOpen
-          agentPromptMaxLength={getTerminalQuickCommandHostPromptMaxLength(
-            { runtimeStatusByEnvironmentId: runtimeStatuses },
-            editor.hostId
-          )}
           onOpenChange={(open) => !open && setEditor(null)}
           onSave={saveCommand}
         />

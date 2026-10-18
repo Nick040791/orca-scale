@@ -5,7 +5,6 @@ import {
   classifyGlabError,
   getGlabKnownHosts,
   glabExecFileAsync,
-  glabHostEnvOptions,
   glabHostnameArgs,
   glabRepoExecOptions,
   release,
@@ -57,14 +56,23 @@ export async function updateIssue(
     await acquire()
     try {
       const cmd = updates.state === 'closed' ? 'close' : 'reopen'
-      await glabExecFileAsync(['issue', cmd, String(issueNumber), '-R', repoFlag], {
-        ...glabRepoExecOptions(repoPath, connectionId, localGitOptions),
-        ...glabHostEnvOptions(projectRef, connectionId)
-      })
+      await glabExecFileAsync(
+        [
+          'issue',
+          cmd,
+          String(issueNumber),
+          '-R',
+          repoFlag,
+          ...glabHostnameArgs(projectRef, connectionId)
+        ],
+        glabRepoExecOptions(repoPath, connectionId, localGitOptions)
+      )
     } catch (err) {
-      // Why: glab exits 0 for an issue already in the target state, so every failure is real.
       const stderr = err instanceof Error ? err.message : String(err)
-      errors.push(classifyGlabError(stderr).message)
+      // Treat "already closed/reopened" as a no-op (matches gh path).
+      if (!stderr.toLowerCase().includes('already')) {
+        errors.push(classifyGlabError(stderr).message)
+      }
     } finally {
       release()
     }
@@ -94,7 +102,14 @@ export async function updateIssue(
   }
 
   // Field edits via `glab issue update`.
-  const editArgs: string[] = ['issue', 'update', String(issueNumber), '-R', repoFlag]
+  const editArgs: string[] = [
+    'issue',
+    'update',
+    String(issueNumber),
+    '-R',
+    repoFlag,
+    ...glabHostnameArgs(projectRef, connectionId)
+  ]
   let hasEditArgs = false
 
   if (updates.title) {
@@ -109,24 +124,22 @@ export async function updateIssue(
     editArgs.push('--unlabel', label)
     hasEditArgs = true
   }
-  // Why: an unprefixed --assignee replaces every assignee and --unassign clears them all; glab
-  // reads a `+`/`-` prefix as add/remove (since at least v1.22).
   for (const assignee of updates.addAssignees ?? []) {
-    editArgs.push(`--assignee=+${assignee}`)
+    editArgs.push('--assignee', assignee)
     hasEditArgs = true
   }
   for (const assignee of updates.removeAssignees ?? []) {
-    editArgs.push(`--assignee=-${assignee}`)
+    editArgs.push('--unassignee', assignee)
     hasEditArgs = true
   }
 
   if (hasEditArgs) {
     await acquire()
     try {
-      await glabExecFileAsync(editArgs, {
-        ...glabRepoExecOptions(repoPath, connectionId, localGitOptions),
-        ...glabHostEnvOptions(projectRef, connectionId)
-      })
+      await glabExecFileAsync(
+        editArgs,
+        glabRepoExecOptions(repoPath, connectionId, localGitOptions)
+      )
     } catch (err) {
       const stderr = err instanceof Error ? err.message : String(err)
       errors.push(classifyGlabError(stderr).message)

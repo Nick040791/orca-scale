@@ -1,10 +1,7 @@
 import type { AnyAuthMethod, AuthenticationType, ConnectConfig, NextAuthHandler } from 'ssh2'
 import type { PrivateKeyFile } from './ssh-auth-resolution'
-import { observeAgentSigning } from './ssh-agent-sign-observer'
 
 const passphraseKeyPaths = new WeakMap<ConnectConfig, string>()
-const deferredKeyboardInteractive = new WeakSet<ConnectConfig>()
-const offeredKeyboardInteractive = new WeakSet<ConnectConfig>()
 
 // Bounds an `AuthenticationMethods a,b,c` ladder so a host that keeps replying
 // "partial success" cannot keep the client prompting forever.
@@ -18,8 +15,7 @@ function authMethodName(attempt: AuthenticationType | AnyAuthMethod): Authentica
 
 function buildAuthQueue(
   config: ConnectConfig,
-  keys: PrivateKeyFile[],
-  onAgentSign?: () => void
+  keys: PrivateKeyFile[]
 ): (AuthenticationType | AnyAuthMethod)[] {
   const username = config.username ?? ''
   const queue: (AuthenticationType | AnyAuthMethod)[] = [{ type: 'none', username }]
@@ -35,8 +31,7 @@ function buildAuthQueue(
     })
   }
   if (config.agent) {
-    const agent = onAgentSign ? observeAgentSigning(config.agent, onAgentSign) : config.agent
-    queue.push({ type: 'agent', username, agent })
+    queue.push({ type: 'agent', username, agent: config.agent })
   }
   if (config.tryKeyboard) {
     queue.push('keyboard-interactive')
@@ -47,8 +42,7 @@ function buildAuthQueue(
 export function configurePrivateKeyAuthentication(
   config: ConnectConfig,
   keys: PrivateKeyFile[],
-  passphraseKeyPath?: string,
-  options: { deferKeyboardInteractive?: () => boolean } = {}
+  passphraseKeyPath?: string
 ): void {
   const firstKey = keys[0]
   if (firstKey) {
@@ -65,16 +59,9 @@ export function configurePrivateKeyAuthentication(
   // the list exhausted — reported to the user as "All configured authentication methods failed".
   let queue: (AuthenticationType | AnyAuthMethod)[] = []
   let partialSuccessStagesLeft = MAX_PARTIAL_SUCCESS_STAGES
-  let agentSigned = false
-  const onAgentSign = options.deferKeyboardInteractive
-    ? () => {
-        agentSigned = true
-      }
-    : undefined
   config.authHandler = (authsLeft, partialSuccess, next) => {
     if (authsLeft == null) {
-      agentSigned = false
-      queue = buildAuthQueue(config, keys, onAgentSign)
+      queue = buildAuthQueue(config, keys)
       partialSuccessStagesLeft = MAX_PARTIAL_SUCCESS_STAGES
     } else if (partialSuccess && partialSuccessStagesLeft > 0) {
       // A stage was accepted and the host now demands another method. Restart from a fresh queue
@@ -82,43 +69,14 @@ export function configurePrivateKeyAuthentication(
       // exhausts MaxAuthTries before the challenge is ever shown.
       partialSuccessStagesLeft -= 1
       const offered = Array.isArray(authsLeft) ? authsLeft : []
-      queue = buildAuthQueue(config, keys, onAgentSign).filter((attempt) => {
+      queue = buildAuthQueue(config, keys).filter((attempt) => {
         const method = authMethodName(attempt)
         return method !== 'none' && offered.includes(method)
       })
     }
-    let attempt = queue.shift()
-    // Why: a deferring attempt must not show the host's password challenge before its deferred keys
-    // are tried. A host that lists keyboard-interactive offers it as a first factor, so skip it while
-    // publickey is listed too (otherwise the deferred key cannot help). After an agent sign the host
-    // accepted an agent key, so the challenge is its second factor; ssh2 hides that partial success.
-    if (
-      attempt === 'keyboard-interactive' &&
-      !agentSigned &&
-      partialSuccessStagesLeft === MAX_PARTIAL_SUCCESS_STAGES &&
-      Array.isArray(authsLeft) &&
-      authsLeft.includes('keyboard-interactive') &&
-      authsLeft.includes('publickey') &&
-      options.deferKeyboardInteractive?.()
-    ) {
-      deferredKeyboardInteractive.add(config)
-      attempt = queue.shift()
-    }
-    if (attempt === 'keyboard-interactive') {
-      offeredKeyboardInteractive.add(config)
-    }
+    const attempt = queue.shift()
     next((attempt ?? false) as Parameters<NextAuthHandler>[0])
   }
-}
-
-/** True once this config's handler held the host's first-factor challenge back for a deferred key. */
-export function didDeferKeyboardInteractive(config: ConnectConfig): boolean {
-  return deferredKeyboardInteractive.has(config)
-}
-
-/** True once this config's handler sent keyboard-interactive to the host. */
-export function didOfferKeyboardInteractive(config: ConnectConfig): boolean {
-  return offeredKeyboardInteractive.has(config)
 }
 
 export function getPassphrasePrivateKeyPath(config: ConnectConfig): string | undefined {

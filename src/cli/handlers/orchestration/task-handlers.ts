@@ -4,7 +4,7 @@ import { getOptionalStringFlag, getRequiredStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
 import { abbreviateOrchestrationTasks } from '../../../shared/orchestration-task-summary'
 import { callOrchestrationMutation } from './mutation-request'
-import { resolveCoordinatorTerminalHandle, runScopedSessionCaller } from './terminal-identity'
+import { resolveCoordinatorTerminalHandle } from './terminal-identity'
 
 const TASK_STATUS_VALUES = [
   'pending',
@@ -39,7 +39,7 @@ export const ORCHESTRATION_TASK_HANDLERS: Record<string, CommandHandler> = {
     const brief = flags.has('brief')
     const run = getOptionalStringFlag(flags, 'run')
     const callerTerminalHandle = run
-      ? runScopedSessionCaller(flags)
+      ? undefined
       : await resolveCoordinatorTerminalHandle(flags, cwd, client)
     const result = await client.call<{
       tasks: {

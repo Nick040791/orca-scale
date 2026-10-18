@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -52,7 +51,6 @@ describe('durable orchestration mutation ledger', () => {
       methods: [
         defineMethod({
           name: 'orchestration.send',
-          permission: 'workspace',
           params: Params,
           handler: ({ subject }) => ({ message: effect(subject) })
         })
@@ -157,7 +155,6 @@ describe('durable orchestration mutation ledger', () => {
       methods: [
         defineMethod({
           name: 'orchestration.send',
-          permission: 'workspace',
           params: Params,
           handler: effect
         })
@@ -271,7 +268,6 @@ describe('durable orchestration mutation ledger', () => {
       methods: [
         defineMethod({
           name: 'orchestration.workerRelease',
-          permission: 'workspace',
           params: z.object({ dispatch: z.string() }),
           handler: effect
         })
@@ -329,7 +325,6 @@ describe('durable orchestration mutation ledger', () => {
       methods: [
         defineMethod({
           name: 'orchestration.workerStart',
-          permission: 'workspace',
           params: z.object({ from: z.string(), task: z.string() }),
           handler: effect
         })
@@ -382,19 +377,18 @@ describe('durable orchestration mutation ledger', () => {
       coordinatorPaneKey: 'tab_coord:leaf_coord'
     })
     const task = db.createTask({ spec: 'ask', runId: run.id })
-    createRootDispatch(
-      db,
-      task.id,
-      'term_worker',
-      'tab_worker:leaf_worker',
-      undefined,
-      'runtime:pty:1'
-    )
+    const dispatch = createRootDispatch(db, task.id, 'term_worker', 'tab_worker:leaf_worker')
+    const capability = db.mintDispatchCapability({
+      dispatchId: dispatch.id,
+      paneKey: 'tab_worker:leaf_worker',
+      processIncarnation: 'runtime:pty:1'
+    })
     const askRequest: RpcRequest = {
       id: 'rpc_ask_1',
       authToken: 'caller-token',
       method: 'orchestration.ask',
       params: { from: 'term_worker', question: 'Proceed?', timeoutMs: 60_000 },
+      orchestrationCapability: capability,
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'mutation_ask'
     }

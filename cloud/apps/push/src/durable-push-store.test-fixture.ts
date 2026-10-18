@@ -11,10 +11,7 @@ const cleanups: (() => Promise<void>)[] = []
 export async function cleanupDurablePushFixtures(): Promise<void> {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
 }
-export const notification = (
-  seq: number,
-  kind: 'alert' | 'dismiss' = 'alert'
-): PushNotification => ({
+export const notification = (seq: number, kind: 'alert' | 'dismiss' = 'alert'): PushNotification => ({
   notificationId: `notification-${seq}`,
   notificationEpoch: 'epoch',
   notificationSeq: seq,
@@ -24,26 +21,11 @@ export const notification = (
   body: '',
   kind
 })
-
-// Schemas isolate rows, but advisory locks need the same fixture boundary.
-function scopeFixtureLocks(database: PushDatabase, scope: string): PushDatabase {
-  return {
-    dialect: database.dialect,
-    query: (sql, params) => database.query(sql, params),
-    transaction: (run) => database.transaction((tx) => run(scopeFixtureLocks(tx, scope))),
-    lockQuotaScope: (key) => database.lockQuotaScope(`${scope}:${key}`),
-    tryLockScope: (key) => database.tryLockScope(`${scope}:${key}`),
-    tryLockSharedScope: (key) => database.tryLockSharedScope(`${scope}:${key}`),
-    close: () => database.close()
-  }
-}
-
-// ownDatabase keeps production lock keys for mixed-revision tests.
+// ownDatabase: advisory locks are database-wide, so a test that holds a global key must not share one.
 export async function fixture({ ownDatabase = false } = {}) {
   const databaseUrl = durablePushTestDatabaseUrl
-  if (databaseUrl && !process.env.CI && new URL(databaseUrl).port !== '55440') {
+  if (databaseUrl && !process.env.CI && new URL(databaseUrl).port !== '55440')
     throw new Error('isolated_postgres_port_required')
-  }
   let db: PushDatabase
   if (databaseUrl) {
     const admin = new pg.Client({ connectionString: databaseUrl })
@@ -56,9 +38,7 @@ export async function fixture({ ownDatabase = false } = {}) {
       } finally {
         try {
           await admin.query(
-            ownDatabase
-              ? `DROP DATABASE IF EXISTS ${name}`
-              : `DROP SCHEMA IF EXISTS ${name} CASCADE`
+            ownDatabase ? `DROP DATABASE IF EXISTS ${name}` : `DROP SCHEMA IF EXISTS ${name} CASCADE`
           )
         } finally {
           await admin.end()
@@ -73,8 +53,7 @@ export async function fixture({ ownDatabase = false } = {}) {
       await admin.query(`CREATE SCHEMA ${name}`)
       url.searchParams.set('options', `-c search_path=${name}`)
     }
-    scoped = await openPushDatabase({ databaseUrl: url.toString(), dataDir: '', poolMax: 4 })
-    db = ownDatabase ? scoped : scopeFixtureLocks(scoped, name)
+    db = scoped = await openPushDatabase({ databaseUrl: url.toString(), dataDir: '', poolMax: 4 })
   } else {
     db = await openInMemoryPushDatabase()
     cleanups.push(() => db.close())
@@ -138,9 +117,7 @@ export async function within<T>(operation: Promise<T>, ms: number): Promise<T> {
   try {
     return await Promise.race([
       operation,
-      new Promise<T>(
-        (_, reject) => (timer = setTimeout(() => reject(new Error('claim_blocked')), ms))
-      )
+      new Promise<T>((_, reject) => (timer = setTimeout(() => reject(new Error('claim_blocked')), ms)))
     ])
   } finally {
     clearTimeout(timer)

@@ -1,6 +1,5 @@
 import type { EditorGet, EditorSet } from '../types/editor-set-get'
 import type { EditorSlice } from '../types/editor-slice'
-import { resolveGitOperationTarget } from './git-operation-target'
 import { toast } from 'sonner'
 import {
   fetchRuntimeGit,
@@ -8,7 +7,7 @@ import {
   pullRuntimeGit,
   pushRuntimeGit,
   rebaseRuntimeGitFromBase
-} from '@/runtime/runtime-git-sync-client'
+} from '@/runtime/runtime-git-client'
 import {
   markSyncPushStageError,
   resolveRemoteOperationErrorMessage
@@ -21,14 +20,14 @@ export function createGitRemoteSync(
 ): Pick<EditorSlice, 'syncBranch' | 'rebaseFromBase' | 'fetchBranch'> {
   return {
     syncBranch: async (worktreeId, worktreePath, connectionId, pushTarget, options) => {
-      const runtimeTarget = resolveGitOperationTarget(get(), worktreeId, options)
       // Why: like pushBranch — fire-and-forget the post-op upstream refresh so the primary button label rotates immediately.
       get().beginRemoteOperation('sync')
       // Why: the inner push stage toasts as Sync and marks the error so the outer catch skips toasting, avoiding a double-toast.
       let pushStageToastShown = false
       let pushed = false
+      const runtimeSettings = options?.runtimeTargetSettings ?? get().settings
       try {
-        const context = { target: runtimeTarget, worktreeId, worktreePath, connectionId }
+        const context = { settings: runtimeSettings, worktreeId, worktreePath, connectionId }
         await fetchRuntimeGit(context, pushTarget)
         const upstreamStatusBeforePull = await getRuntimeGitUpstreamStatus(context, pushTarget)
         if (shouldForcePushWithLeaseForUpstream(upstreamStatusBeforePull)) {
@@ -76,7 +75,7 @@ export function createGitRemoteSync(
         get().endRemoteOperation()
       }
       void get().fetchUpstreamStatus(worktreeId, worktreePath, connectionId, pushTarget, {
-        runtimeTarget
+        runtimeTargetSettings: runtimeSettings
       })
       if (pushed) {
         const refreshGitHubForWorktree = get().refreshGitHubForWorktree
@@ -93,11 +92,11 @@ export function createGitRemoteSync(
       pushTarget,
       options
     ) => {
-      const runtimeTarget = resolveGitOperationTarget(get(), worktreeId, options)
       get().beginRemoteOperation('rebase')
+      const runtimeSettings = options?.runtimeTargetSettings ?? get().settings
       try {
         await rebaseRuntimeGitFromBase(
-          { target: runtimeTarget, worktreeId, worktreePath, connectionId },
+          { settings: runtimeSettings, worktreeId, worktreePath, connectionId },
           baseRef
         )
       } catch (error) {
@@ -107,7 +106,7 @@ export function createGitRemoteSync(
         get().endRemoteOperation()
       }
       void get().fetchUpstreamStatus(worktreeId, worktreePath, connectionId, pushTarget, {
-        runtimeTarget
+        runtimeTargetSettings: runtimeSettings
       })
       const refreshGitHubForWorktree = get().refreshGitHubForWorktree
       if (typeof refreshGitHubForWorktree === 'function') {
@@ -115,12 +114,12 @@ export function createGitRemoteSync(
       }
     },
     fetchBranch: async (worktreeId, worktreePath, connectionId, pushTarget, options) => {
-      const runtimeTarget = resolveGitOperationTarget(get(), worktreeId, options)
       // Why: like pushBranch — fire-and-forget the upstream refresh after the busy flag clears so new ahead/behind counts surface.
       get().beginRemoteOperation('fetch')
+      const runtimeSettings = options?.runtimeTargetSettings ?? get().settings
       try {
         await fetchRuntimeGit(
-          { target: runtimeTarget, worktreeId, worktreePath, connectionId },
+          { settings: runtimeSettings, worktreeId, worktreePath, connectionId },
           pushTarget
         )
       } catch (error) {
@@ -130,7 +129,7 @@ export function createGitRemoteSync(
         get().endRemoteOperation()
       }
       void get().fetchUpstreamStatus(worktreeId, worktreePath, connectionId, pushTarget, {
-        runtimeTarget
+        runtimeTargetSettings: runtimeSettings
       })
     }
   }

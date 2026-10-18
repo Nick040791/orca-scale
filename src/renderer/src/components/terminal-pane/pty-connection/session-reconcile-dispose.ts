@@ -1,20 +1,50 @@
 import { useAppStore } from '@/store'
-import { consumeRestartReplacement } from './restart-replacement-on-show'
-import { shouldReconcileMissingSession, type HasPty } from '../terminal-dead-session-reconcile'
+import {
+  shouldReconcileDeadSession,
+  shouldReconcileMissingSession,
+  type HasPty
+} from '../terminal-dead-session-reconcile'
 import { cancelPendingSafeFitContinuations } from '@/lib/pane-manager/pane-tree-ops'
 import { PANE_PTY_RESIZE_HOLD_FLUSH_EVENT } from '@/lib/pane-manager/pane-pty-resize-hold'
 import { discardTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
-import { getProviderSessionClaimKey } from '@/lib/sleeping-agent-pane-ownership'
+import {
+  getProviderSessionClaimKey,
+  isPassiveCompletedHibernationEvidence
+} from '@/lib/sleeping-agent-pane-ownership'
 import { releaseRendererPtyVisibilityClaim } from '../pty-renderer-delivery-claims'
 
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
+import { REMOTE_PTY_ID_PREFIX } from './pty-connect-limits'
 import { SHIFT_ENTER_RECONFIRM_IDLE_MS } from './foreground-output-scan'
 import type { PanePtyBinding } from './pane-pty-binding'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
-import { noteArmsHibernatedPaneWake } from './pty-exit-hibernate'
 
 export function installSessionReconcileDispose(session: ConnectPanePtySession): PanePtyBinding {
+  session.reconcileIfSessionDead = (
+    liveSessionIds: Set<string>,
+    snapshotRequestedAt?: number
+  ): void => {
+    if (session.disposed) {
+      return
+    }
+    const currentPtyId = session.transport.getPtyId()
+    if (
+      !currentPtyId ||
+      // Why: this exit was already handled — onExit guards it too, but skipping here avoids a redundant shouldReconcile evaluation.
+      session.handledExitPtyId === currentPtyId ||
+      !shouldReconcileDeadSession({
+        ptyId: currentPtyId,
+        connectionId: session.transport.getConnectionId?.(),
+        liveSessionIds,
+        ptyBoundAt: session.activePanePtyBindingBoundAt,
+        snapshotRequestedAt
+      })
+    ) {
+      return
+    }
+    session.onExit(currentPtyId)
+  }
+
   session.reconcileIfSessionMissing = (
     hasPty: HasPty,
     livenessRequestedAt = performance.now()
@@ -23,7 +53,7 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
     if (
       !requestedPtyId ||
       requestedPtyId === session.handledExitPtyId ||
-      isRemoteRuntimePtyId(requestedPtyId) ||
+      requestedPtyId.startsWith(REMOTE_PTY_ID_PREFIX) ||
       session.transport.getConnectionId?.() != null
     ) {
       return
@@ -76,8 +106,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       session.claimPendingVisibleRemoteViewport()
       session.ptySizeReassertion.request({ fit: false })
       session.consumeHibernatedAgentWake()
-      consumeRestartReplacement(session)
-      session.resumeDeferredSpawnOnReveal()
       session.requestKnownWindowsShiftEnterReconfirmation()
       session.sampleVisiblePaneForegroundAgent()
     },
@@ -106,7 +134,7 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       const currentPtyId = session.transport.getPtyId()
       if (
         recordEntry &&
-        noteArmsHibernatedPaneWake(recordEntry.record) &&
+        isPassiveCompletedHibernationEvidence(recordEntry.record) &&
         currentPtyId !== null &&
         state.suppressedPtyExitIds[currentPtyId] === true &&
         !session.disposed &&
@@ -142,13 +170,12 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
     markShortcutTerminalInputSent() {
       session.markInteractiveRedrawInput()
     },
+    reconcileIfSessionDead: session.reconcileIfSessionDead,
     reconcileIfSessionMissing: session.reconcileIfSessionMissing,
     isUntouchedFreshSpawnPty: (ptyId) =>
       session.spawnedFreshPtyId === ptyId && !Number.isFinite(session.lastTerminalInputAt),
     dispose() {
       session.disposed = true
-      session.cleanupKittyFileReader()
-      session.disposeSpawnDeferral()
       session.startupTiming?.finish('disposed')
       const unsentReplacedPtyId: string | null = session.claimPendingReplacedPtyId()
       if (unsentReplacedPtyId) {
@@ -166,6 +193,11 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       // Why: a detached client stops observing the pane's bytes, so it must cede
       // agent-status authority back to the host on the next mirrored snapshot.
       session.releaseRendererOwnedAgentStatusPane?.()
+      session.directSshPaneRetrySettlementCancelled = true
+      for (const timer of session.directSshPaneRetrySettlementTimers) {
+        clearTimeout(timer)
+      }
+      session.directSshPaneRetrySettlementTimers.clear()
       // Why: a stalled xterm replay may never reach its finally; release live-frame credit when this renderer no longer owns the stream.
       const queue = session.deferredReattachLiveData
       session.deferredReattachLiveData = null

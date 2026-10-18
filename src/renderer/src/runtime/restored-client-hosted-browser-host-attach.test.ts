@@ -3,7 +3,6 @@ import {
   ensureBrowserClientHostsForRestoredPages,
   resetRestoredBrowserClientHostAttachForTests
 } from './restored-client-hosted-browser-host-attach'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 
 type Placement = { kind: 'client'; browserHostClientId: string } | { kind: 'server' }
 
@@ -40,7 +39,9 @@ describe('ensureBrowserClientHostsForRestoredPages', () => {
     resetRestoredBrowserClientHostAttachForTests()
     prepareBrowserClientHostPlacement.mockClear()
     prepareBrowserClientHostPlacement.mockResolvedValue(CLIENT_PLACEMENT)
-    stubRuntimeEnvironmentBridge({ prepareBrowserClientHostPlacement })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { prepareBrowserClientHostPlacement } }
+    })
   })
 
   afterEach(() => {

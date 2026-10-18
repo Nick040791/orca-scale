@@ -12,7 +12,7 @@ import { toSshExecutionHostId } from '../../../shared/execution-host'
 import {
   makeCreatedAgentWorktree as makeWorktree,
   seedEmptyActivatableWorktree
-} from '@/lib/worktree-activation-created-agent.test-fixture'
+} from '@/lib/worktree-activation-created-agent-test-state'
 import { waitForWorktreeAgentActivationGateForTests } from './worktree-agent-activation-gate'
 
 const initialAppStoreState = useAppStore.getState()
@@ -24,12 +24,9 @@ afterEach(() => {
 })
 
 /** The state a workspace lands in once its last terminal is closed: the row survives as an
- *  explicit empty list rather than disappearing, beside the close's record. */
+ *  explicit empty list rather than disappearing. */
 function seedClosedLastTerminal(worktreeId: string): void {
-  useAppStore.setState({
-    tabsByWorktree: { [worktreeId]: [] },
-    closedTerminalTabTombstonesByTabId: { closed: { closedAt: Date.now(), worktreeId } }
-  })
+  useAppStore.setState({ tabsByWorktree: { [worktreeId]: [] } })
   const { renderableTabCount } = useAppStore.getState().reconcileWorktreeTabModel(worktreeId)
   expect(renderableTabCount).toBe(0)
 }

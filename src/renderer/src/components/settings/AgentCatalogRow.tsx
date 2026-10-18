@@ -70,12 +70,10 @@ export type AgentCatalogRowProps = {
   envOverride: Record<string, string>
   onSetDefault: () => void
   onSetEnabled: (enabled: boolean) => void
-  onSaveOverride: (value: string) => void | Promise<void>
-  onSaveArgs: (value: string) => void | Promise<void>
+  onSaveOverride: (value: string) => void
+  onSaveArgs: (value: string) => void
   onSaveEnv: (value: Record<string, string>) => void
   sessionSourceHome?: AgentSessionSourceHomeControl
-  environmentNames?: readonly string[]
-  environmentEditor?: React.ReactNode
 }
 
 export function AgentCatalogRow({
@@ -96,11 +94,9 @@ export function AgentCatalogRow({
   onSaveOverride,
   onSaveArgs,
   onSaveEnv,
-  sessionSourceHome,
-  environmentNames,
-  environmentEditor
+  sessionSourceHome
 }: AgentCatalogRowProps): React.JSX.Element {
-  const envSummary = environmentNames?.join(' ') ?? stringifyAgentDefaultEnvDraft(envOverride)
+  const envSummary = stringifyAgentDefaultEnvDraft(envOverride)
   const defaultEnvSummary = stringifyAgentDefaultEnvDraft(defaultEnv)
   const [cmdOpen, setCmdOpen] = useState(
     Boolean(cmdOverride) || argsOverride !== defaultArgs || envSummary !== defaultEnvSummary
@@ -150,7 +146,7 @@ export function AgentCatalogRow({
                 onClick={onSetDefault}
                 title={
                   isDefault
-                    ? translate('settings.agents.clearDefault', 'Clear default agent')
+                    ? translate('auto.components.settings.AgentsPane.d7625cf8b2', 'Default agent')
                     : translate('auto.components.settings.AgentsPane.5f986a9b92', 'Set as default')
                 }
                 className="h-7 w-full justify-center gap-1 text-xs"
@@ -220,17 +216,16 @@ export function AgentCatalogRow({
               onSaveArgs={onSaveArgs}
             />
           </div>
-          {environmentEditor ??
-            ((defaultEnvSummary || envSummary) && (
-              <div className="mt-2">
-                <AgentDefaultEnvInput
-                  key={`${agentId}:${envSummary}`}
-                  defaultEnv={defaultEnv}
-                  envOverride={envOverride}
-                  onSaveEnv={onSaveEnv}
-                />
-              </div>
-            ))}
+          {(defaultEnvSummary || envSummary) && (
+            <div className="mt-2">
+              <AgentDefaultEnvInput
+                key={`${agentId}:${envSummary}`}
+                defaultEnv={defaultEnv}
+                envOverride={envOverride}
+                onSaveEnv={onSaveEnv}
+              />
+            </div>
+          )}
           {sessionSourceHome && (
             <div className="mt-2">
               <AgentSessionSourceHomeInput

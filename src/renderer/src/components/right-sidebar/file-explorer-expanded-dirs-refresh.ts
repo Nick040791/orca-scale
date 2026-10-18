@@ -6,7 +6,6 @@ import {
   type FileExplorerDirectoryListing
 } from './file-explorer-directory-listing'
 import { forEachWithConcurrency } from '../../../../shared/map-with-concurrency'
-import { describeFileExplorerReadError } from './file-explorer-read-error'
 import {
   clearFileExplorerDirsLoading,
   markFileExplorerDirsLoading,
@@ -31,7 +30,6 @@ export type RefreshFileExplorerExpandedDirsParams = {
   onDirCommitted?: (dirPath: string) => void
 }
 
-/** Refreshes directories with bounded concurrency and load-token ownership, preserving cached children on read failure. */
 export async function refreshFileExplorerExpandedDirs({
   dirs,
   worktreePath,
@@ -82,7 +80,6 @@ export async function refreshFileExplorerExpandedDirs({
     }
   }
 
-  /** Commits only still-owned reads so superseded refreshes cannot replace newer directory data. */
   const commitPendingResults = (): void => {
     if (stopped) {
       return
@@ -98,14 +95,7 @@ export async function refreshFileExplorerExpandedDirs({
     setDirCache((prev) => {
       const next = { ...prev }
       for (const result of currentResults) {
-        next[result.dirPath] =
-          result.cache.error !== undefined
-            ? {
-                ...prev[result.dirPath],
-                children: prev[result.dirPath]?.children ?? [],
-                error: result.cache.error
-              }
-            : result.cache
+        next[result.dirPath] = result.cache
       }
       return next
     })
@@ -167,9 +157,9 @@ export async function refreshFileExplorerExpandedDirs({
             operationOwner: listing.operationOwner
           }
         }
-      } catch (error) {
+      } catch {
         if (dirLoadTracker.isCurrent(loadToken)) {
-          cache = { children: [], error: describeFileExplorerReadError(error) }
+          cache = { children: [] }
         }
       }
       settleRead(cache ? { dirPath, cache } : undefined)

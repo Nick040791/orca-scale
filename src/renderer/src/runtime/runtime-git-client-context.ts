@@ -7,7 +7,7 @@ import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { HostedReviewProvider } from '../../../shared/hosted-review'
 import type { ResolvedSourceControlAiGenerationParams } from '../../../shared/source-control-ai'
 import { splitWorktreeIdForFilesystem } from '../../../shared/worktree/id'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { getActiveRuntimeTarget } from './runtime-rpc-client'
 
 export type RuntimeGenerateCommitMessageResult =
   | { success: true; message: string; agentLabel?: string }
@@ -31,13 +31,13 @@ export type RuntimePullRequestGenerationInput = {
   useTemplate?: boolean
 }
 
-/** Generation preferences only; routing comes from the context's `target`. */
-export type RuntimeGitPrefs = Partial<
-  Pick<
-    GlobalSettings,
-    'commitMessageAi' | 'sourceControlAi' | 'agentCmdOverrides' | 'defaultTuiAgent'
+export type RuntimeGitSettings = Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> &
+  Partial<
+    Pick<
+      GlobalSettings,
+      'commitMessageAi' | 'sourceControlAi' | 'agentCmdOverrides' | 'defaultTuiAgent'
+    >
   >
->
 
 export type RuntimeDiscoverCommitMessageModelsResult =
   | {
@@ -51,9 +51,7 @@ export type RuntimeDiscoverCommitMessageModelsResult =
   | { success: false; error: string }
 
 export type RuntimeGitContext = {
-  /** Transport to the worktree's owner. */
-  target: RuntimeClientTarget
-  prefs?: RuntimeGitPrefs | null
+  settings: RuntimeGitSettings | null | undefined
   worktreeId: string | null | undefined
   worktreePath: string
   connectionId?: string
@@ -74,15 +72,15 @@ export function resolveLocalWorktreePath(context: RuntimeGitContext): string {
 }
 
 export function getRuntimeGitScope(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   connectionId: string | null | undefined
 ): string | null | undefined {
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'environment' ? `runtime:${target.environmentId}` : connectionId
 }
 
 export function getRuntimeCommitMessageSettings(
-  target: RuntimeClientTarget,
-  settings: RuntimeGitPrefs | null | undefined,
+  settings: RuntimeGitSettings | null | undefined,
   connectionId?: string
 ): Partial<
   Pick<
@@ -92,11 +90,10 @@ export function getRuntimeCommitMessageSettings(
 > & {
   commitMessageDiscoveryHostKey?: string
 } {
-  const scope = getRuntimeGitScope(target, connectionId)
   if (!settings) {
-    // Why: the host key comes from the route, so a call without prefs still keys its models.
-    return { commitMessageDiscoveryHostKey: getCommitMessageModelDiscoveryHostKeyForScope(scope) }
+    return {}
   }
+  const scope = getRuntimeGitScope(settings, connectionId)
   return {
     ...(settings.commitMessageAi !== undefined
       ? { commitMessageAi: settings.commitMessageAi }

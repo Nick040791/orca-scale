@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
 
@@ -24,8 +24,11 @@ export function useAddRepoHostedController(hosted: AddRepoDialogHostedController
    *  open would hide the navigation behind a stale project selection. */
   closeForFolderHandoff: () => void
   finishProjectAdd: ((repoId: string) => Promise<void>) | undefined
+  handleOpenSshSettings: () => void
 } {
   const storeCloseModal = useAppStore((s) => s.closeModal)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const hostedOnOpenChange = hosted?.onOpenChange
   const hostedOnProjectAdded = hosted?.onProjectAdded
   // Why: hosted mode (nested inside the workspace composer) must close only
@@ -55,5 +58,15 @@ export function useAddRepoHostedController(hosted: AddRepoDialogHostedController
         : storeCloseModal,
     [hostedOnOpenChange, storeCloseModal]
   )
-  return { closeModal, closeForFolderHandoff, finishProjectAdd }
+  const handleOpenSshSettings = useCallback((): void => {
+    closeModal()
+    // Why: Settings is a full page; in hosted mode the composer modal in the
+    // activeModal slot would otherwise stay open on top of it.
+    if (hostedOnOpenChange) {
+      storeCloseModal()
+    }
+    openSettingsTarget({ pane: 'ssh', repoId: null, sectionId: 'ssh' })
+    openSettingsPage()
+  }, [closeModal, hostedOnOpenChange, openSettingsPage, openSettingsTarget, storeCloseModal])
+  return { closeModal, closeForFolderHandoff, finishProjectAdd, handleOpenSshSettings }
 }

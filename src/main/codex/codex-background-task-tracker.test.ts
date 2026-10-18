@@ -60,7 +60,7 @@ function command(
     threadId,
     params: {
       threadId,
-      turnId: threadId === PRIMARY ? PARENT_TURN : CHILD_TURN,
+      turnId: PARENT_TURN,
       item: {
         type: 'commandExecution',
         id: 'exec-1',
@@ -76,8 +76,10 @@ function command(
 describe('readCodexBackgroundTaskFrame', () => {
   it('reads activity as child metadata without inferring execution state', () => {
     expect(readCodexBackgroundTaskFrame(activity('interacted'), PRIMARY)).toEqual({
-      kind: 'subagents',
-      children: [{ agentThreadId: CHILD, label: 'count_a' }]
+      kind: 'subagent',
+      agentThreadId: CHILD,
+      label: 'count_a',
+      parentTurnId: PARENT_TURN
     })
   })
 
@@ -227,12 +229,13 @@ describe('CodexBackgroundTaskTracker child execution ownership', () => {
 })
 
 describe('CodexBackgroundTaskTracker command integration', () => {
-  it('reveals a surviving primary shell after its own turn ends', () => {
+  it('keeps a primary shell visible from launch until its own completion', () => {
     const tracker = new CodexBackgroundTaskTracker(PRIMARY)
     const shell = [{ id: 'codex-command:primary:exec-1', kind: 'command', description: 'sleep 90' }]
     tracker.observe(turn('turn/started', PRIMARY, PARENT_TURN))
     tracker.observe(command())
-    expect(tracker.state).toBeNull()
+    // Visible while the turn that launched it is still running.
+    expect(tracker.state?.tasks).toEqual(shell)
     tracker.observe(turn('turn/completed', PRIMARY, PARENT_TURN))
     expect(tracker.state?.tasks).toEqual(shell)
     // Only the shell's own completion retires the row.

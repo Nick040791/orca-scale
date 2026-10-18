@@ -23,13 +23,6 @@ const {
     return appMock
   })
 
-  const appPrependListener = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-    const handlers = appEventHandlers.get(event) ?? []
-    handlers.unshift(handler)
-    appEventHandlers.set(event, handlers)
-    return appMock
-  })
-
   const on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
     const handlers = eventHandlers.get(event) ?? []
     handlers.push(handler)
@@ -46,7 +39,6 @@ const {
   const reset = () => {
     appEventHandlers.clear()
     appOn.mockClear()
-    appPrependListener.mockClear()
     eventHandlers.clear()
     on.mockClear()
     autoUpdaterMock.checkForUpdates.mockReset()
@@ -72,7 +64,6 @@ const {
       isPackaged: true,
       getVersion: vi.fn(() => '1.4.162'),
       on: appOn,
-      prependListener: appPrependListener,
       quit: vi.fn(),
       exit: vi.fn()
     },
@@ -99,7 +90,7 @@ vi.mock('./electron-updater-loader', () => ({
   loadElectronAutoUpdater: () => autoUpdaterMock
 }))
 vi.mock('@electron-toolkit/utils', () => ({ is: isMock }))
-vi.mock('./ipc/pty/kill-all', () => ({ killAllPty: killAllPtyMock }))
+vi.mock('./ipc/pty', () => ({ killAllPty: killAllPtyMock }))
 vi.mock('./updater-changelog', () => ({
   fetchChangelog: vi.fn().mockResolvedValue(null)
 }))
@@ -163,13 +154,12 @@ async function reachDownloaded(): Promise<typeof UpdaterModule> {
   const updater = await loadUpdaterModule()
 
   updater.setupAutoUpdater(mainWindow as never)
-  await vi.advanceTimersByTimeAsync(0)
   await vi.waitFor(() => {
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
   })
   autoUpdaterMock.emit('checking-for-update')
   autoUpdaterMock.emit('update-available', { version: '1.4.163' })
-  await vi.advanceTimersByTimeAsync(0)
+  await new Promise((resolve) => setTimeout(resolve, 0))
   autoUpdaterMock.downloadUpdate.mockResolvedValue([])
   updater.downloadUpdate()
   autoUpdaterMock.emit('update-downloaded', { version: '1.4.163' })
@@ -203,13 +193,11 @@ describe('quitAndInstall failure carries the updater cause', () => {
       value: 'linux',
       configurable: true
     })
-    vi.useFakeTimers()
+    vi.useRealTimers()
     spans = []
   })
 
   afterEach(() => {
-    vi.clearAllTimers()
-    vi.useRealTimers()
     Object.defineProperty(process, 'platform', {
       value: originalPlatform,
       configurable: true
@@ -226,7 +214,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
     })
@@ -248,7 +235,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
     })
@@ -268,7 +254,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(installSpan()).toBeDefined()
     })
@@ -285,7 +270,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(installSpan()).toBeDefined()
     })
@@ -305,7 +289,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
     })
@@ -328,7 +311,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(1)
     })
@@ -349,7 +331,6 @@ describe('quitAndInstall failure carries the updater cause', () => {
     })
 
     quitAndInstall()
-    await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => {
       expect(getUpdateStatus().state).toBe('error')
     })

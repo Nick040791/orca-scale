@@ -7,12 +7,17 @@ import { reconcileReadoptedSshRepoRows } from '../slices/superseded-ssh-repo-row
 import type { SshRepoReconciliation } from '../slices/superseded-ssh-repo-rows'
 import { reconcileReadoptedSshWorktreesByRepo } from '../slices/readopted-ssh-worktree-rows'
 import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import type { getActiveRuntimeTarget } from '../../runtime/runtime-rpc-client'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
-import { adoptFromEndpoint } from '../adopt-from-endpoint'
-import { getRuntimeTargetHostId } from '../../runtime/runtime-client-target'
+import type { RepoSlice } from './repo-state'
+import { repoWithFetchedOwner } from './owner-routing'
+import { getRuntimeTargetHostId } from '../runtime-target-host'
 import { fetchProjectHostSetupCompatibility } from '../projects/project-host-routing'
 import { mergeFetchedReposForHost } from './repo-catalog-identity'
+import {
+  mergeProjectHostSetupCompatibility,
+  projectCompatibilityFromRepos
+} from '../projects/project-compatibility-core'
 
 export type FetchedRepoCatalog = {
   repos: readonly Repo[]
@@ -21,7 +26,7 @@ export type FetchedRepoCatalog = {
 }
 
 export async function fetchRepoCatalogForTarget(
-  target: RuntimeClientTarget
+  target: ReturnType<typeof getActiveRuntimeTarget>
 ): Promise<FetchedRepoCatalog> {
   const fetchedRepos =
     target.kind === 'local'
@@ -32,7 +37,7 @@ export async function fetchRepoCatalogForTarget(
             reuseRecentCompatibilityFailure: true
           })
         ).repos
-  const repos = fetchedRepos.map((repo) => adoptFromEndpoint(target, { kind: 'repo', row: repo }))
+  const repos = fetchedRepos.map((repo) => repoWithFetchedOwner(repo, target))
   return {
     repos,
     projectHostSetupCompatibility: await fetchProjectHostSetupCompatibility(target, repos),
@@ -113,6 +118,13 @@ export function reconcileReadoptedSshWorktreeState(
     detectedWorktreesByRepo,
     sortEpoch: worktreesByRepo === state.worktreesByRepo ? state.sortEpoch : state.sortEpoch + 1
   }
+}
+
+export function projectCompatibilityForReconciledRepos(
+  repos: readonly Repo[],
+  fetched: ProjectHostSetupProjection
+): Pick<RepoSlice, 'projects' | 'projectHostSetups'> {
+  return mergeProjectHostSetupCompatibility(projectCompatibilityFromRepos(repos), fetched)
 }
 
 export function filterTrustedOrcaHooksToValidRepos(

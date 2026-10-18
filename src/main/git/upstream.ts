@@ -36,16 +36,7 @@ async function getBehindCommitsArePatchEquivalent(
 ): Promise<boolean> {
   try {
     const { stdout } = await gitExecFileAsync(
-      [
-        'log',
-        '--no-show-signature',
-        '--no-color',
-        '--oneline',
-        '--cherry-mark',
-        '--right-only',
-        `HEAD...${upstreamName}`,
-        '--'
-      ],
+      ['log', '--oneline', '--cherry-mark', '--right-only', `HEAD...${upstreamName}`, '--'],
       gitExecOptions(worktreePath, options)
     )
     return upstreamOnlyCommitsArePatchEquivalent(stdout)

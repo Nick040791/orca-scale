@@ -1,8 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 
 import { translate } from '@/i18n/i18n'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { getActiveRuntimeTarget, callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import type { TaskPageGitHubMutationIntent } from '@/components/task-page-github-work-item-mutation-patches'
 import {
   normalizeGitHubReviewerLogins,
@@ -33,7 +32,7 @@ type ReviewerActionsInput = {
   setReviewerInput: Dispatch<SetStateAction<string>>
   setSubmitting: Dispatch<SetStateAction<boolean>>
   sourceContext?: TaskSourceContext | null
-  ownerTarget: RuntimeClientTarget
+  sourceSettings: Parameters<typeof getActiveRuntimeTarget>[0]
   submitting: boolean
   workItemMutation: TaskPageGitHubWorkItemMutationRunner
 }
@@ -51,7 +50,7 @@ export function createTaskPageGitHubReviewerActions({
   setReviewerInput,
   setSubmitting,
   sourceContext,
-  ownerTarget,
+  sourceSettings,
   submitting,
   workItemMutation
 }: ReviewerActionsInput): {
@@ -103,7 +102,7 @@ export function createTaskPageGitHubReviewerActions({
         successToast: translate('auto.components.TaskPage.8f06dbb9e5', 'Reviewer requested'),
         errorToast: translate('auto.components.TaskPage.dc67f69962', 'Failed to request reviewer'),
         mutate: async () => {
-          const target = ownerTarget
+          const target = getActiveRuntimeTarget(sourceSettings)
           const runtimeRepoId =
             sourceContext?.provider === 'github' ? (sourceContext.repoId ?? repo.id) : repo.id
           return target.kind === 'environment'
@@ -183,7 +182,7 @@ export function createTaskPageGitHubReviewerActions({
             : translate('auto.components.TaskPage.837bb901ec', 'Reviewers removed'),
         errorToast: translate('auto.components.TaskPage.ed1daeb49a', 'Failed to remove reviewer'),
         mutate: async () => {
-          const target = ownerTarget
+          const target = getActiveRuntimeTarget(sourceSettings)
           const runtimeRepoId =
             sourceContext?.provider === 'github' ? (sourceContext.repoId ?? repo.id) : repo.id
           return target.kind === 'environment'

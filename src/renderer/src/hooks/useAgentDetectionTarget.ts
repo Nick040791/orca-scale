@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { getConnectionIdFromState } from '@/lib/connection-owner-resolution'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { runtimeEnvironmentIdForWorkspaceOwner } from '@/lib/resolve-owner'
-import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner-state'
+import {
+  getExplicitRuntimeEnvironmentIdForWorktree,
+  getExecutionHostIdForWorktree,
+  type WorktreeRuntimeOwnerState
+} from '@/lib/worktree-runtime-owner'
 import { getResolvedExecutionHostIdForWorktree } from '@/lib/resolved-worktree-execution-host'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
@@ -12,18 +14,13 @@ import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 
 export const AGENT_DETECTION_LOCAL_TARGET_KEY = 'local'
 
-// Why the workspace rides along: the paired host resolves that workspace's runtime (e.g. WSL).
-function getRuntimeAgentDetectionTargetKey(environmentId: string, worktreeId: string): string {
-  return `runtime:${encodeURIComponent(environmentId)}:${encodeURIComponent(worktreeId)}`
-}
-
 function getLocalAgentDetectionTargetKey(worktreeId: string): string {
   return worktreeId === FLOATING_TERMINAL_WORKTREE_ID
     ? `${AGENT_DETECTION_LOCAL_TARGET_KEY}:${encodeURIComponent(worktreeId)}:host`
     : AGENT_DETECTION_LOCAL_TARGET_KEY
 }
 
-export type AgentDetectionOwnerState = Parameters<typeof getConnectionIdFromState>[0] &
+type AgentDetectionOwnerState = Parameters<typeof getConnectionIdFromState>[0] &
   WorktreeRuntimeOwnerState
 
 /**
@@ -43,13 +40,12 @@ export function getAgentDetectionTargetKeyForWorktree(
     return AGENT_DETECTION_LOCAL_TARGET_KEY
   }
   if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
-    const owner = runtimeEnvironmentIdForWorkspaceOwner(state, { workspaceId: worktreeId })
-    // Why: probing one twin's agents would show the other host's install state.
-    if (owner.kind === 'ambiguous') {
-      return undefined
-    }
-    if (owner.environmentId) {
-      return getRuntimeAgentDetectionTargetKey(owner.environmentId, worktreeId)
+    const explicitRuntimeEnvironmentId = getExplicitRuntimeEnvironmentIdForWorktree(
+      state,
+      worktreeId
+    )
+    if (explicitRuntimeEnvironmentId) {
+      return `runtime:${explicitRuntimeEnvironmentId}`
     }
     // Why: a hostless folder can span local and SSH children, so keep the
     // ambiguity gate before applying its focused-runtime fallback.
@@ -66,7 +62,7 @@ export function getAgentDetectionTargetKeyForWorktree(
     return `ssh:${executionHost.targetId}`
   }
   if (executionHost?.kind === 'runtime') {
-    return getRuntimeAgentDetectionTargetKey(executionHost.environmentId, worktreeId)
+    return `runtime:${executionHost.environmentId}`
   }
   return getLocalAgentDetectionTargetKey(worktreeId)
 }
@@ -101,15 +97,7 @@ export function parseAgentDetectionTargetKey(
     return { kind: 'ssh', connectionId: key.slice('ssh:'.length) }
   }
   if (key.startsWith('runtime:')) {
-    const [encodedEnvironmentId = '', encodedWorktreeId] = key.slice('runtime:'.length).split(':')
-    try {
-      const environmentId = decodeURIComponent(encodedEnvironmentId)
-      return encodedWorktreeId
-        ? { kind: 'runtime', environmentId, worktreeId: decodeURIComponent(encodedWorktreeId) }
-        : { kind: 'runtime', environmentId }
-    } catch {
-      return { kind: 'runtime', environmentId: encodedEnvironmentId }
-    }
+    return { kind: 'runtime', environmentId: key.slice('runtime:'.length) }
   }
   return { kind: 'local' }
 }

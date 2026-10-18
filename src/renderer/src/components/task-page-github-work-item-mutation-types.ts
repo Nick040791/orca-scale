@@ -1,7 +1,6 @@
 import type { ParsedTaskQuery } from '../../../shared/task-query'
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
-import type { GitHubPatchWorkItemOptions } from '../store/github/cache-model'
 import type { TaskPageGitHubMutationIntent } from './task-page-github-work-item-mutation-patches'
 import type { TaskPageGitHubMutationKey } from './task-page-github-work-item-mutation-registry'
 
@@ -9,7 +8,7 @@ export type TaskPageGitHubPatchWorkItem = (
   itemId: string,
   patch: Partial<GitHubWorkItem>,
   repoId?: string,
-  options?: GitHubPatchWorkItemOptions
+  options?: { sourceContext?: TaskSourceContext | null }
 ) => void
 
 export type BeginTaskPageGitHubWorkItemMutationArgs = {

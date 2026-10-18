@@ -18,7 +18,7 @@ export type PickerOption = { key: string; primary: string; secondary?: string }
 
 export const PULL_REQUEST_PICKER_QUERY_MAX_BYTES = 2 * 1024
 
-function isPullRequestPickerQueryTooLarge(
+export function isPullRequestPickerQueryTooLarge(
   query: string,
   maxBytes = PULL_REQUEST_PICKER_QUERY_MAX_BYTES
 ): boolean {

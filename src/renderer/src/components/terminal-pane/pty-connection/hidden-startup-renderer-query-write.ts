@@ -115,7 +115,7 @@ export function bindHiddenStartupRendererQueryWrite(session: ConnectPanePtySessi
       return
     }
     const extracted = extractHiddenStartupRendererQueryData(data, '')
-    if (extracted.oscColorQueryData && session.shouldAnswerPaneOscColorQueries()) {
+    if (extracted.oscColorQueryData) {
       sendTerminalOscColorQueryReplies(
         extracted.oscColorQueryData,
         session.pane.terminal,

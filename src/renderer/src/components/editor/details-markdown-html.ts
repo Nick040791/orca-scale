@@ -1,9 +1,4 @@
 import type { MarkdownToken } from '@tiptap/core'
-import {
-  getMarkdownFenceRanges,
-  isInsideMarkdownFenceRange,
-  type MarkdownFenceRanges
-} from './markdown-fence-scanner'
 
 // Toggle summaries can render at heading scales 1–5, mirroring the plain
 // heading levels the slash menu / toolbar dropdown offer (h1–h5).
@@ -40,6 +35,10 @@ export type DetailsHtmlBlock = {
   openingAttributes: string
   inner: string
 }
+
+// Fence ranges depend only on the scanned string, so callers scanning one body
+// repeatedly compute them once and share them across sibling matches.
+export type MarkdownFenceRanges = readonly (readonly [number, number])[]
 
 export type DetailsSummaryHtml = {
   attributes: string
@@ -92,12 +91,48 @@ export function renderDetailsAttributes(attrs: Record<string, unknown> | undefin
   return attributes.join(' ')
 }
 
-export function createDetailsMatcher(content: string): (start: number) => DetailsHtmlBlock | null {
-  let fenceRanges: MarkdownFenceRanges | undefined
-  return (start) =>
-    /^<details\b[^>]*>/i.test(content.slice(start))
-      ? matchDetailsHtmlBlock(content, start, (fenceRanges ??= getMarkdownFenceRanges(content)))
-      : null
+function markdownFenceRanges(content: string): MarkdownFenceRanges {
+  const ranges: [number, number][] = []
+  let offset = 0
+  let openFence: { closingPattern: RegExp; start: number } | null = null
+
+  for (const lineMatch of content.matchAll(/[^\r\n]*(?:\r\n|\n|\r|$)/g)) {
+    const line = lineMatch[0]
+    if (line === '') {
+      break
+    }
+
+    const lineText = line.replace(/(?:\r\n|\n|\r)$/u, '')
+    if (openFence) {
+      // Built once per fence: rebuilding it per line recompiled the same regex for every fenced line.
+      if (openFence.closingPattern.test(lineText)) {
+        ranges.push([openFence.start, offset + line.length])
+        openFence = null
+      }
+    } else {
+      const openingFenceMatch = lineText.match(/^ {0,3}(`{3,}|~{3,})/u)
+      if (openingFenceMatch?.[1]) {
+        openFence = {
+          closingPattern: new RegExp(
+            `^ {0,3}${openingFenceMatch[1][0]}{${openingFenceMatch[1].length},}\\s*$`
+          ),
+          start: offset
+        }
+      }
+    }
+
+    offset += line.length
+  }
+
+  if (openFence) {
+    ranges.push([openFence.start, content.length])
+  }
+
+  return ranges
+}
+
+function isInsideRange(index: number, ranges: MarkdownFenceRanges): boolean {
+  return ranges.some(([start, end]) => index >= start && index < end)
 }
 
 export function matchDetailsHtmlBlock(
@@ -112,7 +147,7 @@ export function matchDetailsHtmlBlock(
 
   const detailsTagPattern = /<\/?details\b[^>]*>/gi
   detailsTagPattern.lastIndex = start
-  const fenceRanges = precomputedFenceRanges ?? getMarkdownFenceRanges(content)
+  const fenceRanges = precomputedFenceRanges ?? markdownFenceRanges(content)
 
   let depth = 0
 
@@ -123,7 +158,7 @@ export function matchDetailsHtmlBlock(
     }
 
     const tag = tagMatch[0]
-    if (tagMatch.index !== start && isInsideMarkdownFenceRange(tagMatch.index, fenceRanges)) {
+    if (tagMatch.index !== start && isInsideRange(tagMatch.index, fenceRanges)) {
       continue
     }
 
@@ -267,7 +302,7 @@ function stripEditableNestedDetails(bodyHtml: string, nestingLevel: number): str
       return null
     }
 
-    fenceRanges ??= getMarkdownFenceRanges(bodyHtml)
+    fenceRanges ??= markdownFenceRanges(bodyHtml)
     const nested = matchDetailsHtmlBlock(bodyHtml, nestedStart, fenceRanges)
     if (!nested || !isEditableDetailsHtmlBlock(nested, nestingLevel + 1)) {
       return null

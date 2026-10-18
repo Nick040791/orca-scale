@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
-import { registerPtyHandlers } from './pty/register-handlers'
-import { getPtyRendererDeliveryDebugSnapshot } from './pty/delivery/debug'
+import { registerPtyHandlers, getPtyRendererDeliveryDebugSnapshot } from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))

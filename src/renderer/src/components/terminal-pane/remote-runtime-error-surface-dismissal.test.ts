@@ -1,18 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// These transport fixtures never read abandoned-launch ownership from the app store.
-const appStore = vi.hoisted(() => ({
-  getState: vi.fn(() => {
-    throw new Error('These transport fixtures must not read app-store ownership')
-  })
-}))
-
-vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
-
-afterEach(() => {
-  expect(appStore.getState).not.toHaveBeenCalled()
-})
-
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Why: the transport suppresses a repeat of the message it last surfaced so one outage cannot spam the
 // pane. Dismissal is the only evidence the user consumed that surface, so it must re-arm the memory —
@@ -34,7 +20,14 @@ describe('remote runtime error surface dismissal', () => {
         return { unsubscribe: vi.fn(), sendBinary: subscriptionSendBinary }
       }
     )
-    stubRuntimeEnvironmentBridge({ call: runtimeCall, subscribe: runtimeSubscribe })
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          call: runtimeCall,
+          subscribe: runtimeSubscribe
+        }
+      }
+    })
   })
 
   async function attachTransportWithFatalSends(onError: (message: string) => void) {
@@ -55,18 +48,18 @@ describe('remote runtime error surface dismissal', () => {
     const onError = vi.fn()
     const transport = await attachTransportWithFatalSends(onError)
 
-    expect(await transport.sendInputAccepted?.('a', 'driving')).toBe(false)
-    expect(await transport.sendInputAccepted?.('b', 'driving')).toBe(false)
+    expect(await transport.sendInputAccepted?.('a')).toBe(false)
+    expect(await transport.sendInputAccepted?.('b')).toBe(false)
     // Contract preserved: one continuous outage still surfaces the repeated error once.
     expect(onError.mock.calls).toEqual([[FATAL_ERROR]])
 
     transport.notifyErrorSurfaceDismissed?.()
 
-    expect(await transport.sendInputAccepted?.('c', 'driving')).toBe(false)
+    expect(await transport.sendInputAccepted?.('c')).toBe(false)
     expect(onError.mock.calls).toEqual([[FATAL_ERROR], [FATAL_ERROR]])
 
     // The memory re-arms: repeats after the re-surfaced error are suppressed again until the next dismissal.
-    expect(await transport.sendInputAccepted?.('d', 'driving')).toBe(false)
+    expect(await transport.sendInputAccepted?.('d')).toBe(false)
     expect(onError).toHaveBeenCalledTimes(2)
     transport.destroy?.()
   })
@@ -75,9 +68,9 @@ describe('remote runtime error surface dismissal', () => {
     const onError = vi.fn()
     const transport = await attachTransportWithFatalSends(onError)
 
-    expect(await transport.sendInputAccepted?.('a', 'driving')).toBe(false)
-    expect(await transport.sendInputAccepted?.('b', 'driving')).toBe(false)
-    expect(await transport.sendInputAccepted?.('c', 'driving')).toBe(false)
+    expect(await transport.sendInputAccepted?.('a')).toBe(false)
+    expect(await transport.sendInputAccepted?.('b')).toBe(false)
+    expect(await transport.sendInputAccepted?.('c')).toBe(false)
 
     expect(onError).toHaveBeenCalledTimes(1)
     transport.destroy?.()

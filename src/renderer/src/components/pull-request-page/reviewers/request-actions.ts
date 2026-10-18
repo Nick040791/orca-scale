@@ -1,5 +1,5 @@
 import { toast } from 'sonner'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   normalizeGitHubReviewerLogins,
   parseGitHubReviewerInputLogins
@@ -14,7 +14,7 @@ import type {
 } from '../../../../../shared/github/pull-request-types'
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { TaskSourceContext } from '../../../../../shared/task-source-context'
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import type { GlobalSettings } from '../../../../../shared/global-settings-types'
 
 const MAX_REQUESTED_REVIEWERS = 15
 
@@ -27,7 +27,7 @@ type ReviewerRequestActionsArgs = {
   selectedReviewerLogins: Set<string>
   localReviewRequests: GitHubAssignableUser[]
   setLocalReviewRequests: (value: GitHubAssignableUser[]) => void
-  ownerTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'>
   repoPath: string | null
   sourceContext?: TaskSourceContext | null
   item: GitHubWorkItem
@@ -70,7 +70,7 @@ export function createReviewerRequestActions(args: ReviewerRequestActionsArgs): 
       )
       return
     }
-    const target = args.ownerTarget
+    const target = getActiveRuntimeTarget(args.sourceSettings)
     if (target.kind !== 'environment' && !args.repoPath) {
       toast.error(
         translate(
@@ -171,7 +171,7 @@ export function createReviewerRequestActions(args: ReviewerRequestActionsArgs): 
     if (logins.length === 0) {
       return
     }
-    const target = args.ownerTarget
+    const target = getActiveRuntimeTarget(args.sourceSettings)
     if (target.kind !== 'environment' && !args.repoPath) {
       toast.error(
         translate(

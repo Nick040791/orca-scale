@@ -1,4 +1,3 @@
-import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, connect, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -7,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PairedRuntimeBrowserNetworkRoute } from '../browser/paired-runtime-browser-network-route'
 import { PairedRuntimeBrowserHostLease } from '../browser/paired-runtime-browser-host-lease'
 import { parsePairingCode } from '../../shared/pairing'
-import { getBrowserHostLeaseRegistry } from './browser-host/browser-host-lease-registry-instance'
+import { getBrowserHostLeaseRegistry } from './browser-host-lease-registry-instance'
 import { OrcaRuntimeService } from './orca-runtime'
 import { OrcaRuntimeRpcServer } from './runtime-rpc'
 import { ALL_RPC_METHODS } from './rpc/methods'
@@ -46,7 +45,7 @@ describe('paired runtime browser network tunnel', () => {
     const errors: Error[] = []
     const onPageCommand = vi.fn(() => Promise.resolve({ status: 'completed' as const }))
     const hostLease = new PairedRuntimeBrowserHostLease({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       authorityRuntimeId: runtime.getRuntimeId(),
       browserHostClientId: 'integration-browser-host',
       hostCapabilities: ['webview'],
@@ -138,7 +137,7 @@ describe('paired runtime browser network tunnel', () => {
     }
     const onPageCommand = vi.fn(() => Promise.resolve({ status: 'completed' as const }))
     const hostLease = new PairedRuntimeBrowserHostLease({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       authorityRuntimeId: runtime.getRuntimeId(),
       browserHostClientId: 'integration-browser-host',
       hostCapabilities: ['webview'],
@@ -223,7 +222,7 @@ describe('paired runtime browser network tunnel', () => {
 
     const errors: Error[] = []
     const hostLease = new PairedRuntimeBrowserHostLease({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       authorityRuntimeId: runtime.getRuntimeId(),
       browserHostClientId: 'integration-browser-host',
       hostCapabilities: ['webview'],
@@ -232,7 +231,7 @@ describe('paired runtime browser network tunnel', () => {
     const lease = await hostLease.start()
     resources.push(() => hostLease.close())
     const route = new PairedRuntimeBrowserNetworkRoute({
-      connection: pairedRuntimeConnectionFromOffer(pairing),
+      pairing,
       lease,
       executionHostRevision: runtime.getStartedAt(),
       onError: (error) => errors.push(error)

@@ -1,6 +1,5 @@
 import { useCallback } from 'react'
 import { triggerSelection } from '../platform/haptics'
-import { isCachedActiveDocumentRetap } from './mobile-session-active-document-retap'
 import { activateMobileSessionTab } from './mobile-session-tab-activation'
 import type { MobileSessionTab } from './mobile-session-route-types'
 import type { MobileSessionKeyboardStateModel } from './use-mobile-session-keyboard-state'
@@ -13,14 +12,14 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
     defaultTerminalHandlesToLiveInput,
     setActiveHandle,
     setActiveSessionTabId,
-    activeSessionTabId,
     markdownDocs,
-    fileDocs,
     terminalUnsubsRef,
+    initializedHandlesRef,
     terminalDiagnosticsRef,
     activeHandleRef,
     activeSessionTabTypeRef,
-    pendingSelectionRef,
+    pendingActiveSessionTabIdRef,
+    pendingActiveTerminalHandleRef,
     switchSessionTabRef,
     unsubscribeTerminal,
     subscribeToTerminal,
@@ -36,7 +35,8 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
           tab.type === 'terminal' && tab.terminal === handle
       )
       terminalDiagnosticsRef.current.tabSwitch('terminal', matchingTab?.id ?? '', false, handle)
-      pendingSelectionRef.current = { kind: 'terminal', handle, tabId: matchingTab?.id ?? null }
+      pendingActiveSessionTabIdRef.current = matchingTab?.id ?? null
+      pendingActiveTerminalHandleRef.current = handle
       activeSessionTabTypeRef.current = 'terminal'
       defaultTerminalHandlesToLiveInput([handle])
       setActiveSessionTabId(matchingTab?.id ?? null)
@@ -45,10 +45,12 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
       setActiveHandle(handle)
       if (prev && prev !== handle) {
         unsubscribeTerminal(prev)
+        initializedHandlesRef.current.delete(prev)
       }
       // Force a fresh subscribe even if eagerly subscribed without viewport
       if (terminalUnsubsRef.current.has(handle)) {
         unsubscribeTerminal(handle)
+        initializedHandlesRef.current.delete(handle)
       }
       subscribeToTerminal(handle)
       if (client) {
@@ -75,9 +77,6 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
 
   const switchSessionTab = useCallback(
     (tab: MobileSessionTab) => {
-      if (isCachedActiveDocumentRetap(tab, activeSessionTabId, { markdownDocs, fileDocs })) {
-        return
-      }
       if (tab.type === 'terminal') {
         if (typeof tab.terminal === 'string') {
           switchTab(tab.terminal)
@@ -85,12 +84,14 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
         }
         terminalDiagnosticsRef.current.tabSwitch('terminal', tab.id, true)
         triggerSelection()
-        pendingSelectionRef.current = { kind: 'tab', tabId: tab.id }
+        pendingActiveSessionTabIdRef.current = tab.id
+        pendingActiveTerminalHandleRef.current = null
         activeSessionTabTypeRef.current = 'terminal'
         setActiveSessionTabId(tab.id)
         const prev = activeHandleRef.current
         if (prev) {
           unsubscribeTerminal(prev)
+          initializedHandlesRef.current.delete(prev)
         }
         activeHandleRef.current = null
         setActiveHandle(null)
@@ -108,12 +109,14 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
 
       triggerSelection()
       terminalDiagnosticsRef.current.tabSwitch(tab.type, tab.id, false)
-      pendingSelectionRef.current = { kind: 'tab', tabId: tab.id }
+      pendingActiveSessionTabIdRef.current = tab.id
+      pendingActiveTerminalHandleRef.current = null
       activeSessionTabTypeRef.current = tab.type
       setActiveSessionTabId(tab.id)
       const prev = activeHandleRef.current
       if (prev) {
         unsubscribeTerminal(prev)
+        initializedHandlesRef.current.delete(prev)
       }
       activeHandleRef.current = null
       setActiveHandle(null)
@@ -143,17 +146,7 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
       // Why: tab list lacks a reliable version for desktop clean saves; re-read on revisit unless the phone has a draft.
       void readMarkdownTab(tab)
     },
-    [
-      activeSessionTabId,
-      client,
-      fileDocs,
-      markdownDocs,
-      readFileTab,
-      readMarkdownTab,
-      switchTab,
-      unsubscribeTerminal,
-      worktreeId
-    ]
+    [client, markdownDocs, readFileTab, readMarkdownTab, switchTab, unsubscribeTerminal, worktreeId]
   )
   // Ref to latest switchSessionTab so fetchSessionTabs can activate a synced browser tab without a dependency cycle.
   switchSessionTabRef.current = switchSessionTab

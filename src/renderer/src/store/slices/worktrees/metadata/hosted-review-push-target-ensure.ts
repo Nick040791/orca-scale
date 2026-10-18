@@ -4,7 +4,7 @@ import {
   getHostedReviewPushTargetLookup,
   hostedReviewPushTargetLookupsInFlight
 } from './hosted-review-push-target'
-import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
+import { trySettingsForWorktreeOwner } from '../listing/worktree-owner-settings'
 
 export function createEnsureHostedReviewPushTarget(
   _set: WorktreeSliceSet,
@@ -22,11 +22,11 @@ export function createEnsureHostedReviewPushTarget(
     hostedReviewPushTargetLookupsInFlight.add(lookup.key)
     try {
       // Why: an ambiguous owner is a skip, not a crash — this runs as fire-and-forget background restoration.
-      const ownerTarget = runtimeTargetForWorkspaceOwner(get(), { workspaceId: worktreeId })
-      if (!ownerTarget) {
+      const ownerSettings = trySettingsForWorktreeOwner(get(), worktreeId)
+      if (!ownerSettings) {
         return
       }
-      const resolvedPushTarget = await lookup.resolve(ownerTarget)
+      const resolvedPushTarget = await lookup.resolve(ownerSettings)
       if (!resolvedPushTarget) {
         return
       }

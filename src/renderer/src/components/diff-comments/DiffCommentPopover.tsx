@@ -1,4 +1,3 @@
-import { ImeTextarea } from '@/lib/ime-text-field'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { CornerDownLeft } from 'lucide-react'
 import { toast } from 'sonner'
@@ -199,7 +198,7 @@ export function DiffCommentPopover({
                   { value0: lineNumber }
                 ))}
         </div>
-        <ImeTextarea
+        <textarea
           ref={focusTextareaRef}
           className="orca-diff-comment-popover-textarea"
           placeholder={placeholder}

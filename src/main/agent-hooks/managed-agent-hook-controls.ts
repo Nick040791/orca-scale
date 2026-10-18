@@ -5,11 +5,7 @@ import {
 } from '../../shared/managed-agent-hook-targets'
 import { normalizeDisabledTuiAgents } from '../../shared/tui-agent-selection'
 import type { GlobalSettings } from '../../shared/global-settings-types'
-import {
-  isAgentStatusHooksEnabled,
-  isAgentStatusHooksEnabledForAgent
-} from '../../shared/agent-status-hooks-setting'
-import { probeClaudeCliVersion } from '../claude/claude-hook-event-versions'
+import { probeClaudeCliVersion } from '../claude/claude-session-end-hook-capability'
 import { detectLocalManagedAgentCliPresence } from './local-agent-cli-presence'
 import {
   MANAGED_AGENT_HOOK_ASYNC_REMOVERS,
@@ -22,10 +18,7 @@ import {
 } from './managed-agent-hook-registry'
 
 export { MANAGED_AGENT_HOOK_INSTALLERS } from './managed-agent-hook-registry'
-export {
-  isAgentStatusHooksEnabled,
-  isAgentStatusHooksEnabledForAgent
-} from '../../shared/agent-status-hooks-setting'
+export { prepareManagedCodexHomeBeforeShellLaunch } from '../codex/managed-home-shell-preflight'
 
 type ManagedHookSettings = Partial<
   Pick<GlobalSettings, 'agentCmdOverrides' | 'agentStatusHooksEnabled' | 'disabledTuiAgents'>
@@ -44,6 +37,12 @@ type RemoveOptions = {
   agents?: readonly AgentHookTarget[]
 }
 
+export function isAgentStatusHooksEnabled(
+  settings: Partial<Pick<GlobalSettings, 'agentStatusHooksEnabled'>> | null | undefined
+): boolean {
+  return settings?.agentStatusHooksEnabled !== false
+}
+
 export type StartupManagedHookAction = 'install' | 'skip'
 
 // Why never 'remove': this reads THIS instance's settings, but the managed hook files are
@@ -57,12 +56,26 @@ export function resolveStartupManagedHookAction(
   return isAgentStatusHooksEnabled(settings) ? 'install' : 'skip'
 }
 
+export function shouldInstallStartupManagedAgentHook(
+  settings: ManagedHookSettings,
+  agent: AgentHookTarget
+): boolean {
+  return (
+    resolveStartupManagedHookAction(settings) === 'install' &&
+    !normalizeDisabledTuiAgents(settings?.disabledTuiAgents).includes(agent)
+  )
+}
+
 export function shouldContinueManagedHookStartup(
   isQuitting: boolean,
   settings: ManagedHookSettings,
   agent: AgentHookTarget
 ): boolean {
-  return !isQuitting && isAgentStatusHooksEnabledForAgent(settings, agent)
+  return (
+    !isQuitting &&
+    isAgentStatusHooksEnabled(settings) &&
+    !normalizeDisabledTuiAgents(settings?.disabledTuiAgents).includes(agent)
+  )
 }
 
 function errorStatus(agent: AgentHookTarget, error: unknown): AgentHookInstallStatus {

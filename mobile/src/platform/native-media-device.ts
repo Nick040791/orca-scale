@@ -33,14 +33,6 @@ function stagedMediaFile(extension: string): FsFile {
   return new FsFile(Paths.cache, `orca-media-${Date.now()}-${Math.random()}.${extension}`)
 }
 
-function discardUnreturnedMediaFile(file: FsFile): void {
-  try {
-    file.delete()
-  } catch {
-    // Best effort; the cache is the OS's to reclaim.
-  }
-}
-
 /**
  * Copies what a uri names into this shell's cache and answers the copy's uri.
  *
@@ -65,7 +57,11 @@ export function copyPickedMediaIntoCache(uri: string): string {
     destination.write(new FsFile(uri).bytesSync())
   } catch (error) {
     // The empty file this just created is nobody's otherwise: the caller never learns its name.
-    discardUnreturnedMediaFile(destination)
+    try {
+      destination.delete()
+    } catch {
+      // Best effort; the cache is the OS's to reclaim.
+    }
     throw error
   }
   return destination.uri
@@ -98,12 +94,7 @@ export function nativeMediaDeviceDeps(registry: MediaHandleRegistry): NativeMedi
     stageBase64: (base64) => {
       const file = stagedMediaFile('png')
       file.create({ overwrite: true })
-      try {
-        file.write(base64, { encoding: 'base64' })
-      } catch (error) {
-        discardUnreturnedMediaFile(file)
-        throw error
-      }
+      file.write(base64, { encoding: 'base64' })
       return file.uri
     },
     openFile: (uri) => new FsFile(uri),

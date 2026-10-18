@@ -19,10 +19,10 @@ const mocks = vi.hoisted(() => ({
   callStructuredAgentSession: vi.fn()
 }))
 
-vi.mock('@/runtime/runtime-git-generation-client', () => ({
-  discoverRuntimeCommitMessageModels: mocks.discoverRuntimeCommitMessageModels
+vi.mock('@/runtime/runtime-git-client', () => ({
+  discoverRuntimeCommitMessageModels: mocks.discoverRuntimeCommitMessageModels,
+  getRuntimeGitScope: vi.fn()
 }))
-vi.mock('@/runtime/runtime-git-client-context', () => ({ getRuntimeGitScope: vi.fn() }))
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.callStructuredAgentSession
@@ -45,11 +45,7 @@ describe('native chat session option enrichment', () => {
       catalogOrigin: 'probe',
       models: [{ id: 'gpt-cli', label: 'GPT CLI' }]
     })
-    const context = {
-      target: { kind: 'local' as const },
-      worktreeId: 'repo::/worktree',
-      worktreePath: '/worktree'
-    }
+    const context = { settings: {}, worktreeId: 'repo::/worktree', worktreePath: '/worktree' }
 
     const local = await discoverNativeChatCatalogModels('codex', context, 'local')
     expect(local?.map(({ id }) => id)).toEqual(['gpt-host'])
@@ -61,25 +57,6 @@ describe('native chat session option enrichment', () => {
     const paired = await discoverNativeChatCatalogModels('codex', context, 'runtime:env-1')
     expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
     expect(paired?.map(({ id }) => id)).toContain('gpt-cli')
-  })
-
-  it('lists through the CLI when this machine runs a custom launch command', async () => {
-    mocks.discoverRuntimeCommitMessageModels.mockResolvedValue({
-      success: true,
-      catalogOrigin: 'probe',
-      models: [{ id: 'gpt-custom', label: 'GPT Custom' }]
-    })
-    const context = {
-      target: { kind: 'local' as const },
-      prefs: { agentCmdOverrides: { codex: 'codex-nightly' } },
-      worktreeId: 'repo::/worktree',
-      worktreePath: '/worktree'
-    }
-
-    // The structured catalog lists the built-in binary, which this terminal does not run.
-    const models = await discoverNativeChatCatalogModels('codex', context, 'local')
-    expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
-    expect(models?.map(({ id }) => id)).toContain('gpt-custom')
   })
 
   it('bounds settled host enrichment entries', async () => {
@@ -169,37 +146,6 @@ describe('native chat session option enrichment', () => {
     )
   })
 
-  it('carries the context window OMP lists for each model, absent from an older host', async () => {
-    mocks.discoverRuntimeCommitMessageModels.mockResolvedValue({
-      success: true,
-      catalogOrigin: 'probe',
-      models: [
-        {
-          id: 'openai-codex/gpt-5.5',
-          label: 'GPT-5.5',
-          description: 'openai-codex',
-          contextWindowTokens: 272_000
-        },
-        { id: 'openai-codex/gpt-5.4', label: 'GPT-5.4', description: 'openai-codex' }
-      ]
-    })
-    const models = await discoverNativeChatCatalogModels('omp', {
-      target: { kind: 'local' as const },
-      worktreeId: 'repo::/worktree',
-      worktreePath: '/worktree'
-    })
-    expect(models).toEqual([
-      {
-        id: 'openai-codex/gpt-5.5',
-        label: 'GPT-5.5',
-        description: 'openai-codex',
-        contextWindowTokens: 272_000,
-        options: []
-      },
-      { id: 'openai-codex/gpt-5.4', label: 'GPT-5.4', description: 'openai-codex', options: [] }
-    ])
-  })
-
   it('uses only discovered Claude rows and capabilities per host', async () => {
     mocks.discoverRuntimeCommitMessageModels.mockResolvedValue({
       success: true,
@@ -225,7 +171,7 @@ describe('native chat session option enrichment', () => {
     })
     const discover = vi.fn(() =>
       discoverNativeChatCatalogModels('claude', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })
@@ -273,7 +219,7 @@ describe('native chat session option enrichment', () => {
     })
     const discover = vi.fn(() =>
       discoverNativeChatCatalogModels('grok', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })
@@ -308,7 +254,7 @@ describe('native chat session option enrichment', () => {
     })
     const discover = vi.fn(() =>
       discoverNativeChatCatalogModels('grok', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })
@@ -335,7 +281,7 @@ describe('native chat session option enrichment', () => {
 
     await expect(
       discoverNativeChatCatalogModels('grok', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })
@@ -353,7 +299,7 @@ describe('native chat session option enrichment', () => {
 
     await expect(
       discoverNativeChatCatalogModels('cursor', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })
@@ -413,7 +359,7 @@ describe('native chat session option enrichment', () => {
 
     await expect(
       discoverNativeChatCatalogModels('claude', {
-        target: { kind: 'local' as const },
+        settings: {},
         worktreeId: 'repo::/worktree',
         worktreePath: '/worktree'
       })

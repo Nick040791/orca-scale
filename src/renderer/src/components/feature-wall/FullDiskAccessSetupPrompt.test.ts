@@ -80,11 +80,10 @@ describe('FullDiskAccessSetupPrompt state helpers', () => {
     expect(isFullDiskAccessSetupVisible('unsupported')).toBe(false)
   })
 
-  it('shows the setup prompt only for macOS statuses users can act on', () => {
+  it('shows the setup prompt for macOS statuses users can act on', () => {
     expect(isFullDiskAccessSetupVisible('unknown')).toBe(true)
     expect(isFullDiskAccessSetupVisible('denied')).toBe(true)
-    expect(isFullDiskAccessSetupVisible('granted')).toBe(false)
-    expect(isFullDiskAccessSetupVisible('ready')).toBe(false)
+    expect(isFullDiskAccessSetupVisible('granted')).toBe(true)
   })
 
   it('treats granted and entitled statuses as ready', () => {
@@ -110,7 +109,7 @@ describe('FullDiskAccessSetupPrompt state helpers', () => {
     })
 
     expect(getStatus).toHaveBeenCalledTimes(2)
-    expect(container.textContent).not.toContain('Full Disk Access')
+    expect(container.textContent).toContain('Granted')
     root.unmount()
   })
 
@@ -131,14 +130,14 @@ describe('FullDiskAccessSetupPrompt state helpers', () => {
       window.dispatchEvent(new Event('focus'))
       await Promise.resolve()
     })
-    expect(container.textContent).not.toContain('Full Disk Access')
+    expect(container.textContent).toContain('Granted')
 
     await act(async () => {
       resolveFirst([{ id: 'full-disk-access', status: 'unknown' }])
       await Promise.resolve()
     })
 
-    expect(container.textContent).not.toContain('Full Disk Access')
+    expect(container.textContent).toContain('Granted')
     root.unmount()
   })
 

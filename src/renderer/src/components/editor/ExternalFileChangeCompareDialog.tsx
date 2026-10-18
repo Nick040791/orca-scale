@@ -11,13 +11,9 @@ import {
 } from '@/components/ui/dialog'
 import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
 import { getConnectionIdForFile } from '@/lib/connection-context'
-import { editorTabFileAccess } from '@/lib/local-file-access'
 import { detectLanguage } from '@/lib/language-detect'
-import { readRuntimeFileContent } from '@/runtime/runtime-file-read-client'
-import {
-  FILE_OWNER_UNRESOLVED_MESSAGE,
-  getRuntimeTargetForFileOwner
-} from '@/lib/file-owner-runtime-target'
+import { readRuntimeFileContent } from '@/runtime/runtime-file-client'
+import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import type { OpenFile } from '@/store/slices/editor'
 import { translate } from '@/i18n/i18n'
@@ -50,7 +46,6 @@ export function ExternalFileChangeCompareDialog({
   onKeepEdits: () => void
 }): React.JSX.Element {
   const [diskState, setDiskState] = useState<DiskReadState>({ kind: 'loading' })
-  const access = editorTabFileAccess(useAppStore.getState(), file)
 
   useEffect(() => {
     if (!open) {
@@ -60,23 +55,13 @@ export function ExternalFileChangeCompareDialog({
     setDiskState({ kind: 'loading' })
     // Why: read at open time — the banner can be minutes old and the agent
     // may have written again since; the comparison must show current disk.
-    const target = getRuntimeTargetForFileOwner(
-      useAppStore.getState(),
-      file.worktreeId,
-      file.runtimeEnvironmentId
-    )
-    if (!target) {
-      setDiskState({ kind: 'error', message: FILE_OWNER_UNRESOLVED_MESSAGE })
-      return
-    }
     void readRuntimeFileContent({
-      target,
+      settings: settingsForRuntimeOwner(useAppStore.getState().settings, file.runtimeEnvironmentId),
       filePath: file.filePath,
       relativePath: file.relativePath,
       worktreeId: file.worktreeId,
       connectionId: getConnectionIdForFile(file.worktreeId, file.filePath) ?? undefined,
-      expectedExternalSshTargetId: file.externalSshTargetId,
-      access
+      expectedExternalSshTargetId: file.externalSshTargetId
     })
       .then((result) => {
         if (cancelled) {
@@ -104,8 +89,7 @@ export function ExternalFileChangeCompareDialog({
     file.relativePath,
     file.worktreeId,
     file.runtimeEnvironmentId,
-    file.externalSshTargetId,
-    access
+    file.externalSshTargetId
   ])
 
   const language = detectLanguage(file.relativePath)

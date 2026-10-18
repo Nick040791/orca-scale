@@ -4,7 +4,7 @@ import type {
   PtyProcessInfo,
   PtySpawnOptions,
   PtySpawnResult
-} from '../providers/pty-provider-contract'
+} from '../providers/types'
 import { SessionNotFoundError, TerminalSessionOwnerUnverifiedError } from './daemon-errors'
 import { DaemonSessionOwnerResolver } from './daemon-session-owner-resolution'
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CREATE_WORKTREE_ITEM_ID,
+  WORKTREE_PALETTE_SELECTION_MOVE_KEYS,
   createWorktreePaletteRequestGuard,
   getNextWorktreePaletteSelection,
   getWorktreePaletteSelectionItemIds,
@@ -260,6 +261,19 @@ describe('worktree-palette-create-action', () => {
         selectionMovedByUser: false
       })
     ).toBe(false)
+  })
+
+  it('counts only navigation keys as a user selection move', () => {
+    expect([...WORKTREE_PALETTE_SELECTION_MOVE_KEYS].sort()).toEqual([
+      'ArrowDown',
+      'ArrowUp',
+      'End',
+      'Home',
+      'PageDown',
+      'PageUp'
+    ])
+    // Enter is the activation itself, so it must never count as the gesture that arms it.
+    expect(WORKTREE_PALETTE_SELECTION_MOVE_KEYS.has('Enter')).toBe(false)
   })
 
   it('invalidates stale async create lookups', () => {

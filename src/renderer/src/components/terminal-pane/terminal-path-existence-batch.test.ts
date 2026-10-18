@@ -3,11 +3,7 @@ import { createTerminalPathExistenceBatch } from '@/components/terminal-pane/ter
 import { requirePathExistenceResults } from '../../../../shared/path-existence-batch'
 const remote = vi.hoisted(() => vi.fn())
 vi.mock('@/runtime/runtime-path-existence-batch', () => ({ runtimePathsExist: remote }))
-const context = {
-  target: { kind: 'local' as const },
-  worktreeId: 'folder:/work',
-  worktreePath: '/work'
-}
+const context = { settings: null, worktreeId: 'folder:/work', worktreePath: '/work' }
 afterEach(() => {
   vi.unstubAllGlobals()
   remote.mockReset()
@@ -30,11 +26,11 @@ it('isolates identical paths by runtime, worktree, connection, and hover turn', 
   )
   const enqueue = createTerminalPathExistenceBatch()
   const contexts = [
-    { ...context, target: { kind: 'environment' as const, environmentId: 'a' } },
-    { ...context, target: { kind: 'environment' as const, environmentId: 'b' } },
+    { ...context, settings: { activeRuntimeEnvironmentId: 'a' } },
+    { ...context, settings: { activeRuntimeEnvironmentId: 'b' } },
     {
       ...context,
-      target: { kind: 'environment' as const, environmentId: 'a' },
+      settings: { activeRuntimeEnvironmentId: 'a' },
       worktreeId: 'folder:/other',
       worktreePath: '/other'
     },

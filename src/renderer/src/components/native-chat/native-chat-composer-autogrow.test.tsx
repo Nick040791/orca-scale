@@ -18,7 +18,7 @@ vi.mock('./NativeChatComposerActions', () => ({
 }))
 
 vi.mock('./NativeChatAutocompleteMenus', () => ({
-  NativeChatMentionMenu: () => null,
+  NativeChatMentionHint: () => null,
   NativeChatPickerMenu: () => null
 }))
 
@@ -46,7 +46,7 @@ function TestField({
   const imeEnterGesture = useImeEnterGestureOwnership()
   return (
     <NativeChatComposerField
-      draftScopeKey="pane-test"
+      composerScopeKey="pane-test"
       textareaRef={createRef<HTMLTextAreaElement>()}
       draft={draft}
       disabled={false}
@@ -54,7 +54,7 @@ function TestField({
       canSend
       autocomplete={{ mode: 'none' }}
       activeSuggestion={0}
-      notices={[]}
+      notice={null}
       imageAttachments={imageAttachments}
       sendButtonDisabled={false}
       isWorking={false}
@@ -71,8 +71,7 @@ function TestField({
       pickerListboxId="picker"
       onChoosePickerItem={vi.fn()}
       onRetrySkills={vi.fn()}
-      onChooseMentionFile={vi.fn()}
-      mentionFiles={{ files: [], loading: false, failed: false }}
+      onAcceptMention={vi.fn()}
       onRemoveImageAttachment={vi.fn()}
       onAttach={vi.fn()}
       onDictationToggle={vi.fn()}
@@ -126,7 +125,7 @@ describe('native chat composer image attachments', () => {
     render(<TestField draft="" imageAttachments={[{ id: 'image-1', path: '/tmp/example.png' }]} />)
 
     expect(await screen.findByRole('img', { name: 'example.png' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /View image: example\.png$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'View image: example.png' }))
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByRole('dialog').textContent).toContain('example.png')
   })

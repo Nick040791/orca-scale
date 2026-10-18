@@ -135,7 +135,8 @@ async function openPage({
   shellHost = SHELL_HOST,
   shellStorage = {},
   shellGrants,
-  shellPageRoutes = null
+  shellPageRoutes = null,
+  shellAccepts = null
 } = {}) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
   if (shellRoute !== undefined) {
@@ -150,7 +151,8 @@ async function openPage({
       storage: shellStorage,
       faultGrant,
       grants: shellGrants ?? [faultGrant],
-      pageRoutes: shellPageRoutes
+      pageRoutes: shellPageRoutes,
+      accepts: shellAccepts
     })
   }
   const errors = []
@@ -317,12 +319,6 @@ describe('the shell policy this page is tested under', () => {
     ])
   })
 
-  it('admits only cached Blob URLs for media', () => {
-    expect(cspHeader.split('; ').filter((entry) => entry.startsWith('media-src'))).toEqual([
-      'media-src blob:'
-    ])
-  })
-
   it('still refuses inline script, which is the directive that matters', () => {
     expect(cspHeader).toContain("script-src 'self';")
     expect(cspHeader).not.toContain("script-src 'self' 'unsafe-inline'")
@@ -330,10 +326,10 @@ describe('the shell policy this page is tested under', () => {
 
   it('admits data: and https: for images and for nothing else', () => {
     expect(cspHeader.split('; ').filter((entry) => entry.includes('data:'))).toEqual([
-      "img-src 'self' data: blob: https:"
+      "img-src 'self' data: https:"
     ])
     expect(cspHeader.split('; ').filter((entry) => entry.includes('https:'))).toEqual([
-      "img-src 'self' data: blob: https:"
+      "img-src 'self' data: https:"
     ])
     // `http:` is not a substring of `https:`, so this still refuses a cleartext source.
     expect(cspHeader).not.toContain('http:')
@@ -591,7 +587,11 @@ describeRender('the Route A page in a real browser', () => {
       })
     )
     try {
-      const opened = await openPage({ shellRoute: { pathname: HOST_ROUTE } })
+      // The one case that advertises the report, because it is the only one asserting on it.
+      const opened = await openPage({
+        shellRoute: { pathname: HOST_ROUTE },
+        shellAccepts: [paintName]
+      })
       await opened.page.goto(`${origin}/`, { waitUntil: 'load' })
       await opened.page.waitForFunction(
         () => document.documentElement.dataset.orcaWebEntry === 'mounted',
@@ -639,6 +639,7 @@ describeRender('the Route A page in a real browser', () => {
       const route = `${HOST_ROUTE}/pr/render-check-tree`
       const opened = await openPage({
         shellRoute: { pathname: route },
+        shellAccepts: [paintName],
         shellPageRoutes: [HOST_ROUTE_PATTERN, '/h/[hostId]/pr/[worktreeId]']
       })
       await opened.page.goto(`${origin}/`, { waitUntil: 'load' })

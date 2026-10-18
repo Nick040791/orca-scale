@@ -116,8 +116,6 @@ export type ProjectHostSetupUpdateArgs = {
 
 export type ProjectHostSetupDeleteArgs = {
   setupId: string
-  /** `false` refuses while the project has live terminals or workspace metadata; absent skips the check. */
-  force?: boolean
 }
 
 export type ProjectHostSetupResult = {

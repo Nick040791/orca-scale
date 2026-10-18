@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { parseWslUncPath } from '../../shared/wsl-paths'
-import { unixSocketPathFits } from '../../shared/unix-socket-path-limit'
+import { unixSocketPathByteLimit } from '../../shared/unix-socket-path-limit'
 import { upsertTableSettingsInContent } from './codex-config-settings-upsert'
 import {
   createTomlLineScanState,
@@ -46,7 +46,8 @@ export function codexDaemonSocketPathExceedsLimit(
 ): boolean {
   // Why: WSL homes run Linux Codex; Windows Codex's uds_windows also uses a 108-byte sun_path.
   const os = platform === 'darwin' && !parseWslUncPath(homePath) ? 'darwin' : 'linux'
-  return !unixSocketPathFits(codexDaemonSocketPath(homePath, platform), os)
+  const socketPath = codexDaemonSocketPath(homePath, platform)
+  return Buffer.byteLength(socketPath, 'utf8') > unixSocketPathByteLimit(os)
 }
 
 const unguardableHomesWarned = new Set<string>()

@@ -9,7 +9,6 @@ import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { ProjectHostSetup } from '../../../shared/project-types'
 import type { Repo } from '../../../shared/repo-types'
 import { normalizeAutomationPrecheck } from '../../../shared/automation-precheck'
-import { hasExtraAgentArgs } from '../../../shared/automation-extra-agent-args'
 import { getAutomationLegacyRepoId } from '../../../shared/automation-run-identity'
 import { projectHostSetupProjectionFromRepos } from '../../../shared/project-host-setup-projection'
 import {
@@ -97,10 +96,8 @@ export function normalizeAutomationSessionReuse(automation: Automation): Automat
     automation.workspaceMode,
     automation.setupDecision
   )
-  const { extraAgentArgs, ...rest } = automation
   return {
-    ...rest,
-    ...(hasExtraAgentArgs(extraAgentArgs) ? { extraAgentArgs } : {}),
+    ...automation,
     precheck: normalizeAutomationPrecheck(automation.precheck),
     setupDecision,
     reuseSession: automation.workspaceMode === 'existing' && automation.reuseSession === true

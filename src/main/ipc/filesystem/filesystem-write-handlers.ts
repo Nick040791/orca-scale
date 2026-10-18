@@ -2,20 +2,12 @@ import { ipcMain, shell } from 'electron'
 import { lstat, writeFile } from 'node:fs/promises'
 import type { SshMutationExpectation } from '../../../shared/ssh-types'
 import { assertSshMutationExpectation } from '../../ssh/ssh-connection-generation'
-import { SshHostNotServedError } from '../../providers/ssh-host-not-served-error'
+import { requireSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 import { tryDeleteWslUncPath } from '../../wsl-unc-delete'
-import type { LocalFileAccess } from '../../../shared/local-file-access'
-import {
-  resolveDesktopAuthorizedPath,
-  resolveLocalWriteRequestPath
-} from '../local-file-access-resolution'
+import { authorizeExternalPath, resolveAuthorizedPath } from '../filesystem-auth'
 import { isENOENT } from '../filesystem-path-containment'
 import { registerFilesystemMutationHandlers } from '../filesystem-mutations'
-import { registerAgentSessionAttachmentUploadHandlers } from '../agent-session-attachment-upload-ipc'
 import type { FilesystemHandlerContext } from './filesystem-handler-context'
-import { assertLocalWriteTargetIsRegularFile } from './local-regular-file-read'
-import { runNativeChatScratchSave } from '../../native-chat/native-chat-scratch-folder-lock'
-import { getProfileUserDataPath } from '../../orca-profiles/profile-storage-paths'
 
 export function registerFilesystemWriteHandlers(context: FilesystemHandlerContext): void {
   const { store } = context
@@ -24,12 +16,7 @@ export function registerFilesystemWriteHandlers(context: FilesystemHandlerContex
     'fs:writeFile',
     async (
       _event,
-      args: {
-        filePath: string
-        content: string
-        connectionId?: string
-        access?: LocalFileAccess
-      } & SshMutationExpectation
+      args: { filePath: string; content: string; connectionId?: string } & SshMutationExpectation
     ): Promise<void> => {
       assertSshMutationExpectation(
         args.connectionId,
@@ -38,9 +25,10 @@ export function registerFilesystemWriteHandlers(context: FilesystemHandlerContex
         args.expectedExecutionHostId
       )
       if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+        const provider = requireSshFilesystemProvider(args.connectionId)
+        return provider.writeFile(args.filePath, args.content)
       }
-      const filePath = await resolveLocalWriteRequestPath(args.filePath, args.access, store)
+      const filePath = await resolveAuthorizedPath(args.filePath, store)
       try {
         const fileStats = await lstat(filePath)
         if (fileStats.isDirectory()) {
@@ -51,10 +39,7 @@ export function registerFilesystemWriteHandlers(context: FilesystemHandlerContex
           throw error
         }
       }
-      await assertLocalWriteTargetIsRegularFile(filePath)
-      await runNativeChatScratchSave(getProfileUserDataPath(), filePath, () =>
-        writeFile(filePath, args.content, 'utf-8')
-      )
+      await writeFile(filePath, args.content, 'utf-8')
     }
   )
 
@@ -75,10 +60,11 @@ export function registerFilesystemWriteHandlers(context: FilesystemHandlerContex
         args.expectedExecutionHostId
       )
       if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+        const provider = requireSshFilesystemProvider(args.connectionId)
+        return provider.deletePath(args.targetPath, args.recursive)
       }
       // Why: preserve the symlink so we delete the link, not its target (realpath would trash the real file, possibly outside all roots).
-      const targetPath = await resolveDesktopAuthorizedPath(args.targetPath, store, {
+      const targetPath = await resolveAuthorizedPath(args.targetPath, store, {
         preserveSymlink: true
       })
       // Why: WSL UNC targets have no Recycle Bin (shell.trashItem throws), so hard-delete via `rm` inside the distro (issue #6415).
@@ -98,5 +84,8 @@ export function registerFilesystemWriteHandlers(context: FilesystemHandlerContex
   )
 
   registerFilesystemMutationHandlers(store)
-  registerAgentSessionAttachmentUploadHandlers()
+
+  ipcMain.handle('fs:authorizeExternalPath', (_event, args: { targetPath: string }): void => {
+    authorizeExternalPath(args.targetPath)
+  })
 }

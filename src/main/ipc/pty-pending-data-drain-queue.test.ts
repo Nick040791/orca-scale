@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { PtyPendingDataDrainQueue } from './pty-pending-data-drain-queue'
-import type {
-  PendingPtyData,
-  PtyPendingDataDrainSelection
-} from './pty-pending-data-drain-contract'
+import {
+  PtyPendingDataDrainQueue,
+  type PendingPtyData,
+  type PtyPendingDataDrainSelection
+} from './pty-pending-data-drain-queue'
 
 function pending(data: string): PendingPtyData {
   return { data }

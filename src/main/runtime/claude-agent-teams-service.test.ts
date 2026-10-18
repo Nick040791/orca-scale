@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ClaudeAgentTeamsService } from './claude-agent-teams-service'
-import type { AgentTeamsTerminalApi } from './claude-agent-teams-types'
+import { ClaudeAgentTeamsService, type AgentTeamsTerminalApi } from './claude-agent-teams-service'
 
 function createServiceWithLeader(): {
   service: ClaudeAgentTeamsService

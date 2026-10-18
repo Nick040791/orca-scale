@@ -26,15 +26,12 @@ function railItemById(
 export function useNativeChatRailHistoryJump({
   items,
   sessionKey,
-  isVisible,
   loadEarlier,
   jumpToLoaded
 }: {
   items: readonly NativeChatRailItem[]
   /** A change abandons the jump: its target belongs to the previous session. */
   sessionKey: string
-  /** Hiding the pane abandons the jump too: a hidden lane stops reading, so a page never lands. */
-  isVisible: boolean
   loadEarlier: () => Promise<NativeChatOlderPageResult>
   jumpToLoaded: (item: NativeChatRailItem) => void
 }): {
@@ -130,7 +127,7 @@ export function useNativeChatRailHistoryJump({
     [run]
   )
 
-  useEffect(() => abort, [abort, sessionKey, isVisible])
+  useEffect(() => abort, [abort, sessionKey])
 
   return { pendingId, start, abort }
 }

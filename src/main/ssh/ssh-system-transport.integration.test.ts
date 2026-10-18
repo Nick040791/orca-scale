@@ -1,5 +1,5 @@
 import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, rmSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -7,9 +7,11 @@ vi.mock('electron', () => ({
 }))
 
 import { SshConnection } from './ssh-connection'
-import { uploadDirectoryViaSystemSsh } from './system-transport/system-ssh-file-transfer'
+import { deployAndLaunchRelay } from './ssh-relay-deploy'
+import { SshChannelMultiplexer } from './ssh-channel-multiplexer'
+import { uploadDirectoryViaSystemSsh } from './ssh-system-fallback'
 import type { SshTarget } from '../../shared/ssh-types'
-import { relayArtifactFilenames } from './relay-install-artifacts'
+import { relayArtifactFilenames } from '../../shared/relay-artifacts'
 
 const RELAY_VERSION = '0.1.0+systemtransport'
 
@@ -20,9 +22,7 @@ function makeTarget(): SshTarget {
     configHost: 'fdpass-host',
     host: 'ignored.example.com',
     port: 22,
-    username: '',
-    // The fixture pre-installs a host-Node relay tree.
-    remoteRuntime: 'legacy'
+    username: ''
   }
 }
 
@@ -59,9 +59,7 @@ function writeFakeRelay(dir: string): void {
   // below — so adding one cannot silently fail the completeness probe here.
   for (const filename of relayArtifactFilenames(false)) {
     if (filename !== 'relay.js') {
-      const artifactPath = join(dir, filename)
-      mkdirSync(dirname(artifactPath), { recursive: true })
-      writeFileSync(artifactPath, '')
+      writeFileSync(join(dir, filename), '')
     }
   }
   writeFileSync(
@@ -206,6 +204,33 @@ describe('system SSH transport integration', () => {
     }
     rmSync(tempDir, { recursive: true, force: true })
   })
+
+  // Why: this fixture writes a POSIX fake ssh script to exercise stdin/stdout
+  // transport semantics; Windows coverage stays in argument/unit tests.
+  it.skipIf(process.platform === 'win32')(
+    'deploys and speaks relay RPC over a system ssh process for ProxyUseFdpass targets',
+    async () => {
+      const conn = new SshConnection(makeTarget(), { onStateChange: vi.fn() })
+      const onProgress = vi.fn()
+      await conn.connect()
+      expect(conn.usesSystemSshTransport()).toBe(true)
+
+      const result = await deployAndLaunchRelay(conn, onProgress, 60, makeTarget().id)
+      expect(onProgress).toHaveBeenCalledWith('Starting relay...')
+      expect(onProgress).not.toHaveBeenCalledWith('Uploading relay...')
+      expect(onProgress).not.toHaveBeenCalledWith('Installing native dependencies...')
+      const mux = new SshChannelMultiplexer(result.transport)
+      try {
+        await expect(mux.request('session.resolveHome', { path: '~' })).resolves.toBe(
+          join(tempDir, 'remote-home')
+        )
+      } finally {
+        mux.dispose()
+        await conn.disconnect()
+      }
+    },
+    20_000
+  )
 
   it.skipIf(process.platform === 'win32')(
     'connects GSSAPI-flagged targets through system ssh without the force override',

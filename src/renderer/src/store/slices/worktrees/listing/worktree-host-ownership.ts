@@ -196,10 +196,7 @@ export function worktreeMatchesHost(
   if (worktree.hostId) {
     return worktree.hostId === hostId
   }
-  if (hostId === LOCAL_EXECUTION_HOST_ID) {
-    return options.unhostedWorktreesMatchHost ?? true
-  }
-  return options.unhostedWorktreesMatchHost ?? false
+  return options.unhostedWorktreesMatchHost ?? hostId === LOCAL_EXECUTION_HOST_ID
 }
 
 export function mergeWorktreesForHost<

@@ -1,6 +1,5 @@
 import { z } from 'zod'
-import { githubReadExecutionScope as workItemSearchScope } from '../../github-read-execution-scope'
-export { githubReadExecutionScope as workItemSearchScope } from '../../github-read-execution-scope'
+import { createHash } from 'node:crypto'
 import { BoundedMap } from '../../../../shared/bounded-map'
 import { runCoalescedProbe, type CoalescedProbes } from '../../../git/coalesced-probe'
 import { createGhRateLimitBlockedError } from '../../../git/gh-rate-limit-breaker'
@@ -48,6 +47,22 @@ const responses = new BoundedMap<string, { at: number; value: unknown }>({
   maxBytes: 16 * 1024 * 1024,
   sizeOf: (value, key) => Buffer.byteLength(key) + Buffer.byteLength(JSON.stringify(value))
 })
+
+export function workItemSearchScope(
+  options: GitHubRepoExecOptions,
+  environment: NodeJS.ProcessEnv = options.env ?? process.env
+): string {
+  // gh wrappers and credential selection can depend on cwd and the inherited environment.
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        options,
+        process.cwd(),
+        Object.entries(environment).sort(([a], [b]) => a.localeCompare(b))
+      ])
+    )
+    .digest('hex')
+}
 
 export function requestWorkItemSearch<T>(request: SearchRequest): Promise<SearchResponse<T>> {
   const environment = { ...(request.environment ?? request.options.env ?? process.env) }

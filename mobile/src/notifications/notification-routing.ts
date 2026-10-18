@@ -1,4 +1,3 @@
-import { parseExecutionHostId } from '../../../src/shared/execution-host'
 import type { HostStackRouteTarget } from '../navigation/host-stack-navigation'
 import { mobileSessionRouteTarget } from '../session/mobile-session-route'
 import type { HostCredentialStatus } from '../transport/types'
@@ -47,8 +46,6 @@ export function getNotificationNavigationTarget(
   }
 
   const worktreeId = readNonEmptyString(record.worktreeId)
-  // Only a server the desktop relays to; anything else opens the desktop's own workspace, as before.
-  const executionHost = parseExecutionHostId(readNonEmptyString(record.executionHost))
   const credentialStatus = options.credentialStatusByHostId?.get(hostId)
   return {
     hostId,
@@ -56,8 +53,7 @@ export function getNotificationNavigationTarget(
       ? mobileSessionRouteTarget({
           hostId,
           worktreeId,
-          paneKey: readNonEmptyString(record.paneKey) ?? undefined,
-          ...(executionHost?.kind === 'runtime' ? { executionHost: executionHost.id } : {})
+          paneKey: readNonEmptyString(record.paneKey) ?? undefined
         })
       : null,
     ...(credentialStatus === 'missing'

@@ -6,7 +6,6 @@
  * observed process identity, and a proved provider handle — in that order, at one fence.
  */
 
-import { agentSessionRefusalError } from '../../shared/agent-session-wire-refusals'
 import {
   adjudicateAgentSessionRestart,
   evaluateAgentSessionAcquisition,
@@ -16,10 +15,10 @@ import {
   appendAgentSessionProviderHandleLink,
   type AgentSessionProviderHandleLink
 } from '../../shared/agent-session-provider-handle'
-import { agentSessionProviderHandleBelongsTo } from '../../shared/agent-session-provider-handle-encoding'
 import { nextAgentSessionFence } from '../../shared/agent-session-next-fence'
 import type {
   AgentSessionDeathEvidence,
+  AgentSessionJournalCheckpoint,
   AgentSessionLease,
   AgentSessionProcessIdentity,
   AgentSessionRecord
@@ -42,10 +41,10 @@ export function withLease(
 
 export function assertFence(lease: AgentSessionLease, fence: number): void {
   if (lease.runtimeFence !== fence) {
-    throw agentSessionRefusalError('agent_session_checkpoint_stale', { reason: 'leaseMoved' })
+    throw new Error('agent_session_checkpoint_stale')
   }
   if (lease.unreconciled) {
-    throw agentSessionRefusalError('execution_owner_reconciling', { reason: 'hostReconciling' })
+    throw new Error('execution_owner_reconciling')
   }
 }
 
@@ -67,7 +66,7 @@ export function reserveAgentSessionOwner(args: {
     probe: args.probe
   })
   if (decision.decision === 'refused') {
-    throw agentSessionRefusalError(decision.code, decision.details)
+    throw new Error(decision.code)
   }
   if (decision.decision === 'retry-reservation') {
     return { record, disposition: 'retry-reservation' }
@@ -107,15 +106,11 @@ export function commitAgentSessionProcessIdentity(
   const { record } = args
   assertFence(record.lease, args.fence)
   if (record.lease.claimStatus !== 'reserved' || record.lease.ownerProcess !== null) {
-    throw agentSessionRefusalError('agent_session_ownership_unknown', {
-      reason: 'spawnIdentityMismatch'
-    })
+    throw new Error('agent_session_ownership_unknown')
   }
   if (record.lease.reservedSpawnToken !== args.process.spawnToken) {
     // Why: a child that cannot echo the reserved token is not the process Orca started.
-    throw agentSessionRefusalError('agent_session_ownership_unknown', {
-      reason: 'spawnIdentityMismatch'
-    })
+    throw new Error('agent_session_ownership_unknown')
   }
   return withLease(record, {
     ...record.lease,
@@ -125,14 +120,13 @@ export function commitAgentSessionProcessIdentity(
 }
 
 /**
- * The new runtime's process owns the session: only now does it have a writer. `link` is the
- * provider handle when the acquire already held it; one the provider answers with later is recorded
- * through `recordAgentSessionProviderHandle`, and until then the lease names no proven link.
+ * The new runtime proved it resumed the expected provider handle. Only now does the session have
+ * a writer.
  */
 export function proveAgentSessionOwner(args: {
   record: AgentSessionRecord
   fence: number
-  link?: AgentSessionProviderHandleLink
+  link: AgentSessionProviderHandleLink
   now: number
   leaseTtlMs: number
 }): AgentSessionRecord {
@@ -143,22 +137,20 @@ export function proveAgentSessionOwner(args: {
     record.lease.handoffStage !== 'new-owner-proving' ||
     record.lease.ownerProcess === null
   ) {
-    throw agentSessionRefusalError('agent_session_ownership_unknown', {
-      reason: 'spawnIdentityMismatch'
-    })
+    throw new Error('agent_session_ownership_unknown')
   }
-  const { link } = args
-  if (link && !agentSessionProviderHandleBelongsTo(link.handle, record.provider)) {
+  if (args.link.handle.provider !== record.provider) {
     throw new Error('agent_session_provider_handle_provider_mismatch')
   }
-  if (link && link.mintedAtFence !== args.fence) {
+  if (args.link.mintedAtFence !== args.fence) {
     throw new Error('agent_session_provider_handle_stale_fence')
   }
-  const providerHandleChain = link
-    ? appendAgentSessionProviderHandleLink(record.providerHandleChain, link)
-    : record.providerHandleChain
+  const providerHandleChain = appendAgentSessionProviderHandleLink(
+    record.providerHandleChain,
+    args.link
+  )
   const head = providerHandleChain.at(-1)
-  if (link && !head) {
+  if (!head) {
     throw new Error('agent_session_provider_handle_invalid')
   }
   return {
@@ -167,7 +159,7 @@ export function proveAgentSessionOwner(args: {
     lease: {
       ...record.lease,
       handoffStage: null,
-      provenHandleLinkId: link && head ? head.linkId : null,
+      provenHandleLinkId: head.linkId,
       claimStatus: 'live',
       leaseDeadlineAt: args.now + args.leaseTtlMs,
       lastRenewedAt: args.now,
@@ -179,9 +171,8 @@ export function proveAgentSessionOwner(args: {
 
 /**
  * A renewal asserts two things at once: the host is running its loop, and the child still matches
- * the recorded identity — re-proven by a PID probe, or held by this runtime with no exit seen. A
- * host that cannot re-verify the child stops renewing rather than extending a lease it can no
- * longer vouch for.
+ * the recorded identity. A host that cannot re-verify the child stops renewing rather than
+ * extending a lease it can no longer vouch for.
  */
 export function renewAgentSessionLease(args: {
   record: AgentSessionRecord
@@ -270,5 +261,28 @@ function releasedAgentSessionLease(
     lastRenewedAt: now,
     handoffOperationId: null,
     deathEvidence
+  })
+}
+
+export function setAgentSessionJournalCheckpoint(args: {
+  record: AgentSessionRecord
+  fence: number
+  checkpoint: AgentSessionJournalCheckpoint
+  now: number
+}): AgentSessionRecord {
+  const { record } = args
+  assertFence(record.lease, args.fence)
+  const current = record.lease.journalCheckpoint
+  if (
+    current &&
+    (current.epoch > args.checkpoint.epoch ||
+      (current.epoch === args.checkpoint.epoch && current.sequence > args.checkpoint.sequence))
+  ) {
+    throw new Error('agent_session_checkpoint_stale')
+  }
+  return withLease(record, {
+    ...record.lease,
+    journalCheckpoint: args.checkpoint,
+    lastRenewedAt: args.now
   })
 }

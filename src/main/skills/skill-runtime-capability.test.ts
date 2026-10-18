@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getRuntimeEnvironmentStatus } from '../ipc/runtime-environments/runtime-environment-status-probe'
+import { getRuntimeEnvironmentStatus } from '../ipc/runtime-environment-transport-routing'
 import {
   supportsSkillRuntimeCancellation,
   supportsSkillRuntimeInstall,
   supportsSkillRuntimeManagement
 } from './skill-runtime-capability'
 
-vi.mock('../ipc/runtime-environments/runtime-environment-status-probe', () => ({
+vi.mock('../ipc/runtime-environment-transport-routing', () => ({
   getRuntimeEnvironmentStatus: vi.fn()
 }))
 

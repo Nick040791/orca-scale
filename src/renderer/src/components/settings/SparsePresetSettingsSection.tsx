@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { Plus, RefreshCcw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Plus } from 'lucide-react'
 import type { SparsePreset } from '../../../../shared/worktree/create-types'
 import { useAppStore } from '../../store'
-import { parseSparsePresetDirectories, validateSparsePresetName } from '@/lib/sparse-preset-draft'
+import { parseSparsePresetDirectories } from '@/lib/sparse-preset-draft'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { Button } from '../ui/button'
 import { getSparsePresetOperationErrorMessage } from './sparse-preset-operation-error'
@@ -17,7 +17,6 @@ type SparsePresetSettingsSectionProps = {
 export function SparsePresetSettingsSection({
   repoId
 }: SparsePresetSettingsSectionProps): React.JSX.Element {
-  const repo = useAppStore((s) => s.repos.find((entry) => entry.id === repoId))
   const presets = useAppStore((s) => s.sparsePresetsByRepo[repoId])
   const loadStatus = useAppStore((s) => s.sparsePresetsLoadStatusByRepo[repoId] ?? 'idle')
   const loadError = useAppStore((s) => s.sparsePresetsErrorByRepo[repoId])
@@ -31,31 +30,6 @@ export function SparsePresetSettingsSection({
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const mountedRef = useMountedRef()
-  const sectionRef = useRef<HTMLElement | null>(null)
-  const returnPresetIdRef = useRef<string | null>(null)
-  const returnFocusRef = useRef<HTMLElement | null>(null)
-  const closeDraft = (): void => {
-    setDraft(null)
-    setOperationError(null)
-    requestAnimationFrame(() => {
-      if (!mountedRef.current) {
-        return
-      }
-      if (returnPresetIdRef.current) {
-        sectionRef.current
-          ?.querySelector<HTMLButtonElement>(
-            `[data-edit-preset="${CSS.escape(returnPresetIdRef.current)}"]`
-          )
-          ?.focus()
-      } else if (returnFocusRef.current?.isConnected) {
-        returnFocusRef.current.focus()
-      }
-    })
-  }
-  const rememberEditorTrigger = (): void => {
-    returnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
-  }
 
   useEffect(() => {
     if (presets === undefined && loadStatus === 'idle') {
@@ -72,26 +46,29 @@ export function SparsePresetSettingsSection({
   const sortedPresets = presets ?? []
   const parsedDirectories = draft ? parseSparsePresetDirectories(draft.directoriesText) : null
   const trimmedName = draft?.name.trim() ?? ''
-  const nameError = draft
-    ? validateSparsePresetName(draft.name, sortedPresets, draft.presetId)
-    : null
+  const lowerName = trimmedName.toLowerCase()
+  const collidingPreset =
+    draft && trimmedName
+      ? (sortedPresets.find(
+          (preset) => preset.id !== draft.presetId && preset.name.toLowerCase() === lowerName
+        ) ?? null)
+      : null
+
+  const nameError =
+    draft && trimmedName.length === 0
+      ? 'Name is required.'
+      : trimmedName.length > 80
+        ? 'Name must be 80 characters or fewer.'
+        : collidingPreset
+          ? `"${collidingPreset.name}" already exists.`
+          : null
   const canSaveDraft =
-    !!draft &&
-    presets !== undefined &&
-    !submitting &&
-    !nameError &&
-    parsedDirectories !== null &&
-    !parsedDirectories.error
-  const visibleError = (draft ? null : operationError) ?? loadError ?? null
+    !!draft && !submitting && !nameError && parsedDirectories !== null && !parsedDirectories.error
+  const visibleError = operationError ?? loadError ?? null
 
   const startNewPreset = (): void => {
-    if (draft || presets === undefined || deletingPresetId) {
-      return
-    }
-    rememberEditorTrigger()
     setConfirmingDeleteId(null)
     setOperationError(null)
-    returnPresetIdRef.current = null
     setDraft({
       mode: 'new',
       name: '',
@@ -100,13 +77,8 @@ export function SparsePresetSettingsSection({
   }
 
   const startEditPreset = (preset: SparsePreset): void => {
-    if (draft || presets === undefined || deletingPresetId) {
-      return
-    }
-    rememberEditorTrigger()
     setConfirmingDeleteId(null)
     setOperationError(null)
-    returnPresetIdRef.current = preset.id
     setDraft({
       mode: 'edit',
       presetId: preset.id,
@@ -129,7 +101,7 @@ export function SparsePresetSettingsSection({
         directories: parsedDirectories.directories
       })
       if (saved && mountedRef.current) {
-        closeDraft()
+        setDraft(null)
       } else if (mountedRef.current) {
         setOperationError(
           draft.mode === 'new' ? 'Failed to save preset.' : 'Failed to update preset.'
@@ -152,9 +124,6 @@ export function SparsePresetSettingsSection({
   }
 
   const handleDeletePreset = async (preset: SparsePreset): Promise<void> => {
-    if (draft || deletingPresetId) {
-      return
-    }
     if (confirmingDeleteId !== preset.id) {
       setConfirmingDeleteId(preset.id)
       return
@@ -166,6 +135,9 @@ export function SparsePresetSettingsSection({
       // state intact until persistence actually reports success.
       await removeSparsePreset({ repoId, presetId: preset.id })
       if (mountedRef.current) {
+        if (draft?.presetId === preset.id) {
+          setDraft(null)
+        }
         setConfirmingDeleteId(null)
       }
     } catch (error) {
@@ -180,29 +152,8 @@ export function SparsePresetSettingsSection({
     }
   }
 
-  const draftEditor = draft ? (
-    <SparsePresetDraftEditor
-      draft={draft}
-      operationError={operationError}
-      setDraft={(nextDraft) => {
-        if (nextDraft) {
-          setDraft(nextDraft)
-        } else {
-          closeDraft()
-        }
-      }}
-      nameError={nameError}
-      parsedDirectories={parsedDirectories}
-      canSaveDraft={canSaveDraft}
-      submitting={submitting}
-      onSave={() => void handleSaveDraft()}
-      repoRootPath={repo?.path}
-      repoConnectionId={repo?.connectionId ?? undefined}
-    />
-  ) : null
-
   return (
-    <section ref={sectionRef} className="space-y-4">
+    <section className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">
@@ -223,7 +174,7 @@ export function SparsePresetSettingsSection({
           variant="outline"
           size="sm"
           onClick={startNewPreset}
-          disabled={!!draft || presets === undefined || deletingPresetId !== null}
+          disabled={!!draft}
         >
           <Plus className="size-3.5" />
           {translate(
@@ -242,7 +193,17 @@ export function SparsePresetSettingsSection({
         </div>
       ) : null}
 
-      {draft?.mode === 'new' ? draftEditor : null}
+      {draft ? (
+        <SparsePresetDraftEditor
+          draft={draft}
+          setDraft={setDraft}
+          nameError={nameError}
+          parsedDirectories={parsedDirectories}
+          canSaveDraft={canSaveDraft}
+          submitting={submitting}
+          onSave={() => void handleSaveDraft()}
+        />
+      ) : null}
 
       {presets === undefined ? (
         <div className="rounded-xl border border-dashed border-border/60 bg-background/60 px-4 py-6 text-sm text-muted-foreground">
@@ -255,32 +216,6 @@ export function SparsePresetSettingsSection({
                 'auto.components.settings.SparsePresetSettingsSection.8deb7024ab',
                 'Loading sparse presets...'
               )}
-          {loadError ? (
-            <div className="mt-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={loadStatus === 'loading'}
-                onClick={() => {
-                  setOperationError(null)
-                  void fetchSparsePresets(repoId).catch((error: unknown) => {
-                    if (mountedRef.current) {
-                      setOperationError(
-                        getSparsePresetOperationErrorMessage(
-                          error,
-                          'Failed to load sparse presets.'
-                        )
-                      )
-                    }
-                  })
-                }}
-              >
-                <RefreshCcw />
-                {translate('sparsePreset.retryLoad', 'Retry loading presets')}
-              </Button>
-            </div>
-          ) : null}
         </div>
       ) : sortedPresets.length === 0 && !draft ? (
         <div className="rounded-xl border border-dashed border-border/60 bg-background/60 px-4 py-6 text-sm text-muted-foreground">
@@ -291,22 +226,18 @@ export function SparsePresetSettingsSection({
         </div>
       ) : (
         <div className="space-y-2">
-          {sortedPresets.map((preset) =>
-            draft?.presetId === preset.id ? (
-              <div key={preset.id}>{draftEditor}</div>
-            ) : (
-              <SparsePresetSettingsRow
-                key={preset.id}
-                preset={preset}
-                confirmingDeleteId={confirmingDeleteId}
-                deletingPresetId={deletingPresetId}
-                submitting={submitting || !!draft}
-                onEdit={startEditPreset}
-                onDelete={handleDeletePreset}
-                onClearDeleteConfirm={() => setConfirmingDeleteId(null)}
-              />
-            )
-          )}
+          {sortedPresets.map((preset) => (
+            <SparsePresetSettingsRow
+              key={preset.id}
+              preset={preset}
+              confirmingDeleteId={confirmingDeleteId}
+              deletingPresetId={deletingPresetId}
+              submitting={submitting}
+              onEdit={startEditPreset}
+              onDelete={handleDeletePreset}
+              onClearDeleteConfirm={() => setConfirmingDeleteId(null)}
+            />
+          ))}
         </div>
       )}
     </section>

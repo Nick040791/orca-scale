@@ -1,5 +1,4 @@
 import { parseDocument } from 'yaml'
-import { isOrcaYamlConversionWithinLimit } from './orca-yaml-merge-expansion'
 import type {
   OrcaDefaultTabTemplate,
   OrcaHooks,
@@ -206,12 +205,11 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
   try {
     const document = parseDocument(content, {
       keepSourceTokens: false,
-      merge: true,
       logLevel: 'silent',
       prettyErrors: false,
       uniqueKeys: true
     })
-    if (document.errors.length > 0 || !isOrcaYamlConversionWithinLimit(document)) {
+    if (document.errors.length > 0) {
       return null
     }
     root = document.toJS({ maxAliasCount: MAX_ORCA_YAML_ALIAS_COUNT })

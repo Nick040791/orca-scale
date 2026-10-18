@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { subscribeRuntimeFileChanges } from './runtime-file-watch-client'
+import { subscribeRuntimeFileChanges } from './runtime-file-client'
 import {
   fsOnChanged,
   runtimeEnvironmentCall,
@@ -18,7 +18,7 @@ describe('runtime file client', () => {
     await expect(
       subscribeRuntimeFileChanges(
         {
-          target: { kind: 'local' as const },
+          settings: { activeRuntimeEnvironmentId: null },
           worktreeId: 'wt-1',
           worktreePath: '/repo'
         },
@@ -41,7 +41,7 @@ describe('runtime file client', () => {
 
     const stop = await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -89,7 +89,7 @@ describe('runtime file client', () => {
 
     await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -116,7 +116,7 @@ describe('runtime file client', () => {
 
     await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -144,7 +144,7 @@ describe('runtime file client', () => {
     const retryPayload = vi.fn()
     let retryPromise: Promise<() => void> | undefined
     const context = {
-      target: { kind: 'environment' as const, environmentId: 'env-1' },
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
       worktreeId: 'wt-1',
       worktreePath: '/remote/repo'
     }
@@ -200,7 +200,7 @@ describe('runtime file client', () => {
     const retryPayload = vi.fn()
     let retryPromise: Promise<() => void> | undefined
     const context = {
-      target: { kind: 'environment' as const, environmentId: 'env-1' },
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
       worktreeId: 'wt-1',
       worktreePath: '/remote/repo'
     }
@@ -255,7 +255,7 @@ describe('runtime file client', () => {
 
     const firstStop = await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -263,7 +263,7 @@ describe('runtime file client', () => {
     )
     const secondStop = await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -324,7 +324,7 @@ describe('runtime file client', () => {
 
     const stop = await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },
@@ -362,7 +362,7 @@ describe('runtime file client', () => {
 
     const stop = await subscribeRuntimeFileChanges(
       {
-        target: { kind: 'environment' as const, environmentId: 'env-1' },
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
         worktreeId: 'wt-1',
         worktreePath: '/remote/repo'
       },

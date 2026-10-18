@@ -15,6 +15,7 @@ import {
   getSshProviderAuthority,
   isCurrentSshProviderAuthority
 } from '../../../ssh/ssh-provider-authority'
+import { getSshGitProvider } from '../../../providers/ssh-git-dispatch'
 import type { DetectedWorktreeRequestArgs } from '../ipc-context-schemas'
 import {
   hasValidDirectSshAuthority,
@@ -23,8 +24,6 @@ import {
 import { listHostQualifiedDetectedWorktrees } from './host-qualified-worktree-listing'
 import { findExactRepoOwner, isCapturedRepoCurrent } from './worktree-host-ownership'
 import type { WorktreeIpcContext } from '../worktree-ipc-context'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import { dropWorkspacesTheListingInvalidates } from '../../../persistence/restoring-sessions/invalid-workspace-layout-purge'
 
 export const DETECTED_WORKTREE_PROVIDER_TIMEOUT_MS = 30_000
 
@@ -62,9 +61,7 @@ export function registerDetectedWorktreeHandlers(context: WorktreeIpcContext): v
                   status: timedOut ? 'timed-out' : 'canceled'
                 })
               }
-              controller.signal.addEventListener('abort', onAbort, {
-                once: true
-              })
+              controller.signal.addEventListener('abort', onAbort, { once: true })
               removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort)
             })
           : undefined
@@ -107,17 +104,19 @@ export function registerDetectedWorktreeHandlers(context: WorktreeIpcContext): v
         }
       }
       const connectionId = getSshTargetIdForExecutionHost(getRepoExecutionHostId(repo))
+      const provider = connectionId ? getSshGitProvider(connectionId) : undefined
       const authority = connectionId ? { ...getSshProviderAuthority(connectionId) } : undefined
       const result = await listDetectedWorktreesForCapturedRepo(
         store,
         repo,
         () =>
           isCapturedRepoCurrent(store, repo) &&
-          (!connectionId || (authority !== undefined && isCurrentSshProviderAuthority(authority)))
+          (!connectionId ||
+            (getSshGitProvider(connectionId) === provider &&
+              authority !== undefined &&
+              isCurrentSshProviderAuthority(authority))),
+        provider
       )
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        dropWorkspacesTheListingInvalidates(store, result)
-      }
       return result && !('providerAbortStatus' in result)
         ? result
         : {

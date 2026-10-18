@@ -7,10 +7,7 @@ const WINDOWS_WORKSPACE = 'C:\\Users\\u\\app'
 const WSL_WORKSPACE = '\\\\wsl$\\Ubuntu\\home\\u\\app'
 const ON_WINDOWS_HOST = { cwd: WINDOWS_WORKSPACE, workspacePath: WINDOWS_WORKSPACE }
 
-function resolvedRuntime(
-  kind: 'windows-host' | 'wsl',
-  reason: 'project-override' | 'global-default' = 'project-override'
-): ProjectExecutionRuntimeResolution {
+function resolvedRuntime(kind: 'windows-host' | 'wsl'): ProjectExecutionRuntimeResolution {
   return kind === 'wsl'
     ? {
         status: 'resolved',
@@ -19,7 +16,7 @@ function resolvedRuntime(
           hostPlatform: 'wsl',
           distro: 'Ubuntu',
           projectId: 'p1',
-          reason,
+          reason: 'project-override',
           cacheKey: 'p1:wsl:Ubuntu'
         }
       }
@@ -112,22 +109,6 @@ describe('terminalShellOverrideRefusal', () => {
         ...ON_WINDOWS_HOST
       })?.message
     ).toContain('in WSL')
-  })
-
-  // No setting can move a `\\wsl$` path out of WSL, so only the path names a fix; a workspace with no
-  // runtime of its own follows the default, so the message names that.
-  it('names a WSL-share path before the runtime, and a global default as the default', () => {
-    const inWsl = { shellOverride: 'cmd.exe', connectionId: null, platform: 'win32' } as const
-    const share = { cwd: WSL_WORKSPACE, workspacePath: WSL_WORKSPACE }
-    const projectRuntime = resolvedRuntime('wsl')
-    expect(terminalShellOverrideRefusal({ ...inWsl, projectRuntime, ...share })?.message).toMatch(
-      /^This terminal would run inside WSL because/
-    )
-    const byDefault = resolvedRuntime('wsl', 'global-default')
-    expect(
-      terminalShellOverrideRefusal({ ...inWsl, projectRuntime: byDefault, ...ON_WINDOWS_HOST })
-        ?.message
-    ).toContain('the default in Settings > Project Runtime')
   })
 
   it('allows a shell that agrees with the project runtime', () => {

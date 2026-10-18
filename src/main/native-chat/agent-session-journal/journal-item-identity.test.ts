@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentJournalItemKey,
+  agentJournalSubmissionKey,
   boundJournalKeyComponent,
   MAX_JOURNAL_KEY_COMPONENT_CHARS,
   parseAgentJournalItemKey
@@ -137,6 +138,12 @@ describe('key encoding', () => {
       recordId: 'x'
     })
     expect(orca).not.toBe(legacy)
+  })
+
+  it('derives the submission slot from the same function the reducer uses', () => {
+    expect(agentJournalSubmissionKey('cm_42')).toBe(
+      agentJournalItemKey({ provider: 'orca', clientMessageId: 'cm_42' })
+    )
   })
 })
 

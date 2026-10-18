@@ -2,7 +2,6 @@ import { pathToFileURL } from 'node:url'
 import { fetchAdminOnceMore } from './relay-admin-transient-retry.mjs'
 
 const CAPACITY_PROTOCOL = 2
-const POLL_INTERVAL_MS = 5_000
 
 function integer(value, name) {
   const parsed = Number(value)
@@ -115,13 +114,6 @@ export function parseCapacityTransitionArguments(argv) {
   if (runtime === 'unavailable' && regionalRehomeProtocol !== undefined) {
     throw new Error('unavailable runtime cannot prove the regional rehome protocol')
   }
-  const paceWindowMs = values['pace-window-ms'] === undefined
-    ? undefined
-    : integer(values['pace-window-ms'], '--pace-window-ms')
-  const liveRestartSafe = values.activity === 'restart-safe' && runtime === 'required'
-  if ((paceWindowMs !== undefined) !== liveRestartSafe) {
-    throw new Error('--pace-window-ms is required exactly for restart-safe activity on a live runtime')
-  }
   return {
     directorOrigin: origin.origin,
     cellOrigin: cellOrigin.origin,
@@ -133,7 +125,6 @@ export function parseCapacityTransitionArguments(argv) {
     runtime,
     expectedImageDigests,
     ...(regionalRehomeProtocol === undefined ? {} : { regionalRehomeProtocol }),
-    ...(paceWindowMs === undefined ? {} : { paceWindowMs }),
     hardCap,
     unobservedBound,
     timeoutMs: integer(values['timeout-ms'] ?? 180_000, '--timeout-ms')
@@ -190,7 +181,7 @@ function offlineRollbackMatches(status, config) {
     restartBlockingReservedRequests <= 0
 }
 
-function directorActivityMatches(status, config) {
+function directorActivityMatches(status, config, restartBlockingReservedRequests) {
   const durable = [
     status.activityLeases,
     status.reservedRequests,
@@ -206,15 +197,17 @@ function directorActivityMatches(status, config) {
     status.connectionCapacity?.pendingControlReservations
   ]
   const restartSafe = config.activity !== 'restart-safe' || (() => {
-    // Leases lag hosts that left or cannot be placed, so the runtime's counters gate instead;
-    // still validated so a malformed director fails closed.
-    integer(status.restartBlockingActivityLeases, 'restart-blocking activity leases')
-    integer(
-      status.restartBlockingActivityRequestUnits,
-      'restart-blocking activity request units'
-    )
-    // Open migrations are pinned to this cell's incarnation, which a restart replaces.
-    return integer(status.outgoingMigrations, 'outgoing migrations') === 0 &&
+    // Only a positive remainder is unexplained; the other gates reject real work.
+    return integer(
+      status.restartBlockingActivityLeases,
+      'restart-blocking activity leases'
+    ) === 0 &&
+      integer(
+        status.restartBlockingActivityRequestUnits,
+        'restart-blocking activity request units'
+      ) === 0 &&
+      restartBlockingReservedRequests <= 0 &&
+      integer(status.outgoingMigrations, 'outgoing migrations') === 0 &&
       integer(status.incomingMigrations, 'incoming migrations') === 0
   })()
   const quiescent = [...durable, ...transient]
@@ -322,20 +315,6 @@ function transitionObservation(runtime, status) {
   }
 }
 
-// Director records of hosts that left or cannot be placed; reported, never gated on.
-function strandedObservation(observation) {
-  const director = observation.director
-  return director === undefined
-    ? null
-    : {
-        restartBlockingActivityLeases: director.restartBlockingActivityLeases,
-        restartBlockingActivityRequestUnits: director.restartBlockingActivityRequestUnits,
-        restartBlockingReservedRequests: director.restartBlockingReservedRequests,
-        outgoingMigrations: director.outgoingMigrations,
-        incomingMigrations: director.incomingMigrations
-      }
-}
-
 function runtimeQuiescent(runtime, config) {
   if (
     runtime.role !== 'cell' ||
@@ -366,23 +345,16 @@ function runtimeQuiescent(runtime, config) {
     counts.push(runtime.runtime.enforcedConnectionUnits)
   }
   const quiescent = counts.every((value) => integer(value, 'runtime connection count') === 0)
-  // Total and pre-auth connections also count unauthenticated redials, which never stop while
-  // hosts have nowhere else to go and lose nothing on a restart.
-  const liveIdle = (values) =>
-    values.every((value) => integer(value, 'live runtime count') === 0)
-  // Draining refuses every control and host proof, so with no session left an in-flight or
-  // reserved unit can only belong to a handshake the cell is about to refuse.
-  const restartSafe = config.activity !== 'restart-safe' || (
-    liveIdle([
+  const restartSafe = config.activity !== 'restart-safe' ||
+    [
+      runtime.runtime?.preAuthConnections,
+      runtime.runtime?.inFlightConnections,
+      runtime.runtime?.reservedConnectionUnits,
       runtime.runtime?.controls,
       runtime.runtime?.splices,
       runtime.runtime?.pendingSplices,
       runtime.runtime?.queuedBytes
-    ]) &&
-    // Still validated on a draining cell so a malformed runtime fails closed.
-    (liveIdle([runtime.runtime?.inFlightConnections, runtime.runtime?.reservedConnectionUnits]) ||
-      runtime.draining === true)
-  )
+    ].every((value) => integer(value, 'live runtime count') === 0)
   if (
     config.heartbeat === 'fresh' &&
     !capacityMatches({ connectionCapacity: runtime.connectionCapacity }, config)
@@ -402,8 +374,6 @@ export async function verifyCapacityTransition(config, overrides = {}) {
     throw new Error('restart-safe activity requires migration-only admission and draining')
   }
   const fetchImpl = overrides.fetch ?? fetch
-  const progress = overrides.progress ??
-    ((line) => process.stdout.write(`${JSON.stringify(line)}\n`))
   const wait = overrides.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   const now = overrides.now ?? Date.now
   const token = overrides.token ?? process.env.ORCA_RELAY_ADMIN_ID_TOKEN
@@ -420,17 +390,10 @@ export async function verifyCapacityTransition(config, overrides = {}) {
   if (health.ok !== true || health.connectionCapacityProtocol !== CAPACITY_PROTOCOL) {
     throw new Error('director is not capacity-protocol compatible')
   }
-  const startedAt = now()
-  const deadline = startedAt + config.timeoutMs
-  // A paced drain can refill the runtime until its window ends, so the second of two consecutive
-  // quiet samples must be taken at or after that end. This runs after the cell accepted the drain,
-  // so the cell's window ends no later than this one.
-  const paceWindowEndsAt = startedAt + (config.paceWindowMs ?? 0)
+  const deadline = now() + config.timeoutMs
   let restartSafeSamples = 0
   let lastObservation = { runtimeAvailable: false }
   for (;;) {
-    // Before the read, so a sample taken inside the window cannot pass.
-    const sampledAt = now()
     const runtime = await cellRuntime(fetchImpl, config, token)
     lastObservation = { runtimeAvailable: runtime !== null }
     if ((runtime === null) === (config.runtime === 'unavailable')) {
@@ -466,14 +429,10 @@ export async function verifyCapacityTransition(config, overrides = {}) {
       const matches = runtime === null
         ? offlineRollbackMatches(status, config)
         : runtimeQuiescent(runtime, config) &&
-          directorActivityMatches(status, config) &&
+          directorActivityMatches(status, config, restartBlockingReservedRequests) &&
           capacityMatches(status, config) &&
           heartbeatMatches(status, config.heartbeat)
-      if (
-        matches &&
-        (config.activity !== 'restart-safe' ||
-          (restartSafeSamples >= 1 && sampledAt >= paceWindowEndsAt))
-      ) {
+      if (matches && (config.activity !== 'restart-safe' || restartSafeSamples === 1)) {
         return {
           cellId: status.cellId,
           admissionState: status.admissionState,
@@ -485,42 +444,27 @@ export async function verifyCapacityTransition(config, overrides = {}) {
             status.connectionCapacity?.heartbeatFresh ?? status.runtime?.heartbeatFresh ?? false,
           imageDigest: runtime?.imageDigest ?? null,
           ...(config.activity === 'restart-safe'
-            ? { restartBlockingReservedRequests, stranded: strandedObservation(lastObservation) }
+            ? { restartBlockingReservedRequests }
             : {})
         }
       }
-      restartSafeSamples = matches ? restartSafeSamples + 1 : 0
+      restartSafeSamples = matches ? 1 : 0
     } else {
       restartSafeSamples = 0
     }
     if (config.activity === 'restart-safe') {
-      const paceWindowRemainingMs = Math.max(paceWindowEndsAt - sampledAt, 0)
       lastObservation = {
         ...lastObservation,
         restartSafeSamples,
-        paceWindowRemainingMs
+        requiredRestartSafeSamples: 2
       }
-      progress({
-        event: 'relay_capacity_transition_restart_progress',
-        restartSafeSamples,
-        paceWindowRemainingMs,
-        totalConnections: lastObservation.runtime?.totalConnections ?? null,
-        preAuthConnections: lastObservation.runtime?.preAuthConnections ?? null,
-        runtimeAvailable: lastObservation.runtimeAvailable,
-        admissionState: lastObservation.admissionState ?? null,
-        draining: lastObservation.draining ?? null,
-        runtime: lastObservation.runtime ?? null,
-        directorHeartbeatFresh: lastObservation.directorCapacity?.heartbeatFresh ??
-          lastObservation.runtimeHeartbeatFresh ?? null,
-        stranded: strandedObservation(lastObservation)
-      })
     }
     if (now() >= deadline) {
       throw new Error(
         `capacity transition verification timed out: ${JSON.stringify(lastObservation)}`
       )
     }
-    await wait(POLL_INTERVAL_MS)
+    await wait(5_000)
   }
 }
 

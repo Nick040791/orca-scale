@@ -70,8 +70,7 @@ export function TaskPageGitHubRows({
             allWorktrees,
             item.repoId,
             item.type,
-            item.number,
-            item.url
+            item.number
           )
           const attachedWorkspaceLabel = attachedWorkspace
             ? getWorktreeAttachmentLabel(attachedWorkspace)

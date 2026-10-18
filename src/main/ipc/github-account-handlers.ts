@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { appStarSourceSchema } from '../../shared/gh-star-source'
-import { resolveGhAccountRequiredHost } from '../github/account-binding-required-host'
+import { githubHostFromIdentityKey } from '../../shared/github/repository-identity-key'
 import { diagnoseGhAuth } from '../github/auth-diagnose'
 import { checkOrcaStarred, getAuthenticatedViewer, starOrca } from '../github/client'
 import {
@@ -38,11 +38,10 @@ export function registerGitHubAccountHandlers(store: Store): void {
 
   ipcMain.handle(
     'gh:listBindableAccounts',
-    async (_event, args: { repoPath: string; repoId?: string; refreshCapability?: boolean }) => {
+    (_event, args: { repoPath: string; repoId?: string; refreshCapability?: boolean }) => {
       const repo = assertRegisteredGitHubRepo(args, store)
-      const localGitOptions = getGitHubLocalGitOptionArgs(store, repo)[0] ?? {}
-      const requiredHost = await resolveGhAccountRequiredHost(repo, localGitOptions)
-      return listGhAccountBindingInventory(localGitOptions, {
+      const requiredHost = githubHostFromIdentityKey(repo.gitRemoteIdentity?.canonicalKey)
+      return listGhAccountBindingInventory(getGitHubLocalGitOptionArgs(store, repo)[0] ?? {}, {
         refreshCapability: args.refreshCapability === true,
         ...(requiredHost ? { requiredHost } : {})
       })
@@ -51,13 +50,12 @@ export function registerGitHubAccountHandlers(store: Store): void {
 
   ipcMain.handle(
     'gh:validateAccountBinding',
-    async (_event, args: { repoPath: string; repoId?: string; host: string; user: string }) => {
+    (_event, args: { repoPath: string; repoId?: string; host: string; user: string }) => {
       const repo = assertRegisteredGitHubRepo(args, store)
-      const localGitOptions = getGitHubLocalGitOptionArgs(store, repo)[0] ?? {}
-      const requiredHost = await resolveGhAccountRequiredHost(repo, localGitOptions)
+      const requiredHost = githubHostFromIdentityKey(repo.gitRemoteIdentity?.canonicalKey)
       return validateGhAccountBinding(
         { host: args.host, user: args.user },
-        localGitOptions,
+        getGitHubLocalGitOptionArgs(store, repo)[0] ?? {},
         requiredHost ? { requiredHost } : {}
       )
     }

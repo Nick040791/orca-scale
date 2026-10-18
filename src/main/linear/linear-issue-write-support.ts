@@ -117,16 +117,13 @@ export function classifyLinearWriteFailure(error: unknown): LinearWriteFailure {
 export async function runLinearWrite<T>(
   entry: LinearClientForWorkspace,
   signal: AbortSignal | undefined,
-  write: (client: LinearClient) => Promise<T>,
-  beforeInvoke?: () => void
+  write: (client: LinearClient) => Promise<T>
 ): Promise<T> {
-  await acquire(signal)
+  await acquire()
   try {
-    signal?.throwIfAborted()
     const client = signal
       ? new (loadLinearSdk().LinearClient)({ apiKey: entry.apiKey, signal })
       : entry.client
-    beforeInvoke?.()
     return await write(client)
   } catch (error) {
     if (error instanceof LinearWriteFailure) {
@@ -144,12 +141,10 @@ export async function runLinearWrite<T>(
 
 export async function runLinearLookup<T>(
   entry: LinearClientForWorkspace,
-  lookup: () => Promise<T>,
-  signal?: AbortSignal
+  lookup: () => Promise<T>
 ): Promise<T | null> {
-  await acquire(signal)
+  await acquire()
   try {
-    signal?.throwIfAborted()
     return await lookup()
   } catch (error) {
     if (isAuthError(error)) {

@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const launchAgentInNewTab = vi.hoisted(() => vi.fn())
 const writeClipboardText = vi.hoisted(() => vi.fn(async () => undefined))
-const ensureDetectedAgentsForWorktree = vi.hoisted(() => vi.fn())
+const connectionId = vi.hoisted(() => ({ value: null as string | null }))
+const runtimeEnvironmentId = vi.hoisted(() => ({ value: null as string | null }))
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), warning: vi.fn() }))
-const store: { settings: { disabledTuiAgents: string[] } } = vi.hoisted(() => ({
-  settings: { disabledTuiAgents: [] }
+const store = vi.hoisted(() => ({
+  settings: { disabledTuiAgents: [] as string[] },
+  ensureDetectedAgents: vi.fn(async () => ['claude', 'codex']),
+  ensureRemoteDetectedAgents: vi.fn(async () => ['claude', 'codex']),
+  ensureRuntimeDetectedAgents: vi.fn(async () => ['claude', 'codex'])
 }))
 
 vi.mock('@/store', () => ({ useAppStore: { getState: () => store } }))
@@ -13,7 +17,12 @@ vi.mock('@/lib/launch-agent-in-new-tab', () => ({ launchAgentInNewTab }))
 vi.mock('@/lib/agent-catalog', () => ({
   getAgentLabel: (agent: string) => (agent === 'codex' ? 'Codex' : 'Claude')
 }))
-vi.mock('@/lib/agent-detection-target-inventory', () => ({ ensureDetectedAgentsForWorktree }))
+vi.mock('@/lib/connection-context', () => ({
+  getConnectionIdFromState: () => connectionId.value
+}))
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: () => runtimeEnvironmentId.value
+}))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string, values?: Record<string, string>) =>
@@ -26,8 +35,12 @@ vi.mock('@/i18n/i18n', () => ({
 describe('launchAgentSessionContinuation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    connectionId.value = null
+    runtimeEnvironmentId.value = null
     store.settings.disabledTuiAgents = []
-    ensureDetectedAgentsForWorktree.mockResolvedValue(['claude', 'codex'])
+    store.ensureDetectedAgents.mockResolvedValue(['claude', 'codex'])
+    store.ensureRemoteDetectedAgents.mockResolvedValue(['claude', 'codex'])
+    store.ensureRuntimeDetectedAgents.mockResolvedValue(['claude', 'codex'])
     launchAgentInNewTab.mockReturnValue({
       surface: { kind: 'local-terminal', tabId: 'tab-new' },
       promptDeliveryResult: Promise.resolve({ delivered: true, failureNotified: false })
@@ -35,6 +48,7 @@ describe('launchAgentSessionContinuation', () => {
     writeClipboardText.mockClear()
     vi.stubGlobal('window', {
       api: {
+        agentTrust: { markTrusted: vi.fn(async () => undefined) },
         ui: { writeClipboardText }
       }
     })
@@ -51,6 +65,7 @@ describe('launchAgentSessionContinuation', () => {
         prompt: 'continue the unfinished task',
         worktreeId: 'wt-1',
         groupId: 'group-1',
+        workspacePath: '/repo/worktree',
         initialCwd: '/repo/worktree/packages/app',
         launchSource: 'terminal_context_menu'
       })
@@ -67,16 +82,27 @@ describe('launchAgentSessionContinuation', () => {
     )
   })
 
-  it("detects the target Agent in the workspace host's inventory", async () => {
+  it('detects the target Agent on the SSH host that owns the workspace', async () => {
+    connectionId.value = 'ssh-1'
     const { detectAgentSessionContinuationAgents } =
       await import('./launch-agent-session-continuation')
 
     await expect(detectAgentSessionContinuationAgents('wt-1')).resolves.toEqual(['claude', 'codex'])
-    expect(ensureDetectedAgentsForWorktree).toHaveBeenCalledWith(store, 'wt-1')
+    expect(store.ensureRemoteDetectedAgents).toHaveBeenCalledWith('ssh-1')
+    expect(store.ensureDetectedAgents).not.toHaveBeenCalled()
+  })
+
+  it('detects local Agents in the target worktree runtime', async () => {
+    const { detectAgentSessionContinuationAgents } =
+      await import('./launch-agent-session-continuation')
+
+    await detectAgentSessionContinuationAgents('wt-1')
+
+    expect(store.ensureDetectedAgents).toHaveBeenCalledWith('wt-1')
   })
 
   it('stops before launch when the selected Agent is unavailable', async () => {
-    ensureDetectedAgentsForWorktree.mockResolvedValue(['claude'])
+    store.ensureDetectedAgents.mockResolvedValue(['claude'])
     const { launchAgentSessionContinuation } = await import('./launch-agent-session-continuation')
 
     await expect(
@@ -84,6 +110,7 @@ describe('launchAgentSessionContinuation', () => {
         agent: 'codex',
         prompt: 'continue',
         worktreeId: 'wt-1',
+        workspacePath: '/repo/worktree',
         launchSource: 'sidebar'
       })
     ).resolves.toBe(false)
@@ -103,6 +130,7 @@ describe('launchAgentSessionContinuation', () => {
       agent: 'codex',
       prompt: 'continue',
       worktreeId: 'wt-1',
+      workspacePath: '/repo/worktree',
       launchSource: 'sidebar'
     })
 
@@ -139,6 +167,7 @@ describe('launchAgentSessionContinuation', () => {
       agent: 'codex',
       prompt: 'continue the unfinished task',
       worktreeId: 'wt-1',
+      workspacePath: '/repo/worktree',
       launchSource: 'sidebar'
     })
 
@@ -165,6 +194,7 @@ describe('launchAgentSessionContinuation', () => {
       agent: 'codex',
       prompt: 'continue',
       worktreeId: 'wt-1',
+      workspacePath: '/repo/worktree',
       launchSource: 'sidebar'
     })
 

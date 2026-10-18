@@ -196,10 +196,7 @@ export default function GrabConfirmationSheet({
               </div>
               {target.accessibility.accessibleName ? (
                 <div className="mt-1 text-muted-foreground">
-                  {translate(
-                    'auto.components.browser.pane.GrabConfirmationSheet.accessibleNameOpenQuote',
-                    '"'
-                  )}
+                  {translate('auto.components.browser.pane.GrabConfirmationSheet.eb98a0971a', '"')}
                   <EscapedText text={target.accessibility.accessibleName} />
                   {translate('auto.components.browser.pane.GrabConfirmationSheet.eb98a0971a', '"')}
                 </div>

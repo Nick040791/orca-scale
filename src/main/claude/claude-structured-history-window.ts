@@ -16,11 +16,6 @@
 
 import { join } from 'node:path'
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
-import {
-  CLAUDE_STRUCTURED_HANDLE_NAMESPACE,
-  claudeProviderHandleLeafUuid,
-  isAgentSessionProviderHandleInNamespace
-} from '../../shared/agent-session-provider-handle-encoding'
 import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
 import type {
   ProviderHistoryItem,
@@ -247,13 +242,10 @@ export async function resolveClaudeProviderHistoryWindow(input: {
   hasLiveSession: boolean
 }): Promise<ProviderHistoryWindow | null> {
   const handle = input.identity.providerHandle
-  if (
-    !handle ||
-    !isAgentSessionProviderHandleInNamespace(handle, CLAUDE_STRUCTURED_HANDLE_NAMESPACE)
-  ) {
+  if (handle.kind !== 'claude') {
     return null
   }
-  const transcriptPath = await resolveSessionFilePath('claude', handle.nativeId, {
+  const transcriptPath = await resolveSessionFilePath('claude', handle.sessionId, {
     claudeProjectsDir: join(input.accountHomePath, 'projects')
   })
   if (!transcriptPath) {
@@ -261,8 +253,8 @@ export async function resolveClaudeProviderHistoryWindow(input: {
   }
   return readClaudeProviderHistoryWindow({
     transcriptPath,
-    providerSessionId: handle.nativeId,
-    previousLeafUuid: claudeProviderHandleLeafUuid(handle),
+    providerSessionId: handle.sessionId,
+    previousLeafUuid: handle.leafUuid,
     sessionId: input.identity.sessionId,
     turnInFlight: input.hasLiveSession
   })

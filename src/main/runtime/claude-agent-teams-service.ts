@@ -11,6 +11,13 @@ import type {
   TeamPane
 } from './claude-agent-teams-types'
 
+export type {
+  AgentTeamsLaunchEnv,
+  AgentTeamsTerminalApi,
+  AgentTeamsTmuxCompatRequest,
+  AgentTeamsTmuxCompatResponse
+} from './claude-agent-teams-types'
+
 export class ClaudeAgentTeamsService {
   private readonly teams = new Map<string, AgentTeam>()
   private readonly dispatcher = new ClaudeAgentTeamsTmuxDispatcher()

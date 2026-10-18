@@ -3,7 +3,6 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { useMobileNativeChatDrafts } from './use-mobile-native-chat-drafts'
-import { resetMobileNativeChatDraftStoreForTests } from './mobile-native-chat-draft-store'
 
 type DraftState = ReturnType<typeof useMobileNativeChatDrafts>
 
@@ -33,7 +32,6 @@ describe('useMobileNativeChatDrafts', () => {
 
   afterEach(() => {
     act(() => renderer?.unmount())
-    resetMobileNativeChatDraftStoreForTests()
     renderer = null
     state = null
   })
@@ -105,6 +103,18 @@ describe('useMobileNativeChatDrafts', () => {
     expect(state?.pending.map((pending) => pending.text)).toEqual(['from a'])
   })
 
+  it('clears the composer at send time, before the RPC settles', async () => {
+    await mount('a')
+    act(() => state?.setComposerText('ping'))
+    const origin = state?.captureSendOrigin('ping')
+    act(() => {
+      if (origin) {
+        state?.clearDraftForSend(origin, 'ping')
+      }
+    })
+    expect(state?.composerText).toBe('')
+  })
+
   it('tracks every composer mutation with a stable route-owned generation', async () => {
     await mount('a')
     const getter = state!.getComposerEditGeneration
@@ -132,7 +142,7 @@ describe('useMobileNativeChatDrafts', () => {
     expect(state?.composerText).toBe('ping')
   })
 
-  it('appends a rejected send after edits typed while it was in flight', async () => {
+  it('does not clobber newer edits when restoring a rejected send', async () => {
     await mount('a')
     act(() => state?.setComposerText('ping'))
     const origin = state?.captureSendOrigin('ping')
@@ -147,10 +157,10 @@ describe('useMobileNativeChatDrafts', () => {
         state?.restoreRejectedDraft(origin, 'ping')
       }
     })
-    expect(state?.composerText).toBe('newer edit\n\nping')
+    expect(state?.composerText).toBe('newer edit')
   })
 
-  it('returns a rejected send even after a newer edit was cleared', async () => {
+  it('preserves an intentional clear after a newer edit while a rejection is pending', async () => {
     await mount('a')
     act(() => state?.setComposerText('ping'))
     const origin = state?.captureSendOrigin('ping')
@@ -167,7 +177,7 @@ describe('useMobileNativeChatDrafts', () => {
       }
     })
 
-    expect(state?.composerText).toBe('ping')
+    expect(state?.composerText).toBe('')
   })
 
   it('restores a rejected send onto its originating tab only', async () => {

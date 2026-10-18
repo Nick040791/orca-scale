@@ -33,8 +33,7 @@ export function renderResourceUsagePopoverBody({
   handleKillSession,
   appCollapsed,
   setAppCollapsed,
-  daemonUnreachable,
-  runtimeHostNotices
+  daemonUnreachable
 }: {
   setPopoverBodyNode: (node: HTMLDivElement | null) => void
   unifiedRepos: UnifiedProjectGroup[]
@@ -54,7 +53,6 @@ export function renderResourceUsagePopoverBody({
   appCollapsed: boolean
   setAppCollapsed: Dispatch<SetStateAction<boolean>>
   daemonUnreachable: boolean
-  runtimeHostNotices: readonly string[]
 }): React.JSX.Element {
   return (
     <div ref={setPopoverBodyNode} tabIndex={-1} className="flex h-[420px] flex-col outline-none">
@@ -112,14 +110,6 @@ export function renderResourceUsagePopoverBody({
       )}
 
       <div className="flex-1 overflow-y-auto scrollbar-sleek">
-        {runtimeHostNotices.map((notice) => (
-          <div
-            key={notice}
-            className="border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground"
-          >
-            {notice}
-          </div>
-        ))}
         {unifiedRepos.length > 0 && (
           <ResourceTree
             repos={unifiedRepos}

@@ -16,10 +16,6 @@ function createRunner(overrides: {
   originExists?: boolean
   upstreamExists?: boolean
   aheadBehind?: string
-  equalTips?: boolean
-  ancestryError?: boolean
-  commitOutput?: string
-  countError?: boolean
 }): { runGit: GitForkSyncRunner; calls: string[][] } {
   const calls: string[][] = []
   const runGit = vi.fn(async (args: string[]) => {
@@ -46,21 +42,13 @@ function createRunner(overrides: {
         throw new Error('missing upstream branch')
       }
       return {
-        stdout:
-          overrides.commitOutput ??
-          (ref.includes('upstream') && !overrides.equalTips
-            ? '2222222222222222222222222222222222222222\n'
-            : '1111111111111111111111111111111111111111\n')
+        stdout: ref.includes('upstream')
+          ? '2222222222222222222222222222222222222222\n'
+          : '1111111111111111111111111111111111111111\n'
       }
     }
     if (args[0] === 'rev-list') {
-      if (overrides.countError) {
-        throw new Error('invalid revision')
-      }
       return { stdout: overrides.aheadBehind ?? '0\t2\n' }
-    }
-    if (args[0] === 'merge-base' && overrides.ancestryError) {
-      throw new Error('missing parent object')
     }
     return { stdout: '' }
   })
@@ -78,7 +66,6 @@ describe('syncForkDefaultBranch', () => {
     const result = await syncForkDefaultBranch(runGit)
 
     expect(result).toMatchObject({ status: 'synced', branchName: 'main', ahead: 0, behind: 3 })
-    expect(calls.filter((args) => args[0] === 'remote' && args.length === 1)).toEqual([['remote']])
     expect(calls).toContainEqual([
       'push',
       'origin',
@@ -116,48 +103,6 @@ describe('syncForkDefaultBranch', () => {
 
     expect(result).toMatchObject({ status: 'up-to-date', branchName: 'main' })
     expect(flattenedCommands(calls)).not.toContain('push origin')
-  })
-
-  it('skips history counts for equal verified tips while retaining fetches and ancestry validation', async () => {
-    const { runGit, calls } = createRunner({ equalTips: true })
-
-    await expect(syncForkDefaultBranch(runGit)).resolves.toMatchObject({
-      status: 'up-to-date',
-      ahead: 0,
-      behind: 0
-    })
-    expect(calls.filter((args) => args[0] === 'fetch')).toHaveLength(2)
-    expect(calls.filter((args) => args[0] === 'rev-parse')).toHaveLength(2)
-    expect(calls.some((args) => args[0] === 'rev-list' || args[0] === 'push')).toBe(false)
-    expect(calls).toContainEqual([
-      'merge-base',
-      '--is-ancestor',
-      '1111111111111111111111111111111111111111',
-      '1111111111111111111111111111111111111111'
-    ])
-  })
-
-  it('still blocks equal tips when ancestry cannot be verified', async () => {
-    const { runGit, calls } = createRunner({ equalTips: true, ancestryError: true })
-
-    await expect(syncForkDefaultBranch(runGit)).resolves.toMatchObject({
-      status: 'blocked',
-      reason: 'diverged',
-      ahead: 0,
-      behind: 0
-    })
-    expect(calls.some((args) => args[0] === 'push')).toBe(false)
-  })
-
-  it('keeps the count query error when a wrapper returns identical non-object output', async () => {
-    const { runGit, calls } = createRunner({
-      commitOutput: 'wrapper banner\n',
-      countError: true
-    })
-
-    await expect(syncForkDefaultBranch(runGit)).rejects.toThrow('invalid revision')
-    expect(calls.some((args) => args[0] === 'rev-list')).toBe(true)
-    expect(calls.some((args) => args[0] === 'push')).toBe(false)
   })
 
   it('scans newline-heavy remote and default-branch output without line-array splitting', async () => {
@@ -203,23 +148,12 @@ describe('syncForkDefaultBranch', () => {
   })
 
   it('blocks when the upstream remote is missing', async () => {
-    const { runGit, calls } = createRunner({ remotes: 'origin\n' })
+    const { runGit } = createRunner({ remotes: 'origin\n' })
 
     await expect(syncForkDefaultBranch(runGit)).resolves.toMatchObject({
       status: 'blocked',
       reason: 'missing-upstream'
     })
-    expect(calls).toEqual([['remote']])
-  })
-
-  it('reports missing origin first when both remotes are missing', async () => {
-    const { runGit, calls } = createRunner({ remotes: '' })
-
-    await expect(syncForkDefaultBranch(runGit)).resolves.toMatchObject({
-      status: 'blocked',
-      reason: 'missing-origin'
-    })
-    expect(calls).toEqual([['remote']])
   })
 
   it('blocks when the upstream remote no longer matches the expected fork metadata', async () => {

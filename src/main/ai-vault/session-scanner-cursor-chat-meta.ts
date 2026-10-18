@@ -125,17 +125,14 @@ function recordCursorChatMetaRefusal(chatsRoot: string, message: string): void {
   }
 }
 
-export async function readCursorChatMeta(
-  transcriptPath: string,
-  signal?: AbortSignal
-): Promise<CursorChatMeta | null> {
+export async function readCursorChatMeta(transcriptPath: string): Promise<CursorChatMeta | null> {
   const metaPath = await cursorChatMetaPath(transcriptPath)
   if (!metaPath) {
     return null
   }
   let record: Record<string, unknown> | null
   try {
-    record = await readJsonObjectIfExists(metaPath, signal)
+    record = await readJsonObjectIfExists(metaPath)
   } catch (error) {
     if (!(error instanceof WslTranscriptFsError)) {
       throw error

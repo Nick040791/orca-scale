@@ -2,7 +2,7 @@ import type { AgentJournalItemIdentity } from '../../shared/agent-session-journa
 import type { AgentSessionDeltaCoalescerDeps } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { codexJournalItem, CodexThreadItem } from './codex-structured-item-translation'
-import type { CodexRowAttribution } from './codex-subagent-linkage'
+import type { CodexRowLinkage } from './codex-subagent-linkage'
 
 export type CodexItemStreamDeps = {
   sink: StructuredAgentSessionEventSink
@@ -13,7 +13,7 @@ export type CodexItemStreamDeps = {
     turnId: string | null,
     item: CodexThreadItem
   ) => AgentJournalItemIdentity
-  attributionFor: CodexRowAttribution
+  linkageFor: CodexRowLinkage
   coalesceMs?: number
   maxRetainedBytes?: number
   maxTotalRetainedBytes?: number
@@ -24,8 +24,6 @@ export type CodexItemStreamDeps = {
 export type CodexItemStreamState = {
   identity: AgentJournalItemIdentity
   item: CodexThreadItem
-  /** Host clock when the item started, for a row its stream writes first. */
-  startedAt?: number
 }
 
 export type CodexPendingItemPatch = {
@@ -49,8 +47,7 @@ export type CodexStructuredItemStreams = {
     threadId: string,
     turnId: string | null,
     item: CodexThreadItem,
-    identity: AgentJournalItemIdentity,
-    startedAt?: number
+    identity: AgentJournalItemIdentity
   ) => boolean
   handle: (
     threadId: string,

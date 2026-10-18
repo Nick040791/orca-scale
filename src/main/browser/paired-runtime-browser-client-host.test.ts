@@ -1,5 +1,5 @@
-import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { PairingOffer } from '../../shared/pairing'
 import type {
   BrowserClientHostedPageInventory,
   BrowserClientHostCommandEvent,
@@ -22,12 +22,14 @@ vi.mock('../../shared/remote-runtime-client', () => ({
 import { PairedRuntimeBrowserClientHost } from './paired-runtime-browser-client-host'
 import { PairedRuntimeBrowserHostLease } from './paired-runtime-browser-host-lease'
 
-const pairing = pairedRuntimeConnectionFromOffer({
+const pairing = {
+  v: 2,
   endpoint: 'ws://127.0.0.1:6768',
   deviceToken: 'device-token',
   publicKeyB64: 'public-key',
-  pairedDeviceId: 'device-a'
-})
+  pairedDeviceId: 'device-a',
+  scope: 'runtime'
+} as PairingOffer
 
 afterEach(() => {
   subscribeRemoteRuntimeRequestMock.mockReset()
@@ -338,7 +340,7 @@ function createHost(
   pageReconciliationProtocolVersion?: 1
 ): PairedRuntimeBrowserClientHost {
   return new PairedRuntimeBrowserClientHost({
-    connection: pairing,
+    pairing,
     authorityRuntimeId: 'runtime-a',
     browserHostClientId: 'host-a',
     hostCapabilities: ['webview'],

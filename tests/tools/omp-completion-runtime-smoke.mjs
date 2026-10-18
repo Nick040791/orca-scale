@@ -16,9 +16,8 @@ const server = createServer(async (request, response) => {
   for await (const chunk of request) {
     body += chunk
   }
-  const payload = JSON.parse(body).payload
-  const event = payload.hook_event_name
-  received.push(payload)
+  const event = JSON.parse(body).payload.hook_event_name
+  received.push(event)
   const reject = event === 'agent_end' && rejectCompletion
   if (reject) {
     rejectCompletion = false
@@ -67,68 +66,38 @@ try {
   })
   const handlers = new Map()
   require(extension).default({ on: (event, handler) => handlers.set(event, handler) })
-  let sessionId = 'A'
-  const context = {
-    isIdle: () => false,
-    sessionManager: {
-      getSessionId: () => sessionId,
-      getSessionFile: () => join(scratch, `${sessionId}.jsonl`)
-    }
-  }
-  const emit = async (event, payload = {}) => {
+  const emit = async (event) => {
     assert.ok(handlers.has(event), `Missing lifecycle handler: ${event}`)
-    await handlers.get(event)(payload, context)
+    await handlers.get(event)({}, { isIdle: () => false })
   }
   await emit('agent_start')
   await waitForRequests(1)
   await emit('agent_end')
   await waitForRequests(3)
-  assert.deepEqual(
-    received.map((event) => event.hook_event_name),
-    ['agent_start', 'agent_end', 'agent_end']
-  )
+  assert.deepEqual(received, ['agent_start', 'agent_end', 'agent_end'])
   const recovered = [...received]
 
-  received.length = 0
-  rejectCompletion = true
-  await emit('agent_start')
-  await waitForRequests(1)
-  await emit('agent_end')
-  await waitForRequests(2)
-  await emit('agent_start')
-  await delay(600)
-  assert.equal(
-    received.filter((event) => event.hook_event_name === 'agent_end').length,
-    1,
-    'An obsolete completion retried after the next turn started'
-  )
-
-  for (const boundary of ['session_switch', 'session_shutdown']) {
+  for (const boundary of ['agent_start', 'session_switch', 'session_shutdown']) {
     received.length = 0
     rejectCompletion = true
-    sessionId = 'A'
     await emit('agent_start')
     await waitForRequests(1)
     await emit('agent_end')
     await waitForRequests(2)
-    sessionId = 'B'
-    await emit(boundary, { reason: 'new' })
-    await emit('agent_start')
-    await waitForRequests(4)
+    await emit(boundary)
     await delay(600)
-    const completions = received.filter((event) => event.hook_event_name === 'agent_end')
-    assert.equal(completions.length, 2, `Unsent completion was lost at ${boundary}`)
-    assert.ok(completions.every((event) => event.session_id === 'A'))
-    assert.equal(received.at(-1).hook_event_name, 'agent_start')
-    assert.equal(received.at(-1).session_id, 'B', 'Old completion overwrote the new session')
+    assert.equal(
+      received.filter((event) => event === 'agent_end').length,
+      1,
+      `An obsolete completion retried after ${boundary}`
+    )
   }
   console.log(
     JSON.stringify({
       platform: process.platform,
       node: process.version,
       recovered,
-      cancelledAt: ['agent_start'],
-      preservedAt: ['session_switch', 'session_shutdown'],
+      cancelledAt: ['agent_start', 'session_switch', 'session_shutdown'],
       scope: 'Generated OMP extension, real native HTTP 503, synthetic lifecycle callbacks'
     })
   )

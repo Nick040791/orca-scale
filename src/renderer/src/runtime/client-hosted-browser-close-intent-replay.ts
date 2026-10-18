@@ -1,5 +1,4 @@
-import { callRuntimeRpc } from './runtime-rpc-client'
-import { hasRuntimeRpcErrorCode } from '../../../shared/runtime-rpc-error-code'
+import { callRuntimeRpc, hasRuntimeRpcErrorCode } from './runtime-rpc-client'
 import {
   listClientHostedBrowserCloseIntents,
   type ClientHostedBrowserCloseIntentsByEnvironment

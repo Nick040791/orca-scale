@@ -1,4 +1,3 @@
-import * as unhideCoverage from './hidden-unhide-snapshot-coverage'
 import { useAppStore } from '@/store'
 import { isTerminalWritePipelineCertifiedDead } from '@/lib/pane-manager/terminal-write-pipeline-health'
 import { requestTerminalPaneRecovery } from '../terminal-pane-recovery'
@@ -132,8 +131,6 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           return
         }
         const restoreGeneration = session.hiddenOutputRestoreGeneration
-        // Captured before the fetch: the snapshot can only cover drops main reported by now.
-        const coveredDropEpisode: number | null = session.hiddenOutputRestoreLatestDropEpisode
         session.hiddenOutputRestoreNeeded = false
         let snapshotResult: HiddenOutputSnapshotResult
         try {
@@ -173,11 +170,9 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
               HIDDEN_OUTPUT_RESTORE_LOCAL_GATE_MAX_ATTEMPTS
           }
           if (budgetExhausted) {
-            if (!session.deferHiddenOutputRestoreLossToReveal()) {
-              session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
-                rearmRemote: false
-              })
-            }
+            session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
+              rearmRemote: false
+            })
             return
           }
           session.hiddenOutputRestoreNeeded = true
@@ -187,11 +182,9 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           return
         }
         if (snapshotResult.kind === 'permanently-unavailable') {
-          if (!session.deferHiddenOutputRestoreLossToReveal()) {
-            session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
-              rearmRemote: false
-            })
-          }
+          session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
+            rearmRemote: false
+          })
           return
         }
         if (snapshotResult.kind === 'unknown-legacy-host') {
@@ -226,8 +219,9 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           snapshot,
           restoredSnapshotPaintsPrintableContent(snapshot)
         )
-        session.ackHiddenOutputRestoreApplied(currentPtyId, coveredDropEpisode)
-        const needsFreshSnapshot = unhideCoverage.consumeSnapshotRequirement(session, snapshot.seq)
+        session.hiddenOutputRestoreReplayingSnapshot = null
+        const needsFreshSnapshot = session.hiddenOutputRestoreFreshSnapshotNeeded
+        session.hiddenOutputRestoreFreshSnapshotNeeded = false
         const drainOutcome = session.drainPendingLiveChunksAfterSnapshot(snapshot.seq)
         if (drainOutcome === 'drained' && !needsFreshSnapshot) {
           session.hiddenOutputRestoreNeeded = false
@@ -266,7 +260,6 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
     const hiddenOutputRestoreTask = session.hiddenOutputRestoreInFlight
     let trackedHiddenOutputRestore: Promise<void>
     trackedHiddenOutputRestore = hiddenOutputRestoreTask.finally(() => {
-      unhideCoverage.repairUnhandledMarker(session, trackedHiddenOutputRestore, ptyId)
       if (session.hiddenOutputRestoreInFlight === trackedHiddenOutputRestore) {
         session.hiddenOutputRestoreInFlight = null
       }

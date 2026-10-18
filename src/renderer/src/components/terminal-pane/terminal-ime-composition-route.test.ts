@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 import {
   hasPendingTerminalImeComposition,
   installTerminalImeCompositionRoute,
@@ -63,13 +63,16 @@ describe('installTerminalImeCompositionRoute', () => {
     expect(() => route.dispose()).not.toThrow()
   })
 
-  it('delivers one Hangul commit to the captured route', () => {
-    const harness = createHarness()
-    harness.start(1)
+  it.each(['visible blur', 'terminal tab switch', 'split pane switch'])(
+    'delivers one Hangul commit to the captured route after %s',
+    () => {
+      const harness = createHarness()
+      harness.start(1)
 
-    expect(harness.end(1, '한')).toBe(false)
-    expect(harness.input).toHaveBeenCalledExactlyOnceWith('한')
-  })
+      expect(harness.end(1, '한')).toBe(false)
+      expect(harness.input).toHaveBeenCalledExactlyOnceWith('한')
+    }
+  )
 
   it('never routes a switched composition to an unrelated transport', () => {
     const harness = createHarness()
@@ -216,13 +219,16 @@ describe('installTerminalImeCompositionRoute', () => {
     expect(hasPendingTerminalImeComposition(element)).toBe(false)
   })
 
-  it('releases the captured session and listeners', () => {
-    const harness = createHarness()
-    harness.start(1)
-    harness.route.dispose()
+  it.each(['terminal close', 'tab unmount'])(
+    'releases the captured session and listeners on %s',
+    () => {
+      const harness = createHarness()
+      harness.start(1)
+      harness.route.dispose()
 
-    expect(harness.end(1, '한')).toBe(true)
-    expect(harness.input).not.toHaveBeenCalled()
-    expect(hasPendingTerminalImeComposition(harness.element)).toBe(false)
-  })
+      expect(harness.end(1, '한')).toBe(true)
+      expect(harness.input).not.toHaveBeenCalled()
+      expect(hasPendingTerminalImeComposition(harness.element)).toBe(false)
+    }
+  )
 })

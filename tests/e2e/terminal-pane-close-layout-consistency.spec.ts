@@ -38,9 +38,6 @@ import { parkHiddenTabBehindDecoy } from './helpers/terminal-hidden-parking'
 // that scenario into the exits-while-parked one.
 const PARKING_DELAY_MS = Number(process.env.ORCA_E2E_TERMINAL_PARKING_DELAY_MS) || 2_000
 
-// Why exit 0: zsh startup on macOS can leave $? at 1, and a non-zero exit stays behind the exited card on purpose.
-const CLEAN_SHELL_EXIT = 'exit 0\r'
-
 test.use({
   orcaAppExtraEnv: { ORCA_E2E_TERMINAL_PARKING_DELAY_MS: String(PARKING_DELAY_MS) }
 })
@@ -336,7 +333,7 @@ test.describe('terminal pane close vs hidden/park lifecycle keeps layout consist
     await createActiveTerminalTab(orcaPage, worktreeId)
     // The setup-script analog: the split's shell ends on its own while the
     // tab is hidden-but-mounted.
-    await sendToTerminal(orcaPage, splitPtyId, CLEAN_SHELL_EXIT)
+    await sendToTerminal(orcaPage, splitPtyId, 'exit\r')
     await orcaPage.waitForTimeout(PARKING_DELAY_MS / 2)
     await activateTerminalTab(orcaPage, tabId)
     await waitForTabRemounted(orcaPage, tabId)
@@ -349,7 +346,7 @@ test.describe('terminal pane close vs hidden/park lifecycle keeps layout consist
     await parkHiddenTabBehindDecoy(orcaPage, worktreeId, tabId, {
       parkDelayMs: PARKING_DELAY_MS
     })
-    await sendToTerminal(orcaPage, splitPtyId, CLEAN_SHELL_EXIT)
+    await sendToTerminal(orcaPage, splitPtyId, 'exit\r')
     await orcaPage.waitForTimeout(PARKING_DELAY_MS)
     await activateTerminalTab(orcaPage, tabId)
     await waitForTabRemounted(orcaPage, tabId)

@@ -40,8 +40,7 @@ export function hostWorktreeActionMountAdapters(
         lastKnownWorktrees: [ROW],
         confirmRemoveHost: false,
         optimisticActiveWorktreeIdentity: null,
-        routeActionState: {},
-        serverWorkspaces: { hosts: [], worktrees: [] }
+        routeActionState: {}
       })
       let actions: ReturnType<typeof useActions>
       const hook = hookMount(() => {
@@ -54,7 +53,6 @@ export function hostWorktreeActionMountAdapters(
           forgetHostClient: (() => {}) as unknown as Parameters<
             typeof useActions
           >[0]['forgetHostClient'],
-          hostCapabilities: [],
           hostId: undefined,
           pathname: '/h/host-1',
           // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: navigation is observed through the recorded sends, not the router.
@@ -71,7 +69,7 @@ export function hostWorktreeActionMountAdapters(
             return hook.mount()
           }
           if (name === 'toggle-pin') {
-            return performHookAction(() => actions.togglePin(ROW))
+            return performHookAction(() => actions.togglePin(ROW.worktreeId))
           }
           if (name === 'delete') {
             return performHookAction(() => actions.handleDeleteWorktree(ROW))

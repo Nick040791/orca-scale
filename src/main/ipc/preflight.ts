@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron'
 import {
+  detectInstalledAgentsWithShellPathHydration,
+  detectRemoteAgents,
   detectRemoteWindowsTerminalCapabilities,
+  refreshShellPathAndDetectAgents,
   runPreflightCheck
 } from '../preflight/agent-detection'
-import { detectAgentsOnHost, refreshAgentsOnHost } from '../preflight/workspace-agent-detection'
 import type {
   PreflightRuntimeContext,
   PreflightStatus,
@@ -28,7 +30,7 @@ export function registerPreflightHandlers(): void {
   )
 
   ipcMain.handle('preflight:detectAgents', async (_event, args?: PreflightRuntimeContext) =>
-    detectAgentsOnHost({ kind: 'local', context: args })
+    detectInstalledAgentsWithShellPathHydration(args)
   )
 
   // Why here: this is the one place that already answers "what can the installed agent CLIs
@@ -38,13 +40,18 @@ export function registerPreflightHandlers(): void {
   )
 
   ipcMain.handle('preflight:refreshAgents', async (_event, args?: PreflightRuntimeContext) => {
-    return refreshAgentsOnHost({ kind: 'local', context: args })
+    return refreshShellPathAndDetectAgents(args)
   })
 
+  // Why: remote worktrees need agent detection on the SSH host, not the local
+  // machine. This handler forwards the same KNOWN_AGENT_COMMANDS list to the
+  // relay's preflight.detectAgents RPC, whose lookup command is selected on
+  // the remote host so native Windows OpenSSH does not require a POSIX shell.
   ipcMain.handle(
     'preflight:detectRemoteAgents',
-    async (_event, args: { connectionId: string }): Promise<string[]> =>
-      detectAgentsOnHost({ kind: 'ssh', connectionId: args.connectionId })
+    async (_event, args: { connectionId: string }): Promise<string[]> => {
+      return detectRemoteAgents(args)
+    }
   )
 
   ipcMain.handle(

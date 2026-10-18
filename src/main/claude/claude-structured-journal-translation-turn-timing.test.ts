@@ -161,7 +161,7 @@ describe('Claude structured turn timing', () => {
         state: 'running',
         startedAt: 1_000,
         userItemId: USER_1_KEY,
-        options: { observedAt: 1_000, turnScope: { kind: 'thread' } }
+        options: { observedAt: 1_000 }
       }
     ])
   })
@@ -194,7 +194,7 @@ describe('Claude structured turn timing', () => {
       startedAt: 1_000,
       completedAt: 4_500,
       userItemId: USER_1_KEY,
-      options: { turnScope: { kind: 'thread' } }
+      options: {}
     })
     expect(state.items.at(-1)?.identity).toEqual(state.items[0]?.identity)
   })
@@ -256,7 +256,6 @@ describe('Claude structured turn timing', () => {
       {
         turnId: 'user-1',
         state: 'interrupted',
-        outcome: 'superseded',
         startedAt: 1_000,
         completedAt: 3_000,
         userItemId: USER_1_KEY

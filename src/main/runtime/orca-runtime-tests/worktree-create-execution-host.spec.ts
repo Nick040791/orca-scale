@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OrcaRuntimeService, addWorktree } from '../orca-runtime-test-mocks.spec'
+import {
+  OrcaRuntimeService,
+  addWorktree,
+  registerSshGitProvider,
+  unregisterSshGitProvider
+} from '../orca-runtime-test-mocks.spec'
 import { store } from '../orca-runtime-test-fixtures.spec'
 
 const RUNTIME_REPO_PATH = '/remote/repo'
@@ -33,17 +38,24 @@ describe('OrcaRuntimeService worktree create execution host', () => {
     expect(addWorktree).not.toHaveBeenCalled()
   })
 
-  it('refuses a runtime-hosted repo that names a nested SSH target', async () => {
-    // `target-a` names a target inside env-1, so creating through it here would put the checkout
-    // on the wrong host.
+  it('refuses a runtime-hosted repo whose nested SSH target is dialable in this namespace', async () => {
+    // `target-a` names a target inside env-1. The same-named one registered here is another
+    // machine, so creating through it would put the checkout on the wrong host.
+    const provider = { exec: vi.fn(), addWorktree: vi.fn(), listWorktrees: vi.fn() }
+    registerSshGitProvider('target-a', provider as never)
     const runtime = new OrcaRuntimeService(
       makeRuntimeHostedStore({ connectionId: 'target-a' }) as never
     )
 
-    await expect(
-      runtime.createManagedWorktree({ repoSelector: 'id:repo-1', name: 'wt' })
-    ).rejects.toThrow('not dispatched by this process')
+    try {
+      await expect(
+        runtime.createManagedWorktree({ repoSelector: 'id:repo-1', name: 'wt' })
+      ).rejects.toThrow('not dispatched by this process')
 
-    expect(addWorktree).not.toHaveBeenCalled()
+      expect(provider.addWorktree).not.toHaveBeenCalled()
+      expect(addWorktree).not.toHaveBeenCalled()
+    } finally {
+      unregisterSshGitProvider('target-a')
+    }
   })
 })

@@ -18,8 +18,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../usage/usage-scan-worker-spawn', () => ({
-  scanCodexUsageFilesViaWorker: vi.fn(),
-  splitUsageCacheFileViaWorker: vi.fn()
+  scanCodexUsageFilesViaWorker: vi.fn()
 }))
 
 describe('CodexUsageStore', () => {

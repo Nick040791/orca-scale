@@ -7,9 +7,9 @@ import {
   parseContentRange,
   parseRetryAfterMs,
   type DownloadIncomingMessage,
-  type DownloadTotals
+  type DownloadTotals,
+  type HttpStatusError
 } from './speech-model-download-response'
-import type { HttpStatusError } from '../network/transient-download-error'
 
 export abstract class SpeechModelHttpDownload {
   protected abstract reportDownloadProgress(modelId: string, progress: number): void

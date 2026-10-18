@@ -36,8 +36,7 @@ export function sendModelRestoreNeededMarker(
   session: PtyIpcSession,
   id: string,
   reason: PtyModelRestoreReason,
-  markerSeq: number | undefined,
-  hiddenDropEpisode?: number
+  markerSeq: number | undefined
 ): boolean {
   if (!session.mainWindow || session.mainWindow.isDestroyed()) {
     return false
@@ -46,8 +45,7 @@ export function sendModelRestoreNeededMarker(
     session.mainWindow.webContents.send('pty:modelRestoreNeeded', {
       id,
       reason,
-      ...(typeof markerSeq === 'number' ? { markerSeq } : {}),
-      ...(typeof hiddenDropEpisode === 'number' ? { hiddenDropEpisode } : {})
+      ...(typeof markerSeq === 'number' ? { markerSeq } : {})
     })
   } catch (error) {
     // Why: a disposed render frame throws synchronously here, and this rides the data path.
@@ -60,10 +58,14 @@ export function sendModelRestoreNeededMarker(
 export function sendPtyDataToRenderer(
   session: PtyIpcSession,
   id: string,
-  payload: PtyDataPayload
-): boolean {
+  payload: PtyDataPayload,
+  projectionAdmissionIds?: readonly string[]
+): { sent: boolean; projectionsTransferred: boolean } {
   if (!session.mainWindow) {
-    return false
+    if (projectionAdmissionIds) {
+      session.sshOutputIntake?.transferProjections(projectionAdmissionIds, 'renderer-destroyed')
+    }
+    return { sent: false, projectionsTransferred: projectionAdmissionIds !== undefined }
   }
   const charCount = getPtyPayloadCharCount(payload)
   const accounting = session.rendererDeliveryAccountingByPty.get(id)
@@ -99,12 +101,31 @@ export function sendPtyDataToRenderer(
       }
     }
     session.rendererDeliveryRestoreNeededPtys.add(id)
+    if (projectionAdmissionIds) {
+      session.sshOutputIntake?.transferProjections(projectionAdmissionIds, 'renderer-send-failed')
+    }
     mainDeliveryBreadcrumbs.record('pty-data-send-failed', {
       id: redactPtyIdForDiagnostics(id),
       chars: charCount
     })
     console.error('[pty] renderer data send failed; payload will not be retried', error)
-    return false
+    return { sent: false, projectionsTransferred: projectionAdmissionIds !== undefined }
+  }
+  let projectionsTransferred = false
+  if (projectionAdmissionIds) {
+    try {
+      session.sshOutputIntake?.publishProjectionPrefix(
+        projectionAdmissionIds,
+        payload.data.length,
+        charCount
+      )
+    } catch {
+      session.sshOutputIntake?.transferProjections(
+        projectionAdmissionIds,
+        'projection-publish-failed'
+      )
+      projectionsTransferred = true
+    }
   }
   if (
     session.rendererDeliveryRestoreNeededPtys.has(id) &&
@@ -118,5 +139,5 @@ export function sendPtyDataToRenderer(
     // Why cleared only on a successful send: an unsent marker leaves the restore pending.
     session.rendererDeliveryRestoreNeededPtys.delete(id)
   }
-  return true
+  return { sent: true, projectionsTransferred }
 }

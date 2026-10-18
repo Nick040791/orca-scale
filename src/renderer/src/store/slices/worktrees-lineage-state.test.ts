@@ -423,9 +423,7 @@ describe('worktree lineage state', () => {
     const child = makeWorktree({
       id: lineage.worktreeId,
       repoId: 'repo1',
-      path: '/remote/child',
-      // Why: ingest stamps a server's rows; routing follows the stamp, not focus.
-      hostId: 'runtime:env-1'
+      path: '/remote/child'
     })
     const updatedChild = { ...child, lineage }
     runtimeEnvironmentCall.mockResolvedValue({
@@ -513,9 +511,7 @@ describe('worktree lineage state', () => {
     const child = makeWorktree({
       id: lineage.worktreeId,
       repoId: 'repo1',
-      path: '/remote/child',
-      // Why: ingest stamps a server's rows; routing follows the stamp, not focus.
-      hostId: 'runtime:env-1'
+      path: '/remote/child'
     })
     const updatedChild = { ...child, lineage }
     runtimeEnvironmentCall.mockResolvedValueOnce({
@@ -690,8 +686,6 @@ describe('worktree lineage state', () => {
       path: '/remote/child',
       lineage
     } as Partial<Worktree> & { id: string; repoId: string })
-    // Why: ingest stamps a server's rows; routing follows the stamp, not focus.
-    child.hostId = 'runtime:env-1'
     const updatedChild = { ...child, lineage: null }
     runtimeEnvironmentCall.mockResolvedValue({
       id: 'rpc-clear-lineage',

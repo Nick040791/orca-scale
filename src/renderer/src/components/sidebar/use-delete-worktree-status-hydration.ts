@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getConnectionId } from '@/lib/connection-context'
-import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
-import { ipcOrRuntimeTargetForHostId } from '@/runtime/runtime-client-target'
-import { getRuntimeGitStatus } from '@/runtime/runtime-git-status-client'
+import { getSettingsForWorktreeRuntimeOwner } from '@/lib/worktree-runtime-owner'
+import { getRuntimeGitStatus } from '@/runtime/runtime-git-client'
 import { findRepoForHost } from '@/store/slices/repo-host-identity'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { GitStatusResult } from '../../../../shared/git-status-types'
+import { parseExecutionHostId } from '../../../../shared/execution-host'
 import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
 import { isFolderWorkspaceDelete } from './delete-worktree-dialog-copy'
 import { orderDeleteWorktreeStatusHydrationTargets } from './delete-worktree-dirty-change-counts'
 
-const EMPTY_STATUS_BY_IDENTITY = new Map<string, GitStatusResult['entries'] | null>()
+const EMPTY_STATUS_BY_IDENTITY = new Map<string, GitStatusResult['entries']>()
 
 export function useDeleteWorktreeStatusHydration({
   isOpen,
@@ -24,13 +24,14 @@ export function useDeleteWorktreeStatusHydration({
   deleteTargets: readonly Worktree[]
   visibleTargets: readonly Worktree[]
   repoMap: ReadonlyMap<string, Repo>
-}): ReadonlyMap<string, GitStatusResult['entries'] | null> {
+}): ReadonlyMap<string, GitStatusResult['entries']> {
   const repos = useAppStore((state) => state.repos)
+  const settings = useAppStore((state) => state.settings)
   const generation = isOpen ? deleteTargets.map(getWorktreeHostIdentity).join('\n') : ''
   const generationRef = useRef(generation)
-  const [statusByIdentity, setStatusByIdentity] = useState<
-    Map<string, GitStatusResult['entries'] | null>
-  >(() => new Map())
+  const [statusByIdentity, setStatusByIdentity] = useState<Map<string, GitStatusResult['entries']>>(
+    () => new Map()
+  )
   const currentStatusByIdentity =
     generationRef.current === generation ? statusByIdentity : EMPTY_STATUS_BY_IDENTITY
 
@@ -61,16 +62,19 @@ export function useDeleteWorktreeStatusHydration({
       const owner = target.hostId
         ? findRepoForHost(repos, target.repoId, { hostId: target.hostId })
         : undefined
-      const ownerTarget = target.hostId
-        ? ipcOrRuntimeTargetForHostId(target.hostId)
-        : runtimeTargetForWorkspaceOwner(currentState, { workspaceId: target.id })
-      if (!ownerTarget) {
-        setStatusByIdentity((current) => new Map(current).set(identity, null))
-        continue
-      }
+      const parsedHost = parseExecutionHostId(target.hostId)
+      const runtimeEnvironmentId = parsedHost?.kind === 'runtime' ? parsedHost.environmentId : null
+      const runtimeSettings = target.hostId
+        ? settings
+          ? { ...settings, activeRuntimeEnvironmentId: runtimeEnvironmentId }
+          : { activeRuntimeEnvironmentId: runtimeEnvironmentId }
+        : getSettingsForWorktreeRuntimeOwner(
+            { repos, settings, worktreesByRepo: useAppStore.getState().worktreesByRepo },
+            target.id
+          )
       void getRuntimeGitStatus(
         {
-          target: ownerTarget,
+          settings: runtimeSettings,
           worktreeId: target.id,
           worktreePath: target.path,
           connectionId: target.hostId
@@ -85,15 +89,13 @@ export function useDeleteWorktreeStatusHydration({
           }
         })
         .catch(() => {
-          if (!controller.signal.aborted && generationRef.current === generation) {
-            setStatusByIdentity((current) => new Map(current).set(identity, null))
-          }
+          // Best effort only; deletion performs the authoritative backend check.
         })
     }
     return () => {
       controller.abort()
     }
-  }, [deleteTargets, generation, isOpen, repoMap, repos, visibleTargets])
+  }, [deleteTargets, generation, isOpen, repoMap, repos, settings, visibleTargets])
 
   return currentStatusByIdentity
 }

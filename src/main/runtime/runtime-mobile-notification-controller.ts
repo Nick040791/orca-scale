@@ -1,12 +1,5 @@
 import { reserveNotificationCooldown } from '../../shared/notification-burst-cooldown'
 import type { AgentStatusState } from '../../shared/agent-status-types'
-import {
-  agentSessionAttentionSubjectPrefix,
-  attentionOriginWasRead,
-  type StructuredAttentionOrigin,
-  type StructuredAttentionRead,
-  type StructuredAttentionState
-} from '../../shared/agent-session-attention'
 import type {
   MobilePushTestResult,
   MobilePushRegisterInput,
@@ -15,8 +8,10 @@ import type {
 import { MobileNotificationReplayBuffer } from './mobile-notification-replay'
 import { notifyRuntimeListeners } from './runtime-async-boundaries'
 import { getRuntimeDesktopSurface } from './runtime-desktop-surface'
-import { MobileNotificationDismissalStore } from './mobile-notification-dismissal-store'
-import type { DeliveredNotificationIdentity } from '../../shared/mobile-notification-identity'
+import {
+  MobileNotificationDismissalStore,
+  type DeliveredNotificationIdentity
+} from './mobile-notification-dismissal-store'
 
 export type MobileNotificationDispatchEvent = {
   type: 'notification'
@@ -28,17 +23,12 @@ export type MobileNotificationDispatchEvent = {
   title: string
   body: string
   worktreeId?: string
-  /** See `NotificationDispatchRequest.executionHost`; old phones ignore it and open the desktop's. */
-  executionHost?: `runtime:${string}`
   notificationId?: string
   notificationSeq?: number
   notificationEpoch?: string
   // Why: background push must tell "needs input" from "finished" without re-deriving
   // it from the title. Optional and additive — old clients ignore it.
   agentState?: AgentStatusState
-  /** See `NotificationDispatchRequest.attentionKey`: cooldowns key on it instead of the workspace. */
-  attentionKey?: string
-  structuredOrigin?: StructuredAttentionOrigin
 }
 
 export type MobileNotificationDismissEvent = {
@@ -46,7 +36,6 @@ export type MobileNotificationDismissEvent = {
   notificationId: string
   notificationSeq?: number
   notificationEpoch?: string
-  dismissedDelivery?: DeliveredNotificationIdentity
 }
 
 export type MobileNotificationEvent =
@@ -69,15 +58,6 @@ export class RuntimeMobileNotificationController {
 
   configureDismissalStore(userDataPath: string): void {
     this.dismissalStore = new MobileNotificationDismissalStore(userDataPath)
-  }
-
-  /** Waits for the pending dismissal write without closing the store. */
-  flushDismissals(): Promise<void> {
-    return this.dismissalStore?.flush() ?? Promise.resolve()
-  }
-
-  closeDismissals(): Promise<void> {
-    return this.dismissalStore?.close() ?? Promise.resolve()
   }
 
   reconcileDismissedPushes(
@@ -124,7 +104,7 @@ export class RuntimeMobileNotificationController {
         (event.emittedAt === undefined ||
           reserveNotificationCooldown(
             this.legacyCooldown,
-            event.attentionKey ?? event.worktreeId ?? 'global',
+            event.worktreeId ?? 'global',
             event.emittedAt
           ))
       event = {
@@ -165,37 +145,6 @@ export class RuntimeMobileNotificationController {
 
   dismiss(notificationId: string): void {
     this.dispatch({ type: 'dismiss', notificationId })
-  }
-
-  private retireDelivery(delivery: DeliveredNotificationIdentity): void {
-    this.dispatch({
-      type: 'dismiss',
-      notificationId: delivery.notificationId,
-      dismissedDelivery: {
-        notificationId: delivery.notificationId,
-        notificationEpoch: delivery.notificationEpoch,
-        notificationSeq: delivery.notificationSeq
-      }
-    })
-  }
-
-  retireStructuredAttention(read: StructuredAttentionRead): void {
-    for (const delivery of this.dismissalStore?.liveDeliveries() ?? []) {
-      if (attentionOriginWasRead(delivery.structuredOrigin, read)) {
-        this.retireDelivery(delivery)
-      }
-    }
-  }
-
-  reconcileStructuredPromptAttention(state: StructuredAttentionState): void {
-    const prefix = agentSessionAttentionSubjectPrefix(state.scope, state.sessionId)
-    const pending = new Set(state.pendingPromptIds)
-    for (const delivery of this.dismissalStore?.liveDeliveries(prefix) ?? []) {
-      const cause = delivery.structuredOrigin?.cause
-      if (cause?.kind === 'prompt' && !pending.has(cause.promptId)) {
-        this.retireDelivery(delivery)
-      }
-    }
   }
 
   async dispatchPlugin(input: {

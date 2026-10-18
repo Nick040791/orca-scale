@@ -1,8 +1,17 @@
 {
-  "goldenFormatVersion": 6,
   "operation": "host.worktree-actions",
   "family": "host.worktree-actions",
   "namedDeltas": [],
+  "runnerVersion": 1,
+  "baseline": "02a55944347346065453e179e071e64d9ae861dc",
+  "lockfileSha256": "9317f3a98ab047f9f96fe26fd8531b8a632ac5954064b322f41a904148cbf6bb",
+  "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
+  "adapterSha256": "92c29bd78ca0c0d5917e9386fc447bb9a1698b1d1ffaba0db7546eaac60da639",
+  "scenarioSha256": "054f1b1380fc6cfd4b0f4a85d6f143822a12a0a732d550dd85eef64a6556b3ba",
+  "platform": "darwin",
+  "scenarioVersion": 1,
+  "projectionVersion": 2,
+  "goldenFormatVersion": 5,
   "values": {
     "01ee62307265": {
       "name": "worktree.set#1",
@@ -203,54 +212,6 @@
         }
       }
     },
-    "2ef4e83a1a85": {
-      "confirmRemoveHost": false,
-      "lastKnownWorktrees": [
-        {
-          "branch": "feature/pin",
-          "displayName": "marlin",
-          "hasAttachedPty": false,
-          "isPinned": true,
-          "linkedPR": {
-            "$rpc": "null"
-          },
-          "liveTerminalCount": 0,
-          "path": "/repos/marlin/wt-1",
-          "preview": "",
-          "repo": "marlin",
-          "repoId": "repo-1",
-          "unread": false,
-          "worktreeId": "wt-1"
-        }
-      ],
-      "optimisticActiveWorktreeIdentity": {
-        "$rpc": "null"
-      },
-      "pinnedIds": ["wt-1"],
-      "routeActionState": {},
-      "serverWorkspaces": {
-        "hosts": [],
-        "worktrees": []
-      },
-      "worktrees": [
-        {
-          "branch": "feature/pin",
-          "displayName": "marlin",
-          "hasAttachedPty": false,
-          "isPinned": true,
-          "linkedPR": {
-            "$rpc": "null"
-          },
-          "liveTerminalCount": 0,
-          "path": "/repos/marlin/wt-1",
-          "preview": "",
-          "repo": "marlin",
-          "repoId": "repo-1",
-          "unread": false,
-          "worktreeId": "wt-1"
-        }
-      ]
-    },
     "33ef7c1e7ddd": {
       "name": "worktree.set#1",
       "ordinal": 4,
@@ -286,18 +247,6 @@
           "ok": false
         }
       }
-    },
-    "38c12b517ad0": {
-      "confirmRemoveHost": false,
-      "lastKnownWorktrees": [],
-      "optimisticActiveWorktreeIdentity": "|wt-1",
-      "pinnedIds": ["wt-1"],
-      "routeActionState": {},
-      "serverWorkspaces": {
-        "hosts": [],
-        "worktrees": []
-      },
-      "worktrees": []
     },
     "38ff2d87e8b1": {
       "name": "worktree.set#1",
@@ -375,6 +324,14 @@
       "name": "worktree.activate#1",
       "ordinal": 8,
       "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"worktree.activate\",\"params\":{\"worktree\":\"id:wt-1\",\"notifyClients\":false,\"navigation\":\"caller\"}}"
+    },
+    "6e959a9dd70e": {
+      "confirmRemoveHost": false,
+      "lastKnownWorktrees": [],
+      "optimisticActiveWorktreeIdentity": "|wt-1",
+      "pinnedIds": ["wt-1"],
+      "routeActionState": {},
+      "worktrees": []
     },
     "74a52ecbdd8d": {
       "name": "worktree.set#1",
@@ -454,6 +411,50 @@
       "name": "worktree.set#1",
       "ordinal": 5,
       "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"worktree.set\",\"params\":{\"worktree\":\"id:wt-1\",\"isPinned\":true}}"
+    },
+    "9a9b0d6699b2": {
+      "confirmRemoveHost": false,
+      "lastKnownWorktrees": [
+        {
+          "branch": "feature/pin",
+          "displayName": "marlin",
+          "hasAttachedPty": false,
+          "isPinned": true,
+          "linkedPR": {
+            "$rpc": "null"
+          },
+          "liveTerminalCount": 0,
+          "path": "/repos/marlin/wt-1",
+          "preview": "",
+          "repo": "marlin",
+          "repoId": "repo-1",
+          "unread": false,
+          "worktreeId": "wt-1"
+        }
+      ],
+      "optimisticActiveWorktreeIdentity": {
+        "$rpc": "null"
+      },
+      "pinnedIds": ["wt-1"],
+      "routeActionState": {},
+      "worktrees": [
+        {
+          "branch": "feature/pin",
+          "displayName": "marlin",
+          "hasAttachedPty": false,
+          "isPinned": true,
+          "linkedPR": {
+            "$rpc": "null"
+          },
+          "liveTerminalCount": 0,
+          "path": "/repos/marlin/wt-1",
+          "preview": "",
+          "repo": "marlin",
+          "repoId": "repo-1",
+          "unread": false,
+          "worktreeId": "wt-1"
+        }
+      ]
     },
     "a0224ad477f4": {
       "name": "worktree.set#1",
@@ -678,7 +679,7 @@
             "mount": "eb79a9b3682a",
             "toggle-pin": "eb79a9b3682a"
           },
-          "state": "2ef4e83a1a85",
+          "state": "9a9b0d6699b2",
           "effects": ["ca91c555e48e", "da6c9e1a507d", "14ce9f03298e"]
         }
       },
@@ -693,7 +694,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -715,7 +716,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -737,7 +738,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -759,7 +760,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -781,7 +782,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -803,7 +804,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -825,7 +826,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -847,7 +848,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -869,7 +870,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -891,7 +892,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -913,7 +914,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -935,7 +936,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -957,7 +958,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -979,7 +980,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1001,7 +1002,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1023,7 +1024,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1045,7 +1046,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1067,7 +1068,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1089,7 +1090,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1111,7 +1112,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1133,7 +1134,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "9270aeb7d9c6"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",
@@ -1155,7 +1156,7 @@
             "open-session": "eb79a9b3682a",
             "delete": "eb79a9b3682a"
           },
-          "state": "38c12b517ad0",
+          "state": "6e959a9dd70e",
           "effects": [
             "ca91c555e48e",
             "da6c9e1a507d",

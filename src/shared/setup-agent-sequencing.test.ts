@@ -10,11 +10,15 @@ import {
   createSequencedSetupAgentCommands,
   createSetupAgentSequenceNonce,
   SETUP_COMPLETE_MESSAGE,
+  getSetupAgentSequenceShellForTests,
   resolveSetupAgentSequenceLaunchCommand,
   SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV,
   SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV
 } from './setup-agent-sequencing'
-import { shouldWaitForSetupBeforeAgentStartup } from './setup-agent-startup-policy'
+import {
+  DEFAULT_SETUP_AGENT_STARTUP_POLICY,
+  shouldWaitForSetupBeforeAgentStartup
+} from './setup-agent-startup-policy'
 
 const TEMP_DIRS: string[] = []
 const WINDOWS_PROCESS_TEST_TIMEOUT_MS = 30_000
@@ -27,6 +31,7 @@ afterEach(() => {
 
 describe('createSequencedSetupAgentCommands', () => {
   it('defaults agent startup to immediate unless the wait policy is explicit', () => {
+    expect(DEFAULT_SETUP_AGENT_STARTUP_POLICY).toBe('start-immediately')
     expect(getDefaultRepoHookSettings().setupAgentStartupPolicy).toBe('start-immediately')
     expect(shouldWaitForSetupBeforeAgentStartup(undefined)).toBe(false)
     expect(shouldWaitForSetupBeforeAgentStartup('start-immediately')).toBe(false)
@@ -224,6 +229,7 @@ describe('createSequencedSetupAgentCommands', () => {
       nonce: 'nonce-wsl'
     })
 
+    expect(getSetupAgentSequenceShellForTests(resultPathWsl(), 'windows')).toBe('posix')
     expect(result.setupCommand).toContain(
       'bash /home/jin/repo/.git/worktrees/feature/orca/setup-runner.sh'
     )
@@ -601,6 +607,10 @@ describe('createSetupAgentSequenceNonce', () => {
     vi.stubGlobal('crypto', originalCrypto)
   })
 })
+
+function resultPathWsl(): string {
+  return '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh'
+}
 
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'orca-setup-sequencing-'))

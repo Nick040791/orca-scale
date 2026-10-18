@@ -3,13 +3,18 @@ import { stat } from 'node:fs/promises'
 import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree/id'
 import type { Repo } from '../../shared/repo-types'
 import type { Worktree } from '../../shared/worktree/types'
+import { gitExecFileAsync } from '../git/runner'
 import { isENOENT } from '../ipc/filesystem-auth'
 import {
   getLocalWorktreePathAccess,
   toLocalWorktreeRuntimePath
 } from '../local-worktree-filesystem'
+import {
+  ExecutionHostNotDispatchableError,
+  resolveFilesystemRouteForHost
+} from '../providers/execution-host-provider-dispatch'
 import { isWorktreePathMissing } from '../worktree-removal-safety'
-import { getRepoExecutionHostId } from '../../shared/execution-host'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { getRepoOwnedWorktreeMeta } from '../worktree-metadata-ownership'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import {
@@ -18,18 +23,44 @@ import {
   mergeRuntimeFolderWorkspace
 } from './runtime-folder-workspace'
 import type { RuntimeStore } from './runtime-store-contract'
-import { isWslMoveRepoBlocked } from '../persistence/moving-wsl-projects/wsl-move-background-backoff'
+import { gitStatusErrorMeansNotRepository } from './runtime-worktree-selection'
 
-/** Callers hold a local removal route; an `ssh:` or `runtime:` host is refused before this. */
-export async function isLocalRuntimeWorktreePathMissing(
+// Takes the resolved host rather than the repo: reading `repo.connectionId` answered "stat this on
+// the client" for a row that names its owner only as `executionHostId: 'ssh:<target>'`, which is
+// the evidence a forced removal prunes registrations on.
+export async function isRuntimeWorktreePathMissing(
+  hostId: ExecutionHostId,
   worktreePath: string,
   localWorktreeGitOptions: { wslDistro?: string } = {}
 ): Promise<boolean> {
-  const access = getLocalWorktreePathAccess(localWorktreeGitOptions)
-  return isWorktreePathMissing(
-    toLocalWorktreeRuntimePath(worktreePath, localWorktreeGitOptions),
-    access.statPath
-  )
+  const route = resolveFilesystemRouteForHost(hostId)
+  if (route.kind === 'runtime') {
+    throw new ExecutionHostNotDispatchableError(route.hostId)
+  }
+  if (route.kind === 'local') {
+    const access = getLocalWorktreePathAccess(localWorktreeGitOptions)
+    return isWorktreePathMissing(
+      toLocalWorktreeRuntimePath(worktreePath, localWorktreeGitOptions),
+      access.statPath
+    )
+  }
+  const fsProvider = route.provider
+  return fsProvider ? isWorktreePathMissing(worktreePath, (path) => fsProvider.stat(path)) : false
+}
+
+export async function isLocalRuntimeGitRepository(
+  runtimeWorktreePath: string,
+  localWorktreeGitOptions: { wslDistro?: string } = {}
+): Promise<boolean> {
+  try {
+    await gitExecFileAsync(['status', '--short'], {
+      cwd: runtimeWorktreePath,
+      ...localWorktreeGitOptions
+    })
+    return true
+  } catch (error) {
+    return !gitStatusErrorMeansNotRepository(error)
+  }
 }
 
 function getRuntimeFolderWorkspaceInstanceIdentity(repo: Repo, worktreeId: string): string {
@@ -45,8 +76,6 @@ export function listRuntimeFolderWorkspaces(
   const rootId = getRuntimeFolderWorkspaceRootId(repo)
   const allMeta = store.getAllWorktreeMeta()
   const expectedHostId = getRepoExecutionHostId(repo)
-  // A project a WSL move is taking still lists, without stamping identities it lacks.
-  const canWrite = !isWslMoveRepoBlocked(repo)
   const ids = Object.keys(allMeta).filter(
     (worktreeId) =>
       isRuntimeFolderWorkspaceIdForRepo(repo, worktreeId) &&
@@ -61,12 +90,12 @@ export function listRuntimeFolderWorkspaces(
     const existing = getRepoOwnedWorktreeMeta(repo, worktreeId, allMeta, repoOwnerCount)
     const meta: Partial<WorktreeMeta> = existing?.instanceId
       ? existing
-      : canWrite && (existing || repoOwnerCount === 1)
+      : existing || repoOwnerCount === 1
         ? store.setWorktreeMeta(worktreeId, {
             instanceId: getRuntimeFolderWorkspaceInstanceIdentity(repo, worktreeId),
             ...(existing ? {} : { displayName: repo.displayName, lastActivityAt: Date.now() })
           })
-        : (existing ?? {})
+        : {}
     return {
       ...mergeRuntimeFolderWorkspace(repo, worktreeId, meta),
       hostId: repoOwnerCount === 1 ? (meta.hostId ?? expectedHostId) : expectedHostId

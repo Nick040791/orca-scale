@@ -51,7 +51,7 @@ export class RuntimeArtifactController {
 
   private requireService(): ArtifactCloudService {
     if (!this.service) {
-      throw new Error("Artifact sharing isn't available on this Orca server.")
+      throw new Error('Artifact service is unavailable.')
     }
     return this.service
   }

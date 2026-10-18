@@ -161,7 +161,7 @@ describe('canAssignWorktreeParent', () => {
     ).toBe(false)
   })
 
-  it('offers parents from another repository on the same host', () => {
+  it('stays repo-agnostic while the picker candidate filter is repo and host scoped', () => {
     const child = makeWorktree('child', 'repo-a')
     const sameRepo = makeWorktree('same-repo', 'repo-a')
     const otherRepo = makeWorktree('other-repo', 'repo-b')
@@ -186,7 +186,7 @@ describe('canAssignWorktreeParent', () => {
           { id: 'repo-b', connectionId: null, executionHostId: 'local' }
         ])
       }).map((worktree) => worktree.id)
-    ).toEqual([sameRepo.id, otherRepo.id])
+    ).toEqual([sameRepo.id])
   })
 
   it('excludes same-repo candidates owned by a different runtime host', () => {
@@ -211,7 +211,7 @@ describe('canAssignWorktreeParent', () => {
     ).toEqual([sameHost.id])
   })
 
-  it('allows another project for picker and direct drop checks', () => {
+  it('excludes a candidate across a known project boundary for picker and direct drop checks', () => {
     const child = { ...makeWorktree('child'), projectId: 'project-a' }
     const sameProject = { ...makeWorktree('same-project'), projectId: 'project-a' }
     const otherProject = { ...makeWorktree('other-project'), projectId: 'project-b' }
@@ -227,7 +227,7 @@ describe('canAssignWorktreeParent', () => {
         worktreeMap,
         repoMap
       }).map((worktree) => worktree.id)
-    ).toEqual([sameProject.id, otherProject.id])
+    ).toEqual([sameProject.id])
     expect(
       isEligibleWorktreeParent({
         child,
@@ -236,7 +236,7 @@ describe('canAssignWorktreeParent', () => {
         worktreeMap,
         repoMap
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('excludes archived worktrees from picker candidates', () => {

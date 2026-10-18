@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const runProcessMock = vi.fn()
-vi.mock('@orca/process-host', () => ({
+vi.mock('../../shared/child-process/run-process', () => ({
   runProcess: (spec: unknown) => runProcessMock(spec)
 }))
 

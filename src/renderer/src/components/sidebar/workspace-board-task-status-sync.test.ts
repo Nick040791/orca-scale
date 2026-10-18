@@ -85,7 +85,7 @@ function setup(overrides: Partial<Worktree> = {}) {
         worktreeIds: [item.id],
         targetStatus: target,
         worktreesById: new Map([[item.id, item]]),
-        settings: { kind: 'environment', environmentId: 'runtime-1' },
+        settings: { activeRuntimeEnvironmentId: 'runtime-1' },
         getLatestWorkspaceStatus: () => target.id,
         deps: { getIssue, teamStates, updateIssue }
       })
@@ -99,17 +99,17 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
     await expect(run()).resolves.toEqual({ updated: 1, skipped: 0, failed: 0, messages: [] })
 
     expect(getIssue).toHaveBeenCalledWith(
-      { kind: 'environment', environmentId: 'runtime-1' },
+      { activeRuntimeEnvironmentId: 'runtime-1' },
       'ORC-1',
       'workspace-1'
     )
     expect(teamStates).toHaveBeenCalledWith(
-      { kind: 'environment', environmentId: 'runtime-1' },
+      { activeRuntimeEnvironmentId: 'runtime-1' },
       'team-1',
       'workspace-1'
     )
     expect(updateIssue).toHaveBeenCalledWith(
-      { kind: 'environment', environmentId: 'runtime-1' },
+      { activeRuntimeEnvironmentId: 'runtime-1' },
       'issue-1',
       { stateId: 'state-review' },
       'workspace-1'
@@ -126,15 +126,15 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
       worktreeIds: [item.id],
       targetStatus: target,
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'local' },
+      settings: null,
       getLatestWorkspaceStatus: () => target.id,
       deps: { getIssue, teamStates, updateIssue }
     })
 
-    expect(getIssue).toHaveBeenCalledWith({ kind: 'local' }, 'ORC-1', undefined)
-    expect(teamStates).toHaveBeenCalledWith({ kind: 'local' }, 'team-1', 'issue-workspace')
+    expect(getIssue).toHaveBeenCalledWith(null, 'ORC-1', undefined)
+    expect(teamStates).toHaveBeenCalledWith(null, 'team-1', 'issue-workspace')
     expect(updateIssue).toHaveBeenCalledWith(
-      { kind: 'local' },
+      null,
       'issue-1',
       { stateId: 'state-review' },
       'issue-workspace'
@@ -152,8 +152,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
     const teamStates = vi.fn().mockResolvedValue([state()])
     const updateIssue = vi.fn<() => Promise<LinearMutationResult>>().mockResolvedValue({ ok: true })
     const getSettingsForWorktree = vi.fn((worktreeId: string) => ({
-      kind: 'environment' as const,
-      environmentId: worktreeId.startsWith('repo-a') ? 'runtime-a' : 'runtime-b'
+      activeRuntimeEnvironmentId: worktreeId.startsWith('repo-a') ? 'runtime-a' : 'runtime-b'
     }))
 
     await syncWorkspaceBoardTaskStatuses({
@@ -163,7 +162,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
         [first.id, first],
         [second.id, second]
       ]),
-      settings: { kind: 'environment', environmentId: 'focused-runtime' },
+      settings: { activeRuntimeEnvironmentId: 'focused-runtime' },
       getSettingsForWorktree,
       getLatestWorkspaceStatus: () => target.id,
       deps: { getIssue, teamStates, updateIssue }
@@ -173,78 +172,55 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
     expect(getSettingsForWorktree).toHaveBeenCalledWith(second.id)
     expect(getIssue).toHaveBeenNthCalledWith(
       1,
-      { kind: 'environment', environmentId: 'runtime-a' },
+      { activeRuntimeEnvironmentId: 'runtime-a' },
       'ORC-1',
       'workspace-1'
     )
     expect(getIssue).toHaveBeenNthCalledWith(
       2,
-      { kind: 'environment', environmentId: 'runtime-b' },
+      { activeRuntimeEnvironmentId: 'runtime-b' },
       'ORC-2',
       'workspace-1'
     )
     expect(updateIssue).toHaveBeenNthCalledWith(
       1,
-      { kind: 'environment', environmentId: 'runtime-a' },
+      { activeRuntimeEnvironmentId: 'runtime-a' },
       'issue-1',
       { stateId: 'state-review' },
       'workspace-1'
     )
     expect(updateIssue).toHaveBeenNthCalledWith(
       2,
-      { kind: 'environment', environmentId: 'runtime-b' },
+      { activeRuntimeEnvironmentId: 'runtime-b' },
       'issue-2',
       { stateId: 'state-review' },
       'workspace-1'
     )
   })
 
-  it('uses this computer when the moved worktree resolver names it', async () => {
+  it('preserves null settings from the moved worktree resolver', async () => {
     const { item, target, getIssue, teamStates, updateIssue } = setup()
-    const getSettingsForWorktree = vi.fn(() => ({ kind: 'local' as const }))
+    const getSettingsForWorktree = vi.fn(() => null)
 
     await syncWorkspaceBoardTaskStatuses({
       worktreeIds: [item.id],
       targetStatus: target,
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'environment', environmentId: 'focused-runtime' },
+      settings: { activeRuntimeEnvironmentId: 'focused-runtime' },
       getSettingsForWorktree,
       getLatestWorkspaceStatus: () => target.id,
       deps: { getIssue, teamStates, updateIssue }
     })
 
     expect(getSettingsForWorktree).toHaveBeenCalledWith(item.id)
-    expect(getIssue).toHaveBeenCalledWith({ kind: 'local' }, 'ORC-1', 'workspace-1')
-    expect(teamStates).toHaveBeenCalledWith({ kind: 'local' }, 'team-1', 'workspace-1')
+    expect(getIssue).toHaveBeenCalledWith(null, 'ORC-1', 'workspace-1')
+    expect(teamStates).toHaveBeenCalledWith(null, 'team-1', 'workspace-1')
     expect(updateIssue).toHaveBeenCalledWith(
-      { kind: 'local' },
+      null,
       'issue-1',
       { stateId: 'state-review' },
       'workspace-1'
     )
-  })
-
-  it('skips a worktree whose owner refuses settings, without reading Linear', async () => {
-    const { item, target, getIssue, teamStates, updateIssue } = setup()
-
-    const result = await syncWorkspaceBoardTaskStatuses({
-      worktreeIds: [item.id],
-      targetStatus: target,
-      worktreesById: new Map([[item.id, item]]),
-      getSettingsForWorktree: () => null,
-      getLatestWorkspaceStatus: () => target.id,
-      deps: { getIssue, teamStates, updateIssue }
-    })
-
-    expect(getIssue).not.toHaveBeenCalled()
-    expect(teamStates).not.toHaveBeenCalled()
-    expect(updateIssue).not.toHaveBeenCalled()
-    expect(result).toEqual({
-      updated: 0,
-      skipped: 1,
-      failed: 0,
-      messages: [{ kind: 'owner-ambiguous', issueIdentifier: 'ORC-1' }]
-    })
   })
 
   it('skips worktrees without linked Linear issues', async () => {
@@ -254,7 +230,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
       worktreeIds: [item.id],
       targetStatus: target,
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'local' },
+      settings: null,
       getLatestWorkspaceStatus: () => target.id,
       deps: { getIssue, teamStates, updateIssue }
     })
@@ -310,7 +286,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
       worktreeIds: [item.id],
       targetStatus: target,
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'local' },
+      settings: null,
       getLatestWorkspaceStatus: () => 'done',
       deps: { getIssue, teamStates, updateIssue }
     })
@@ -336,7 +312,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
       worktreeIds: [item.id],
       targetStatus: targetStatus(),
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'local' },
+      settings: null,
       getLatestWorkspaceStatus: () => 'in-review',
       deps: { getIssue, teamStates, updateIssue }
     })
@@ -347,7 +323,7 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
       worktreeIds: [item.id],
       targetStatus: targetStatus({ id: 'done', label: 'Done' }),
       worktreesById: new Map([[item.id, item]]),
-      settings: { kind: 'local' },
+      settings: null,
       getLatestWorkspaceStatus: () => 'done',
       deps: { getIssue, teamStates, updateIssue }
     })
@@ -360,14 +336,14 @@ describe('syncWorkspaceBoardTaskStatuses', () => {
 
     expect(updateIssue).toHaveBeenNthCalledWith(
       1,
-      { kind: 'local' },
+      null,
       'issue-1',
       { stateId: 'state-review' },
       'workspace-1'
     )
     expect(updateIssue).toHaveBeenNthCalledWith(
       2,
-      { kind: 'local' },
+      null,
       'issue-1',
       { stateId: 'state-done' },
       'workspace-1'

@@ -50,9 +50,7 @@ describe('createGitHubSlice.fetchProjectViewTable coordination', () => {
     const table = makeTable()
     store.setState({ projectViewCache: { [cacheKey]: { data: table, fetchedAt: Date.now() } } })
 
-    await expect(
-      store.getState().fetchProjectViewTable({ kind: 'local' }, request)
-    ).resolves.toEqual({
+    await expect(store.getState().fetchProjectViewTable(request)).resolves.toEqual({
       ok: true,
       data: table
     })
@@ -64,8 +62,8 @@ describe('createGitHubSlice.fetchProjectViewTable coordination', () => {
     const pending = Promise.withResolvers<GetProjectViewTableResult>()
     mockApi.gh.getProjectViewTable.mockReturnValueOnce(pending.promise)
 
-    const first = store.getState().fetchProjectViewTable({ kind: 'local' }, request)
-    const duplicate = store.getState().fetchProjectViewTable({ kind: 'local' }, request)
+    const first = store.getState().fetchProjectViewTable(request)
+    const duplicate = store.getState().fetchProjectViewTable(request)
     pending.resolve({ ok: true, data: makeTable() })
 
     await expect(Promise.all([first, duplicate])).resolves.toEqual([
@@ -75,24 +73,20 @@ describe('createGitHubSlice.fetchProjectViewTable coordination', () => {
     expect(mockApi.gh.getProjectViewTable).toHaveBeenCalledTimes(1)
   })
 
-  it('shares one fresh request across twenty forced waiters after a weaker request', async () => {
+  it('lets each forced waiter start after a weaker request settles', async () => {
     const store = createTestStore()
     const weak = Promise.withResolvers<GetProjectViewTableResult>()
     mockApi.gh.getProjectViewTable
       .mockReturnValueOnce(weak.promise)
       .mockResolvedValue({ ok: true, data: makeTable('forced') })
 
-    const first = store.getState().fetchProjectViewTable({ kind: 'local' }, request)
-    const forced = Array.from({ length: 20 }, () =>
-      store.getState().fetchProjectViewTable({ kind: 'local' }, request, { force: true })
-    )
+    const first = store.getState().fetchProjectViewTable(request)
+    const forcedOne = store.getState().fetchProjectViewTable(request, { force: true })
+    const forcedTwo = store.getState().fetchProjectViewTable(request, { force: true })
     weak.resolve({ ok: true, data: makeTable('weak') })
 
-    await expect(first).resolves.toEqual({ ok: true, data: makeTable('weak') })
-    await expect(Promise.all(forced)).resolves.toEqual(
-      Array.from({ length: 20 }, () => ({ ok: true, data: makeTable('forced') }))
-    )
-    expect(mockApi.gh.getProjectViewTable).toHaveBeenCalledTimes(2)
+    await expect(Promise.all([first, forcedOne, forcedTwo])).resolves.toHaveLength(3)
+    expect(mockApi.gh.getProjectViewTable).toHaveBeenCalledTimes(3)
   })
 
   it('stamps a classified failure onto stale data only when the view key is known', async () => {
@@ -102,24 +96,21 @@ describe('createGitHubSlice.fetchProjectViewTable coordination', () => {
     store.setState({ projectViewCache: { [cacheKey]: { data: stale, fetchedAt: 1 } } })
     mockApi.gh.getProjectViewTable.mockResolvedValueOnce({ ok: false, error })
 
-    await expect(
-      store.getState().fetchProjectViewTable({ kind: 'local' }, request, { force: true })
-    ).resolves.toEqual({
-      ok: false,
-      error
-    })
+    await expect(store.getState().fetchProjectViewTable(request, { force: true })).resolves.toEqual(
+      {
+        ok: false,
+        error
+      }
+    )
     expect(store.getState().projectViewCache[cacheKey]).toMatchObject({ data: stale, error })
 
     mockApi.gh.getProjectViewTable.mockResolvedValueOnce({ ok: false, error })
     await expect(
-      store.getState().fetchProjectViewTable(
-        { kind: 'local' },
-        {
-          owner: 'acme',
-          ownerType: 'organization',
-          projectNumber: 1
-        }
-      )
+      store.getState().fetchProjectViewTable({
+        owner: 'acme',
+        ownerType: 'organization',
+        projectNumber: 1
+      })
     ).resolves.toEqual({ ok: false, error })
     expect(Object.keys(store.getState().projectViewCache)).toEqual([cacheKey])
   })
@@ -128,14 +119,11 @@ describe('createGitHubSlice.fetchProjectViewTable coordination', () => {
     mockApi.gh.getProjectViewTable.mockRejectedValueOnce(new Error('transport offline'))
 
     await expect(
-      store.getState().fetchProjectViewTable(
-        { kind: 'local' },
-        {
-          owner: 'acme',
-          ownerType: 'organization',
-          projectNumber: 1
-        }
-      )
+      store.getState().fetchProjectViewTable({
+        owner: 'acme',
+        ownerType: 'organization',
+        projectNumber: 1
+      })
     ).resolves.toEqual({
       ok: false,
       error: { type: 'unknown', message: 'transport offline' }

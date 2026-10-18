@@ -106,14 +106,14 @@ function spawnOnConnect(transport: MockTransport, ptyId: string): void {
 // force-park); spending it on a later respawn drops a command queued after the first launch
 // (STA-4876).
 describe('connectPanePty queued startup consume', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
     mockStoreState = createInitialStoreState(() => mockStoreState)
-    await installTerminalTestGlobals()
+    installTerminalTestGlobals()
   })
 
   afterEach(async () => {

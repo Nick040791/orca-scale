@@ -1,7 +1,7 @@
 import type { prepareWebSessionTabsSnapshotBrowser } from './apply-preparation-browser'
 import { buildTerminalUnifiedTab } from './tab-builders'
 import { isAgentSessionTab } from './terminal-surfaces'
-import { toWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
+import { toWebTerminalSurfaceTabId } from '../web-runtime-session'
 import {
   resolveWebSessionSiblingVisibleTabId,
   resolveWebSessionVisibleTabId
@@ -230,8 +230,7 @@ export function prepareWebSessionTabsSnapshotUnified(
     terminalTabs: mirroredTerminalTabEntries,
     browserTabs: mirroredBrowserTabs,
     editorTabs: mirroredEditorTabs,
-    agentTabs: mirroredAgentTabs,
-    hostGroupIdByTabId
+    agentTabs: mirroredAgentTabs
   })
 
   return {

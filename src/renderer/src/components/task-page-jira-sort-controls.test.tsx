@@ -1,4 +1,3 @@
-import { defaultJiraListColumnIds, visibleJiraListColumns } from './jira-list-columns'
 // @vitest-environment happy-dom
 
 import '@testing-library/jest-dom/vitest'
@@ -19,12 +18,7 @@ function renderControls(
 ): ReturnType<typeof render> {
   return render(
     <TooltipProvider>
-      <TaskPageJiraSortControls
-        columns={visibleJiraListColumns(defaultJiraListColumnIds())}
-        direction={direction}
-        onSort={onSort}
-        orderBy={orderBy}
-      />
+      <TaskPageJiraSortControls direction={direction} onSort={onSort} orderBy={orderBy} />
     </TooltipProvider>
   )
 }
@@ -39,7 +33,7 @@ describe('TaskPage Jira sort controls', () => {
       'aria-pressed',
       'true'
     )
-    expect(screen.getByRole('button', { name: 'Assignee' })).toHaveClass('flex', '@max-5xl:!hidden')
+    expect(screen.getByRole('button', { name: 'Assignee' })).toHaveClass('flex', 'max-lg:!hidden')
     expect(screen.getByRole('button', { name: 'Assignee' })).not.toHaveClass('block')
 
     await user.click(screen.getByRole('button', { name: 'Key' }))
@@ -51,7 +45,7 @@ describe('TaskPage Jira sort controls', () => {
     const onSort = vi.fn()
     renderControls(onSort)
 
-    expect(screen.getByTestId('jira-mobile-sort-controls')).toHaveClass('hidden', '@max-3xl:!flex')
+    expect(screen.getByTestId('jira-mobile-sort-controls')).toHaveClass('hidden', 'max-md:!flex')
     await user.click(screen.getByRole('combobox', { name: 'Sort by' }))
     await user.click(screen.getByRole('option', { name: 'Priority' }))
     expect(onSort).toHaveBeenCalledWith('priority')

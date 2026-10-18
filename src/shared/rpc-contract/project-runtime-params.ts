@@ -91,6 +91,5 @@ export const ProjectHostSetupUpdate = z.object({
 })
 
 export const ProjectHostSetupDelete = z.object({
-  setupId: requiredString('Missing setup ID'),
-  force: z.boolean().optional()
+  setupId: requiredString('Missing setup ID')
 })

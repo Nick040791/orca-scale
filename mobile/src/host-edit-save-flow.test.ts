@@ -42,7 +42,7 @@ vi.mock('./transport/host-store', () => ({
   updateHostNameAndEndpoint: dependencies.updateHostNameAndEndpoint
 }))
 
-vi.mock('./transport/host-client-hooks', () => ({
+vi.mock('./transport/client-context', () => ({
   usePrimeHosts: () => dependencies.primeHosts,
   useRefreshHostClient: () => dependencies.refreshHostClient
 }))

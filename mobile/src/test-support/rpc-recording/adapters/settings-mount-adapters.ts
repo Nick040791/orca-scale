@@ -1,11 +1,16 @@
-import type * as ResumeMetadata from '../../../agent-history/mobile-agent-history-resume-metadata'
 import type { OperationExposure } from '../operation-module-loader'
 import type { MountAdapter } from '../recording-scenario'
 import { hookMount } from '../hook-mount'
 import { observableModel, projectObservable } from '../observable-model'
 import { operationModuleLoader } from '../operation-module-loader'
 
-export const settingsMountExposures: readonly OperationExposure[] = []
+/** `loadMobileResumeMetadata` is module-private in the panel; exposing it beats editing pinned source. */
+export const settingsMountExposures: readonly OperationExposure[] = [
+  [
+    'MobileAgentSessionHistoryPanel.tsx',
+    '\nexports.loadMobileResumeMetadata = loadMobileResumeMetadata;'
+  ]
+]
 
 export function settingsMountAdapters(
   modules: ReturnType<typeof operationModuleLoader>
@@ -105,8 +110,8 @@ export function settingsMountAdapters(
       }
     },
     'settings.resume-metadata': ({ client }) => {
-      const load = modules.load<typeof ResumeMetadata>(
-        'mobile/src/agent-history/mobile-agent-history-resume-metadata.ts'
+      const load = modules.load(
+        'mobile/src/agent-history/MobileAgentSessionHistoryPanel.tsx'
       ).loadMobileResumeMetadata
       return { action: () => load(client), state: () => ({}), dispose: () => {} }
     },
@@ -151,8 +156,9 @@ export function settingsMountAdapters(
       const model = observableModel(context, {
         client: context.client,
         connState: 'connected',
-        jiraStatusRequestIdRef: { current: 0 },
         defaultLinearTeamSelectionRef: { current: null },
+        defaultRepoSelectionRef: { current: null },
+        repoSelectionHydratedRef: { current: false },
         taskResumeRef: { current: {} },
         runtimeTaskSettings: {},
         taskStateHydrated: false,

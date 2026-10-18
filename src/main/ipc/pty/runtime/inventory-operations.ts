@@ -1,17 +1,23 @@
-import { getPtyIdsForHost } from '../provider/ownership-state'
+import { ptyOwnership } from '../provider/ownership-state'
 import { getProvider, localProvider, registeredPtyProviders } from '../provider/registry'
-import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  toSshExecutionHostId,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import type { PtyProcessInfo } from '../../../providers/pty-process-info'
 import type { PtyRuntimeControllerDeps } from './controller-deps'
 
 function markSshInventoryUnverifiable(
   runtime: PtyRuntimeControllerDeps['runtime'],
-  hostId: ExecutionHostId,
+  connectionId: string,
   error: unknown
 ): void {
   const reason = error instanceof Error ? error.message : String(error)
-  for (const ptyId of getPtyIdsForHost(hostId)) {
-    runtime?.markPtyLivenessUnverifiable?.(ptyId, reason)
+  for (const [ptyId, ownerConnectionId] of ptyOwnership) {
+    if (ownerConnectionId === connectionId) {
+      runtime?.markPtyLivenessUnverifiable?.(ptyId, reason)
+    }
   }
 }
 
@@ -20,18 +26,20 @@ export async function listProcessesWithHostScopeFromRuntimeController(
   opts?: { deadlineMs?: number; includeForegroundProcessEvidence?: boolean }
 ): Promise<{ processes: PtyProcessInfo[]; hostIds: ExecutionHostId[] }> {
   const providerSessions = await Promise.all(
-    registeredPtyProviders().map(async ({ provider, hostId }) => {
-      const isLocal = hostId === LOCAL_EXECUTION_HOST_ID
+    registeredPtyProviders().map(async ({ provider, connectionId }) => {
+      const hostId: ExecutionHostId = connectionId
+        ? toSshExecutionHostId(connectionId)
+        : LOCAL_EXECUTION_HOST_ID
       try {
         return {
-          processes: await (isLocal ? provider.listProcesses() : provider.listProcesses(opts)),
+          processes: await (connectionId ? provider.listProcesses(opts) : provider.listProcesses()),
           hostId
         }
       } catch (error) {
-        if (isLocal) {
+        if (!connectionId) {
           throw error
         }
-        markSshInventoryUnverifiable(deps.runtime, hostId, error)
+        markSshInventoryUnverifiable(deps.runtime, connectionId, error)
         return null
       }
     })
@@ -45,17 +53,17 @@ export async function listProcessesWithHostScopeFromRuntimeController(
 
 export async function listProcessesFromRuntimeController(
   deps: PtyRuntimeControllerDeps,
-  hostId?: ExecutionHostId,
+  connectionId?: string | null,
   opts?: { deadlineMs?: number; includeForegroundProcessEvidence?: boolean }
 ) {
-  if (hostId === LOCAL_EXECUTION_HOST_ID) {
+  if (connectionId === null) {
     return localProvider.listProcesses()
   }
-  if (hostId !== undefined) {
+  if (connectionId !== undefined) {
     try {
-      return await getProvider(hostId).listProcesses(opts)
+      return await getProvider(connectionId).listProcesses(opts)
     } catch (error) {
-      markSshInventoryUnverifiable(deps.runtime, hostId, error)
+      markSshInventoryUnverifiable(deps.runtime, connectionId, error)
       throw error
     }
   }

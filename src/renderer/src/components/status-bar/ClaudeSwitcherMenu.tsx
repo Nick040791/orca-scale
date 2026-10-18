@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -8,15 +8,11 @@ import {
 import { useAppStore } from '../../store'
 import type { ClaudeRateLimitAccountsState } from '../../../../shared/managed-account-types'
 import type { ProviderRateLimits } from '../../../../shared/rate-limit-types'
-import { defaultScopeHost } from '@/lib/default-creation-host'
-import { useActiveAccountOwner } from '@/runtime/use-worktree-runtime-target'
-import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   fetchProviderAccountsSnapshot,
   selectClaudeProviderAccount
 } from '@/runtime/runtime-provider-accounts-client'
-import { toast } from 'sonner'
-import { getClaudeAccountErrorDescription } from '../settings/accounts-pane-action-errors'
 import { translate } from '@/i18n/i18n'
 import {
   getWindowsTerminalCapabilityOwnerKey,
@@ -32,21 +28,13 @@ import {
 } from './status-bar-runtime-targets'
 import {
   buildClaudeStatusSwitchGroups,
-  getClaudeStatusActiveId,
   normalizeClaudeStatusRuntimeTarget,
   resolveClaudeStatusAccountState
 } from './status-bar-claude-accounts'
-import { handleRunningClaudeSessionsAfterSwitch } from '@/lib/claude-account-switch-sessions'
 import { AccountRuntimeToggle } from './StatusBarAccountControls'
-import {
-  InlineUsageBars,
-  InlineUsageSignInAction,
-  InlineUsageSkeleton,
-  isUnavailableInactiveUsage
-} from './InlineProviderUsage'
+import { InlineUsageBars, InlineUsageSkeleton } from './InlineProviderUsage'
 import { ProviderDetailsMenu } from './ProviderDetailsMenu'
 import { getClaudeAccountSyncKey } from './provider-account-sync-key'
-import { signInToClaudeAccount } from '@/lib/claude-account-sign-in'
 
 // Exported so its account-switch/reset logic is preserved for row drill-in even
 // though the footer now opens the consolidated UsageRosterPanel first.
@@ -71,8 +59,6 @@ export function ClaudeSwitcherMenu({
     activeAccountIdsByRuntime: { host: null, wsl: {} }
   })
   const [isSwitching, setIsSwitching] = useState(false)
-  const [signingInId, setSigningInId] = useState<string | null>(null)
-  const signingInRef = useRef(false)
   const mountedRef = useRef(true)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
@@ -84,27 +70,22 @@ export function ClaudeSwitcherMenu({
   const claudeTarget = useAppStore((s) => s.rateLimits.claudeTarget)
   const settings = useAppStore((s) => s.settings)
   const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
-  // Why: no host picker; the focused workspace's owner, else the default scope host.
-  const { target: runtimeTarget, wslHostDistro } = useActiveAccountOwner(defaultScopeHost(settings))
-  const activeRuntimeEnvironmentId = runtimeTargetEnvironmentId(runtimeTarget)
-  const hasActiveRuntimeEnvironment = activeRuntimeEnvironmentId !== null
+  const hasActiveRuntimeEnvironment = Boolean(settings?.activeRuntimeEnvironmentId?.trim())
+  const runtimeTarget = useMemo(() => getActiveRuntimeTarget(settings), [settings])
   const providerAccountHostLabel = hasActiveRuntimeEnvironment
-    ? (runtimeEnvironments.find((environment) => environment.id === activeRuntimeEnvironmentId)
-        ?.name ??
+    ? (runtimeEnvironments.find(
+        (environment) => environment.id === settings?.activeRuntimeEnvironmentId?.trim()
+      )?.name ??
       translate('auto.components.status.bar.StatusBar.remoteServerLabel', 'Remote server'))
     : undefined
   const windowsTerminalCapabilities = useWindowsTerminalCapabilities(
     navigator.userAgent.includes('Windows') || hasActiveRuntimeEnvironment,
     false,
-    getWindowsTerminalCapabilityOwnerKey(activeRuntimeEnvironmentId),
+    getWindowsTerminalCapabilityOwnerKey(settings?.activeRuntimeEnvironmentId),
     runtimeTarget
   )
   const claudeAccountSyncKey = useAppStore((s) => getClaudeAccountSyncKey(s.settings))
-  const accountState = resolveClaudeStatusAccountState(
-    settings,
-    accounts,
-    activeRuntimeEnvironmentId
-  )
+  const accountState = resolveClaudeStatusAccountState(settings, accounts)
 
   useEffect(() => {
     mountedRef.current = true
@@ -113,9 +94,10 @@ export function ClaudeSwitcherMenu({
     }
   }, [])
 
+  const activeRuntimeEnvironmentId = settings?.activeRuntimeEnvironmentId?.trim() || null
   // Why: keyed on owner id, not settings identity, so routine settings mutations don't re-run the remote snapshot fetch.
   const loadAccounts = useCallback(async () => {
-    const snapshot = await fetchProviderAccountsSnapshot(runtimeTarget)
+    const snapshot = await fetchProviderAccountsSnapshot({ activeRuntimeEnvironmentId })
     // Why: a failed Claude half is a substituted empty roster; keep prior state.
     if (snapshot.failedProviders?.includes('claude')) {
       console.error('Claude account list failed; keeping previous status bar state.')
@@ -124,7 +106,7 @@ export function ClaudeSwitcherMenu({
     if (mountedRef.current) {
       setAccounts(snapshot.claude)
     }
-  }, [runtimeTarget])
+  }, [activeRuntimeEnvironmentId])
 
   useEffect(() => {
     void loadAccounts().catch((error) => {
@@ -132,27 +114,12 @@ export function ClaudeSwitcherMenu({
     })
   }, [loadAccounts, claudeAccountSyncKey])
 
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean): void => {
-      setOpen(nextOpen)
-      if (!nextOpen) {
-        setAccountsExpanded(false)
-        return
-      }
-      // Why: an account that needs a sign-in is the reason to open; show its inline Sign in.
-      if (accounts.accounts.some((account) => account.needsSignIn)) {
-        setAccountsExpanded(true)
-        if (!hasActiveRuntimeEnvironment) {
-          void fetchInactiveClaudeAccountUsage()
-        }
-      }
-      // Why reload: the login each account folder holds changes without a settings change.
-      void loadAccounts().catch((error) => {
-        console.error('Failed to load Claude accounts for status bar:', error)
-      })
-    },
-    [accounts.accounts, fetchInactiveClaudeAccountUsage, hasActiveRuntimeEnvironment, loadAccounts]
-  )
+  const handleOpenChange = useCallback((nextOpen: boolean): void => {
+    setOpen(nextOpen)
+    if (!nextOpen) {
+      setAccountsExpanded(false)
+    }
+  }, [])
 
   // Why: fetch inactive-account usage only on switcher expansion; remote-owned accounts have no local cache to fill.
   const handleAccountsExpandedToggle = useCallback((): void => {
@@ -170,10 +137,9 @@ export function ClaudeSwitcherMenu({
     if (isSwitching) {
       return
     }
-    const previousActiveAccountId = getClaudeStatusActiveId(accountState, target)
     setIsSwitching(true)
     try {
-      const next = await selectClaudeProviderAccount(runtimeTarget, {
+      const next = await selectClaudeProviderAccount(settings, {
         accountId,
         runtime: target.runtime,
         wslDistro: target.wslDistro
@@ -189,46 +155,11 @@ export function ClaudeSwitcherMenu({
       if (mountedRef.current) {
         setAccountsExpanded(false)
       }
-      const nextActiveAccountId = getClaudeStatusActiveId(next, target)
-      if (previousActiveAccountId !== nextActiveAccountId) {
-        void handleRunningClaudeSessionsAfterSwitch({
-          owner: runtimeTarget,
-          target,
-          before: { state: accountState, accountId: previousActiveAccountId },
-          after: { state: next, accountId: nextActiveAccountId }
-        })
-      }
     } catch (error) {
       console.error('Failed to switch Claude account from status bar:', error)
-      toast.error(
-        translate(
-          'auto.components.settings.AccountsPane.2743cdc0af',
-          'Claude account update failed.'
-        ),
-        { description: getClaudeAccountErrorDescription(error) }
-      )
     } finally {
       if (mountedRef.current) {
         setIsSwitching(false)
-      }
-    }
-  }
-
-  const handleSignIn = async (accountId: string): Promise<void> => {
-    // Why a ref: the row and its button both sign in, and state lags a double press.
-    if (signingInRef.current) {
-      return
-    }
-    signingInRef.current = true
-    setSigningInId(accountId)
-    try {
-      if (await signInToClaudeAccount(accountId)) {
-        await loadAccounts()
-      }
-    } finally {
-      signingInRef.current = false
-      if (mountedRef.current) {
-        setSigningInId(null)
       }
     }
   }
@@ -251,18 +182,16 @@ export function ClaudeSwitcherMenu({
   const selectedRuntimeKey = getCodexStatusRuntimeKey(
     normalizeClaudeStatusRuntimeTarget(accountState, toCodexStatusRuntimeTarget(claudeTarget))
   )
-  // A focused WSL host's accounts are this desktop's for its distro, so that group always shows.
-  const fallbackWslDistro =
-    wslHostDistro ??
-    getStatusBarPreferredWslDistro(settings, windowsTerminalCapabilities.wslDistros)
+  const fallbackWslDistro = getStatusBarPreferredWslDistro(
+    settings,
+    windowsTerminalCapabilities.wslDistros
+  )
   const switchGroups = buildClaudeStatusSwitchGroups(
     accountState,
     toCodexStatusRuntimeTarget(claudeTarget),
     {
       fallbackWslDistro,
-      includeFallbackWsl:
-        wslHostDistro !== null ||
-        (!hasActiveRuntimeEnvironment && shouldIncludeSettingsWslRuntime(settings)),
+      includeFallbackWsl: !hasActiveRuntimeEnvironment && shouldIncludeSettingsWslRuntime(settings),
       hostLabel: providerAccountHostLabel
     }
   )
@@ -329,22 +258,14 @@ export function ClaudeSwitcherMenu({
               const inactiveUsage = target.id
                 ? inactiveClaudeAccounts.find((a) => a.accountId === target.id)
                 : null
-              // Why local only: the hidden sign-in runs on this device, not a remote server.
-              const signInId = target.needsSignIn && !hasActiveRuntimeEnvironment ? target.id : null
 
               return (
                 <DropdownMenuItem
                   key={`${selectedGroup.key}:${target.id ?? 'system'}`}
-                  disabled={
-                    isSwitching ||
-                    signingInId !== null ||
-                    (signInId === null && (target.active || target.disabled))
-                  }
+                  disabled={isSwitching || target.active}
                   onSelect={(event) => {
                     event.preventDefault()
-                    if (signInId) {
-                      void handleSignIn(signInId)
-                    } else if (!target.active) {
+                    if (!target.active) {
                       void handleSelectAccount(target.id, target.runtimeTarget)
                     }
                   }}
@@ -358,24 +279,9 @@ export function ClaudeSwitcherMenu({
                         </span>
                       ) : null}
                     </div>
-                    {signInId ? (
-                      <InlineUsageSignInAction
-                        isFetching={false}
-                        isSigningIn={signingInId === signInId}
-                        disabled={isSwitching || signingInId !== null}
-                        reason={target.hint ?? undefined}
-                        onSignIn={() => void handleSignIn(signInId)}
-                      />
-                    ) : target.hint ? (
-                      <span className="text-[10px] leading-4 text-muted-foreground">
-                        {target.hint}
-                      </span>
-                    ) : null}
                     {inactiveUsage?.isFetching && !inactiveUsage.rateLimits ? (
                       <InlineUsageSkeleton />
-                    ) : inactiveUsage?.rateLimits &&
-                      // Why: the sign-in note above already says this; skip the repeat.
-                      !(signInId && isUnavailableInactiveUsage(inactiveUsage.rateLimits)) ? (
+                    ) : inactiveUsage?.rateLimits ? (
                       <InlineUsageBars
                         limits={inactiveUsage.rateLimits}
                         isFetching={inactiveUsage.isFetching}
@@ -385,6 +291,12 @@ export function ClaudeSwitcherMenu({
                 </DropdownMenuItem>
               )
             })}
+          </div>
+          <div className="px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+            {translate(
+              'auto.components.status.bar.StatusBar.8295903d17',
+              'Restart live Claude terminals before continuing old conversations after switching.'
+            )}
           </div>
         </div>
       ) : null}

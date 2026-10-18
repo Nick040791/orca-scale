@@ -7,14 +7,12 @@ export type DirEntry = {
   isSymlink: boolean
 }
 
-export type FileDocument = {
+export type MarkdownDocument = {
   filePath: string
   relativePath: string
   basename: string
   name: string
 }
-
-export type MarkdownDocument = FileDocument
 
 // ─── Filesystem watcher ─────────────────────────────────────
 export type FsChangeEvent = {

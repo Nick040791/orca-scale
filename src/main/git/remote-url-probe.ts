@@ -1,8 +1,10 @@
+import {
+  getSshGitProvider,
+  SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE
+} from '../providers/ssh-git-dispatch'
 import { gitExecFileAsync } from './runner'
 import { isStableMissingGitRemoteError } from './stable-missing-git-remote-error'
 import type { GitAdmissionTier } from './command-runner/git-exec-options'
-import { requireReachableGitRoute } from '../providers/execution-host-provider-dispatch'
-import { getConnectionExecutionHostId } from '../../shared/execution-host'
 
 /**
  * The `git remote get-url` probe every forge integration runs to decide whether
@@ -12,7 +14,9 @@ import { getConnectionExecutionHostId } from '../../shared/execution-host'
  * wedged host — a dead network mount or stalled WSL interop. Unbounded, the call
  * never returns and every caller above it hangs with it. Passing a timeout is
  * also what arms the runner's kill path; Node's own waits forever on a child
- * that ignores signals.
+ * that ignores signals. The SSH branch spends the same budget as one deadline
+ * over the whole round trip: the relay's own bounds are per-phase and restart on
+ * every frame, so a relay dribbling output outlives them.
  */
 export const REMOTE_URL_PROBE_TIMEOUT_MS = 30_000
 
@@ -23,13 +27,20 @@ export type RemoteUrlProbeContext = {
   admissionTier?: GitAdmissionTier
 }
 
-/** Reads a remote URL, or null for an SSH repo, which this process does not serve. */
+/** Reads a remote URL, or null when the repo's SSH runtime is not connected. */
 export async function readRemoteUrl(
   context: RemoteUrlProbeContext,
   remoteName: string
 ): Promise<string | null> {
   if (context.connectionId) {
-    return null
+    const provider = getSshGitProvider(context.connectionId)
+    if (!provider) {
+      return null
+    }
+    const { stdout } = await provider.exec(['remote', 'get-url', remoteName], context.repoPath, {
+      signal: AbortSignal.timeout(REMOTE_URL_PROBE_TIMEOUT_MS)
+    })
+    return stdout
   }
   const { stdout } = await gitExecFileAsync(['remote', 'get-url', remoteName], {
     cwd: context.repoPath,
@@ -92,7 +103,9 @@ export async function assertRemoteUrlReadable(
   context: RemoteUrlProbeContext,
   remoteName = 'origin'
 ): Promise<void> {
-  requireReachableGitRoute(getConnectionExecutionHostId(context.connectionId))
+  if (context.connectionId && !getSshGitProvider(context.connectionId)) {
+    throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+  }
   try {
     await readRemoteUrl(context, remoteName)
   } catch (error) {

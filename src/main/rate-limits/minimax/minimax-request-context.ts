@@ -1,6 +1,5 @@
-import type { Session } from 'electron'
+import { net, session, type Session } from 'electron'
 import type { MiniMaxEndpoint } from '../../../shared/global-settings-types'
-import { getMainHttpClient, requirePartitionSession } from '../../network/http-client'
 
 const MINIMAX_USAGE_PATH = '/v1/api/openplatform/coding_plan/remains'
 const MINIMAX_OVERSEAS_BASE = 'https://platform.minimax.io'
@@ -149,10 +148,7 @@ export async function clearMiniMaxSessionCookieJar(): Promise<void> {
   // Why: clear cookies under both origins so a user who switches endpoint
   // (overseas -> CN or vice versa) does not leave stale cookies that the
   // next request might pick up against the wrong host.
-  const miniMaxSession = getMainHttpClient().partitionSession?.(MINIMAX_SESSION_PARTITION)
-  if (!miniMaxSession) {
-    return
-  }
+  const miniMaxSession = session.fromPartition(MINIMAX_SESSION_PARTITION)
   await Promise.all([
     clearMiniMaxSessionCookieJarForSession(miniMaxSession, getMiniMaxOrigin('overseas')),
     clearMiniMaxSessionCookieJarForSession(miniMaxSession, getMiniMaxOrigin('cn'))
@@ -166,7 +162,7 @@ export async function fetchMiniMaxWithSessionCookieJar(args: {
   endpointMode: MiniMaxEndpoint
   signal: AbortSignal
 }): Promise<MiniMaxFetchResponse> {
-  const miniMaxSession = requirePartitionSession(MINIMAX_SESSION_PARTITION, 'MiniMax')
+  const miniMaxSession = session.fromPartition(MINIMAX_SESSION_PARTITION)
   const cookiePairs = parseCookiePairs(args.cookie)
   const origin = getMiniMaxOrigin(args.endpointMode)
   try {
@@ -207,7 +203,7 @@ export async function fetchMiniMaxWithManualCookieHeader(args: {
   endpointMode: MiniMaxEndpoint
   signal: AbortSignal
 }): Promise<MiniMaxFetchResponse> {
-  const miniMaxSession = requirePartitionSession(MINIMAX_SESSION_PARTITION, 'MiniMax')
+  const miniMaxSession = session.fromPartition(MINIMAX_SESSION_PARTITION)
   const origin = getMiniMaxOrigin(args.endpointMode)
   try {
     await clearMiniMaxSessionCookieJarForSession(miniMaxSession, origin)
@@ -237,13 +233,13 @@ export async function fetchMiniMaxWithApiKey(args: {
   endpoint: string
   signal: AbortSignal
 }): Promise<MiniMaxFetchResponse> {
-  // Why: the desktop client routes through Electron's URL stack, matching the cookie
+  // Why: net.fetch routes through Electron's URL stack, matching the cookie
   // transport's surface area and avoiding Node's TLS quirks for CN routing.
   const headers: Record<string, string> = {
     Authorization: `Bearer ${args.apiKey}`,
     Accept: 'application/json'
   }
-  const response = await getMainHttpClient().fetch(args.endpoint, {
+  const response = await net.fetch(args.endpoint, {
     method: 'GET',
     headers,
     signal: args.signal

@@ -4,16 +4,10 @@ import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
 import { buildDirectWorkItemAgentStartupPlan } from '@/lib/launch-work-item-direct-agent'
 import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
-import {
-  resolveExecutionHostAgentStartupShell,
-  type KnownExecutionHostPlatform
-} from '@/lib/execution-host-facts'
+import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
+import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
+import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
-import type { DeclinedStructuredLaunchTerminalOptions } from '@/lib/structured-agent-session-launch-admission'
-import {
-  ensureDetectedAgentsForNewWorktree,
-  type RepoHostFields
-} from '@/lib/agent-detection-target-inventory'
 
 export function buildDirectWorkItemStartup(args: {
   agent: TuiAgent | null
@@ -21,21 +15,28 @@ export function buildDirectWorkItemStartup(args: {
   draftContent: string
   promptDelivery: PromptDelivery
   settings: AppState['settings']
-  /** The workspace's execution host; its OS and shell decide quoting, not this client's. */
-  launchHost: KnownExecutionHostPlatform
-  /** This client's Windows shell, which only shapes a local launch. */
-  terminalWindowsShell: string | null | undefined
+  launchPlatform?: NodeJS.Platform
   launchConnectionId: string | null
+  worktreePath: string
+  repoProjectRuntime?: Parameters<typeof resolveSourceControlLaunchPlatform>[0]['projectRuntime']
 }): ReturnType<typeof buildDirectWorkItemAgentStartupPlan> {
-  const shell = resolveExecutionHostAgentStartupShell(args.launchHost, args.terminalWindowsShell)
+  const launchPlatform =
+    args.launchPlatform ??
+    resolveSourceControlLaunchPlatform({
+      connectionId: args.launchConnectionId,
+      worktreePath: args.worktreePath,
+      projectRuntime: args.repoProjectRuntime
+    })
   return buildDirectWorkItemAgentStartupPlan({
     agent: args.agent,
     agentArgs: args.agentArgs,
     draftContent: args.draftContent,
     promptDelivery: args.promptDelivery,
     settings: args.settings,
-    launchPlatform: args.launchHost.platform,
-    ...(shell ? { shell } : {}),
+    launchPlatform,
+    nativeChatTranscriptIsLocalReadable: isNativeChatTranscriptLocalReadable(
+      args.launchConnectionId
+    ),
     // Why: SSH hosts run the plain `orca` shim, so the Linux-only `orca-ide` rename is not applied.
     isRemote: typeof args.launchConnectionId === 'string'
   })
@@ -45,20 +46,21 @@ type PromptDelivery = 'draft' | 'submit-after-ready'
 
 export async function resolveDirectWorkItemAgent(args: {
   agentOverride?: TuiAgent
-  worktreeId: string
-  repoHost: RepoHostFields
   launchConnectionId: string | null
   repoConnectionId: string | null
   detectedAgentsPromise: Promise<string[]> | null
   latestStore: AppState
 }): Promise<{ agent: TuiAgent | null; unavailable: boolean }> {
-  // Why: the new workspace's own host answers; a paired server's project must not probe this client.
-  const detectedAgents: string[] =
-    args.agentOverride === undefined &&
-    args.detectedAgentsPromise &&
-    args.launchConnectionId === args.repoConnectionId
-      ? await args.detectedAgentsPromise
-      : await ensureDetectedAgentsForNewWorktree(args.latestStore, args.worktreeId, args.repoHost)
+  const detectedAgents =
+    args.agentOverride !== undefined
+      ? args.launchConnectionId
+        ? await args.latestStore.ensureRemoteDetectedAgents(args.launchConnectionId)
+        : await args.latestStore.ensureDetectedAgents()
+      : args.launchConnectionId === args.repoConnectionId
+        ? await args.detectedAgentsPromise!
+        : args.launchConnectionId
+          ? await args.latestStore.ensureRemoteDetectedAgents(args.launchConnectionId)
+          : await args.latestStore.ensureDetectedAgents()
   if (args.agentOverride !== undefined) {
     return {
       agent: args.agentOverride,
@@ -77,12 +79,27 @@ export async function resolveDirectWorkItemAgent(args: {
   }
 }
 
+/** Why: runs only before the legacy route; structured chat has no TUI trust menu. */
+export async function markDirectWorkItemAgentTrusted(args: {
+  structuredLaunch: boolean
+  agent: TuiAgent | null
+  workspacePath: string
+  connectionId: string | null
+}): Promise<void> {
+  if (args.structuredLaunch) {
+    return
+  }
+  await preflightAgentTrust({
+    agent: args.agent,
+    workspacePath: args.workspacePath,
+    connectionId: args.connectionId
+  })
+}
+
 export function beginDirectWorkItemStructuredLaunch(args: {
   plan: AgentSessionLaunchPlan | null
   primaryTabId: string | null
-  beforeOpen: (sessionId?: string) => boolean | void
-  /** The terminal launch the host's "no" falls back to, carrying the caller's own CLI args. */
-  declinedTerminal?: DeclinedStructuredLaunchTerminalOptions
+  beforeOpen: (sessionId: string) => boolean | void
 }): {
   completed: boolean
   structuredLaunch: boolean
@@ -100,8 +117,7 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   const launch = beginStructuredAgentSessionProvisionalLaunch({
     plan,
     hooks: {},
-    beforeOpen: args.beforeOpen,
-    ...(args.declinedTerminal ? { declinedTerminal: args.declinedTerminal } : {})
+    beforeOpen: args.beforeOpen
   })
   if (!launch) {
     return notLaunched(true)
@@ -109,6 +125,6 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   return {
     completed: true,
     structuredLaunch: true,
-    primaryTabId: launch.tab?.id ?? args.primaryTabId
+    primaryTabId: launch.tab.id
   }
 }

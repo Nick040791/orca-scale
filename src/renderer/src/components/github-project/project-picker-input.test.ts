@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseProjectInput } from './project-picker-input'
-import { getProjectPickerBrowseHost } from './project-picker-runtime'
+import { getProjectPickerBrowseHost, parseProjectInput } from './ProjectPicker'
 
 describe('ProjectPicker project input', () => {
   it('preserves the host and custom port from a GHES project URL', () => {

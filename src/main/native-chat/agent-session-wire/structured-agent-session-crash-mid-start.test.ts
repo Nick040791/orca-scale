@@ -13,8 +13,7 @@ import {
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import type { openCodexAppServerConnection } from '../../codex/codex-app-server-connection'
 import { adapterFor, fakeCodex } from '../../codex/codex-structured-session-adapter-fixture'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
@@ -24,9 +23,6 @@ import {
   hostTestAttachParams,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
 
 const CALLER = { callerKey: 'client-1' }
 const CHILD_PID = 4321
@@ -61,7 +57,10 @@ async function crash(dying: AgentSessionRecordStore): Promise<void> {
 }
 
 function openStore(generation: HostGeneration): Promise<AgentSessionRecordStore> {
-  return openTestAgentSessionRecordStore(generationRoot(generation))
+  return AgentSessionRecordStore.open({
+    directory: join(generationRoot(generation), 'store'),
+    hostId: 'local'
+  })
 }
 
 /** A Codex adapter whose child spawns, reports its pid the way the real connection does, and then
@@ -94,11 +93,9 @@ function host(
   overrides: Partial<StructuredAgentSessionHostDeps> = {}
 ): StructuredAgentSessionHost {
   return new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
     store,
     adapter,
-    journalDatabase: openTestJournalHostDatabase(generationRoot(generation)),
+    journalRoot: generationRoot(generation),
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
     now: () => NOW,
@@ -149,9 +146,7 @@ describe('a host that dies while its Codex child is starting', () => {
       ownerProcess: null,
       deathEvidence: { kind: 'pid-absent' }
     })
-    // What the next send's delivery does: start at the record's current fence.
-    const fence = store.getRecord(SESSION)?.lease.runtimeFence ?? null
-    expect(await relaunched.attach(CALLER, hostTestAttachParams(fence))).toMatchObject({ ok: true })
+    await relaunched.hold(SESSION, 'desktop-chat:1')
     expect(restarted.connections).toHaveLength(1)
     expect(store.getRecord(SESSION)?.lease).toMatchObject({
       claimStatus: 'live',
@@ -161,7 +156,7 @@ describe('a host that dies while its Codex child is starting', () => {
 })
 
 // The client keeps a create it never heard back from and retries it under the same operation id, so
-// that replay, not a fresh start, is what the user's Retry and first send go through.
+// that replay, not a fresh hold, is what the user's Retry and first send go through.
 describe('a create replayed after the host that ran it died', () => {
   const PAST_OPERATION_EXPIRY =
     AGENT_SESSION_MAX_NEW_OPERATION_AGE_MS + AGENT_SESSION_OPERATION_FUTURE_SKEW_MS + 60_000

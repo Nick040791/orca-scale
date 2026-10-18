@@ -4,7 +4,6 @@ import type {
   FeatureInteractionState
 } from '../../../../../shared/feature-interactions'
 import type { FeatureTipId } from '../../../../../shared/feature-tips'
-import type { NativeChatUpgradeTipVariant } from '../../../../../shared/native-chat-upgrade-tip-audience'
 import type { ContextualTourId } from '../../../../../shared/contextual-tours'
 import type { OrcaHookScriptKind } from '../../../lib/orca-hook-trust'
 import type { SettingsNavigationTarget } from '../../../lib/settings-navigation-types'
@@ -16,11 +15,11 @@ export type UISliceContextual = {
   settingsNavigationTarget: SettingsNavigationTarget | null
   openSettingsTarget: (target: NonNullable<UISliceContextual['settingsNavigationTarget']>) => void
   clearSettingsTarget: () => void
-  /** Entry keys retain last-pick order so regrouping resolves aliases. Renderer-only; never persisted. */
+  /** Which host the Projects Settings pane shows per project (keyed by projectId). Ephemeral on purpose — never persisted, so reload reopens on the effective host. */
   settingsProjectHostSelection: Record<string, ExecutionHostId>
   settingsProjectSetupSelection: Record<string, string>
   setSettingsProjectHostSelection: (
-    selectionKey: string,
+    projectId: string,
     hostId: ExecutionHostId,
     setupId?: string
   ) => void
@@ -40,7 +39,6 @@ export type UISliceContextual = {
     | 'confirm-add-project-from-folder'
     | 'confirm-non-git-folder'
     | 'confirm-remove-folder'
-    | 'confirm-sleep-twin'
     | 'add-repo'
     | 'quick-open'
     | 'worktree-palette'
@@ -52,15 +50,11 @@ export type UISliceContextual = {
     | 'feature-tips'
     | 'new-workspace-composer'
     | 'confirm-orca-yaml-hooks'
-    | 'diagram-viewer'
   modalData: Record<string, unknown>
   openModal: (modal: UISliceContextual['activeModal'], data?: Record<string, unknown>) => void
   closeModal: () => void
   featureTipsSeenIds: FeatureTipId[]
   markFeatureTipsSeen: (ids: FeatureTipId[]) => void
-  /** Main's once-decided native chat upgrade tip variant; null until read. */
-  nativeChatUpgradeTipVariant: NativeChatUpgradeTipVariant | null
-  setNativeChatUpgradeTipVariant: (variant: NativeChatUpgradeTipVariant) => void
   featureInteractions: FeatureInteractionState
   recordFeatureInteraction: (id: FeatureInteractionId) => Promise<void>
   contextualToursSeenIds: ContextualTourId[]
@@ -118,14 +112,6 @@ export type UISliceContextual = {
   dismissProjectOrderManualDefaultNotice: () => void
   usagePercentageDisplayChangeNoticeDismissed: boolean
   dismissUsagePercentageDisplayChangeNotice: () => void
-  statusBarCompactChangeNoticeDismissed: boolean
-  dismissStatusBarCompactChangeNotice: () => void
   usageEmptyStateDismissed: boolean
   dismissUsageEmptyState: () => void
-  codexTerminalServerIsolationNoticeSeen: boolean
-  markCodexTerminalServerIsolationNoticeSeen: () => void
-  codexSharedSettingsNoticeSeen: boolean
-  markCodexSharedSettingsNoticeSeen: () => void
-  claudeDiffPanelNoticeSeen: boolean
-  markClaudeDiffPanelNoticeSeen: () => void
 }

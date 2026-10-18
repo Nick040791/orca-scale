@@ -1,6 +1,5 @@
 import { WSL_GIT_READ_ENVIRONMENT_WAIT_MS } from './wsl-git-read-environment'
 import { gitExecFileAsync } from './runner'
-import { abortSignalWithTimeout } from '../lib/abort-signal-with-timeout'
 import type { GitAdmissionTier } from './command-runner/git-exec-options'
 
 export type RetargetDivergenceOptions = {
@@ -148,11 +147,9 @@ export async function measureRetargetDivergence(
   targetBase: string,
   options: RetargetDivergenceOptions = {}
 ): Promise<RetargetDivergence> {
+  const budget = AbortSignal.timeout(options.budgetMsForTest ?? RETARGET_DIVERGENCE_BUDGET_MS)
   // Combined so cancelling the create stops the probes immediately rather than at the deadline.
-  const signal = abortSignalWithTimeout(
-    options.signal,
-    options.budgetMsForTest ?? RETARGET_DIVERGENCE_BUDGET_MS
-  )
+  const signal = options.signal ? AbortSignal.any([options.signal, budget]) : budget
   // Both directions: commits the target adds decide what the reset writes, commits only the
   // preparation has decide what it must delete.
   const [ahead, behind] = await Promise.all([

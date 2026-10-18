@@ -1,15 +1,21 @@
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
-import { subscribeEditorRuntimeFileWatch } from './editor-runtime-file-watch'
+import { subscribeRuntimeFileChanges } from '@/runtime/runtime-file-client'
 import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
 import type { FsChangedPayload } from '../../../shared/filesystem-entry-types'
 import {
   getEditorExternalWatchTargetKey,
   selectEditorExternalWatchTargets,
-  type EditorExternalWatchTarget
+  type EditorExternalWatchTarget,
+  type EditorExternalWatchTargetState
 } from './editor-external-watch-targets'
-import { buildEditorExternalWatchEventHandler } from './editor-external-watch-event-reconciliation'
+import {
+  buildEditorExternalWatchEventHandler,
+  collectOverflowEditorExternalReloadTargets
+} from './editor-external-watch-event-reconciliation'
 import { verifyLatchedEditorMoveDestinations } from './editor-external-watch-disk-verification'
+
+export type { EditorExternalWatchTargetState }
 
 function warnExternalWatchFailure(target: EditorExternalWatchTarget, err: unknown): void {
   console.warn('[filesystem-watch] failed to watch worktree', {
@@ -121,23 +127,66 @@ function subscribeRuntimeTarget(
     current: ((payload: FsChangedPayload, runtimeEnvironmentId?: string | null) => void) | null
   }
 ): void {
-  const runtimeEnvironmentId = target.runtimeEnvironmentId
-  if (!runtimeEnvironmentId) {
-    return
-  }
   const key = getEditorExternalWatchTargetKey(target)
-  remoteWatchUnsubs.set(
-    key,
-    subscribeEditorRuntimeFileWatch(
-      { ...target, runtimeEnvironmentId },
-      (payload) => fsChangedHandlerRef.current?.(payload, runtimeEnvironmentId),
-      (error) => warnExternalWatchFailure(target, error)
-    )
+  let cancelled = false
+  const pendingUnsubscribe = (): void => {
+    cancelled = true
+  }
+  remoteWatchUnsubs.set(key, pendingUnsubscribe)
+  void subscribeRuntimeFileChanges(
+    {
+      settings: { activeRuntimeEnvironmentId: target.runtimeEnvironmentId! },
+      worktreeId: target.worktreeId,
+      worktreePath: target.worktreePath,
+      connectionId: target.connectionId
+    },
+    (payload) => fsChangedHandlerRef.current?.(payload, target.runtimeEnvironmentId),
+    (err) => warnExternalWatchFailure(target, err)
   )
+    .then((unsubscribe) => {
+      if (cancelled) {
+        unsubscribe()
+        return
+      }
+      if (remoteWatchUnsubs.get(key) === pendingUnsubscribe) {
+        remoteWatchUnsubs.set(key, unsubscribe)
+      } else {
+        unsubscribe()
+      }
+    })
+    .catch((err) => {
+      if (remoteWatchUnsubs.get(key) === pendingUnsubscribe) {
+        remoteWatchUnsubs.delete(key)
+      }
+      warnExternalWatchFailure(target, err)
+    })
+}
+
+// Compatibility delegates keep existing direct imports stable without turning this module into an export barrel.
+export function getWatchedTargetKey(target: EditorExternalWatchTarget): string {
+  return getEditorExternalWatchTargetKey(target)
+}
+
+export function getEditorExternalWatchTargets(
+  state: EditorExternalWatchTargetState
+): ReturnType<typeof selectEditorExternalWatchTargets> {
+  return selectEditorExternalWatchTargets(state)
+}
+
+export function createExternalWatchEventHandler(
+  ...args: Parameters<typeof buildEditorExternalWatchEventHandler>
+): ReturnType<typeof buildEditorExternalWatchEventHandler> {
+  return buildEditorExternalWatchEventHandler(...args)
 }
 
 export function verifyLatchedMoveDestinations(
   ...args: Parameters<typeof verifyLatchedEditorMoveDestinations>
 ): void {
   verifyLatchedEditorMoveDestinations(...args)
+}
+
+export function getOverflowExternalReloadTargets(
+  ...args: Parameters<typeof collectOverflowEditorExternalReloadTargets>
+): ReturnType<typeof collectOverflowEditorExternalReloadTargets> {
+  return collectOverflowEditorExternalReloadTargets(...args)
 }

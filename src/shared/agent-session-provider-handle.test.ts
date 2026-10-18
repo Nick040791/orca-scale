@@ -13,9 +13,12 @@ import {
   type AgentSessionProviderHandle,
   type AgentSessionProviderHandleLink
 } from './agent-session-provider-handle'
-import { claudeProviderHandle, codexProviderHandle } from './agent-session-provider-handle-encoding'
 
-const CLAUDE: AgentSessionProviderHandle = claudeProviderHandle('sess-1', 'leaf-1')
+const CLAUDE: AgentSessionProviderHandle = {
+  provider: 'claude',
+  sessionId: 'sess-1',
+  leafUuid: 'leaf-1'
+}
 
 function link(overrides: Partial<AgentSessionProviderHandleLink> = {}) {
   return {
@@ -39,35 +42,41 @@ describe('handle identity', () => {
   it('keys a Claude handle by session id AND leaf, so two branches are two handles', () => {
     // Concurrent resumes branch one transcript silently; the session id alone cannot name a writer.
     const branchA = agentSessionProviderHandleKey(CLAUDE)
-    const branchB = agentSessionProviderHandleKey(claudeProviderHandle('sess-1', 'leaf-2'))
+    const branchB = agentSessionProviderHandleKey({ ...CLAUDE, leafUuid: 'leaf-2' })
     expect(branchA).not.toEqual(branchB)
     expect(agentSessionProviderHandleRoot(CLAUDE)).toEqual(
-      agentSessionProviderHandleRoot(claudeProviderHandle('sess-1', 'leaf-2'))
+      agentSessionProviderHandleRoot({ ...CLAUDE, leafUuid: 'leaf-2' })
     )
   })
 
   it('keys a Codex handle by thread id alone', () => {
-    const codex: AgentSessionProviderHandle = codexProviderHandle('thread-1')
+    const codex: AgentSessionProviderHandle = { provider: 'codex', threadId: 'thread-1' }
     expect(agentSessionProviderHandleKey(codex)).toBe('codex:"thread-1"')
     expect(agentSessionProviderHandleRoot(codex)).toBe('codex:"thread-1"')
-    expect(agentSessionProviderHandlesEqual(codex, codexProviderHandle('thread-2'))).toBe(false)
+    expect(
+      agentSessionProviderHandlesEqual(codex, { provider: 'codex', threadId: 'thread-2' })
+    ).toBe(false)
   })
 
   it('distinguishes a null leaf from an empty-string leaf and rejects malformed handles', () => {
-    expect(isAgentSessionProviderHandle(claudeProviderHandle('sess-1', null))).toBe(true)
-    expect(isAgentSessionProviderHandle({ ...CLAUDE, resumeCursor: '' })).toBe(false)
-    expect(isAgentSessionProviderHandle({ ...CLAUDE, nativeId: '' })).toBe(false)
-    expect(isAgentSessionProviderHandle({ ...CLAUDE, nativeId: ' sess-1 ' })).toBe(false)
-    // A stored typed shape is not an in-memory handle: it must be decoded first.
-    expect(
-      isAgentSessionProviderHandle({ provider: 'claude', sessionId: 'x', leafUuid: null })
-    ).toBe(false)
+    expect(isAgentSessionProviderHandle({ ...CLAUDE, leafUuid: null })).toBe(true)
+    expect(isAgentSessionProviderHandle({ ...CLAUDE, leafUuid: '' })).toBe(false)
+    expect(isAgentSessionProviderHandle({ provider: 'claude', sessionId: '' })).toBe(false)
     expect(isAgentSessionProviderHandle({ provider: 'gemini', sessionId: 'x' })).toBe(false)
+    expect(isAgentSessionProviderHandle({ ...CLAUDE, sessionId: ' sess-1 ' })).toBe(false)
   })
 
   it('uses collision-free keys when Claude ids contain delimiters', () => {
-    const left = claudeProviderHandle('a#b', 'c')
-    const right = claudeProviderHandle('a', 'b#c')
+    const left: AgentSessionProviderHandle = {
+      provider: 'claude',
+      sessionId: 'a#b',
+      leafUuid: 'c'
+    }
+    const right: AgentSessionProviderHandle = {
+      provider: 'claude',
+      sessionId: 'a',
+      leafUuid: 'b#c'
+    }
     expect(agentSessionProviderHandleKey(left)).not.toBe(agentSessionProviderHandleKey(right))
     expect(agentSessionProviderHandlesEqual(left, right)).toBe(false)
   })
@@ -92,7 +101,7 @@ describe('chain append', () => {
         link({
           linkId: 'link-2',
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-2', 'leaf-9'),
+          handle: { provider: 'claude', sessionId: 'sess-2', leafUuid: 'leaf-9' },
           mintedAtFence: 2
         })
       )
@@ -104,7 +113,7 @@ describe('chain append', () => {
     const forked = link({
       linkId: 'link-2',
       origin: 'forked',
-      handle: claudeProviderHandle('sess-2', 'leaf-9'),
+      handle: { provider: 'claude', sessionId: 'sess-2', leafUuid: 'leaf-9' },
       mintedAtFence: 2,
       forkedFromKey: agentSessionProviderHandleKey(CLAUDE)
     })
@@ -129,7 +138,7 @@ describe('chain append', () => {
         link({
           linkId: 'link-2',
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-1', 'leaf-2'),
+          handle: { ...CLAUDE, leafUuid: 'leaf-2' },
           mintedAtFence: 4
         })
       )
@@ -143,7 +152,7 @@ describe('chain append', () => {
         link({
           linkId: 'link-2',
           origin: 'resumed',
-          handle: codexProviderHandle('thread-1'),
+          handle: { provider: 'codex', threadId: 'thread-1' },
           mintedAtFence: 2
         })
       )
@@ -173,7 +182,7 @@ describe('chain append', () => {
         [link()],
         link({
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-1', 'leaf-2'),
+          handle: { ...CLAUDE, leafUuid: 'leaf-2' },
           mintedAtFence: 2
         })
       )
@@ -187,7 +196,7 @@ describe('chain append', () => {
         link({
           linkId: `link-${index + 1}`,
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-1', `leaf-${index + 1}`),
+          handle: { ...CLAUDE, leafUuid: `leaf-${index + 1}` },
           mintedAtFence: index + 1
         })
       )
@@ -199,7 +208,7 @@ describe('chain append', () => {
         link({
           linkId: 'link-overflow',
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-1', 'leaf-overflow'),
+          handle: { ...CLAUDE, leafUuid: 'leaf-overflow' },
           mintedAtFence: 999
         })
       )
@@ -217,7 +226,7 @@ describe('chain append', () => {
       link({
         linkId: 'link-2',
         origin: 'resumed',
-        handle: claudeProviderHandle('sess-1', 'leaf-2'),
+        handle: { ...CLAUDE, leafUuid: 'leaf-2' },
         mintedAtFence: 2
       })
     )
@@ -232,7 +241,7 @@ describe('chain lookup and validation', () => {
       link({
         linkId: 'link-2',
         origin: 'resumed',
-        handle: claudeProviderHandle('sess-1', 'leaf-2'),
+        handle: { ...CLAUDE, leafUuid: 'leaf-2' },
         mintedAtFence: 2
       })
     )
@@ -273,7 +282,7 @@ describe('chain lookup and validation', () => {
         link(),
         link({
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-1', 'leaf-2'),
+          handle: { ...CLAUDE, leafUuid: 'leaf-2' },
           mintedAtFence: 2
         })
       ])
@@ -284,7 +293,7 @@ describe('chain lookup and validation', () => {
         link({
           linkId: 'link-2',
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-2', 'leaf-2'),
+          handle: { provider: 'claude', sessionId: 'sess-2', leafUuid: 'leaf-2' },
           mintedAtFence: 2
         })
       ])
@@ -299,7 +308,7 @@ describe('adopted chain heads', () => {
     link({
       linkId: 'claude-1-sess-1-empty',
       origin: 'adopted',
-      handle: claudeProviderHandle('sess-1', null),
+      handle: { ...CLAUDE, leafUuid: null },
       ...overrides
     })
 
@@ -324,7 +333,7 @@ describe('adopted chain heads', () => {
       link({
         linkId: 'claude-1-sess-1-empty-retry',
         origin: 'resumed',
-        handle: claudeProviderHandle('sess-1', null),
+        handle: { ...CLAUDE, leafUuid: null },
         mintedAtFence: 1
       })
     )
@@ -336,12 +345,12 @@ describe('adopted chain heads', () => {
     const codexAdopted = link({
       linkId: 'codex-1-thread-1',
       origin: 'adopted',
-      handle: codexProviderHandle('thread-1')
+      handle: { provider: 'codex', threadId: 'thread-1' }
     })
     const reproved = link({
       linkId: 'codex-1-thread-1-retry',
       origin: 'resumed',
-      handle: codexProviderHandle('thread-1'),
+      handle: { provider: 'codex', threadId: 'thread-1' },
       mintedAtFence: 1
     })
 
@@ -371,7 +380,7 @@ describe('adopted chain heads', () => {
         link({
           linkId: 'claude-1-sess-9-leaf-9',
           origin: 'resumed',
-          handle: claudeProviderHandle('sess-9', 'leaf-9'),
+          handle: { provider: 'claude', sessionId: 'sess-9', leafUuid: 'leaf-9' },
           mintedAtFence: 1
         })
       )
@@ -384,12 +393,12 @@ describe('adopted chain heads', () => {
 })
 
 describe('superseding a creation the provider never saved', () => {
-  const unsaved: AgentSessionProviderHandle = codexProviderHandle('thread-unsaved')
+  const unsaved: AgentSessionProviderHandle = { provider: 'codex', threadId: 'thread-unsaved' }
   const created = link({ linkId: 'codex-1-thread-unsaved', handle: unsaved })
   function replacement(overrides: Partial<AgentSessionProviderHandleLink> = {}) {
     return link({
       linkId: 'codex-3-thread-new',
-      handle: codexProviderHandle('thread-new'),
+      handle: { provider: 'codex', threadId: 'thread-new' },
       mintedAtFence: 3,
       supersedesKey: agentSessionProviderHandleKey(unsaved),
       ...overrides
@@ -405,13 +414,13 @@ describe('superseding a creation the provider never saved', () => {
       chain,
       replacement({
         linkId: 'codex-5-thread-newer',
-        handle: codexProviderHandle('thread-newer'),
+        handle: { provider: 'codex', threadId: 'thread-newer' },
         mintedAtFence: 5,
-        supersedesKey: agentSessionProviderHandleKey(codexProviderHandle('thread-new'))
+        supersedesKey: agentSessionProviderHandleKey({ provider: 'codex', threadId: 'thread-new' })
       })
     )
     expect(again).toHaveLength(1)
-    expect(again[0]?.handle).toEqual(codexProviderHandle('thread-newer'))
+    expect(again[0]?.handle).toEqual({ provider: 'codex', threadId: 'thread-newer' })
   })
 
   it('never supersedes a conversation a resume, fork or adoption proved', () => {
@@ -456,241 +465,5 @@ describe('superseding a creation the provider never saved', () => {
       )
     ).toThrow('agent_session_provider_handle_invalid')
     expect(isAgentSessionProviderHandleChain([created, replacement()])).toBe(false)
-  })
-})
-
-describe('a transport shared code has never heard of', () => {
-  const acp = (nativeId: string, resumeCursor?: string): AgentSessionProviderHandle => ({
-    transport: 'acp',
-    agent: 'grok',
-    nativeId,
-    ...(resumeCursor === undefined ? {} : { resumeCursor })
-  })
-
-  it('chains resumes and forks by its native id alone', () => {
-    const created = link({ handle: acp('s-1', '{"cwd":"/a"}') })
-    const resumed = link({
-      linkId: 'link-2',
-      origin: 'resumed',
-      handle: acp('s-1', '{"cwd":"/b"}'),
-      mintedAtFence: 2
-    })
-    const chain = appendAgentSessionProviderHandleLink([created], resumed)
-    expect(chain).toHaveLength(2)
-    expect(isAgentSessionProviderHandleChain(chain)).toBe(true)
-    expect(() =>
-      appendAgentSessionProviderHandleLink(chain, {
-        ...resumed,
-        linkId: 'link-3',
-        handle: acp('s-2')
-      })
-    ).toThrow('agent_session_provider_handle_forked')
-    const forked = appendAgentSessionProviderHandleLink(chain, {
-      ...resumed,
-      linkId: 'link-3',
-      origin: 'forked',
-      handle: acp('s-2'),
-      forkedFromKey: agentSessionProviderHandleKey(resumed.handle)
-    })
-    expect(forked.at(-1)?.handle.nativeId).toBe('s-2')
-  })
-
-  it('records a same-fence resume that only moved the resume cursor instead of eliding it', () => {
-    const created = link({ handle: acp('s-1', 'a') })
-    const moved = link({ linkId: 'link-2', origin: 'resumed', handle: acp('s-1', 'b') })
-    expect(appendAgentSessionProviderHandleLink([created], moved)).toHaveLength(2)
-    expect(
-      appendAgentSessionProviderHandleLink([created], { ...moved, handle: acp('s-1', 'a') })
-    ).toHaveLength(1)
-  })
-
-  it('never joins a chain of another transport or agent, even with the same id', () => {
-    const chain = [link({ handle: codexProviderHandle('shared-id') })]
-    for (const handle of [
-      acp('shared-id'),
-      { transport: 'codex-app-server', agent: 'grok', nativeId: 'shared-id' }
-    ]) {
-      expect(() =>
-        appendAgentSessionProviderHandleLink(
-          chain,
-          link({ linkId: 'link-2', origin: 'resumed', handle, mintedAtFence: 2 })
-        )
-      ).toThrow()
-    }
-  })
-})
-
-describe('replacing a conversation the provider could not restore', () => {
-  const acp = (nativeId: string): AgentSessionProviderHandle => ({
-    transport: 'acp',
-    agent: 'grok',
-    nativeId
-  })
-  const created = link({ handle: acp('s-1') })
-  const resumed = link({
-    linkId: 'link-2',
-    origin: 'resumed',
-    handle: acp('s-1'),
-    mintedAtFence: 2
-  })
-  const lost = {
-    key: agentSessionProviderHandleKey(acp('s-1')),
-    reason: 'restore-failed',
-    replacedAt: 3_000
-  }
-  function fresh(overrides: Partial<AgentSessionProviderHandleLink> = {}) {
-    return link({
-      linkId: 'link-3',
-      handle: acp('s-2'),
-      mintedAtFence: 3,
-      observedAt: 3_000,
-      replaces: lost,
-      ...overrides
-    })
-  }
-
-  it('follows a reopened conversation and keeps every link before it', () => {
-    const chain = appendAgentSessionProviderHandleLink([created, resumed], fresh())
-    expect(chain).toEqual([created, resumed, fresh()])
-    expect(agentSessionProviderHandleChainHead(chain)?.handle.nativeId).toBe('s-2')
-    expect(isAgentSessionProviderHandleChain(chain)).toBe(true)
-    // The fresh conversation then resumes like any other.
-    const reopened = appendAgentSessionProviderHandleLink(
-      chain,
-      link({ linkId: 'link-4', origin: 'resumed', handle: acp('s-2'), mintedAtFence: 4 })
-    )
-    expect(reopened).toHaveLength(4)
-    expect(isAgentSessionProviderHandleChain(reopened)).toBe(true)
-  })
-
-  it('names exactly the head it took over from, on a new root', () => {
-    for (const bad of [
-      fresh({ replaces: { ...lost, key: agentSessionProviderHandleKey(acp('s-9')) } }),
-      fresh({ handle: acp('s-1') }),
-      fresh({ linkId: 'link-2' }),
-      fresh({ replaces: undefined })
-    ]) {
-      expect(() => appendAgentSessionProviderHandleLink([created, resumed], bad)).toThrow(
-        'agent_session_provider_handle_invalid'
-      )
-    }
-    expect(() =>
-      appendAgentSessionProviderHandleLink([created, resumed], fresh({ mintedAtFence: 1 }))
-    ).toThrow('agent_session_provider_handle_stale_fence')
-  })
-
-  it('is only ever a creation, and never opens a chain', () => {
-    expect(() => appendAgentSessionProviderHandleLink([], fresh())).toThrow(
-      'agent_session_provider_handle_invalid'
-    )
-    for (const origin of ['resumed', 'adopted', 'forked'] as const) {
-      expect(() =>
-        appendAgentSessionProviderHandleLink(
-          [created, resumed],
-          fresh({ origin, forkedFromKey: lost.key })
-        )
-      ).toThrow('agent_session_provider_handle_invalid')
-    }
-  })
-
-  it('reads a reason a later build records, but no malformed one', () => {
-    const later = fresh({ replaces: { ...lost, reason: 'transport-retired' } })
-    expect(appendAgentSessionProviderHandleLink([created, resumed], later)).toHaveLength(3)
-    for (const replaces of [
-      { ...lost, reason: '' },
-      { ...lost, reason: 'x'.repeat(65) },
-      { ...lost, replacedAt: -1 },
-      { key: lost.key, reason: lost.reason }
-    ]) {
-      expect(() =>
-        appendAgentSessionProviderHandleLink(
-          [created, resumed],
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: deliberately malformed stored data the guard must refuse.
-          fresh({ replaces: replaces as AgentSessionProviderHandleLink['replaces'] })
-        )
-      ).toThrow('agent_session_provider_handle_invalid')
-    }
-  })
-
-  it('stays lost when a fresh conversation the agent never saved is superseded in turn', () => {
-    const chain = appendAgentSessionProviderHandleLink([created, resumed], fresh())
-    const superseding = link({
-      linkId: 'link-5',
-      handle: acp('s-3'),
-      mintedAtFence: 5,
-      supersedesKey: agentSessionProviderHandleKey(acp('s-2'))
-    })
-    const superseded = appendAgentSessionProviderHandleLink(chain, superseding)
-    expect(superseded).toEqual([created, resumed, { ...superseding, replaces: lost }])
-    expect(isAgentSessionProviderHandleChain(superseded)).toBe(true)
-    // Unused across many restarts, it still does not grow.
-    const again = appendAgentSessionProviderHandleLink(superseded, {
-      ...superseding,
-      linkId: 'link-6',
-      handle: acp('s-4'),
-      mintedAtFence: 6,
-      supersedesKey: agentSessionProviderHandleKey(acp('s-3'))
-    })
-    expect(again).toHaveLength(3)
-    expect(again.at(-1)?.replaces).toEqual(lost)
-    // A supersession cannot rewrite what was lost, nor land back on it.
-    expect(() =>
-      appendAgentSessionProviderHandleLink(chain, {
-        ...superseding,
-        replaces: { ...lost, replacedAt: 9 }
-      })
-    ).toThrow('agent_session_provider_handle_invalid')
-    expect(() =>
-      appendAgentSessionProviderHandleLink(chain, { ...superseding, handle: acp('s-1') })
-    ).toThrow('agent_session_provider_handle_invalid')
-  })
-
-  it('refuses a supersession key that names no creation in the chain', () => {
-    expect(() =>
-      appendAgentSessionProviderHandleLink(
-        [created, resumed],
-        fresh({ supersedesKey: agentSessionProviderHandleKey(acp('s-9')) })
-      )
-    ).toThrow('agent_session_provider_handle_invalid')
-  })
-
-  it('is refused in a Claude or Codex chain, whose rows older builds read', () => {
-    for (const [first, lost, next] of [
-      [CLAUDE, CLAUDE, claudeProviderHandle('sess-2', null)],
-      [codexProviderHandle('t-1'), codexProviderHandle('t-1'), codexProviderHandle('t-2')]
-    ] as const) {
-      expect(() =>
-        appendAgentSessionProviderHandleLink(
-          [link({ handle: first })],
-          fresh({
-            handle: next,
-            replaces: {
-              key: agentSessionProviderHandleKey(lost),
-              reason: 'restore-failed',
-              replacedAt: 3_000
-            }
-          })
-        )
-      ).toThrow('agent_session_provider_handle_invalid')
-    }
-  })
-
-  it('still supersedes only a creation the provider never saved', () => {
-    const chain = appendAgentSessionProviderHandleLink([created, resumed], fresh())
-    const proven = appendAgentSessionProviderHandleLink(
-      chain,
-      link({ linkId: 'link-4', origin: 'resumed', handle: acp('s-2'), mintedAtFence: 4 })
-    )
-    expect(() =>
-      appendAgentSessionProviderHandleLink(
-        proven,
-        link({
-          linkId: 'link-5',
-          handle: acp('s-3'),
-          mintedAtFence: 5,
-          supersedesKey: agentSessionProviderHandleKey(acp('s-2'))
-        })
-      )
-    ).toThrow('agent_session_provider_handle_invalid')
   })
 })

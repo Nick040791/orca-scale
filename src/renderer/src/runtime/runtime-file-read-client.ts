@@ -3,8 +3,7 @@ import type {
   RuntimeFileReadChunkResult,
   RuntimeFileReadResult
 } from '../../../shared/runtime-types'
-import { callRuntimeRpc } from './runtime-rpc-client'
-import { RuntimeRpcCallError } from './runtime-rpc-result'
+import { callRuntimeRpc, getActiveRuntimeTarget, RuntimeRpcCallError } from './runtime-rpc-client'
 import type {
   RuntimeFileDownloadResult,
   RuntimeFileOperationArgs,
@@ -18,16 +17,6 @@ import {
   hasRemoteRuntimeOwner
 } from './runtime-file-routing'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
-import { chatScratchFileAddress } from './runtime-chat-scratch-file-address'
-import { isAgentSessionAttachmentStorePath } from '../../../shared/agent-session-attachments'
-import type { LocalFileAccess } from '../../../shared/local-file-access'
-import { readRuntimeTerminalArtifactContent } from './runtime-terminal-artifact-read'
-import {
-  pagedTextFileResult,
-  pinRemoteFileAddress,
-  readRemoteFileInChunks,
-  readRemoteFilePreview
-} from './runtime-paged-file-read'
 
 const REMOTE_DOWNLOAD_CHUNK_BYTES = 384 * 1024
 const REMOTE_DOWNLOAD_UPDATE_REQUIRED_MESSAGE =
@@ -35,135 +24,79 @@ const REMOTE_DOWNLOAD_UPDATE_REQUIRED_MESSAGE =
 
 type RemoteFileDownloadArgs = NonNullable<ReturnType<typeof getRemoteFileArgs>>
 
-// Why local only: an SSH read is the remote host's to check, and its relay never sees this field.
-export function localAccess(
-  connectionId: string | undefined,
-  access: LocalFileAccess | undefined
-): { access?: LocalFileAccess } {
-  return access && !connectionId ? { access } : {}
-}
-
 export async function readRuntimeFileContent({
-  target,
+  settings,
   filePath,
   relativePath,
   worktreeId,
   connectionId,
   expectedExternalSshTargetId,
-  includeLocalLogMetadata,
-  access,
-  terminalArtifactGrantId,
-  pageOversizedBinary
+  includeLocalLogMetadata
 }: RuntimeFileReadArgs): Promise<RuntimeReadableFileContent> {
-  assertExternalSshReadOwnership(target, connectionId, expectedExternalSshTargetId)
-  if (target.kind !== 'environment' || !worktreeId) {
-    return window.api.fs.readFile({
-      filePath,
-      connectionId,
-      includeLocalLogMetadata,
-      ...localAccess(connectionId, access)
-    })
+  assertExternalSshReadOwnership(settings, connectionId, expectedExternalSshTargetId)
+  const target = getActiveRuntimeTarget(settings)
+  if (target.kind !== 'environment') {
+    return window.api.fs.readFile({ filePath, connectionId, includeLocalLogMetadata })
   }
-  if (terminalArtifactGrantId) {
-    return readRuntimeTerminalArtifactContent({
-      target,
-      worktreeId,
-      absolutePath: filePath,
-      grantId: terminalArtifactGrantId
-    })
+  if (!worktreeId) {
+    return window.api.fs.readFile({ filePath, connectionId, includeLocalLogMetadata })
   }
-  // A workspace path first; a chat's scratch file is the absolute path no workspace contains.
-  const scratch = canReadRelativeRuntimeFile(relativePath) ? null : chatScratchFileAddress(filePath)
-  const readPath = scratch?.relativePath ?? relativePath
-  if (!canReadRelativeRuntimeFile(readPath)) {
+  if (!canReadRelativeRuntimeFile(relativePath)) {
     throw new Error('Remote file is outside the owning runtime worktree')
   }
 
-  const remote = pinRemoteFileAddress({
-    target,
-    worktree: scratch?.worktreeSelector ?? toRuntimeWorktreeSelector(worktreeId),
-    relativePath: readPath
-  })
+  const worktree = toRuntimeWorktreeSelector(worktreeId)
   let result: RuntimeFileReadResult
   try {
     result = await callRuntimeRpc<RuntimeFileReadResult>(
       target,
       'files.read',
-      { worktree: remote.worktree, relativePath: readPath },
-      {
-        timeoutMs: 15_000,
-        expectedEnvironmentPairingRevision: remote.expectedEnvironmentPairingRevision
-      }
+      { worktree, relativePath },
+      { timeoutMs: 15_000 }
     )
   } catch (err) {
     // Why: files.read rejects binary paths with the typed 'binary_file' error; fall
     // back to the base64 preview RPC so PDFs/images render like local/SSH paths.
     // Match the exact typed error so an unrelated failure can't spoof the fallback.
     if (err instanceof RuntimeRpcCallError && err.message === 'binary_file') {
-      // Why: baseline checks call this too and discard binary content, so paging is opt-in.
-      return readRemoteFilePreview(remote, { pageOversized: pageOversizedBinary === true })
+      return callRuntimeRpc<RuntimeFilePreviewResult>(
+        target,
+        'files.readPreview',
+        { worktree, relativePath },
+        { timeoutMs: 15_000 }
+      )
     }
     throw err
   }
   if (result.truncated) {
-    // Why: files.read stops at 512 KiB to fit one reply; a truncated payload saved as
-    // editable content would drop the rest of the file, so read the whole file in chunks.
-    const paged = await readRemoteFileInChunks(remote)
-    if (paged.kind === 'ok') {
-      return pagedTextFileResult(paged.bytes)
-    }
-    throw new Error(
-      paged.kind === 'unsupported'
-        ? 'Remote file is larger than the 512 KB this Orca server can send. Update the server to open it.'
-        : `Remote file is too large to open in the editor (${paged.size} bytes)`
-    )
+    // Why: the runtime file RPC is preview-sized today; treating a truncated
+    // payload as editable content would make saves overwrite the rest of the file.
+    throw new Error(`Remote file is too large to open in the editor (${result.byteLength} bytes)`)
   }
   return { content: result.content, isBinary: false }
 }
 
 export async function readRuntimeFilePreview(
   context: RuntimeFileOperationArgs,
-  filePath: string,
-  access?: LocalFileAccess
+  filePath: string
 ): Promise<RuntimeFilePreviewResult> {
   assertExternalSshReadOwnership(
-    context.target,
+    context.settings,
     context.connectionId,
     context.expectedExternalSshTargetId
   )
   const remoteArgs = getRemoteFileArgs(context, filePath)
-  const runtimeTarget = context.target
-  // A chat attachment lives in the paired server's store, outside every worktree; that server
-  // reads it back itself (an older one answers method_not_found, and the preview falls back).
-  if (
-    !remoteArgs &&
-    runtimeTarget.kind === 'environment' &&
-    isAgentSessionAttachmentStorePath(filePath)
-  ) {
-    return callRuntimeRpc<RuntimeFilePreviewResult>(
-      runtimeTarget,
-      'agentSessionAttachment.read',
-      { path: filePath },
-      { timeoutMs: 15_000 }
-    )
-  }
   if (!remoteArgs) {
     if (hasRemoteRuntimeOwner(context)) {
       throw new Error('Remote file is outside the owning runtime worktree')
     }
-    return window.api.fs.readFile({
-      filePath,
-      connectionId: context.connectionId,
-      ...localAccess(context.connectionId, access)
-    })
+    return window.api.fs.readFile({ filePath, connectionId: context.connectionId })
   }
-  return readRemoteFilePreview(
-    {
-      target: remoteArgs.target,
-      worktree: remoteArgs.worktreeSelector,
-      relativePath: remoteArgs.relativePath
-    },
-    { pageOversized: true }
+  return callRuntimeRpc<RuntimeFilePreviewResult>(
+    remoteArgs.target,
+    'files.readPreview',
+    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
+    { timeoutMs: 15_000 }
   )
 }
 
@@ -173,7 +106,7 @@ export async function downloadRuntimeFile(
   suggestedName: string
 ): Promise<RuntimeFileDownloadResult> {
   assertExternalSshReadOwnership(
-    context.target,
+    context.settings,
     context.connectionId,
     context.expectedExternalSshTargetId
   )

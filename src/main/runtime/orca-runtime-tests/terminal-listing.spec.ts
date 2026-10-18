@@ -77,7 +77,6 @@ describe('OrcaRuntimeService', () => {
     const tabId = 'projected-parent-tab'
     const leafId = 'projected-leaf'
     const ptyId = 'projected-pty'
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: reads two protected runtime members this test seeds and calls; their shapes match these declarations.
     const internals = runtime as unknown as {
       mobileSessionTabsByWorktree: Map<string, unknown>
       resolveTerminalSplitSourceAuthority: (
@@ -85,7 +84,7 @@ describe('OrcaRuntimeService', () => {
         tabId: string,
         leafId: string,
         ptyId: string
-      ) => { persisted: boolean } | null
+      ) => { persisted: boolean; rendererMounted: boolean } | null
     }
     internals.mobileSessionTabsByWorktree.set(TEST_WORKTREE_ID, {
       tabs: [
@@ -101,7 +100,7 @@ describe('OrcaRuntimeService', () => {
 
     expect(
       internals.resolveTerminalSplitSourceAuthority(TEST_WORKTREE_ID, tabId, leafId, ptyId)
-    ).toMatchObject({ persisted: false })
+    ).toMatchObject({ persisted: false, rendererMounted: false })
   })
 
   it('keeps targeted terminal lists from adopting controller PTYs for other worktrees', async () => {

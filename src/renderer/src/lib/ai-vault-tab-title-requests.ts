@@ -1,5 +1,5 @@
 import type { AgentProviderSessionMetadata } from '../../../shared/agent-session-resume'
-import type { AgentStatusEntry, AgentType } from '../../../shared/agent-status-types'
+import type { AgentType } from '../../../shared/agent-status-types'
 import type { AiVaultSessionTitle } from '../../../shared/ai-vault-session-title'
 import { isAiVaultTitleAgent } from '../../../shared/ai-vault-session-title'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -8,9 +8,8 @@ import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import type { AppState } from '@/store/types'
 
-/** The conversation a tab's pane runs, for an agent `isAgent` accepts. */
-export type AgentPaneConversation<Agent extends AgentType> = {
-  agent: Agent
+export type AiVaultTitleRequest = {
+  agent: AiVaultSessionTitle['agent']
   executionHostId: ExecutionHostId
   providerSession: AgentProviderSessionMetadata
   refresh: boolean
@@ -18,11 +17,7 @@ export type AgentPaneConversation<Agent extends AgentType> = {
   worktreeId: string
 }
 
-export type AiVaultTitleRequest = AgentPaneConversation<AiVaultSessionTitle['agent']>
-
-type RequestCandidate<Agent extends AgentType> = AgentPaneConversation<Agent> & {
-  priority: number
-}
+type RequestCandidate = AiVaultTitleRequest & { priority: number }
 
 function tabIdFromPaneKey(paneKey: string, tabId?: string): string | null {
   return tabId?.trim() || parsePaneKey(paneKey)?.tabId || null
@@ -33,11 +28,10 @@ function activePaneKey(state: AppState, tabId: string): string | null {
   return activeLeafId ? `${tabId}:${activeLeafId}` : null
 }
 
-function registerCandidate<Agent extends AgentType>(
+function registerCandidate(
   state: AppState,
   tabsById: ReadonlyMap<string, TerminalTab>,
-  candidates: Map<string, RequestCandidate<Agent>>,
-  isAgent: (agent: AgentType | null | undefined) => agent is Agent,
+  candidates: Map<string, RequestCandidate>,
   args: {
     agent: AgentType | null | undefined
     paneKey: string
@@ -48,7 +42,7 @@ function registerCandidate<Agent extends AgentType>(
     worktreeId?: string
   }
 ): void {
-  if (!isAgent(args.agent) || !args.providerSession?.id) {
+  if (!isAiVaultTitleAgent(args.agent) || !args.providerSession?.id) {
     return
   }
   const tabId = tabIdFromPaneKey(args.paneKey, args.tabId)
@@ -73,44 +67,16 @@ function registerCandidate<Agent extends AgentType>(
   })
 }
 
-function liveCandidate(entry: AgentStatusEntry): Parameters<typeof registerCandidate>[4] {
-  return {
-    agent: entry.agentType,
-    paneKey: entry.paneKey,
-    priority: 30,
-    providerSession: entry.providerSession,
-    refresh: true,
-    tabId: entry.tabId,
-    worktreeId: entry.worktreeId
-  }
-}
-
 export function collectAiVaultTitleRequests(state: AppState): AiVaultTitleRequest[] {
-  return collectAgentPaneConversations(state, isAiVaultTitleAgent)
-}
-
-/** Each tab's conversation of an agent `isAgent` accepts: live agent, then sleeping, then retained. */
-export function collectAgentPaneConversations<Agent extends AgentType>(
-  state: AppState,
-  isAgent: (agent: AgentType | null | undefined) => agent is Agent,
-  options: {
-    /** Skip retained and sleeping records: those remember a conversation after its agent exited. */
-    runningAgentsOnly?: boolean
-  } = {}
-): AgentPaneConversation<Agent>[] {
   const tabsById = new Map(
     Object.values(state.tabsByWorktree)
       .flat()
       .map((tab) => [tab.id, tab] as const)
   )
-  const candidates = new Map<string, RequestCandidate<Agent>>()
-  const retained = options.runningAgentsOnly ? [] : Object.values(state.retainedAgentsByPaneKey)
-  const sleeping = options.runningAgentsOnly
-    ? []
-    : Object.values(state.sleepingAgentSessionsByPaneKey)
+  const candidates = new Map<string, RequestCandidate>()
 
-  for (const entry of retained) {
-    registerCandidate(state, tabsById, candidates, isAgent, {
+  for (const entry of Object.values(state.retainedAgentsByPaneKey)) {
+    registerCandidate(state, tabsById, candidates, {
       agent: entry.agentType,
       paneKey: entry.entry.paneKey,
       priority: 10,
@@ -120,8 +86,8 @@ export function collectAgentPaneConversations<Agent extends AgentType>(
       worktreeId: entry.worktreeId
     })
   }
-  for (const record of sleeping) {
-    registerCandidate(state, tabsById, candidates, isAgent, {
+  for (const record of Object.values(state.sleepingAgentSessionsByPaneKey)) {
+    registerCandidate(state, tabsById, candidates, {
       agent: record.agent,
       paneKey: record.paneKey,
       priority: 20,
@@ -132,31 +98,16 @@ export function collectAgentPaneConversations<Agent extends AgentType>(
     })
   }
   for (const entry of Object.values(state.agentStatusByPaneKey)) {
-    registerCandidate(state, tabsById, candidates, isAgent, liveCandidate(entry))
+    registerCandidate(state, tabsById, candidates, {
+      agent: entry.agentType,
+      paneKey: entry.paneKey,
+      priority: 30,
+      providerSession: entry.providerSession,
+      refresh: true,
+      tabId: entry.tabId,
+      worktreeId: entry.worktreeId
+    })
   }
 
   return [...candidates.values()].map(({ priority: _priority, ...request }) => request)
-}
-
-/** One pane's running agent, mapped as above, so a pane's action finds that pane's own conversation. */
-export function resolvePaneAgentConversation<Agent extends AgentType>(
-  state: AppState,
-  pane: { worktreeId: string; paneKey: string },
-  isAgent: (agent: AgentType | null | undefined) => agent is Agent
-): AgentPaneConversation<Agent> | null {
-  const live = state.agentStatusByPaneKey[pane.paneKey]
-  if (live?.paneKey !== pane.paneKey) {
-    return null
-  }
-  const tabsById = new Map(
-    (state.tabsByWorktree[pane.worktreeId] ?? []).map((tab) => [tab.id, tab] as const)
-  )
-  const candidates = new Map<string, RequestCandidate<Agent>>()
-  registerCandidate(state, tabsById, candidates, isAgent, liveCandidate(live))
-  const [candidate] = candidates.values()
-  if (!candidate) {
-    return null
-  }
-  const { priority: _priority, ...request } = candidate
-  return request
 }

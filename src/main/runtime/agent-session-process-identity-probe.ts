@@ -10,11 +10,11 @@
 
 import { readFile } from 'node:fs/promises'
 import type {
-  AgentSessionOwnerProbe,
-  AgentSessionProcessIdentityField
+  AgentSessionIdentityMatchField,
+  AgentSessionOwnerProbe
 } from '../../shared/agent-session-lease-adjudication'
 import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../shared/child-process/run-process'
 import {
   isWindowsProcessStartTimeAvailable,
   readWindowsProcessIdentityTableFresh
@@ -114,8 +114,8 @@ async function readDarwinProcessStartTimesMs(
 }
 
 async function readWindowsProcessStartTimeMs(pid: number): Promise<number | null> {
-  // A binary without the creation-time flag (one built before Orca's patch) would
-  // otherwise scan the whole table to produce `null` every time.
+  // No shipped addon build exposes the creation-time flag, so without this the
+  // whole table gets scanned to produce `null` every time.
   if (!isWindowsProcessStartTimeAvailable()) {
     return null
   }
@@ -242,7 +242,7 @@ export async function probeAgentSessionProcessIdentity(args: {
   if (!isPidPresent(identity.pid)) {
     return { outcome: 'pid-absent' }
   }
-  const matchedOn: AgentSessionProcessIdentityField[] = []
+  const matchedOn: AgentSessionIdentityMatchField[] = []
   const echoedToken = await deps.readEchoedSpawnToken?.(identity).catch(() => null)
   if (echoedToken !== null && echoedToken !== undefined) {
     if (echoedToken !== identity.spawnToken) {

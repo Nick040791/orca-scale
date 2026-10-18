@@ -293,5 +293,6 @@ export const KO_VALUE_OVERRIDES = {
   Server: '서버',
   Web: '웹',
   Code: '코드',
-  Folder: '폴더'
+  Folder: '폴더',
+  'Hermes automation created.': 'Hermes 자동화가 생성되었습니다.'
 }

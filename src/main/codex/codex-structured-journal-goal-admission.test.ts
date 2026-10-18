@@ -1,4 +1,3 @@
-import { AGENT_JOURNAL_THREAD_SCOPE } from '../../shared/agent-session-journal-types'
 import { describe, expect, it } from 'vitest'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type {
@@ -138,7 +137,7 @@ describe('codex goal lifecycle admission', () => {
       appendTombstone: () => {},
       publish: () => {}
     } satisfies StructuredAgentSessionEventSink
-    const goals = new CodexJournalGoals(sink, () => ({ turnScope: AGENT_JOURNAL_THREAD_SCOPE }))
+    const goals = new CodexJournalGoals(sink, () => ({}))
     const update = (goal: Record<string, unknown> = {}) =>
       goals.handle({ threadId: THREAD, method: 'thread/goal/updated', params: goalFrame(goal) })
     const clear = () =>
@@ -179,7 +178,7 @@ describe('codex goal lifecycle admission', () => {
       appendTombstone: () => {},
       publish: () => {}
     } satisfies StructuredAgentSessionEventSink
-    const goals = new CodexJournalGoals(sink, () => ({ turnScope: AGENT_JOURNAL_THREAD_SCOPE }))
+    const goals = new CodexJournalGoals(sink, () => ({}))
     const send = (threadId: string) =>
       goals.handle({ threadId, method: 'thread/goal/updated', params: goalFrame() })
 
@@ -212,7 +211,7 @@ describe('codex goal lifecycle admission', () => {
       appendTombstone: () => {},
       publish: () => {}
     } satisfies StructuredAgentSessionEventSink
-    const goals = new CodexJournalGoals(sink, () => ({ turnScope: AGENT_JOURNAL_THREAD_SCOPE }))
+    const goals = new CodexJournalGoals(sink, () => ({}))
     const event = { threadId: THREAD, method: 'thread/goal/updated', params: goalFrame() }
 
     goals.handle(event)

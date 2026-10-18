@@ -1,4 +1,3 @@
-import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
 import { describe, expect, it } from 'vitest'
 
 import { BrowserClientHostAttachParams } from '../../shared/browser-client-host-protocol'
@@ -7,14 +6,8 @@ import { sameBrowserClientHostLeaseAuthority } from './browser-client-host-comma
 import { BrowserClientFileChannelTransport } from './browser-client-file-channel-transport'
 import { PairedRuntimeBrowserClientHost } from './paired-runtime-browser-client-host'
 
-const TEST_CONNECTION = pairedRuntimeConnectionFromOffer({
-  endpoint: 'ws://127.0.0.1:1',
-  deviceToken: 'token',
-  publicKeyB64: 'key'
-})
-
 const leaseOptions = {
-  connection: TEST_CONNECTION,
+  pairing: {} as never,
   authorityRuntimeId: 'runtime-1',
   browserHostClientId: 'host-1',
   hostCapabilities: ['webview'],
@@ -119,9 +112,8 @@ describe('browser file channel negotiation', () => {
   })
 
   it('separates a host that never offered the channel from one whose lease is gone', () => {
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reads the host's private channel state; a renamed field fails the test.
     const host = new PairedRuntimeBrowserClientHost({
-      connection: TEST_CONNECTION,
+      pairing: {} as never,
       authorityRuntimeId: 'runtime-1',
       browserHostClientId: 'host-1',
       hostCapabilities: ['webview'],

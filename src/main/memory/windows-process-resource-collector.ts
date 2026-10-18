@@ -1,4 +1,4 @@
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../shared/child-process/run-process'
 import os from 'node:os'
 import { performance } from 'node:perf_hooks'
 import {

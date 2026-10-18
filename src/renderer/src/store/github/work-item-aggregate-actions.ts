@@ -24,10 +24,10 @@ import { findRepoForGitHubOwner } from './repository-routing'
 import {
   countGitHubWorkItemsForRepo,
   getGitHubWorkItemRequestContext,
+  getGitHubWorkItemSourceSettings,
   getWorkItemsCacheKeyForOwner,
   isGitHubUnavailableWorkItemsError,
-  listGitHubWorkItemsForRepo,
-  getGitHubSourceTarget
+  listGitHubWorkItemsForRepo
 } from './work-item-routing'
 
 export const createWorkItemAggregateActions = (
@@ -114,9 +114,14 @@ export const createWorkItemAggregateActions = (
       repos.map(async (r) => {
         const requestState = get()
         const repo = findRepoForGitHubOwner(requestState, r.repoId, r.path)
+        const requestSettings = getGitHubWorkItemSourceSettings(
+          requestState.settings,
+          repo,
+          r.sourceContext
+        )
         const requestContext = getGitHubWorkItemRequestContext(
           requestState,
-          getGitHubSourceTarget(requestState, repo, r.sourceContext),
+          requestSettings,
           r.repoId,
           r.path,
           r.sourceContext
@@ -193,9 +198,14 @@ export const createWorkItemAggregateActions = (
         try {
           const requestState = get()
           const repo = findRepoForGitHubOwner(requestState, r.repoId, r.path)
+          const requestSettings = getGitHubWorkItemSourceSettings(
+            requestState.settings,
+            repo,
+            r.sourceContext
+          )
           const requestContext = getGitHubWorkItemRequestContext(
             requestState,
-            getGitHubSourceTarget(requestState, repo, r.sourceContext),
+            requestSettings,
             r.repoId,
             r.path,
             r.sourceContext
@@ -230,9 +240,14 @@ export const createWorkItemAggregateActions = (
         ? workItemsCacheKey(repoId, limit, query, getTaskSourceCacheScope(options.sourceContext))
         : getWorkItemsCacheKeyForOwner(requestState, repoId, limit, query, repoPath)
     const cached = get().workItemsCache[key]
+    const requestSettings = getGitHubWorkItemSourceSettings(
+      requestState.settings,
+      repo,
+      options?.sourceContext
+    )
     const requestContext = getGitHubWorkItemRequestContext(
       requestState,
-      getGitHubSourceTarget(requestState, repo, options?.sourceContext),
+      requestSettings,
       repoId,
       repoPath,
       options?.sourceContext

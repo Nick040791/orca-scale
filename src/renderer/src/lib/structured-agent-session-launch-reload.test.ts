@@ -35,7 +35,7 @@ vi.mock('@/lib/structured-agent-session-launch-recovery', async () => {
   return { ...actual, launchAndReconcile: vi.fn(actual.launchAndReconcile) }
 })
 
-vi.mock('@/runtime/local-structured-session-tabs-sync/inventory-refresh', () => ({
+vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
   refreshLocalStructuredSessionTabs: mocks.refresh
 }))
 
@@ -67,8 +67,6 @@ import { resetStructuredAgentLaunchRegistryForTests } from './structured-agent-s
 function launchIntent(worktreeId: string, sessionId: string): StructuredAgentSessionLaunchIntent {
   return {
     worktreeId,
-    executionHostId: 'local',
-    target: { kind: 'local' },
     sessionId,
     agent: 'codex',
     params: {
@@ -177,9 +175,7 @@ describe('structured agent launch reload recovery', () => {
             payloadFingerprint: 'fingerprint-reloaded'
           })
         })
-      }),
-      expect.any(Function),
-      true
+      })
     )
   })
 })

@@ -55,7 +55,7 @@ describe('repo add/catalog races', () => {
     reposAdd.mockResolvedValue({ repo: localRepo })
     const store = createTestStore()
 
-    const pendingCatalog = store.getState().fetchRepos(catalogOwner(store))
+    const pendingCatalog = store.getState().fetchRepos()
     await store.getState().addRepoPath(localRepo.path)
     expect(store.getState().repos).toHaveLength(1)
 
@@ -72,17 +72,10 @@ describe('repo add/catalog races', () => {
     const store = createTestStore()
 
     const pendingAdd = store.getState().addRepoPath(localRepo.path)
-    await store.getState().fetchRepos(catalogOwner(store))
+    await store.getState().fetchRepos()
     resolveAdd({ repo: localRepo })
     await pendingAdd
 
     expect(store.getState().repos).toEqual([{ ...localRepo, executionHostId: 'local' }])
   })
 })
-
-// The catalog these tests read is the one the focused host would have shown.
-function catalogOwner(store: {
-  getState: () => { settings: { activeRuntimeEnvironmentId?: string | null } | null }
-}): { runtimeEnvironmentId: string | null } {
-  return { runtimeEnvironmentId: store.getState().settings?.activeRuntimeEnvironmentId ?? null }
-}

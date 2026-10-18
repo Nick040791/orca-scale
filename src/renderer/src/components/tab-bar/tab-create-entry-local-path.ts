@@ -1,11 +1,10 @@
 import { getEditorFileOperationContext } from '@/lib/editor-file-operation-owner'
 import { getFolderWorkspaceConnectionId } from '@/lib/folder-workspace-connection'
-import { getLocalPathOpenOwnerForRoute, isLocalPathOpenBlocked } from '@/lib/local-path-open-guard'
+import { isLocalPathOpenBlocked } from '@/lib/local-path-open-guard'
 import { getResolvedExecutionHostIdForWorktree } from '@/lib/resolved-worktree-execution-host'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 import type { useAppStore } from '@/store'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
-import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
 
 type TabEntryAbsolutePathOwnerState = Pick<
   ReturnType<typeof useAppStore.getState>,
@@ -24,14 +23,9 @@ type TabEntryAbsolutePathOwnerState = Pick<
 >
 
 export function isTabEntryAbsolutePathAllowed(
-  context: Pick<RuntimeFileOperationArgs, 'connectionId' | 'target'>
+  context: Pick<RuntimeFileOperationArgs, 'connectionId' | 'settings'>
 ): boolean {
-  return !isLocalPathOpenBlocked(
-    getLocalPathOpenOwnerForRoute({
-      runtimeEnvironmentId: runtimeTargetEnvironmentId(context.target),
-      connectionId: context.connectionId
-    })
-  )
+  return !isLocalPathOpenBlocked(context.settings, { connectionId: context.connectionId })
 }
 
 export function getTabEntryAllowAbsolutePaths(
@@ -69,7 +63,9 @@ export function getTabEntryFileOperationContext(
       getFolderWorkspaceConnectionId(state, workspaceKey.folderWorkspaceId) === null
     ) {
       return {
-        target: { kind: 'local' },
+        settings: state.settings
+          ? { ...state.settings, activeRuntimeEnvironmentId: null }
+          : { activeRuntimeEnvironmentId: null },
         worktreeId,
         worktreePath,
         expectedExecutionHostId: 'local'

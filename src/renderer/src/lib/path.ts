@@ -1,7 +1,4 @@
-import {
-  isWindowsAbsolutePathLike,
-  relativePathInsideRoot
-} from '../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../shared/cross-platform-path'
 
 function stripTrailingSeparators(path: string): string {
   return path.replace(/[\\/]+$/, '')
@@ -15,10 +12,7 @@ function getSeparator(path: string): '/' | '\\' {
   return path.includes('\\') ? '\\' : '/'
 }
 
-export function normalizeRelativePath(path: string, rootPath?: string | null): string {
-  if (rootPath && !isWindowsAbsolutePathLike(rootPath)) {
-    return path.replace(/^\/+/, '').replace(/\/+/g, '/')
-  }
+export function normalizeRelativePath(path: string): string {
   return stripLeadingSeparators(path).replace(/[\\/]+/g, '/')
 }
 
@@ -80,14 +74,9 @@ export function joinPath(basePath: string, relativePath: string): string {
     return basePath
   }
 
-  const windowsPath = isWindowsAbsolutePathLike(basePath)
-  const separator = windowsPath ? getSeparator(basePath) : '/'
-  const normalizedBasePath = windowsPath
-    ? stripTrailingSeparators(basePath)
-    : basePath.replace(/\/+$/, '')
-  const normalizedRelativePath = windowsPath
-    ? stripLeadingSeparators(relativePath).replace(/[\\/]+/g, separator)
-    : relativePath.replace(/^\/+/, '').replace(/\/+/g, '/')
+  const separator = getSeparator(basePath)
+  const normalizedBasePath = stripTrailingSeparators(basePath)
+  const normalizedRelativePath = stripLeadingSeparators(relativePath).replace(/[\\/]+/g, separator)
 
   return `${normalizedBasePath}${separator}${normalizedRelativePath}`
 }

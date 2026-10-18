@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildResolvePullRequestConflictsPrompt } from './source-control/ai/prompts'
+import { buildResolvePullRequestConflictsPrompt } from './SourceControl'
 
 describe('buildResolvePullRequestConflictsPrompt', () => {
   it('explains how to reproduce pull request conflicts when no local merge exists yet', () => {

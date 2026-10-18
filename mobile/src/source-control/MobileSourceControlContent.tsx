@@ -1,11 +1,18 @@
-import { useMemo } from 'react'
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  SectionList,
+  Text,
+  TextInput,
+  View
+} from 'react-native'
 import { Minus, MoreHorizontal, Plus, Sparkles } from 'lucide-react-native'
 import { colors, spacing } from '../theme/mobile-theme'
 import { MobileSourceControlCreatePrEntry } from './MobileSourceControlCreatePrEntry'
 import { MobileCommitFailurePanel } from './MobileCommitFailurePanel'
 import { KEYBOARD_COMMIT_BAR_CLEARANCE } from './mobile-source-control-screen-state'
-import { MobileSourceControlFileList } from './MobileSourceControlFileList'
+import { makeRenderFileRow, BranchCompareFooter } from './MobileSourceControlFileRows'
 import type { MobileSourceControlState } from './use-mobile-source-control-state'
 import { styles } from './mobile-source-control-styles'
 import { hubStyles } from './mobile-source-control-hub-styles'
@@ -34,7 +41,6 @@ export function MobileSourceControlContent({ state }: Props) {
     openingBranchPath,
     sections,
     hasVisibleChanges,
-    status,
     stageablePaths,
     unstageablePaths,
     stagedCount,
@@ -49,46 +55,23 @@ export function MobileSourceControlContent({ state }: Props) {
     runGitAction
   } = state
   const ioBusy = busyAction !== null || openingPath !== null || openingBranchPath !== null
-  // Why: a capped listing can hide unstaged rows behind an all-staged prefix.
-  const canStageAll = stageablePaths.length > 0 || status?.didHitLimit === true
   const shouldShowGenerateButton = stagedCount > 0 || generatingMessage
   const createPrHeroActive =
     createPrAction.visible && !createPrAction.disabled && !createPrAction.pushFirst
-  const fileList = useMemo(
-    () => (
-      <MobileSourceControlFileList
-        state={{
-          sections,
-          openFile,
-          runGitAction,
-          setDiscardTarget,
-          shouldShowBranchCompareSection: state.shouldShowBranchCompareSection,
-          branchCompareSummaryText: state.branchCompareSummaryText,
-          branchEntries: state.branchEntries,
-          branchCompareState: state.branchCompareState,
-          branchCompareResult: state.branchCompareResult,
-          busyAction,
-          openBranchDiff,
-          openingBranchPath,
-          openingPath
-        }}
-      />
-    ),
-    [
-      sections,
-      openFile,
-      runGitAction,
-      setDiscardTarget,
-      state.shouldShowBranchCompareSection,
-      state.branchCompareSummaryText,
-      state.branchEntries,
-      state.branchCompareState,
-      state.branchCompareResult,
-      busyAction,
-      openBranchDiff,
-      openingBranchPath,
-      openingPath
-    ]
+  const branchCompareFooter = (
+    <BranchCompareFooter
+      state={{
+        shouldShowBranchCompareSection: state.shouldShowBranchCompareSection,
+        branchCompareSummaryText: state.branchCompareSummaryText,
+        branchEntries: state.branchEntries,
+        branchCompareState: state.branchCompareState,
+        branchCompareResult: state.branchCompareResult,
+        busyAction,
+        openBranchDiff,
+        openingBranchPath,
+        openingPath
+      }}
+    />
   )
 
   return (
@@ -120,11 +103,11 @@ export function MobileSourceControlContent({ state }: Props) {
           <Pressable
             style={({ pressed }) => [
               styles.bulkButton,
-              (!canStageAll || ioBusy) && styles.bulkButtonDisabled,
+              (stageablePaths.length === 0 || ioBusy) && styles.bulkButtonDisabled,
               pressed && styles.bulkButtonPressed
             ]}
             onPress={() => void stageAll()}
-            disabled={ioBusy || !canStageAll}
+            disabled={ioBusy || stageablePaths.length === 0}
           >
             {busyAction === 'stage-all' ? (
               <ActivityIndicator size="small" color={colors.textPrimary} />
@@ -170,8 +153,35 @@ export function MobileSourceControlContent({ state }: Props) {
           <Text style={styles.stateTitle}>No local changes</Text>
           <Text style={styles.stateText}>Working tree is clean.</Text>
         </View>
+      ) : sections.length === 0 ? (
+        // Why: RN SectionList with empty `sections` often skips ListFooterComponent,
+        // which hid "Committed on Branch" when only branch files remain.
+        <ScrollView style={hubStyles.tabBody} contentContainerStyle={styles.listContent}>
+          {branchCompareFooter}
+        </ScrollView>
       ) : (
-        fileList
+        <SectionList
+          style={hubStyles.tabBody}
+          sections={sections}
+          renderItem={makeRenderFileRow({
+            busyAction,
+            openingPath,
+            openingBranchPath,
+            openFile,
+            runGitAction,
+            setDiscardTarget
+          })}
+          keyExtractor={(item) => `${item.area}:${item.path}:${item.oldPath ?? ''}`}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+              <Text style={styles.sectionCount}>{section.data.length}</Text>
+            </View>
+          )}
+          ListFooterComponent={branchCompareFooter}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+        />
       )}
 
       <View

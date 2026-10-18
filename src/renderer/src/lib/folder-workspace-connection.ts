@@ -20,17 +20,8 @@ export function getFolderWorkspaceConnectionId(
   folderWorkspaceId: string
 ): string | null | undefined {
   const host = resolveFolderWorkspaceHost(state, folderWorkspaceId)
-  switch (host.kind) {
-    case 'ssh':
-      return host.targetId
-    // Why the server's own target: like a project row there (`getRepoSshConnectionId`), so its
-    // SSH state is read inside that server rather than reading as local.
-    case 'runtime':
-      return host.sshTargetId
-    case 'local':
-      return null
-    case 'missing':
-    case 'ambiguous':
-      return undefined
+  if (host.kind === 'ssh') {
+    return host.targetId
   }
+  return host.kind === 'local' ? null : undefined
 }

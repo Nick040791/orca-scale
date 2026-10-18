@@ -25,7 +25,7 @@ function runtimeStatuses(capabilities: string[]): Map<string, unknown> {
 
 // Every input except runtimeStatusByEnvironmentId keeps a stable identity across rerenders,
 // so a recomputation can only come from the runtime status dependency itself.
-function buildStableProps(query: string) {
+function buildStableProps() {
   return {
     openModal: vi.fn(),
     openSettingsPage: vi.fn(),
@@ -44,13 +44,13 @@ function buildStableProps(query: string) {
     groupsByWorktree: mocks.state.groupsByWorktree,
     isLoading: false,
     settings: mocks.state.settings,
-    deferredQuery: query,
+    deferredQuery: 'new browser tab',
     settingsResults: []
   }
 }
 
-function renderQuickActions(initialStatuses: Map<string, unknown>, query: string) {
-  const stable = buildStableProps(query)
+function renderQuickActions(initialStatuses: Map<string, unknown>) {
+  const stable = buildStableProps()
   mocks.state.runtimeStatusByEnvironmentId = initialStatuses
   const harness = renderHook(
     (runtimeStatusByEnvironmentId: Map<string, unknown>) =>
@@ -58,8 +58,8 @@ function renderQuickActions(initialStatuses: Map<string, unknown>, query: string
     { initialProps: initialStatuses }
   )
   return {
-    offersAction: (id: string): boolean =>
-      harness.result.current.middleItems.some((item) => item.id === `quick-action:${id}`),
+    offersBrowserAction: (): boolean =>
+      harness.result.current.middleItems.some((item) => item.id === 'quick-action:new-browser-tab'),
     setRuntimeStatuses: (next: Map<string, unknown>): void => {
       mocks.state.runtimeStatusByEnvironmentId = next
       harness.rerender(next)
@@ -85,20 +85,19 @@ describe('worktree jump palette quick action availability', () => {
     delete (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__
   })
 
-  it.each([
-    ['new browser tab', 'new-browser-tab'],
-    ['brex.com', 'navigate-to-url']
-  ])('updates %s when the paired runtime loses and regains screencast capability', (query, id) => {
-    const palette = renderQuickActions(
-      runtimeStatuses([BROWSER_SCREENCAST_RUNTIME_CAPABILITY]),
-      query
-    )
-    expect(palette.offersAction(id)).toBe(true)
+  it('drops the paired-web browser action when the runtime loses screencast capability', () => {
+    const palette = renderQuickActions(runtimeStatuses([BROWSER_SCREENCAST_RUNTIME_CAPABILITY]))
+    expect(palette.offersBrowserAction()).toBe(true)
 
     palette.setRuntimeStatuses(runtimeStatuses([]))
-    expect(palette.offersAction(id)).toBe(false)
+    expect(palette.offersBrowserAction()).toBe(false)
+  })
+
+  it('restores the browser action when a capable runtime comes back', () => {
+    const palette = renderQuickActions(runtimeStatuses([]))
+    expect(palette.offersBrowserAction()).toBe(false)
 
     palette.setRuntimeStatuses(runtimeStatuses([BROWSER_SCREENCAST_RUNTIME_CAPABILITY]))
-    expect(palette.offersAction(id)).toBe(true)
+    expect(palette.offersBrowserAction()).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 import { translate } from '@/i18n/i18n'
-import { isFloatingWorkspaceId } from '../../../shared/floating-workspace-worktree'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import {
   parseLoopbackUrlWithPort,
   type LocalhostWorktreeLabelRoute
@@ -99,7 +99,7 @@ export function registerWorkspaceHttpLinkBrowserOpener(
  * openLinksInAppModifierInverts makes it flip whichever way Link Routing points
  * so the other destination is always one click away.
  */
-function resolveModifierRouting(
+export function resolveModifierRouting(
   modifierHeld: boolean,
   openLinksInApp: boolean,
   modifierInverts: boolean
@@ -177,7 +177,7 @@ export function openHttpLink(url: string, opts: OpenHttpLinkOptions = {}): void 
     // history entry — the user isn't changing worktrees, they're opening a tab
     // in the one they're already in. activateAndRevealWorktree is reserved for
     // file-link jumps that genuinely switch worktrees.
-    if (!isFloatingWorkspaceId(worktreeId)) {
+    if (worktreeId !== FLOATING_TERMINAL_WORKTREE_ID) {
       // Why: the floating workspace uses a synthetic worktree id. Promoting it
       // to the global activeWorktreeId deselects the real repo workspace.
       state.setActiveWorktree(worktreeId)

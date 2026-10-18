@@ -46,7 +46,7 @@ vi.mock('../codex/codex-state-db-backfill-recovery', () =>
   import('./pty-ipc-mock-registry').then((m) => m.codexBackfillRecoveryModuleMock())
 )
 
-import { registerPtyHandlers } from './pty/register-handlers'
+import { registerPtyHandlers } from './pty'
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
 

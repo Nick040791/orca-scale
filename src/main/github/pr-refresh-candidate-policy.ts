@@ -1,4 +1,3 @@
-import { reviewRefreshIntervalMs } from '../../shared/review-refresh-policy'
 import type {
   GitHubPRRefreshAlias,
   GitHubPRRefreshCandidate,
@@ -7,6 +6,7 @@ import type {
   PRRefreshOutcome
 } from '../../shared/github/pull-request-refresh-types'
 import type { GitHubPRBranchLookupOptions } from './client'
+import { NO_REVIEW_REFRESH_INTERVAL_MS } from '../source-control/hosted-review-refresh-pacing'
 
 export const MANUAL_MERGEABILITY_PENDING_REFRESH_MS = 2_500
 export const POST_PUSH_DELAY_MS = 2_500
@@ -106,18 +106,14 @@ export function shouldSkipFresh(
   candidate: GitHubPRRefreshCandidate,
   reason: GitHubPRRefreshReason
 ): boolean {
-  if (
-    bypassesFreshnessDelay(reason) ||
-    candidate.cachedFetchedAt == null ||
-    hasStaleHead(candidate)
-  ) {
+  if (bypassesFreshnessDelay(reason) || candidate.cachedFetchedAt == null) {
     return false
   }
   return Date.now() - candidate.cachedFetchedAt < refreshIntervalForCandidate(candidate)
 }
 
 export function freshRetryAt(candidate: GitHubPRRefreshCandidate): number | null {
-  return candidate.cachedFetchedAt == null || hasStaleHead(candidate)
+  return candidate.cachedFetchedAt == null
     ? null
     : candidate.cachedFetchedAt + refreshIntervalForCandidate(candidate)
 }
@@ -148,7 +144,6 @@ export function visibleCandidateAfterOutcome(
   return {
     ...candidate,
     cachedFetchedAt: outcome.fetchedAt,
-    cachedHeadOid: candidate.currentHeadOid ?? null,
     cachedHasPR: outcome.kind === 'found',
     cachedPRState: outcome.kind === 'found' ? outcome.pr.state : null,
     cachedChecksStatus: outcome.kind === 'found' ? outcome.pr.checksStatus : null,
@@ -157,23 +152,31 @@ export function visibleCandidateAfterOutcome(
   }
 }
 
-export function hasStaleHead(candidate: GitHubPRRefreshCandidate): boolean {
-  return (
-    candidate.currentHeadOid != null &&
-    candidate.cachedHeadOid != null &&
-    candidate.currentHeadOid !== candidate.cachedHeadOid
-  )
-}
-
-export function refreshIntervalForCandidate(candidate: GitHubPRRefreshCandidate): number {
-  return (
-    reviewRefreshIntervalMs({
-      state: candidate.cachedPRState,
-      checksStatus: candidate.cachedChecksStatus,
-      hasReview: candidate.cachedHasPR,
-      selected: candidate.isSelected
-    }) ?? Number.POSITIVE_INFINITY
-  )
+function refreshIntervalForCandidate(candidate: GitHubPRRefreshCandidate): number {
+  if (candidate.cachedPRState === 'closed' || candidate.cachedPRState === 'merged') {
+    return 30 * 60_000
+  }
+  if (candidate.cachedHasPR === false) {
+    return NO_REVIEW_REFRESH_INTERVAL_MS
+  }
+  if (
+    candidate.cachedHasPR === true &&
+    candidate.cachedPRState === 'open' &&
+    candidate.cachedMergeable === 'UNKNOWN' &&
+    !hasResolvedMergeStateStatus(candidate.cachedMergeStateStatus)
+  ) {
+    return 10_000
+  }
+  if (candidate.cachedChecksStatus === 'success') {
+    return 10 * 60_000
+  }
+  if (candidate.cachedChecksStatus === 'failure') {
+    return 3 * 60_000
+  }
+  if (candidate.cachedChecksStatus === 'pending') {
+    return 90_000
+  }
+  return 60_000
 }
 
 function hasResolvedMergeStateStatus(status: string | null | undefined): boolean {
@@ -186,24 +189,5 @@ export function isMergeabilityPendingOutcome(outcome: PRRefreshOutcome): boolean
     outcome.pr.state === 'open' &&
     outcome.pr.mergeable === 'UNKNOWN' &&
     !hasResolvedMergeStateStatus(outcome.pr.mergeStateStatus)
-  )
-}
-
-export function sameAliasRequestIdentity(
-  left: GitHubPRRefreshAlias,
-  right: GitHubPRRefreshAlias
-): boolean {
-  return (
-    left.cacheKey === right.cacheKey &&
-    left.repoId === right.repoId &&
-    left.repoPath === right.repoPath &&
-    left.branch === right.branch &&
-    left.worktreeId === right.worktreeId &&
-    left.connectionId === right.connectionId &&
-    left.executionHostId === right.executionHostId &&
-    left.linkedPRNumber === right.linkedPRNumber &&
-    left.fallbackPRNumber === right.fallbackPRNumber &&
-    left.fallbackPRSource === right.fallbackPRSource &&
-    left.currentHeadOid === right.currentHeadOid
   )
 }

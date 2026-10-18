@@ -16,9 +16,6 @@ export function taskKindLabel(item: TaskItem): string {
   if (item.provider === 'gitlabTodo') {
     return `${gitLabTodoTargetLabel(item.source)} todo`
   }
-  if (item.provider === 'jira') {
-    return 'Jira issue'
-  }
   return 'Linear ticket'
 }
 
@@ -28,9 +25,6 @@ export function taskExternalOpenLabel(item: TaskItem): string {
   }
   if (item.provider === 'gitlab' || item.provider === 'gitlabTodo') {
     return 'Open in GitLab'
-  }
-  if (item.provider === 'jira') {
-    return 'Open in Jira'
   }
   return 'Open in Linear'
 }

@@ -58,12 +58,6 @@ export function SourceControlUncommittedSections(props: {
   isExecutingBulk: boolean
   requestDiscardAllInArea: (area: DiscardAllArea, paths?: readonly string[]) => void
   handleStageAllPaths: (paths: readonly string[]) => Promise<void>
-  /** Stages a section header's set; a capped listing defers "all" to the host. */
-  handleStageSectionPaths: (
-    sectionId: SourceControlDisplaySectionId,
-    paths: readonly string[]
-  ) => Promise<void>
-  isStatusTruncated: boolean
   handleUnstagePaths: (paths: readonly string[]) => Promise<void>
   sourceControlViewMode: SourceControlViewMode
   visibleTreeRowsBySection: Partial<
@@ -88,7 +82,7 @@ export function SourceControlUncommittedSections(props: {
   activeConnectionId: string | null
   handleOpenDiff: (entry: GitStatusEntry, event?: SourceControlRowOpenEvent) => void
   handleStage: (path: string) => Promise<void>
-  handleUnstage: (path: string, oldPath?: string) => Promise<void>
+  handleUnstage: (path: string) => Promise<void>
   requestDiscardEntry: (entry: GitStatusEntry) => void
   diffCommentCountByPath: Map<string, number>
 }): React.JSX.Element {
@@ -104,11 +98,7 @@ export function SourceControlUncommittedSections(props: {
         const stageAllPaths = actionItems.filter(isStageableStatusEntry).map((entry) => entry.path)
         const unstageAllPaths = getUnstageAllPaths(actionItems)
         const discardAllPaths = getDiscardAllPaths(actionItems, area)
-        // Why: a capped listing cannot name every untracked file, and the host has no untracked-only stage.
-        const canStageAll =
-          !props.normalizedFilter &&
-          stageAllPaths.length > 0 &&
-          !(props.isStatusTruncated && id === 'untracked')
+        const canStageAll = !props.normalizedFilter && stageAllPaths.length > 0
         const canUnstageAll = !props.normalizedFilter && unstageAllPaths.length > 0
         const canRevertAll = !props.normalizedFilter && discardAllPaths.length > 0
         const sectionLabel = id === 'conflicts' ? CONFLICTS_SECTION_LABEL : SECTION_LABELS[area]
@@ -153,7 +143,7 @@ export function SourceControlUncommittedSections(props: {
                       )}
                       onClick={(event) => {
                         event.stopPropagation()
-                        void props.handleStageSectionPaths(id, stageAllPaths)
+                        void props.handleStageAllPaths(stageAllPaths)
                       }}
                       disabled={props.isExecutingBulk}
                     />

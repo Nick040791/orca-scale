@@ -17,7 +17,7 @@ export function useSourceControlPanelFoundation() {
     activeGroupId,
     activeRemoteActionSequence,
     activeRepo,
-    activeRepoTarget,
+    activeRepoSettings,
     activeSourceControlLaunchPlatform,
     activeWorktreeId,
     branchEntries,
@@ -38,7 +38,6 @@ export function useSourceControlPanelFoundation() {
     openSettingsTarget,
     refreshActiveGitStatusAfterMutation,
     remoteActionError,
-    repositoryHuge,
     rightSidebarTab,
     sourceControlGroupOrder,
     sourceControlRef,
@@ -51,7 +50,7 @@ export function useSourceControlPanelFoundation() {
 
   const listing = useSourceControlFileListing({
     activeRemoteActionSequence,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     branchEntries,
     branchName,
@@ -67,7 +66,6 @@ export function useSourceControlPanelFoundation() {
     isMac,
     refreshActiveGitStatusAfterMutation,
     remoteActionError,
-    repositoryHuge,
     rightSidebarTab,
     sourceControlGroupOrder,
     sourceControlRef,
@@ -76,8 +74,7 @@ export function useSourceControlPanelFoundation() {
     worktreePath
   })
   const ai = useSourceControlAi({
-    settings: panelState.settings,
-    target: activeRepoTarget,
+    settings: activeRepoSettings,
     activeRepo: activeRepo ?? null,
     activeWorktreeId,
     activeConnectionId,

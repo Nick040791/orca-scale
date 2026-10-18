@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { sendFollowupPromptWhenAgentReady } from './agent-followup-delivery'
 import {
   inspectRuntimeTerminalProcess,
@@ -15,21 +15,21 @@ vi.mock('@/runtime/runtime-terminal-inspection', () => ({
 // process starts. These are pip console-scripts, so the PTY foreground comm is
 // python/python3 — never the agent's own name.
 const INTERPRETER_WRAPPED_AGENTS = [
-  { agent: 'aider', expectedProcess: TUI_AGENT_CONFIG.aider.expectedProcess }
+  { agent: 'aider', expectedProcess: TUI_AGENT_CONFIG.aider.expectedProcess },
+  { agent: 'mistral-vibe', expectedProcess: TUI_AGENT_CONFIG['mistral-vibe'].expectedProcess }
 ] as const
 
 describe('sendFollowupPromptWhenAgentReady — interpreter-wrapped agents', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.stubGlobal('globalThis', globalThis)
     // Deliver the prompt write eagerly so the test does not depend on retries.
     vi.mocked(sendRuntimePtyInputVerified).mockResolvedValue(true)
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-    vi.unstubAllGlobals()
+  it('sanity: config keeps aider/vibe as stdin-after-start with python-style expected process', () => {
+    expect(TUI_AGENT_CONFIG.aider.promptInjectionMode).toBe('stdin-after-start')
+    expect(TUI_AGENT_CONFIG['mistral-vibe'].promptInjectionMode).toBe('stdin-after-start')
   })
 
   for (const { agent, expectedProcess } of INTERPRETER_WRAPPED_AGENTS) {
@@ -41,17 +41,15 @@ describe('sendFollowupPromptWhenAgentReady — interpreter-wrapped agents', () =
         hasChildProcesses: true
       })
 
-      const delivery = sendFollowupPromptWhenAgentReady({
+      const delivered = await sendFollowupPromptWhenAgentReady({
         ptyId: 'pty-1',
         expectedProcess,
-        prompt: 'ship it'
+        prompt: 'ship it',
+        settings: null
       })
 
-      await vi.advanceTimersByTimeAsync(4 * 150)
-      const delivered = await delivery
-
       expect(delivered).toBe(true)
-      expect(sendRuntimePtyInputVerified).toHaveBeenCalledWith('pty-1', 'ship it\r', 'launch')
+      expect(sendRuntimePtyInputVerified).toHaveBeenCalledWith(null, 'pty-1', 'ship it\r')
     })
 
     it(`still refuses to type into a bare ${agent} shell foreground`, async () => {
@@ -62,14 +60,12 @@ describe('sendFollowupPromptWhenAgentReady — interpreter-wrapped agents', () =
         hasChildProcesses: false
       })
 
-      const delivery = sendFollowupPromptWhenAgentReady({
+      const delivered = await sendFollowupPromptWhenAgentReady({
         ptyId: 'pty-1',
         expectedProcess,
-        prompt: 'ship it'
+        prompt: 'ship it',
+        settings: null
       })
-
-      await vi.advanceTimersByTimeAsync(29 * 150)
-      const delivered = await delivery
 
       expect(delivered).toBe(false)
       expect(sendRuntimePtyInputVerified).not.toHaveBeenCalled()
@@ -81,14 +77,12 @@ describe('sendFollowupPromptWhenAgentReady — interpreter-wrapped agents', () =
         hasChildProcesses: false
       })
 
-      const delivery = sendFollowupPromptWhenAgentReady({
+      const delivered = await sendFollowupPromptWhenAgentReady({
         ptyId: 'pty-1',
         expectedProcess,
-        prompt: 'ship it'
+        prompt: 'ship it',
+        settings: null
       })
-
-      await vi.advanceTimersByTimeAsync(29 * 150)
-      const delivered = await delivery
 
       expect(delivered).toBe(false)
       expect(sendRuntimePtyInputVerified).not.toHaveBeenCalled()
@@ -106,10 +100,11 @@ describe('sendFollowupPromptWhenAgentReady — interpreter-wrapped agents', () =
     const delivered = await sendFollowupPromptWhenAgentReady({
       ptyId: 'pty-1',
       expectedProcess: 'aider',
-      prompt: 'ship it'
+      prompt: 'ship it',
+      settings: null
     })
 
     expect(delivered).toBe(true)
-    expect(sendRuntimePtyInputVerified).toHaveBeenCalledWith('pty-1', 'ship it\r', 'launch')
+    expect(sendRuntimePtyInputVerified).toHaveBeenCalledWith(null, 'pty-1', 'ship it\r')
   })
 })

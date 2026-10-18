@@ -5,7 +5,7 @@ import {
   openCodexAppServerConnection,
   type CodexAppServerConnection
 } from './codex-app-server-connection'
-import { codexStructuredPermissionPolicy } from './codex-structured-permission-policy'
+import { codexStructuredPermissionPolicyForSettings } from './codex-structured-permission-policy'
 import { openCodexThread } from './codex-structured-thread-open'
 
 function connectionFor(
@@ -20,7 +20,10 @@ describe('openCodexThread', () => {
       thread: { id: method === 'thread/start' ? 'thread-created' : 'thread-existing' }
     }))
     const connection = connectionFor(request)
-    const permissionPolicy = codexStructuredPermissionPolicy('full-access')
+    const permissionPolicy = {
+      approvalPolicy: 'never' as const,
+      sandbox: 'danger-full-access' as const
+    }
 
     await openCodexThread(
       connection,
@@ -36,12 +39,7 @@ describe('openCodexThread', () => {
     expect(request).toHaveBeenNthCalledWith(
       1,
       'thread/start',
-      {
-        cwd: '/workspace',
-        approvalPolicy: 'never',
-        sandbox: 'danger-full-access',
-        approvalsReviewer: 'user'
-      },
+      { cwd: '/workspace', approvalPolicy: 'never', sandbox: 'danger-full-access' },
       { timeoutMs: 2_000 }
     )
     expect(request).toHaveBeenNthCalledWith(
@@ -52,21 +50,23 @@ describe('openCodexThread', () => {
         cwd: '/workspace',
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
-        approvalsReviewer: 'user',
         excludeTurns: true
       },
       { timeoutMs: 2_000 }
     )
   })
 
-  // The regression this pins: an omitted policy falls back to the config.toml of the home Orca
-  // mirrors from the user's ~/.codex, and a resume inherits the policy it last ran with. With
-  // `approval_policy = "never"` there, an Ask chat would never prompt.
-  it('sends Ask as an explicit policy on resume, not as absent fields', async () => {
+  // The regression this pins: Manual used to resolve to no policy at all, and the params below
+  // spread it — so neither field was sent and app-server fell back to the config.toml of the
+  // home Orca mirrors from the user's ~/.codex. With `approval_policy = "never"` there, a Manual
+  // session never prompted; a resume separately inherits the policy it was last started with.
+  it('sends Manual as an explicit policy on resume, not as absent fields', async () => {
     const request = vi.fn(async (_method: string, _params?: Record<string, unknown>) => ({
       thread: { id: 'thread-existing' }
     }))
-    const permissionPolicy = codexStructuredPermissionPolicy('ask')
+    const permissionPolicy = codexStructuredPermissionPolicyForSettings({
+      agentDefaultArgs: { codex: '' }
+    })
 
     await openCodexThread(
       connectionFor(request),
@@ -75,16 +75,9 @@ describe('openCodexThread', () => {
     )
 
     const params = request.mock.calls[0]?.[1] ?? {}
-    expect(params).toMatchObject({
-      approvalPolicy: 'on-request',
-      sandbox: 'workspace-write',
-      approvalsReviewer: 'user'
-    })
-    // Absence is the bug, so assert the keys are carried, not merely that they are not Full access.
-    expect(Object.keys(params)).toEqual(
-      expect.arrayContaining(['approvalPolicy', 'sandbox', 'approvalsReviewer'])
-    )
-    expect(params).not.toHaveProperty('sandboxPolicy')
+    expect(params).toMatchObject({ approvalPolicy: 'on-request', sandbox: 'workspace-write' })
+    // Absence is the bug, so assert the keys are carried, not merely that they are not Yolo.
+    expect(Object.keys(params)).toEqual(expect.arrayContaining(['approvalPolicy', 'sandbox']))
   })
 
   it('preserves an explicitly reported service tier, including Standard', async () => {
@@ -102,6 +95,7 @@ describe('openCodexThread', () => {
     ).resolves.toEqual({
       threadId: 'thread-standard',
       thread: { id: 'thread-standard' },
+      historyPath: null,
       serviceTier: null
     })
   })
@@ -132,23 +126,37 @@ describe('openCodexThread', () => {
     )
   })
 
-  it('does not retry without excludeTurns after an unsupported-field refusal', async () => {
-    const refusal = new CodexAppServerRequestError(
-      'thread/resume',
-      -32602,
-      'unknown field excludeTurns'
-    )
-    const request = vi.fn(async () => {
-      throw refusal
+  it('caches a narrowly proven excludeTurns refusal and uses one bounded fallback', async () => {
+    const request = vi.fn(async (_method: string, params?: Record<string, unknown>) => {
+      if (params?.excludeTurns) {
+        throw new CodexAppServerRequestError(
+          'thread/resume',
+          -32602,
+          'codex app-server thread/resume failed: unknown field `excludeTurns`'
+        )
+      }
+      return { thread: { id: 'thread-1', turns: [{ id: 'turn-1', items: [] }] } }
     })
-    await expect(
-      openCodexThread(
-        connectionFor(request),
-        { cwd: '/workspace', resumeThreadId: 'thread-1' },
-        2_000
-      )
-    ).rejects.toBe(refusal)
-    expect(request).toHaveBeenCalledOnce()
+    const connection = connectionFor(request)
+
+    const first = await openCodexThread(
+      connection,
+      { cwd: '/workspace', resumeThreadId: 'thread-1' },
+      2_000
+    )
+    const second = await openCodexThread(
+      connection,
+      { cwd: '/workspace', resumeThreadId: 'thread-1' },
+      2_000
+    )
+
+    expect(first.thread?.turns).toHaveLength(1)
+    expect(second.thread?.turns).toHaveLength(1)
+    expect(request.mock.calls.map(([, params]) => params)).toEqual([
+      expect.objectContaining({ excludeTurns: true }),
+      { threadId: 'thread-1', cwd: '/workspace' },
+      { threadId: 'thread-1', cwd: '/workspace' }
+    ])
   })
 
   it('does not retry ambiguous invalid params or oversized history responses', async () => {
@@ -181,6 +189,33 @@ describe('openCodexThread', () => {
       )
     ).rejects.toBe(oversized)
     expect(oversizedRequest).toHaveBeenCalledOnce()
+  })
+
+  it('accepts a fallback result beyond the daemon wire limit', async () => {
+    const request = vi.fn(async (_method: string, params?: Record<string, unknown>) => {
+      if (params?.excludeTurns) {
+        throw new CodexAppServerRequestError(
+          'thread/resume',
+          -32602,
+          'codex app-server thread/resume failed: unsupported excludeTurns parameter'
+        )
+      }
+      return {
+        thread: {
+          id: 'thread-1',
+          turns: [{ id: 'turn-1', items: [{ output: 'x'.repeat(16 * 1024 * 1024 + 1) }] }]
+        }
+      }
+    })
+
+    await expect(
+      openCodexThread(
+        connectionFor(request),
+        { cwd: '/workspace', resumeThreadId: 'thread-1' },
+        2_000
+      )
+    ).resolves.toMatchObject({ threadId: 'thread-1' })
+    expect(request).toHaveBeenCalledTimes(2)
   })
 
   describe('a thread Codex never saved', () => {
@@ -223,29 +258,6 @@ describe('openCodexThread', () => {
         {
           timeoutMs: 2_000
         }
-      )
-    })
-
-    it('opens the replacement thread on the chosen model', async () => {
-      const request = codexWithoutRollout()
-
-      await openCodexThread(
-        connectionFor(request),
-        {
-          cwd: '/workspace',
-          resumeThreadId: 'thread-unsaved',
-          supersedeIfUnsaved: true,
-          model: 'gpt-chosen'
-        },
-        2_000
-      )
-
-      // A resume keeps the thread's own saved model, provider and effort, which naming one skips.
-      expect(request.mock.calls[0]?.[1]).not.toHaveProperty('model')
-      expect(request).toHaveBeenLastCalledWith(
-        'thread/start',
-        { cwd: '/workspace', model: 'gpt-chosen' },
-        { timeoutMs: 2_000 }
       )
     })
 

@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { codexProcessIdentity, codexProviderHandleLink } from './codex-structured-owner-identity'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 const IDENTITY = {
   sessionId: 'session-identity',
   workspaceId: 'workspace-1',
   hostId: 'local',
   agent: 'codex' as const,
-  providerHandle: codexProviderHandle('thread-1')
+  providerHandle: { kind: 'codex' as const, threadId: 'thread-1' }
 }
 
 describe('codex process identity', () => {
@@ -37,16 +36,13 @@ describe('codex process identity', () => {
     expect(readStartTime).toHaveBeenCalledTimes(3)
   })
 
-  it('records an owner whose start time is unreadable instead of refusing the session', async () => {
+  it('refuses an owner whose start time is unreadable rather than record one no probe can verify', async () => {
+    // A null start time guarantees every later owner probe answers indeterminate, which is
+    // a durable latch; refusing here is a retryable failure instead.
     const readStartTime = vi.fn(async () => null)
     await expect(
       codexProcessIdentity({ identity: IDENTITY, spawnToken: 'spawn-a', pid: 4242 }, readStartTime)
-    ).resolves.toEqual({
-      hostId: 'local',
-      pid: 4242,
-      processStartTimeMs: null,
-      spawnToken: 'spawn-a'
-    })
+    ).rejects.toThrow('start time')
     expect(readStartTime).toHaveBeenCalledTimes(3)
   })
 })

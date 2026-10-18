@@ -27,7 +27,6 @@ import {
 import { parseProfileStateRoot } from '../persistence/profile-state/profile-state-document-validation'
 import { assertProfileStateCanInitialize } from '../persistence/profile-state/profile-state-recovery-required'
 import { hasProfileStateDatabaseFiles } from '../persistence/profile-state/profile-state-storage-classification'
-import { ensureProfileStateAuthorityMarker } from '../persistence/profile-state/profile-state-authority-marker'
 
 export type TransferProfileState = PersistedState
 
@@ -215,7 +214,6 @@ export function writeSerializedProfileState(
   const databaseFile = getOrcaProfileStateDatabaseFile(profileId, userDataPath)
   const opened = openProfileStateDatabase(databaseFile, profileId)
   try {
-    ensureProfileStateAuthorityMarker(databaseFile)
     importProfileStateJson(opened.db, serialized, {
       expectedRevision: options.expectedRevision ?? readProfileStateRevision(opened.db)
     })

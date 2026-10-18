@@ -281,9 +281,7 @@ export function useMobileBrowserInteractions(args: MobileBrowserInteractionArgs)
           scrollingRef.current = false
           startPointRef.current = null
         },
-        // The long-press right-click outlives the WebView's own long-press contextmenu at ~500 ms.
-        onPanResponderTerminationRequest: (event) =>
-          !('type' in event.nativeEvent) || event.nativeEvent.type !== 'contextmenu'
+        onPanResponderTerminationRequest: () => true
       }),
     [clearLongPressTimer, handleResponderGrant, handleResponderMove, handleResponderRelease]
   )

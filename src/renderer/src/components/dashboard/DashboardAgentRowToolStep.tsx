@@ -8,8 +8,6 @@ type DashboardAgentRowToolStepProps = {
   reservesHeight: boolean
   toolName: string
   toolInput: string
-  /** Said in the step's place: a person's Stop ending the turn (`agentRowStoppingLabel`). */
-  statusLabel?: string | null
 }
 
 export function DashboardAgentRowToolStep({
@@ -17,19 +15,8 @@ export function DashboardAgentRowToolStep({
   showsTool,
   reservesHeight,
   toolName,
-  toolInput,
-  statusLabel = null
+  toolInput
 }: DashboardAgentRowToolStepProps): React.JSX.Element | null {
-  if (statusLabel) {
-    return (
-      <div
-        data-agent-row-tool-slot=""
-        className="mt-0.5 min-w-0 truncate pl-5 text-[10px] leading-snug text-muted-foreground/70"
-      >
-        {statusLabel}
-      </div>
-    )
-  }
   if (!showsTool || (!toolName && !reservesHeight)) {
     return null
   }

@@ -23,7 +23,7 @@ import type {
   GitHubProjectSortDirection,
   GitHubProjectTable
 } from '../../../../shared/github/project-types'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { translate } from '@/i18n/i18n'
 
 type SortOverride = { fieldId: string; direction: GitHubProjectSortDirection }
@@ -59,7 +59,7 @@ type Props = {
   onEditIssueType?: (row: GitHubProjectRow, issueType: GitHubIssueType | null) => void
   onStartWork?: (row: GitHubProjectRow) => void
   onOpenInBrowser?: (row: GitHubProjectRow) => void
-  sourceTarget: RuntimeClientTarget
+  sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 }
 
 export default function ProjectViewList({
@@ -71,7 +71,7 @@ export default function ProjectViewList({
   onEditIssueType,
   onStartWork,
   onOpenInBrowser,
-  sourceTarget
+  sourceSettings
 }: Props): React.JSX.Element {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // Why: column-header clicks override the view's saved sortByFields locally
@@ -253,7 +253,7 @@ export default function ProjectViewList({
                     onStartWork={() => onStartWork?.(row)}
                     onOpenInBrowser={() => onOpenInBrowser?.(row)}
                     sourceHost={table.project.host}
-                    sourceTarget={sourceTarget}
+                    sourceSettings={sourceSettings}
                   />
                 ))
               : null}

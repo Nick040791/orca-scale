@@ -1,11 +1,14 @@
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { GitHubAssignableUser } from '../../../../../shared/github/pull-request-types'
 import type { Repo } from '../../../../../shared/repo-types'
-import type { TaskSourceContext } from '../../../../../shared/task-source-context'
+import {
+  type TaskSourceContext,
+  getTaskSourceRuntimeSettings
+} from '../../../../../shared/task-source-context'
 import React, { useState, useMemo, useRef, useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { useRepoAssigneesBySlug } from '@/hooks/useGitHubSlugMetadata'
 import {
   getGitHubPRReviewerQueryState,
@@ -56,8 +59,18 @@ export function PRReviewCell({
     index: 0
   })
   const [submitting, setSubmitting] = useState(false)
-  const ownerTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, repo?.id ?? null, sourceContext))
+  const repoOwnerSettings = useAppStore(
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repo?.id ?? null))
+  )
+  const sourceSettings = useMemo(
+    () =>
+      sourceContext?.provider === 'github'
+        ? ({
+            ...repoOwnerSettings,
+            ...getTaskSourceRuntimeSettings(sourceContext)
+          } as typeof repoOwnerSettings)
+        : repoOwnerSettings,
+    [repoOwnerSettings, sourceContext]
   )
   const reviewerInputRef = useRef<HTMLInputElement | null>(null)
   const reviewerTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -125,7 +138,7 @@ export function PRReviewCell({
     open && reviewRepo ? reviewRepo.owner : null,
     open && reviewRepo ? reviewRepo.repo : null,
     reviewerSeedUsers.map((user) => user.login),
-    ownerTarget,
+    sourceSettings,
     reviewRepo?.host
   )
   const authorLogin = item.author?.toLowerCase() ?? null
@@ -241,7 +254,7 @@ export function PRReviewCell({
     setReviewerInput,
     setSubmitting,
     sourceContext,
-    ownerTarget,
+    sourceSettings,
     submitting,
     workItemMutation
   })

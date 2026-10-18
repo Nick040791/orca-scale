@@ -6,13 +6,9 @@ import {
 } from '@/store/slices/runtime-environment-ssh'
 import type { SshConnectionState } from '../../../../shared/ssh-types'
 import { registerDirectSshStateIpcBridge } from './direct-ssh-state-ipc-bridge'
-import { resetSshConfigPassiveSyncForTests } from '../../lib/ssh-config-passive-sync'
+import type { DirectSshBridgeRuntime } from './direct-ssh-bridge-runtime'
 
 type SshApiStub = {
-  importConfig?: () => Promise<{
-    targets: { id: string; label: string }[]
-    repoReadoptions: never[]
-  }>
   listTargets: () => Promise<{ id: string; label: string }[]>
   listRemovedTargetLabels: () => Promise<Record<string, string>>
   getState: (args: { targetId: string }) => Promise<SshConnectionState | null>
@@ -47,6 +43,25 @@ function stubWindow(ssh: SshApiStub): void {
   })
 }
 
+function bridgeRuntime(): DirectSshBridgeRuntime {
+  return {
+    reconnectAuthorityByTarget: new Map(),
+    reconnectCoordinator: {
+      requestReconnect: vi.fn(async () => ({ status: 'complete' })),
+      replaceAuthority: vi.fn(),
+      correctUnboundTerminals: vi.fn(() => 0),
+      invalidate: vi.fn()
+    },
+    currentAuthority: () => null,
+    terminalActions: () => ({}),
+    prepareAndSync: vi.fn(async () => {}),
+    isStopped: () => false,
+    addDeadline: vi.fn(),
+    removeDeadline: vi.fn(),
+    stop: vi.fn()
+  } as unknown as DirectSshBridgeRuntime
+}
+
 /** Lets pending IPC promises settle without leaning on a wall-clock delay. */
 async function settle(): Promise<void> {
   for (let index = 0; index < 12; index += 1) {
@@ -58,7 +73,6 @@ describe('direct SSH hydration target metadata', () => {
   const unsubs: (() => void)[] = []
 
   beforeEach(() => {
-    resetSshConfigPassiveSyncForTests()
     onStateChangedHandler = null
     useAppStore.setState({
       sshTargetLabels: new Map(),
@@ -76,32 +90,6 @@ describe('direct SSH hydration target metadata', () => {
     vi.restoreAllMocks()
   })
 
-  it('syncs ~/.ssh/config after the saved hosts load, so a newly added host shows up', async () => {
-    const importConfig = vi
-      .fn<NonNullable<SshApiStub['importConfig']>>()
-      .mockResolvedValue({ targets: [{ id: 'ssh-new', label: 'new-box' }], repoReadoptions: [] })
-    const listTargets = vi
-      .fn<SshApiStub['listTargets']>()
-      .mockResolvedValueOnce([{ id: 'ssh-old', label: 'old-box' }])
-      .mockResolvedValue([
-        { id: 'ssh-old', label: 'old-box' },
-        { id: 'ssh-new', label: 'new-box' }
-      ])
-    stubWindow({
-      importConfig,
-      listTargets,
-      listRemovedTargetLabels: () => Promise.resolve({}),
-      getState: () => Promise.resolve(null)
-    })
-
-    registerDirectSshStateIpcBridge(unsubs)
-    await settle()
-    await settle()
-
-    expect(importConfig).toHaveBeenCalledWith()
-    expect(useAppStore.getState().sshTargetLabels.get('ssh-new')).toBe('new-box')
-  })
-
   it('names a ghost host once its tombstone label lands', async () => {
     let resolveRemovedLabels!: (labels: Record<string, string>) => void
     stubWindow({
@@ -113,7 +101,7 @@ describe('direct SSH hydration target metadata', () => {
       getState: () => Promise.resolve(null)
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     resolveRemovedLabels({ 'ssh-ghost': 'old devbox' })
@@ -137,7 +125,7 @@ describe('direct SSH hydration target metadata', () => {
       getState: () => Promise.resolve(connectingState('ssh-live'))
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     expect({
@@ -164,7 +152,7 @@ describe('direct SSH hydration target metadata', () => {
       getState: () => Promise.resolve(null)
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     // Older paired hosts lack the RPC; the target list is the evidence that matters and must survive.
@@ -188,7 +176,7 @@ describe('direct SSH hydration target metadata', () => {
           : Promise.resolve(connectingState(targetId))
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     const state = useAppStore.getState()
@@ -206,7 +194,7 @@ describe('direct SSH hydration target metadata', () => {
       getState: () => Promise.resolve(null)
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     expect({
@@ -237,7 +225,7 @@ describe('direct SSH hydration target metadata', () => {
       getState: () => Promise.resolve(null)
     })
 
-    unsubs.push(registerDirectSshStateIpcBridge(unsubs))
+    registerDirectSshStateIpcBridge(unsubs, bridgeRuntime())
     await settle()
 
     // A target added during the tombstone round trip pushes state and re-queries the list.

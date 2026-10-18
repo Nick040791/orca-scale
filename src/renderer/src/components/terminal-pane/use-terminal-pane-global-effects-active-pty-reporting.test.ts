@@ -165,6 +165,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     beginHookRender()
     useTerminalPaneGlobalEffects({
       tabId: 'tab-1',
+      worktreeId: 'wt-1',
       isActive: true,
       isVisible: true,
       isSyncFitEnabled: true,
@@ -184,6 +185,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = makeActivePtyManager()
     const mountArgs = {
       tabId: 'tab-1',
+      worktreeId: 'wt-1',
       isActive: true,
       isVisible: true,
       isWorktreeActive: true,
@@ -218,6 +220,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     beginHookRender()
     useTerminalPaneGlobalEffects({
       tabId: 'tab-1',
+      worktreeId: 'wt-1',
       isActive: false,
       isVisible: false,
       isWorktreeActive: false,

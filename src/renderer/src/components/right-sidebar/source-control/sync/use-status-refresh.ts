@@ -1,14 +1,13 @@
 import { useCallback, useEffect } from 'react'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import { toast } from 'sonner'
 import { getConnectionId } from '@/lib/connection-context'
-import { getLocalPathOpenOwnerForRoute, isLocalPathOpenBlocked } from '@/lib/local-path-open-guard'
 import {
   beginHugeRepoWarningProbe,
   hasDismissedHugeRepoWarning,
   markHugeRepoWarningDismissed
 } from '@/lib/source-control-huge-repo-warning-dismissals'
 import { translate } from '@/i18n/i18n'
+import type { RuntimeGitContext } from '@/runtime/runtime-git-client'
 import { useAppStore } from '@/store'
 import type { GitPushTarget } from '../../../../../../shared/worktree/types'
 import type { PullRequestGenerationContext } from '@/store/slices/pull-request-generation'
@@ -23,7 +22,7 @@ export type SourceControlStatusRefresh = {
 }
 
 export function useSourceControlStatusRefresh({
-  activeRepoTarget,
+  activeRepoSettings,
   activeWorktreeId,
   worktreePath,
   activePushTarget,
@@ -33,7 +32,7 @@ export function useSourceControlStatusRefresh({
   activeWorktreeInstanceId,
   worktreeMap
 }: {
-  activeRepoTarget: RuntimeClientTarget | null
+  activeRepoSettings: RuntimeGitContext['settings']
   activeWorktreeId: string | null
   worktreePath: string | null
   activePushTarget?: GitPushTarget
@@ -47,23 +46,15 @@ export function useSourceControlStatusRefresh({
   const updateWorktreeGitIdentity = useAppStore((s) => s.updateWorktreeGitIdentity)
   const setUpstreamStatus = useAppStore((s) => s.setUpstreamStatus)
   const fetchUpstreamStatus = useAppStore((s) => s.fetchUpstreamStatus)
-  // Why: activeRepoTarget is pinned to the repo owner's runtime.
-  const localIgnoreBlocked = isLocalPathOpenBlocked(
-    getLocalPathOpenOwnerForRoute({
-      runtimeEnvironmentId:
-        activeRepoTarget?.kind === 'environment' ? activeRepoTarget.environmentId : null,
-      connectionId: activeConnectionId
-    })
-  )
   const refreshActiveGitStatus = useCallback(
     async (signal?: AbortSignal): Promise<void> => {
-      if (!activeWorktreeId || !worktreePath || isFolder || !activeRepoTarget) {
+      if (!activeWorktreeId || !worktreePath || isFolder) {
         return
       }
       const connectionId = getConnectionId(activeWorktreeId) ?? undefined
       await refreshGitStatusForWorktree({
         // Why: route git status by the repo OWNER host, not the focused runtime.
-        target: activeRepoTarget,
+        settings: activeRepoSettings,
         worktreeId: activeWorktreeId,
         worktreePath,
         connectionId,
@@ -78,7 +69,7 @@ export function useSourceControlStatusRefresh({
       })
     },
     [
-      activeRepoTarget,
+      activeRepoSettings,
       activeWorktreeId,
       activePushTarget,
       fetchUpstreamStatus,
@@ -97,9 +88,9 @@ export function useSourceControlStatusRefresh({
     }
   }, [refreshActiveGitStatus])
 
-  // Why: when status is truncated, offer once per worktree to .gitignore the flooding folder; desktop-only since the probe and write run on this machine, and managed repos have no connectionId.
+  // Why: when status is truncated, offer once per worktree to .gitignore the flooding folder; local-only since the SSH huge-folder write path isn't wired.
   useEffect(() => {
-    if (!repositoryHuge || !activeWorktreeId || !worktreePath || localIgnoreBlocked) {
+    if (!repositoryHuge || !activeWorktreeId || !worktreePath || activeConnectionId) {
       return
     }
     const warningProbe = beginHugeRepoWarningProbe({
@@ -155,7 +146,7 @@ export function useSourceControlStatusRefresh({
     activeWorktreeId,
     activeWorktreeInstanceId,
     worktreePath,
-    localIgnoreBlocked,
+    activeConnectionId,
     refreshActiveGitStatus
   ])
 
@@ -167,7 +158,7 @@ export function useSourceControlStatusRefresh({
       try {
         await refreshGitStatusForWorktree({
           // Why: generation can finish after a host switch; refresh the host that owned the generation request.
-          target: context.runtimeTarget,
+          settings: context.runtimeTargetSettings,
           worktreeId: context.worktreeId,
           worktreePath: context.worktreePath,
           connectionId: context.connectionId,

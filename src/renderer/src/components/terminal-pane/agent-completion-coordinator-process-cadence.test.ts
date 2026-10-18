@@ -16,6 +16,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess,
       dispatchCompletion: vi.fn(),
       isLive: () => true,
@@ -29,6 +30,30 @@ describe('agent completion coordinator', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('keeps the process-exit backstop after hidden panes gain agent evidence', async () => {
+    const inspectProcess = vi.fn(async () => processResult('codex'))
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess,
+      dispatchCompletion: vi.fn(),
+      isLive: () => true,
+      shouldPollProcessCadence: () => false
+    })
+
+    coordinator.startProcessTracking()
+    expect(vi.getTimerCount()).toBe(0)
+
+    coordinator.observeTitle('Codex working')
+    // Why: hidden panes poll the backstop at the throttled 3s cadence, not the
+    // 2s idle / 750ms active cadence reserved for visible panes.
+    vi.advanceTimersByTime(3_000)
+    await flushAsyncTicks()
+
+    expect(inspectProcess).toHaveBeenCalledTimes(1)
+  })
+
   // Why: regression guard for the hidden-pane throttle (follow-up to #6288 /
   // PR #6667). A hidden pane with a live agent kept polling the OS process
   // table at full 750ms cadence purely as a backstop, wasting idle CPU on
@@ -40,6 +65,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess,
       dispatchCompletion: vi.fn(),
       isLive: () => true,
@@ -61,6 +87,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess,
       dispatchCompletion: vi.fn(),
       isLive: () => true,
@@ -81,6 +108,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess,
       dispatchCompletion: vi.fn(),
       isLive: () => true,
@@ -113,6 +141,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       isLive: () => true,
@@ -145,6 +174,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       isLive: () => true
@@ -177,6 +207,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => result),
       dispatchCompletion,
       isLive: () => true
@@ -219,6 +250,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => ({
         foregroundProcess: null,
         hasChildProcesses: false as const,
@@ -244,6 +276,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => ({
         foregroundProcess: null,
         hasChildProcesses: false as const,
@@ -286,6 +319,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => result),
       dispatchCompletion,
       isLive: () => true
@@ -314,6 +348,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       isLive: () => true
@@ -338,6 +373,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       shouldSuppressProcessReplacementCompletion: () => true,
@@ -364,6 +400,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
       dispatchCompletion,
       shouldSuppressConfirmedProcessExitCompletion,
@@ -382,5 +419,31 @@ describe('agent completion coordinator', () => {
       processName: 'codex'
     })
     expect(dispatchCompletion).not.toHaveBeenCalled()
+  })
+
+  it('suppresses process-exit backstop after a title completion already notified the turn', async () => {
+    let foregroundProcess: string | null = 'codex'
+    const dispatchCompletion = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+
+    coordinator.observeTitle('⠋ codex')
+    coordinator.observeTitle('codex done')
+    foregroundProcess = null
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
   })
 })

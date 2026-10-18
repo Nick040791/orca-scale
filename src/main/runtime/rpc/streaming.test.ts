@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { RpcDispatcher } from './dispatcher'
@@ -33,7 +32,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'test.pairing-stream',
-          permission: 'workspace',
           params: null,
           handler: async (_params, ctx) => {
             receivedPairing = ctx.pairing
@@ -57,7 +55,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'terminal.subscribe',
-          permission: 'workspace',
           params: z.object({ terminal: z.string() }),
           handler: async (params, { runtime }, emit) => {
             const read = await (runtime as OrcaRuntimeService).readTerminal(params.terminal)
@@ -102,7 +99,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'test.stream',
-          permission: 'workspace',
           params: null,
           handler: async (_params, _ctx, emit) => {
             emitFn = emit
@@ -159,7 +155,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'test.subscribe',
-          permission: 'workspace',
           params: null,
           handler: async (_params, { runtime }, emit) => {
             emit({ type: 'scrollback', lines: '' })
@@ -174,7 +169,6 @@ describe('RpcDispatcher streaming', () => {
         }),
         defineMethod({
           name: 'test.unsubscribe',
-          permission: 'workspace',
           params: z.object({ subscriptionId: z.string() }),
           handler: async (params, { runtime }) => {
             ;(runtime as OrcaRuntimeService).cleanupSubscription(params.subscriptionId)
@@ -223,7 +217,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineMethod({
           name: 'status.get',
-          permission: 'workspace',
           params: null,
           handler: async () => ({ status: 'ok' })
         })
@@ -262,7 +255,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'test.stream',
-          permission: 'workspace',
           params: null,
           handler: async () => {}
         })
@@ -284,7 +276,6 @@ describe('RpcDispatcher streaming', () => {
       methods: [
         defineStreamingMethod({
           name: 'test.explode',
-          permission: 'workspace',
           params: null,
           handler: async () => {
             throw new Error('boom')

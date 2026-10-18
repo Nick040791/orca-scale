@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Orca
+GenericName=IDE for Parallel Agentic Development
+Comment=Build (if stale) and launch the Orca dev checkout
+Exec=/home/mrnicholas/DevTools/orca/scripts/desktop/launch-orca.sh
+Icon=/home/mrnicholas/DevTools/orca/resources/icon.png
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+Keywords=orca;ide;electron;

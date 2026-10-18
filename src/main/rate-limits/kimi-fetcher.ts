@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join, win32 as pathWin32 } from 'node:path'
-import { getMainHttpClient } from '../network/http-client'
+import { net } from 'electron'
 import type {
   ProviderRateLimits,
   RateLimitWindow,
@@ -12,7 +12,6 @@ import {
   createAuthFilesystemOperation,
   type SharedAuthFilesystemOperation
 } from './auth-filesystem-operation'
-import { classifyThrownUsageRequestError } from './usage-request-failure-kind'
 
 // Why: Kimi Code's managed coding plan exposes subscription usage at
 // `${base}/usages` (see packages/oauth/src/managed-usage.ts in the CLI bundle).
@@ -336,7 +335,7 @@ export async function fetchKimiRateLimits(options?: {
   }
 
   try {
-    const res = await getMainHttpClient().fetch(`${KIMI_BASE_URL.replace(/\/$/, '')}/usages`, {
+    const res = await net.fetch(`${KIMI_BASE_URL.replace(/\/$/, '')}/usages`, {
       // Why: identical to the CLI's fetchManagedUsage — bearer token + Accept.
       // No extra User-Agent: the usages endpoint authenticates by token only.
       headers: { Authorization: `Bearer ${creds.access_token}`, Accept: 'application/json' },
@@ -351,8 +350,6 @@ export async function fetchKimiRateLimits(options?: {
     const data: unknown = await res.json()
     return mapUsageResponse(typeof data === 'object' && data !== null ? data : {})
   } catch (err) {
-    return result('error', err instanceof Error ? err.message : 'Kimi usage request failed', {
-      failureKind: classifyThrownUsageRequestError(err)
-    })
+    return result('error', err instanceof Error ? err.message : 'Kimi usage request failed')
   }
 }

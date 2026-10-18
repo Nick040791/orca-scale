@@ -15,15 +15,7 @@ import {
   quoteShell
 } from './wsl-cli-scripts'
 import { buildWslCliInstallCommand } from './wsl-cli-registration-command'
-import {
-  buildWslCliStatus,
-  readWslCliCommandFile,
-  resolveReadyWslCliState,
-  WslCliLoginPathUnavailableError,
-  WslCliUnreachableError,
-  type WslCliRun,
-  type WslCliRunOptions
-} from './wsl-cli-status'
+import { buildWslCliStatus, readWslCliCommandFile, resolveReadyWslCliState } from './wsl-cli-status'
 
 const MANAGED_MARKER = getWslLauncherMarker()
 const BRIDGE_MANAGED_MARKER = getWslBridgeMarker()
@@ -42,7 +34,7 @@ type WslCliInstallerOptions = {
   platform?: NodeJS.Platform
   distro?: string | null
   hostInstaller?: Pick<CliInstaller, 'getStatus'>
-  wslRunner?: WslCliRun
+  wslRunner?: (distro: string, command: string) => Promise<string>
 }
 
 export type ManagedWslCliRepairResult = {
@@ -55,7 +47,7 @@ export class WslCliInstaller {
   private readonly platform: NodeJS.Platform
   private readonly distro: string | null
   private readonly hostInstaller: Pick<CliInstaller, 'getStatus'>
-  private readonly wslRunner: WslCliRun
+  private readonly wslRunner: (distro: string, command: string) => Promise<string>
 
   constructor(options: WslCliInstallerOptions = {}) {
     this.platform = options.platform ?? process.platform
@@ -69,7 +61,7 @@ export class WslCliInstaller {
       platform: this.platform,
       distro: this.distro,
       getHostStatus: () => this.hostInstaller.getStatus(),
-      run: (distro, command, options) => this.run(distro, command, options)
+      run: (distro, command) => this.run(distro, command)
     })
     if ('status' in ready) {
       return ready.status
@@ -262,7 +254,7 @@ export class WslCliInstaller {
     commandPath: string
   ): Promise<(string & {}) | 'not_file' | null> {
     return readWslCliCommandFile(
-      (targetDistro, command, options) => this.run(targetDistro, command, options),
+      (targetDistro, command) => this.run(targetDistro, command),
       distro,
       commandPath
     )
@@ -274,29 +266,23 @@ export class WslCliInstaller {
     launcherPath: string
     state: CliInstallStatus['state']
     currentTarget: string | null
-    pathConfigured: boolean | null
+    pathConfigured: boolean
     detail: string
   }): CliInstallStatus {
     return buildWslCliStatus(args)
   }
 
-  private async run(distro: string, command: string, options?: WslCliRunOptions): Promise<string> {
-    return this.wslRunner(distro, command, options)
+  private async run(distro: string, command: string): Promise<string> {
+    return this.wslRunner(distro, command)
   }
 }
 
-async function runWslCommand(
-  distro: string,
-  command: string,
-  options: WslCliRunOptions = {}
-): Promise<string> {
-  // Why 'none' by default: these scripts use absolute paths and coreutils only;
-  // a login-PATH probe would let a slow ~/.profile or cold distro spend their
-  // budget (#14288, #29497). Only the `$PATH` check opts in.
-  const loginPath = options.loginPath ?? 'none'
+async function runWslCommand(distro: string, command: string): Promise<string> {
+  // Why the probe lane fixes #14288: the prior login shell (`bash -lc`) sourced
+  // ~/.profile, so one blocking line there ate the whole 10s timeout.
   const result = await runWslProcess({
     distro,
-    loginPath,
+    loginPath: 'preferred',
     script: command,
     // Declared, not assumed: the payload is opaque here, so the guard cannot
     // check it for bashisms. These are POSIX (`-eu`, `case`), hence sh.
@@ -306,12 +292,14 @@ async function runWslCommand(
   // Timeout first: it is the more specific diagnosis, and a timed-out run also
   // leaves the environment unresolved, so the order decides which one shows.
   if (result.timedOut) {
-    throw new WslCliUnreachableError(distro)
+    throw new Error(`WSL command timed out after ${WSL_COMMAND_TIMEOUT_MS}ms.`)
   }
-  // Without the login PATH the `case ":$PATH:"` probe answers from the distro
-  // default PATH, which never has ~/.local/bin. Unverifiable, not negative.
-  if (loginPath === 'preferred' && !result.environmentResolved) {
-    throw new WslCliLoginPathUnavailableError(distro)
+  // Every command here reads the login PATH -- the `case ":$PATH:"` probe most
+  // of all. Without it that probe answers from the distro default PATH, which
+  // never has ~/.local/bin, and Settings states as fact that the CLI is not on
+  // PATH while the user's own terminal finds it. Unverifiable, not negative.
+  if (!result.environmentResolved) {
+    throw new Error('Could not reach the WSL distro. Try again.')
   }
   if (result.code !== 0) {
     throw new Error(result.stderr.trim() || `WSL command failed with exit code ${result.code}.`)

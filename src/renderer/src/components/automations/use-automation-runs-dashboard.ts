@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AutomationRun } from '../../../../shared/automations-types'
 import type { AutomationAuthorityRef } from '../../../../shared/automation-owner-ref'
 import { ownerKey } from '../../../../shared/automation-owner-key'
 import { capturedAutomationOwner, capturedAutomationOwnerKey } from './automation-captured-owner'
@@ -15,8 +16,6 @@ import {
 import {
   buildAutomationRunsDashboardEntries,
   getAutomationRunsScope,
-  projectAutomationRunsDashboardRun,
-  type AutomationRunsDashboardRun,
   type AutomationRunsDashboardFailure
 } from './automation-runs-dashboard-model'
 
@@ -110,7 +109,7 @@ export function useAutomationRunsDashboard({
       previous.loadMoreToken !== loadMoreToken &&
       stateRef.current.entries.length > 0
     generationRef.current = { queryKey, reloadToken, loadMoreToken }
-    const runsByRowKey = new Map<string, AutomationRunsDashboardRun[]>()
+    const runsByRowKey = new Map<string, AutomationRun[]>()
     if (loadingMore) {
       for (const entry of stateRef.current.entries) {
         const current = runsByRowKey.get(entry.row.key) ?? []
@@ -151,9 +150,7 @@ export function useAutomationRunsDashboard({
           const seen = new Set(current.map((run) => run.id))
           runsByRowKey.set(row.key, [
             ...current,
-            ...result.value.runs
-              .filter((run) => !seen.has(run.id))
-              .map(projectAutomationRunsDashboardRun)
+            ...result.value.runs.filter((run) => !seen.has(run.id))
           ])
           if (result.value.nextCursor) {
             nextCursors.set(row.key, result.value.nextCursor)

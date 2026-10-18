@@ -66,4 +66,10 @@ export class ProfileStateWriteWorkerClient extends ProfileStateWriterConnection 
       (response) => response.exportedRevision ?? undefined
     )
   }
+
+  writeJsonCompatibilityExportAsync(targetPath: string): Promise<number | undefined> {
+    return this.dispatch({ command: 'export-compatibility', targetPath }).then(
+      (response) => response.exportedRevision ?? undefined
+    )
+  }
 }

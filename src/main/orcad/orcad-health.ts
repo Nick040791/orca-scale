@@ -8,22 +8,16 @@
  * to cross the process boundary: orcad drives it, the daemon performs it, and the verdict
  * travels back over the daemon's socket.
  */
-import { hashOrcadLauncher } from '../../shared/orcad-build-identity'
-import {
-  confirmPtyProcessCeiling,
-  type PtyProcessCeilingState
-} from '../../shared/pty-process-ceiling-state'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { checkDaemonHealthWithCoverage, type DaemonHealth } from '../daemon/daemon-health'
-import { ptySpawnHealthPlatformCoverage } from '../daemon/daemon-health-identity'
+import { checkDaemonHealth, type DaemonHealth } from '../daemon/daemon-health'
 import {
   daemonOwnsFreshPersistentPtys,
   getDaemonEndpointFacts,
   readDaemonPidRecord
-} from '../daemon/daemon-provider-state'
+} from '../daemon/daemon-init'
 import type { OrcadProfileStateAuthoritySelection } from './orcad-profile-state-telemetry'
-import { ORCAD_STOP_REQUESTS_CAPABILITY } from '../../shared/orcad-stop-request'
-import type { OrcadIdleStopRecord } from '../../shared/orcad-idle-exit'
 
 /**
  * How much a green self-test actually proves.
@@ -57,14 +51,11 @@ export type TerminalDaemonHealth = {
   /** The systemd scope unit the daemon self-detected landing in (see daemon-cgroup-scope.ts),
    *  or null when it ran unscoped — the case a combined-unit `systemctl restart` still reaps. */
   cgroupUnit: string | null
-  /** The OS ceiling on the terminals' processes, "on" or "off" with a reason; absent when the
-   *  daemon predates the report. Additive, so older readers ignore it. */
-  processCeiling?: PtyProcessCeilingState | null
   selfTest: PtySelfTest
 }
 
 export type OrcadHealth = {
-  /** Launcher hash understood by older clients; split launchers embed the server digest. */
+  /** Content hash of the running orcad bundle — the deployed build's identity. */
   buildHash: string
   buildVersion: string
   nodeVersion: string
@@ -76,20 +67,10 @@ export type OrcadHealth = {
   terminalDaemon: TerminalDaemonHealth
   /** The low-cardinality profile-state authority selected during startup, when available. */
   profileStateAuthority?: OrcadProfileStateAuthoritySelection
-  /**
-   * Present when this build consumes stop-request files and answers the managed-stop commands.
-   * Absent on older builds, which a client must keep stopping with SIGTERM.
-   */
-  stopRequests?: typeof ORCAD_STOP_REQUESTS_CAPABILITY
-  /**
-   * Managed launches only: how the previous run ended if it stopped for idleness, else null
-   * (a crash, a signal, or a first start). Absent on user-started and older builds.
-   */
-  previousIdleStop?: OrcadIdleStopRecord | null
 }
 
 /**
- * Launcher identity shared with clients that predate split server bundles.
+ * Identity of the exact bytes running.
  *
  * Why hash the entry and not read a version string: `ORCA_VERSION` is whatever the deploy
  * exported, so two different builds can carry one version. A rollback that did not actually
@@ -100,7 +81,7 @@ export function computeOrcadBuildHash(entryPath = process.argv[1]): string {
     return 'unknown'
   }
   try {
-    return hashOrcadLauncher(entryPath)
+    return createHash('sha256').update(readFileSync(entryPath)).digest('hex').slice(0, 16)
   } catch {
     return 'unknown'
   }
@@ -119,20 +100,14 @@ export async function runTerminalDaemonSelfTest(
   now: () => number = () => Date.now()
 ): Promise<PtySelfTest> {
   const startedAt = now()
+  // Why: `checkPtySpawnHealth` returns immediately on win32 without spawning anything, so a
+  // green verdict there covers the handshake only. Say so instead of overclaiming.
+  const coverage: PtySelfTestCoverage = process.platform === 'win32' ? 'handshake' : 'pty-spawn'
   const facts = getDaemonEndpointFacts()
   if (!facts) {
-    return {
-      ok: false,
-      coverage: ptySpawnHealthPlatformCoverage(),
-      verdict: 'no-daemon',
-      durationMs: now() - startedAt
-    }
+    return { ok: false, coverage, verdict: 'no-daemon', durationMs: now() - startedAt }
   }
-  // The daemon reports what its probe actually did; an older daemon falls back by platform.
-  const { verdict, coverage } = await checkDaemonHealthWithCoverage(
-    facts.socketPath,
-    facts.tokenPath
-  )
+  const verdict = await checkDaemonHealth(facts.socketPath, facts.tokenPath)
   return { ok: verdict === 'healthy', coverage, verdict, durationMs: now() - startedAt }
 }
 
@@ -170,15 +145,13 @@ export async function collectTerminalDaemonHealth(): Promise<TerminalDaemonHealt
     entryPath: record?.entryPath ?? null,
     protocolVersion: facts.protocolVersion,
     cgroupUnit: record?.cgroupUnit ?? null,
-    processCeiling: confirmPtyProcessCeiling(record?.processCeiling ?? null),
     selfTest
   }
 }
 
 export async function collectOrcadHealth(
   buildVersion: string,
-  profileStateAuthority?: OrcadProfileStateAuthoritySelection,
-  previousIdleStop?: OrcadIdleStopRecord | null
+  profileStateAuthority?: OrcadProfileStateAuthoritySelection
 ): Promise<OrcadHealth> {
   return {
     buildHash: computeOrcadBuildHash(),
@@ -189,8 +162,6 @@ export async function collectOrcadHealth(
     arch: process.arch,
     pid: process.pid,
     terminalDaemon: await collectTerminalDaemonHealth(),
-    ...(profileStateAuthority ? { profileStateAuthority } : {}),
-    stopRequests: ORCAD_STOP_REQUESTS_CAPABILITY,
-    ...(previousIdleStop !== undefined ? { previousIdleStop } : {})
+    ...(profileStateAuthority ? { profileStateAuthority } : {})
   }
 }

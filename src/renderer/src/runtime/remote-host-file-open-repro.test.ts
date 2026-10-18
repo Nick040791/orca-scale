@@ -30,8 +30,7 @@ import {
   WORKTREE_OWNER_UNREACHABLE_ERROR
 } from '@/components/editor/editor-panel-content-types'
 import { shouldRetryFileLoadError } from '@/components/editor/useEditorPanelFileLoadRetry'
-import { readRuntimeFileContent } from './runtime-file-read-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { readRuntimeFileContent } from './runtime-file-client'
 
 // Mirrors src/main/ipc/filesystem-auth.ts PATH_ACCESS_DENIED_MESSAGE.
 const PATH_ACCESS_DENIED_MESSAGE =
@@ -98,16 +97,18 @@ afterEach(() => {
 async function openRemoteFileInEditor() {
   const resolvedConnectionId = getConnectionIdForFile(REMOTE_WORKTREE_ID, REMOTE_FILE_PATH)
   const connectionId = resolvedConnectionId ?? undefined
-  const readTarget: RuntimeClientTarget = { kind: 'local' }
+  const readSettings: { activeRuntimeEnvironmentId: string | null } = {
+    activeRuntimeEnvironmentId: null
+  }
   if (
     resolvedConnectionId === undefined &&
-    readTarget.kind === 'local' &&
+    !readSettings.activeRuntimeEnvironmentId?.trim() &&
     !isWorktreeConnectionResolved(REMOTE_WORKTREE_ID)
   ) {
     throw new Error(WORKTREE_OWNER_NOT_READY_ERROR)
   }
   return readRuntimeFileContent({
-    target: readTarget,
+    settings: readSettings,
     filePath: REMOTE_FILE_PATH,
     relativePath: 'src/index.ts',
     worktreeId: REMOTE_WORKTREE_ID,
@@ -121,16 +122,18 @@ async function openFloatingWorkspaceFileInEditor() {
     FLOATING_FILE_PATH
   )
   const connectionId = resolvedConnectionId ?? undefined
-  const readTarget: RuntimeClientTarget = { kind: 'local' }
+  const readSettings: { activeRuntimeEnvironmentId: string | null } = {
+    activeRuntimeEnvironmentId: null
+  }
   if (
     resolvedConnectionId === undefined &&
-    readTarget.kind === 'local' &&
+    !readSettings.activeRuntimeEnvironmentId?.trim() &&
     !isWorktreeConnectionResolved(FLOATING_TERMINAL_WORKTREE_ID)
   ) {
     throw new Error(WORKTREE_OWNER_NOT_READY_ERROR)
   }
   return readRuntimeFileContent({
-    target: readTarget,
+    settings: readSettings,
     filePath: FLOATING_FILE_PATH,
     relativePath: 'notes.md',
     worktreeId: FLOATING_TERMINAL_WORKTREE_ID,

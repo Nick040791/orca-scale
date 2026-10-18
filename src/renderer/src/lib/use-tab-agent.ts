@@ -16,18 +16,29 @@ import {
   isClaudeIdentityFrameTitle,
   resolveExplicitTerminalTitleAgentType
 } from '../../../shared/terminal-title-agent-type'
-import { resolveSignalAgentForLaunchOwner } from './tab-agent-from-signals'
+import { resolveCompatibleAgentTypeForOwner } from '../../../shared/agent-title-owner'
 import { isOpenCodeNativeTitle } from '../../../shared/opencode-terminal-title'
 import { resolvePaneAgentOwner } from '../../../shared/pane-agent-owner'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
-import type { TerminalAgent } from '../../../shared/terminal-agent'
 import type { TuiAgent } from '../../../shared/tui-agent'
-import { agentTypeToIconAgent } from './agent-status'
 
 // A shell name or the tab's neutral default title (where inferred-interrupt reset parks it); blank titles are no evidence.
 function titleShowsNoAgent(title: string, defaultTitle?: string): boolean {
   const trimmed = title.trim()
   return trimmed.length > 0 && (isShellProcess(trimmed) || trimmed === defaultTitle?.trim())
+}
+
+/**
+ * Resolves wrapper-compatible signal identity against the launch owner.
+ */
+function resolveSignalAgentForLaunchOwner(
+  signalAgent: TuiAgent | null | undefined,
+  launchAgent: TuiAgent | null
+): TuiAgent | null {
+  if (!signalAgent) {
+    return null
+  }
+  return (resolveCompatibleAgentTypeForOwner(signalAgent, launchAgent) ?? signalAgent) as TuiAgent
 }
 
 /**
@@ -40,10 +51,10 @@ export function resolveLaunchedAgentExitEvidence(args: {
   defaultTitle?: string
   isRemote: boolean
   hasObservedAgentSignal: boolean
-  hookAgent: TerminalAgent | null
-  siblingHookAgent?: TerminalAgent | null
+  hookAgent: TuiAgent | null
+  siblingHookAgent?: TuiAgent | null
   hasCompletedHook: boolean
-  processAgent?: TerminalAgent | null
+  processAgent?: TuiAgent | null
   processShellForeground?: boolean
 }): boolean {
   if (args.hookAgent || args.siblingHookAgent || args.processAgent) {
@@ -64,25 +75,23 @@ export function resolveTabAgentFromSignals(args: {
   isRemote: boolean
   title: string
   defaultTitle?: string
-  hookAgent: TerminalAgent | null
-  siblingHookAgent?: TerminalAgent | null
-  focusedCompletedHookAgent?: TerminalAgent | null
-  siblingCompletedHookAgent?: TerminalAgent | null
-  processAgent?: TerminalAgent | null
+  hookAgent: TuiAgent | null
+  siblingHookAgent?: TuiAgent | null
+  focusedCompletedHookAgent?: TuiAgent | null
+  siblingCompletedHookAgent?: TuiAgent | null
+  processAgent?: TuiAgent | null
   processShellForeground?: boolean
-  sleepingSessionAgent?: TerminalAgent | null
+  sleepingSessionAgent?: TuiAgent | null
   launchAgent?: TuiAgent
-}): TerminalAgent | null {
+}): TuiAgent | null {
   const launchAgent = args.launchAgent ?? null
   // Durable focused-pane owner (launch intent → hook → session); focused-pane-scoped so a sibling can't re-own the focused title (would mislabel a Pi pane as OMP).
-  const owner = agentTypeToIconAgent(
-    resolvePaneAgentOwner({
-      launchAgent,
-      hookAgent: args.hookAgent,
-      completedHookAgent: args.focusedCompletedHookAgent,
-      sleepingSessionAgent: args.sleepingSessionAgent
-    })
-  )
+  const owner = resolvePaneAgentOwner({
+    launchAgent,
+    hookAgent: args.hookAgent,
+    completedHookAgent: args.focusedCompletedHookAgent,
+    sleepingSessionAgent: args.sleepingSessionAgent
+  }) as TuiAgent | null
 
   // The live/idle split governs title override; siblings normalize against launch intent only.
   const liveFocusedIdentity = resolveSignalAgentForLaunchOwner(args.hookAgent, owner)
@@ -174,7 +183,7 @@ export function resolveTabAgentFromSignals(args: {
  * 6. launchAgent — bootstrap before any hook/process signal; cleared once exit evidence shows it left.
  * 7. Sibling-pane identity (live, then completed/retained) — split-tab fallback.
  */
-export function useTabAgent(tab: TerminalTab): TerminalAgent | null {
+export function useTabAgent(tab: TerminalTab): TuiAgent | null {
   const focusedHookAgent = useAppStore((s) =>
     resolveFocusedTabAgent(s.agentStatusByPaneKey, s.terminalLayoutsByTabId[tab.id], tab.id)
   )

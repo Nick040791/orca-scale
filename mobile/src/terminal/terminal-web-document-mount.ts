@@ -2,7 +2,6 @@ import { Terminal } from '@xterm/xterm'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalDocumentTerminal } from './document/document-terminal-shape'
-import type { TerminalDocumentStart, TerminalViewportChange } from './document/document-host-seams'
 import { TERMINAL_DOCUMENT_ELEMENT_STYLE, TERMINAL_DOCUMENT_MARKUP } from './terminal-webview-html'
 import { scopeStyleToHost } from '../style-scoping/document-style-scoping'
 import { XTERM_ENGINE_CSS } from './terminal-webview-engine-css.generated'
@@ -26,8 +25,6 @@ import type { TerminalWebViewCommand } from './terminal-webview-messages'
 export type TerminalWebDocument = {
   /** Hands one host command to the document, as a bridge frame does inside the WebView. */
   send: (command: TerminalWebViewCommand & { id: number }) => void
-  /** RN laid the host out again: the page's counterpart of the WebView's window resize. */
-  notifyViewport: () => void
   dispose: () => void
 }
 
@@ -98,23 +95,19 @@ function createPageWebglAddon(onFallback: (reason: string) => void) {
  * Synchronous, because the factory is a static import and building a document is a function call.
  * A caller's cleanup can therefore never arrive before there is something to clean up.
  */
-/** What the view fixed when it mounted, for every document it builds. */
 export function mountTerminalWebDocument(
   host: HTMLElement,
-  receive: (message: Record<string, unknown>) => void,
-  start: TerminalDocumentStart = { textScale: 1, shown: true }
+  receive: (message: Record<string, unknown>) => void
 ): TerminalWebDocument {
   ensureDocumentStyle()
   host.classList.add(HOST_CLASS)
   host.innerHTML = TERMINAL_DOCUMENT_MARKUP
-  const viewport = pageViewport(host)
-  const started = startDocumentOrGiveTheHostBack(host, receive, start, viewport)
+  const started = startDocumentOrGiveTheHostBack(host, receive)
 
   return {
     send: (command) => {
       started.send(command)
     },
-    notifyViewport: viewport.notify,
     dispose: () => {
       started.stop()
       host.innerHTML = ''
@@ -135,12 +128,10 @@ export function mountTerminalWebDocument(
  */
 function startDocumentOrGiveTheHostBack(
   host: HTMLElement,
-  receive: (message: Record<string, unknown>) => void,
-  start: TerminalDocumentStart,
-  viewport: PageViewport
+  receive: (message: Record<string, unknown>) => void
 ) {
   try {
-    return startPageDocument(host, receive, start, viewport)
+    return startPageDocument(host, receive)
   } catch (error) {
     host.innerHTML = ''
     host.classList.remove(HOST_CLASS)
@@ -148,53 +139,8 @@ function startDocumentOrGiveTheHostBack(
   }
 }
 
-type PageViewport = ReturnType<typeof pageViewport>
-
-/**
- * The host's box, pushed by RN layout. RN web lays a `display:none` host out as 0x0 and its return
- * as the same box: the size stays the last real one, as a covered WebView's does, and the return is
- * a show rather than a resize. Sizes are the client rect's; RN web's are whole-pixel `offsetWidth`s.
- */
-function pageViewport(host: HTMLElement) {
-  // Seeded from the host, since RN's first layout can land before this mount exists.
-  const seed = host.getBoundingClientRect()
-  let laidOut = { width: seed.width, height: seed.height }
-  let onChange: ((change: TerminalViewportChange) => void) | null = null
-  return {
-    rect: () => {
-      const box = host.getBoundingClientRect()
-      const hidden = box.width <= 0
-      const size = hidden ? laidOut : box
-      return { left: box.left, top: box.top, width: size.width, height: size.height, hidden }
-    },
-    observe: (change: (change: TerminalViewportChange) => void) => {
-      onChange = change
-      return () => {
-        onChange = null
-      }
-    },
-    notify: () => {
-      const { width, height } = host.getBoundingClientRect()
-      if (width <= 0) {
-        return
-      }
-      if (width === laidOut.width && height === laidOut.height) {
-        onChange?.('shown')
-        return
-      }
-      laidOut = { width, height }
-      onChange?.('resized')
-    }
-  }
-}
-
 /** The eleven seams, as the page answers them. */
-function startPageDocument(
-  host: HTMLElement,
-  receive: (message: Record<string, unknown>) => void,
-  start: TerminalDocumentStart,
-  viewport: PageViewport
-) {
+function startPageDocument(host: HTMLElement, receive: (message: Record<string, unknown>) => void) {
   // Written by this document's own reporter: `startHostNotify` installs it through the seam below,
   // which here is a `window` error listener, and every error it forwards is appended before the
   // report that quotes it. What the page cannot have is the WebView head's half — a buffer open
@@ -240,13 +186,18 @@ function startPageDocument(
     // fail. Here the engine is the import above, so it is here or this module did not load.
     hasEngine: () => true,
 
-    start: () => start,
-
     // The window here is the whole page, header and dock included; the grid is shown in the host.
-    viewportRect: viewport.rect,
+    viewportRect: () => {
+      const box = host.getBoundingClientRect()
+      return { left: box.left, top: box.top, width: box.width, height: box.height }
+    },
 
-    // The host resizes without the window, and RN layout is what says so: the component pushes it.
-    observeViewport: viewport.observe,
+    // The host resizes without the window: a dock growing, a panel docking beside it.
+    observeViewport: (onChange) => {
+      const observer = new ResizeObserver(onChange)
+      observer.observe(host)
+      return () => observer.disconnect()
+    },
 
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the shape is xterm's own, except that `getCell` takes back the cell xterm allocated and the document declares only the members it reads on one.
     createTerminal: (options) => new Terminal(options) as unknown as TerminalDocumentTerminal,

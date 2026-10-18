@@ -37,11 +37,6 @@ export function sessionScreenReadMountAdapters(
           mountFixture<Parameters<typeof useReaders>[0]>({
             worktreeId: WORKSPACE,
             client,
-            markdownDocsRef: {
-              get current() {
-                return markdownDocs
-              }
-            },
             setMarkdownDocs: (update) => {
               markdownDocs = typeof update === 'function' ? update(markdownDocs) : update
             },

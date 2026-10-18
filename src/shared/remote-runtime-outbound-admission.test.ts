@@ -1,12 +1,8 @@
-import {
-  pairedRuntimeConnectionFromOffer,
-  type PairedRuntimeConnection
-} from './paired-runtime-connection'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { generateKeyPair, publicKeyToBase64 } from './e2ee-crypto'
-import { encodePairingOffer, parsePairingCode } from './pairing'
+import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing'
 import { sendRemoteRuntimeRequest, subscribeRemoteRuntimeRequest } from './remote-runtime-client'
 import {
   REMOTE_RUNTIME_MAX_PENDING_REQUESTS,
@@ -128,7 +124,7 @@ describe('remote runtime outbound admission', () => {
     const retainedBytes = retainedRemoteRuntimeJsonStringBytes(
       serializeRemoteRuntimeRpcRequest({
         requestId: '00000000-0000-4000-8000-000000000000',
-        deviceToken: pairing.credential.deviceToken,
+        deviceToken: pairing.deviceToken,
         method: 'status.large',
         params
       })
@@ -185,7 +181,7 @@ describe('remote runtime outbound admission', () => {
     const retainedBytes = retainedRemoteRuntimeJsonStringBytes(
       serializeRemoteRuntimeRpcRequest({
         requestId: '00000000-0000-4000-8000-000000000000',
-        deviceToken: pairing.credential.deviceToken,
+        deviceToken: pairing.deviceToken,
         method: 'status.large',
         params
       })
@@ -271,7 +267,7 @@ describe('remote runtime outbound admission', () => {
     const retainedBytes = retainedRemoteRuntimeJsonStringBytes(
       serializeRemoteRuntimeRpcRequest({
         requestId: '00000000-0000-4000-8000-000000000000',
-        deviceToken: pairing.credential.deviceToken,
+        deviceToken: pairing.deviceToken,
         method: 'status.large',
         params
       })
@@ -354,10 +350,7 @@ describe('remote runtime outbound admission', () => {
   })
 })
 
-async function createServer(): Promise<{
-  pairing: PairedRuntimeConnection
-  server: WebSocketServer
-}> {
+async function createServer(): Promise<{ pairing: PairingOffer; server: WebSocketServer }> {
   const keyPair = generateKeyPair()
   // host must match the 127.0.0.1 clients dial: a wildcard bind lets a foreign loopback listener claim the port and answer here.
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
@@ -375,5 +368,5 @@ async function createServer(): Promise<{
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing), server }
+  return { pairing, server }
 }

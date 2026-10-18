@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import type * as ShortcutLabelModule from '@/hooks/useShortcutLabel'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
@@ -37,8 +36,7 @@ vi.mock('../../store', () => ({
   useAppStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
 }))
 
-vi.mock('@/hooks/useShortcutLabel', async (importOriginal) => ({
-  ...(await importOriginal<typeof ShortcutLabelModule>()),
+vi.mock('@/hooks/useShortcutLabel', () => ({
   useShortcutKeyComboDetails: () => []
 }))
 
@@ -200,7 +198,7 @@ async function rerenderAppearancePane(
 
 function appearanceSectionToggle(
   container: HTMLElement,
-  sectionId: 'interface' | 'terminal' | 'chat' | 'window'
+  sectionId: 'interface' | 'terminal' | 'window'
 ): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')).find(
     (button) => button.getAttribute('aria-controls') === `appearance-section-${sectionId}`
@@ -242,15 +240,6 @@ describe('AppearancePane', () => {
 
   afterEach(() => {
     delete (window as unknown as { api?: unknown }).api
-  })
-
-  it('keeps chat appearance controls out of the Appearance pane', async () => {
-    mocks.state.settingsSearchQuery = ''
-    const container = await renderAppearancePane({
-      ...getDefaultSettings('/tmp')
-    })
-    expect(appearanceSectionToggle(container, 'chat')).toBeUndefined()
-    expect(container.textContent).not.toContain('Reset chat appearance')
   })
 
   it('shows language as a primary interface control without opening Advanced', async () => {

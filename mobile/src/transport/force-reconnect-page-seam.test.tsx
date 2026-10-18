@@ -27,7 +27,8 @@ const INIT = {
     lastInboundAt: 1800,
     generation: 5
   },
-  grants: { rpc: { maxPendingRequests: 64, maxSubscriptions: 32 }, native: [] }
+  grants: { rpc: { maxPendingRequests: 64, maxSubscriptions: 32 }, native: [] },
+  accepts: []
 }
 
 afterEach(() => {

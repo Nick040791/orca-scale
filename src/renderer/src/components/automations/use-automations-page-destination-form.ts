@@ -52,6 +52,7 @@ export function useAutomationsPageDestinationForm({
   } = store
   const {
     createOpen,
+    createTarget,
     editingAutomationId,
     editingRowKey,
     editingHostStableKey,
@@ -82,6 +83,7 @@ export function useAutomationsPageDestinationForm({
       getAutomationTargetFromHostId(editingRow?.automation.runContext?.hostId)
     )
   })()
+  const isOrcaForm = createTarget === 'orca' && local.editingExternalTarget === null
   const dialogAuthorityRepos = getAutomationCreateRepos(repos, automationDialogTarget)
   const dialogAuthorityKey = automationAuthorityCatalogKey(
     automationDialogTarget.kind === 'environment'
@@ -157,12 +159,16 @@ export function useAutomationsPageDestinationForm({
         ).replace('{host}', () => editMoveTargetEntry.authorityLabel)
       : null
   }
-  const dialogRepos = editingAutomationId !== null ? editHostProjects : editorProjects
+  const dialogRepos = isOrcaForm
+    ? editingAutomationId !== null
+      ? editHostProjects
+      : editorProjects
+    : getAutomationCreateRepos(repos, { kind: 'local' })
 
   // A destination change can strand the chosen project on another host; clear
   // it so the draft/default-target effect can select a project the host owns.
   useEffect(() => {
-    if (!createOpen || editingAutomationId !== null) {
+    if (!createOpen || editingAutomationId !== null || createTarget !== 'orca') {
       return
     }
     setDraft((current) =>
@@ -170,7 +176,7 @@ export function useAutomationsPageDestinationForm({
         ? current
         : { ...current, projectId: '', workspaceId: '', baseBranch: '' }
     )
-  }, [createOpen, editingAutomationId, editorProjects, setDraft])
+  }, [createOpen, createTarget, editingAutomationId, editorProjects, setDraft])
 
   const dialogWorktrees = useMemo(() => {
     const candidates = worktreesByRepo[draft.projectId] ?? []
@@ -224,6 +230,7 @@ export function useAutomationsPageDestinationForm({
     editingRow,
     editingRowCapturedOwner,
     automationDialogTarget,
+    isOrcaForm,
     dialogAuthorityRepos,
     dialogAuthorityKey,
     editHostEntries,

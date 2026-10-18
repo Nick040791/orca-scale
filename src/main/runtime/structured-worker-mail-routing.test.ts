@@ -7,7 +7,7 @@ vi.mock('../native-chat/agent-session-wire/structured-agent-session-registry', (
 }))
 
 const { OrcaRuntimeWithAdoptTerminalOrphansFromInventory } =
-  await import('./terminal/adoption/adopt-terminal-orphans-from-inventory')
+  await import('./orca-runtime-adopt-terminal-orphans-from-inventory')
 const {
   mintStructuredWorkerHandle,
   mintStructuredWorkerPaneKey,
@@ -20,16 +20,9 @@ const prototype = OrcaRuntimeWithAdoptTerminalOrphansFromInventory.prototype
 const getLivePaneKey = prototype.getLiveTerminalPaneKey
 const resolveActiveTerminal = prototype.resolveActiveTerminal
 
-function installRecord(
-  lease: { runtimeKind: string; claimStatus: string } | null,
-  tabListed = false
-): void {
+function installRecord(lease: { runtimeKind: string; claimStatus: string } | null): void {
   hostRef.current = lease
     ? {
-        getPersistedVisibleSessionTabIndex: () => ({
-          present: true,
-          sessionIds: tabListed ? [SESSION_ID] : []
-        }),
         deps: {
           store: {
             getRecord: () => ({
@@ -80,19 +73,10 @@ describe('bare-handle direct mail to a structured session', () => {
     )
   })
 
-  it('routes to a worker at rest, whose agent the mail starts', () => {
-    // Released by the idle sweep with its chat tab still listed: owned, so mail reaches it.
+  it('withholds the pane key when the session is not proven live', () => {
+    // The PTY branch is connected-gated so mail is never routed to a corpse; so is this one.
     const handle = registerWorker()
-    installRecord({ runtimeKind: 'native', claimStatus: 'released' }, true)
-    expect(getLivePaneKey.call(paneKeyStub, handle)).toBe(
-      structuredWorkerIdentities.get(handle)!.paneKey
-    )
-  })
-
-  it('withholds the pane key from a retired worker: released, with its tab gone', () => {
-    // Mail is never routed to a worker this runtime no longer owns.
-    const handle = registerWorker()
-    installRecord({ runtimeKind: 'native', claimStatus: 'released' }, false)
+    installRecord({ runtimeKind: 'native', claimStatus: 'reserved' })
     expect(getLivePaneKey.call(paneKeyStub, handle)).toBeNull()
   })
 

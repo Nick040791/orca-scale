@@ -3,8 +3,7 @@ import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import type { BrowserPage, BrowserWorkspace } from '../../../shared/browser-workspace-types'
 import type { Tab } from '../../../shared/tab-types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
-import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+import { applyWebSessionTabsSnapshot, type WebSessionTabsSyncState } from './web-session-tabs-sync'
 import {
   ENV,
   HOST_SURFACE_ID,

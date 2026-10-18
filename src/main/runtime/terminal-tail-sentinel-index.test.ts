@@ -8,22 +8,22 @@ import {
   tailMayContainBlockedSignal
 } from './terminal-tail-sentinel-index'
 import { computeTerminalTailWaitState } from './terminal-wait-tail-state'
-import { terminalWaitBlockedSentinelRe } from './agent-state-rules/blocked-text-layer'
+import { TERMINAL_WAIT_BLOCKED_SENTINEL_RE } from './terminal-wait-detection'
 import type { RetainedTailRedrawCursor } from './terminal-tail-redraw-buffer'
 
 // The definition the incremental index must reproduce: does ANY retained line (or the
 // partial line) match the sentinel? Written out independently of the implementation.
 function referenceMayContainBlockedSignal(lines: string[], partialLine: string): boolean {
   for (const line of lines) {
-    if (terminalWaitBlockedSentinelRe().test(line)) {
+    if (TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(line)) {
       return true
     }
   }
-  return terminalWaitBlockedSentinelRe().test(partialLine)
+  return TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(partialLine)
 }
 
 function indexedMayContainBlockedSignal(lines: string[], partialLine: string): boolean {
-  return tailMayContainBlockedSignal(lines) || terminalWaitBlockedSentinelRe().test(partialLine)
+  return tailMayContainBlockedSignal(lines) || TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(partialLine)
 }
 
 type TailSim = {
@@ -66,7 +66,7 @@ const ESC = String.fromCharCode(27)
 function referenceSentinelMatches(lines: readonly string[]): number[] {
   const matches: number[] = []
   for (let index = 0; index < lines.length; index += 1) {
-    if (terminalWaitBlockedSentinelRe().test(lines[index]!)) {
+    if (TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(lines[index]!)) {
       matches.push(index)
     }
   }
@@ -88,7 +88,7 @@ function assertIndexedPositionsAreExact(lines: readonly string[]): void {
 }
 
 function countSentinelTests(run: () => void): number {
-  const spy = vi.spyOn(terminalWaitBlockedSentinelRe(), 'test')
+  const spy = vi.spyOn(TERMINAL_WAIT_BLOCKED_SENTINEL_RE, 'test')
   try {
     run()
     return spy.mock.calls.length

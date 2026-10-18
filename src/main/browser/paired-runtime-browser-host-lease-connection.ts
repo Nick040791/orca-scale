@@ -63,7 +63,7 @@ export class PairedRuntimeBrowserHostLeaseConnection {
       let subscription: RemoteRuntimeSubscription
       try {
         subscription = await subscribeRemoteRuntimeRequest(
-          this.options.lease.connection,
+          this.options.lease.pairing,
           'browser.clientHost.attach',
           request.params,
           this.options.timeoutMs,

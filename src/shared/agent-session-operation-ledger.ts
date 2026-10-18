@@ -1,7 +1,3 @@
-import type {
-  AgentSessionAnyRefusalDetails,
-  AgentSessionRefusalDetailsByCode
-} from './agent-session-refusal-details'
 import {
   isAgentSessionRewindResult,
   type AgentSessionRewindReason,
@@ -11,14 +7,10 @@ import {
  * Durable client-operation ledger.
  *
  * `terminal.ensureAgentSession` / `terminal.createAgentSession` already enforce timestamped
- * operation ids with fingerprint conflict detection, age expiry, and tombstone retention — but in
- * memory, so a host restart turns "replay this create" into "spawn another agent". These are the
- * same rules over rows that survive a restart; the store writes a row in the same atomic
- * transaction as the lease reservation.
- *
- * There is no count limit. Rows are bookkeeping for retries, and a full ledger refused every
- * caller's next write, including the user's own send behind unrelated agent traffic. A row's only
- * lifetime is the replay window it protects (`agentSessionOperationExpiry`).
+ * operation ids with fingerprint conflict detection, age expiry, capacity limits, and tombstone
+ * retention — but in memory, so a host restart turns "replay this create" into "spawn another
+ * agent". These are the same rules over rows that survive a restart; the store writes a row in
+ * the same atomic transaction as the lease reservation.
  */
 
 import {
@@ -31,6 +23,9 @@ import {
   type AgentSessionConversationCommandResult
 } from './agent-session-conversation-command'
 
+export const AGENT_SESSION_DURABLE_OPERATION_PER_CLIENT_LIMIT = 512
+export const AGENT_SESSION_DURABLE_OPERATION_GLOBAL_LIMIT = 4_096
+
 export type AgentSessionOperationOutcome =
   | { status: 'pending' }
   | {
@@ -38,8 +33,9 @@ export type AgentSessionOperationOutcome =
       /**
        * Empty exactly when `launch` recorded a terminal surface — a PTY has a handle, not a session
        * id. Kept a required string rather than made optional because a build that predates `launch`
-       * rejects a `succeeded` row without one: the records file such a build keeps is unusable to it
-       * whole, and a row the database holds is dropped from the ledger, so its retry runs again.
+       * rejects a `succeeded` row without one, and a single rejected row invalidates the whole
+       * store on load (`agent-session-record-store-file.ts`). A downgrade must skip what it cannot
+       * read, not lose every lease in the file.
        */
       sessionId: string
       conversationCommand?: AgentSessionConversationCommandResult
@@ -50,22 +46,16 @@ export type AgentSessionOperationOutcome =
        * settings move: a replay must return what ran, not what would run now.
        *
        * Typed `unknown`, and deliberately NOT checked by `isAgentSessionOperationRow`, for the same
-       * reason `sessionId` above stays required: a load drops a row it rejects. `isAgentLaunchResult`
-       * is a hand-maintained mirror of a result type later work will edit, so a field tightened
-       * there would reject rows this same build wrote and lose their replay. It is narrowed where
-       * the value is read instead, where a payload we cannot read costs one replay.
+       * reason `sessionId` above stays required: a row this file rejects makes the whole store
+       * unparseable, and a primary and backup that both fail to parse raise
+       * `agent_session_store_corrupt` rather than degrading. `isAgentLaunchResult` is a
+       * hand-maintained mirror of a result type later work will edit, so a field tightened there
+       * would reject rows this same build wrote and take every lease in the file with them. It is
+       * narrowed where the value is read instead, where a payload we cannot read costs one replay.
        */
       launch?: unknown
     }
-  | {
-      status: 'failed'
-      code: string
-      message?: string
-      rewindReason?: AgentSessionRewindReason
-      /** Beside the code, so a replay says what the first answer did. Read back against the code,
-       *  since the code is a string here; a row written before details carries none. */
-      details?: AgentSessionAnyRefusalDetails
-    }
+  | { status: 'failed'; code: string; message?: string; rewindReason?: AgentSessionRewindReason }
   /** The effect may or may not have happened; replay this answer instead of spawning again. */
   | { status: 'unknown' }
 
@@ -83,17 +73,12 @@ export type AgentSessionOperationRefusalCode =
   | 'agent_session_operation_invalid'
   | 'agent_session_operation_conflict'
   | 'agent_session_operation_expired'
+  | 'agent_session_operation_capacity'
 
 export type AgentSessionOperationDecision =
   | { decision: 'replay'; row: AgentSessionOperationRow }
   | { decision: 'admit'; row: AgentSessionOperationRow }
-  | {
-      [C in AgentSessionOperationRefusalCode]: {
-        decision: 'refused'
-        code: C
-        details: AgentSessionRefusalDetailsByCode[C]
-      }
-    }[AgentSessionOperationRefusalCode]
+  | { decision: 'refused'; code: AgentSessionOperationRefusalCode }
 
 /** NUL cannot occur in a caller key or operation id, so no pair can forge another pair's key. */
 const OPERATION_KEY_SEPARATOR = '\u0000'
@@ -233,6 +218,8 @@ export function evaluateAgentSessionOperation(args: {
   operationId: string
   fingerprint: string
   now: number
+  perClientLimit?: number
+  globalLimit?: number
 }): AgentSessionOperationDecision {
   const { rows, callerKey, operationId, fingerprint, now } = args
   const operationTimestamp = parseAgentSessionOperationTimestamp(operationId)
@@ -241,31 +228,32 @@ export function evaluateAgentSessionOperation(args: {
     operationTimestamp > now + AGENT_SESSION_OPERATION_FUTURE_SKEW_MS
   ) {
     // Why: a future-dated id could look new again after its tombstone is collected.
-    return {
-      decision: 'refused',
-      code: 'agent_session_operation_invalid',
-      details: { reason: 'operationIdInvalid' }
-    }
+    return { decision: 'refused', code: 'agent_session_operation_invalid' }
   }
   const key = agentSessionOperationKey(callerKey, operationId)
   const existing = rows.get(key)
   if (existing) {
     return existing.fingerprint === fingerprint
       ? { decision: 'replay', row: existing }
-      : {
-          decision: 'refused',
-          code: 'agent_session_operation_conflict',
-          details: { reason: 'operationIdReused' }
-        }
+      : { decision: 'refused', code: 'agent_session_operation_conflict' }
   }
   if (now - operationTimestamp > AGENT_SESSION_MAX_NEW_OPERATION_AGE_MS) {
     // Why: once a tombstone could have expired, an unseen replay must never be reinterpreted as
     // permission to start another fresh agent.
-    return {
-      decision: 'refused',
-      code: 'agent_session_operation_expired',
-      details: { reason: 'operationExpired' }
+    return { decision: 'refused', code: 'agent_session_operation_expired' }
+  }
+  const perClientLimit = args.perClientLimit ?? AGENT_SESSION_DURABLE_OPERATION_PER_CLIENT_LIMIT
+  const globalLimit = args.globalLimit ?? AGENT_SESSION_DURABLE_OPERATION_GLOBAL_LIMIT
+  let callerCount = 0
+  for (const row of rows.values()) {
+    if (row.callerKey === callerKey) {
+      callerCount += 1
     }
+  }
+  if (callerCount >= perClientLimit || rows.size >= globalLimit) {
+    // Why: tombstones cannot be evicted early without making an old replay capable of spawning
+    // again; reject new ids until retained rows age out.
+    return { decision: 'refused', code: 'agent_session_operation_capacity' }
   }
   return {
     decision: 'admit',

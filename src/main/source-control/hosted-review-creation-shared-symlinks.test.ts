@@ -15,7 +15,8 @@ const {
   ghExecFileAsyncMock,
   glabExecFileAsyncMock,
   gitExecFileAsyncMock,
-  getUpstreamStatusMock
+  getUpstreamStatusMock,
+  getSshGitProviderMock
 } = vi.hoisted(() => ({
   createGitHubPullRequestMock: vi.fn(),
   getRepoSlugMock: vi.fn(),
@@ -28,7 +29,8 @@ const {
   ghExecFileAsyncMock: vi.fn(),
   glabExecFileAsyncMock: vi.fn(),
   gitExecFileAsyncMock: vi.fn(),
-  getUpstreamStatusMock: vi.fn()
+  getUpstreamStatusMock: vi.fn(),
+  getSshGitProviderMock: vi.fn()
 }))
 
 vi.mock('../github/client', () => ({
@@ -80,12 +82,9 @@ vi.mock('../gitlab/gl-utils', () => ({
   glabExecFileAsync: glabExecFileAsyncMock,
   glabRepoExecOptions: (repoPath: string) => ({ cwd: repoPath })
 }))
-vi.mock('../git/upstream', () => ({
-  getUpstreamStatus: getUpstreamStatusMock
-}))
-vi.mock('./hosted-review', () => ({
-  getHostedReviewForBranch: getHostedReviewForBranchMock
-}))
+vi.mock('../git/upstream', () => ({ getUpstreamStatus: getUpstreamStatusMock }))
+vi.mock('../providers/ssh-git-dispatch', () => ({ getSshGitProvider: getSshGitProviderMock }))
+vi.mock('./hosted-review', () => ({ getHostedReviewForBranch: getHostedReviewForBranchMock }))
 
 import { createHostedReview } from './hosted-review-creation'
 
@@ -124,7 +123,8 @@ describe('createHostedReview with shared symlinks', () => {
       ghExecFileAsyncMock,
       glabExecFileAsyncMock,
       gitExecFileAsyncMock,
-      getUpstreamStatusMock
+      getUpstreamStatusMock,
+      getSshGitProviderMock
     ]) {
       mock.mockReset()
     }

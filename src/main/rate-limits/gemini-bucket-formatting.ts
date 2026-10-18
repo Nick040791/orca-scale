@@ -1,5 +1,4 @@
 import type { RateLimitBucket, RateLimitWindow } from '../../shared/rate-limit-types'
-import { deriveMostConstrainedWindow } from './rate-limit-bucket-summary'
 
 const MODEL_ID_TO_BUCKET_NAME: Record<string, string> = {
   'gemini-3.1-pro': '3.1 Pro',
@@ -74,5 +73,12 @@ export function deduplicateBuckets(
 }
 
 export function deriveSessionSummary(buckets: RateLimitBucket[]): RateLimitWindow | null {
-  return deriveMostConstrainedWindow(buckets)
+  if (buckets.length === 0) {
+    return null
+  }
+  const mostConstrained = buckets.reduce((worst, bucket) => {
+    return bucket.usedPercent > worst.usedPercent ? bucket : worst
+  })
+  const { name: _name, ...window } = mostConstrained
+  return window
 }

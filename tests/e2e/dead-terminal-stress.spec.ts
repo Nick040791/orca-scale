@@ -1,7 +1,7 @@
 /**
  * Aggressive stress tests for dead-terminal reproduction.
  *
- * These tests target specific failure vectors beyond the basic manual-split flow:
+ * These tests target specific failure vectors beyond the basic setup-split flow:
  * - Forced WebGL context loss (simulating Chromium memory pressure)
  * - Rapid switching during the ~200ms scheduleSplitScrollRestore window
  *
@@ -18,7 +18,7 @@ import {
 } from './helpers/store'
 import { waitForActiveTerminalManager, waitForPaneCount } from './helpers/terminal'
 import {
-  createAndActivateWorktreeWithManualSplit,
+  createAndActivateWorktreeWithSetup,
   removeWorktreeViaStore,
   waitForAllPanesToHaveContent
 } from './helpers/dead-terminal'
@@ -32,6 +32,14 @@ test.describe('Dead Terminal Stress @headful', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     await ensureTerminalVisible(orcaPage)
+
+    await orcaPage.evaluate(async () => {
+      const state = window.__store?.getState()
+      if (!state) {
+        return
+      }
+      state.updateSettings({ setupScriptLaunchMode: 'split-vertical' })
+    })
   })
 
   test.afterEach(async ({ orcaPage }) => {
@@ -47,17 +55,13 @@ test.describe('Dead Terminal Stress @headful', () => {
    * pressure — especially with many worktrees open. The recovery path is:
    * onContextLoss → dispose WebGL → DOM fallback → rAF → fit + refresh.
    */
-  test('@headful manual-split with forced WebGL context loss recovers', async ({ orcaPage }) => {
+  test('@headful setup-split with forced WebGL context loss recovers', async ({ orcaPage }) => {
     test.setTimeout(120_000)
     const homeWorktreeId = await waitForActiveWorktree(orcaPage)
     await waitForActiveTerminalManager(orcaPage, 30_000)
 
     for (let i = 0; i < STRESS_ITERATIONS; i++) {
-      const newId = await createAndActivateWorktreeWithManualSplit(
-        orcaPage,
-        `ctxloss-${i}`,
-        'vertical'
-      )
+      const newId = await createAndActivateWorktreeWithSetup(orcaPage, `ctxloss-${i}`, 'vertical')
       createdWorktreeIds.push(newId)
 
       await expect.poll(async () => getActiveWorktreeId(orcaPage), { timeout: 10_000 }).toBe(newId)
@@ -103,17 +107,13 @@ test.describe('Dead Terminal Stress @headful', () => {
    * race between wrapInSplit() reparenting, WebGL context creation during
    * resumeRendering(), and the scheduleSplitScrollRestore 200ms timer.
    */
-  test('@headful rapid worktree switching during manual-split lifecycle', async ({ orcaPage }) => {
+  test('@headful rapid worktree switching during setup-split lifecycle', async ({ orcaPage }) => {
     test.setTimeout(120_000)
     const homeWorktreeId = await waitForActiveWorktree(orcaPage)
     await waitForActiveTerminalManager(orcaPage, 30_000)
 
     for (let i = 0; i < 3; i++) {
-      const newId = await createAndActivateWorktreeWithManualSplit(
-        orcaPage,
-        `rapid-${i}`,
-        'vertical'
-      )
+      const newId = await createAndActivateWorktreeWithSetup(orcaPage, `rapid-${i}`, 'vertical')
       createdWorktreeIds.push(newId)
 
       // Switch away during the ~200ms scheduleSplitScrollRestore window

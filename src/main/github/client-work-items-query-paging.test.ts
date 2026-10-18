@@ -115,10 +115,12 @@ vi.mock('./github-api-repository', async (importOriginal) => {
   }
 })
 
-import { countWorkItems } from './client/list/count-work-items'
-import { listWorkItems } from './client/list/list-work-items'
-import { _resetMergeQueueCacheForTests } from './client/detect/repository-merge-metadata-cache'
-import { _resetOwnerRepoCache } from './gh-utils'
+import {
+  countWorkItems,
+  listWorkItems,
+  _resetMergeQueueCacheForTests,
+  _resetOwnerRepoCache
+} from './client'
 import { GITHUB_WORK_ITEMS_QUERY_MAX_BYTES } from '../../shared/github/work-items-query-bounds'
 
 import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'

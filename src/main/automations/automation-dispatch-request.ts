@@ -6,17 +6,10 @@ import type { Store } from '../persistence'
 import type { AutomationRunWriter } from './automation-run-writer'
 import type { HeadlessAutomationDispatcher } from './headless-dispatch'
 import type { HeadlessAutomationDispatchContext } from './headless-dispatch-runner'
-import {
-  AutomationDispatchRefusedError,
-  runHeadlessAutomationDispatch
-} from './headless-dispatch-runner'
+import { runHeadlessAutomationDispatch } from './headless-dispatch-runner'
 import type { AutomationRunTargetResult } from './run-target-resolution'
 import { createAutomationDispatchToken } from './dispatch-tokens'
-import {
-  NO_DISPATCH_HOST,
-  describeScheduledRefusal,
-  sendRendererDispatch
-} from './dispatch-refusal'
+import { NO_DISPATCH_HOST, sendRendererDispatch } from './dispatch-refusal'
 
 export type AutomationRendererChannel = Pick<WebContents, 'isDestroyed' | 'send'>
 
@@ -107,12 +100,8 @@ export async function requestAutomationDispatch(
     return returnDurable(run)
   }
   let target = resolveCurrentTarget()
-  const refusal = describeScheduledRefusal({
-    target,
-    canDispatch: Boolean(ctx.getRenderer() || ctx.headlessDispatcher)
-  })
-  if (refusal || !target.ok) {
-    return refuse(refusal ?? NO_DISPATCH_HOST)
+  if (!target.ok || (!ctx.getRenderer() && !ctx.headlessDispatcher)) {
+    return refuse(target.ok ? NO_DISPATCH_HOST : target.error)
   }
   await ctx.runs.updateRun({
     runId: run.id,
@@ -126,10 +115,8 @@ export async function requestAutomationDispatch(
     return returnDurable(run)
   }
   target = resolveCurrentTarget()
-  // A WSL move may have started during the claim; refuse before the worktree create would throw.
-  const lateRefusal = describeScheduledRefusal({ target, canDispatch: true })
-  if (lateRefusal || !target.ok) {
-    return refuse(lateRefusal ?? NO_DISPATCH_HOST)
+  if (!target.ok) {
+    return refuse(target.error)
   }
   const renderer = ctx.getRenderer()
   if (renderer) {
@@ -160,14 +147,6 @@ export async function requestAutomationDispatch(
       const latestTarget = resolveCurrentTarget()
       if (!latestTarget.ok) {
         throw new AutomationDispatchCancelledError(latestTarget.error)
-      }
-      // The precheck can run for minutes; a WSL move starting meanwhile is a skip, not a failure.
-      const latestRefusal = describeScheduledRefusal({
-        target: latestTarget,
-        canDispatch: true
-      })
-      if (latestRefusal) {
-        throw new AutomationDispatchRefusedError(latestRefusal)
       }
       return dispatcher({ ...request, target: latestTarget })
     }

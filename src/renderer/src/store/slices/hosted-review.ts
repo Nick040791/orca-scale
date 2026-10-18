@@ -6,9 +6,8 @@ import type {
   HostedReviewCreationEligibilityArgs,
   HostedReviewInfo
 } from '../../../../shared/hosted-review'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import type { AppState } from '../types'
-import { nextLookupGeneration } from '../lookup-generation-sequence'
 import {
   getHostedReviewCacheKey,
   linkedReviewHintKey,
@@ -19,10 +18,10 @@ import {
   findHostedReviewRepoForFetch,
   hasNewerHostedReviewCacheEntry,
   hostedReviewOwnerIpcArgs,
-  hostedReviewBranchLookupArgs,
   isFreshHostedReview,
   isStaleMergedGitHubReviewForHead,
-  hostedReviewRepoOwnerTarget,
+  settingsForHostedReviewActionOwner,
+  settingsForHostedReviewRepoOwner,
   shouldRefetchForLinkedHint,
   shouldRefetchGitHubScopedResultForNoHint,
   withCreationEligibilityTimeout,
@@ -68,8 +67,10 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
   hostedReviewCache: {},
 
   getHostedReviewCreationEligibility: async (args) => {
+    const settings = get().settings
     const repo = findHostedReviewRepoByPath(get().repos, args.repoPath, args.repoId)
-    const target = hostedReviewRepoOwnerTarget(repo)
+    const ownerSettings = settingsForHostedReviewActionOwner(settings, repo)
+    const target = getActiveRuntimeTarget(ownerSettings)
     if (target.kind === 'environment') {
       const { repoPath: _repoPath, worktreePath, ...runtimeArgs } = args
       void _repoPath
@@ -94,8 +95,10 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
   },
 
   createHostedReview: async (repoPath, input) => {
+    const settings = get().settings
     const repo = findHostedReviewRepoByPath(get().repos, repoPath, input.repoId)
-    const target = hostedReviewRepoOwnerTarget(repo)
+    const ownerSettings = settingsForHostedReviewActionOwner(settings, repo)
+    const target = getActiveRuntimeTarget(ownerSettings)
     const { repoId: inputRepoId, ...hostedReviewInput } = input
     if (target.kind === 'environment') {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
@@ -119,8 +122,10 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
   },
 
   createStackedHostedReview: async (repoPath, input) => {
+    const settings = get().settings
     const repo = findHostedReviewRepoByPath(get().repos, repoPath, input.repoId)
-    const target = hostedReviewRepoOwnerTarget(repo)
+    const ownerSettings = settingsForHostedReviewActionOwner(settings, repo)
+    const target = getActiveRuntimeTarget(ownerSettings)
     const { repoId: inputRepoId, ...hostedReviewInput } = input
     if (target.kind === 'environment') {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
@@ -152,19 +157,17 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
     if (repo === null) {
       return null
     }
-    const target = hostedReviewRepoOwnerTarget(repo)
-    const cacheKey =
-      options?.exactReviewKey ??
-      getHostedReviewCacheKey(
-        repoPath,
-        branch,
-        // Why settings: a known repo keys by its own host; only an unknown repo's key keeps today's scope.
-        get().settings,
-        options?.repoId ?? repo?.id,
-        repo?.connectionId,
-        repo?.executionHostId,
-        repo !== undefined
-      )
+    const ownerSettings = settingsForHostedReviewRepoOwner(get().settings, repo)
+    const target = getActiveRuntimeTarget(ownerSettings)
+    const cacheKey = getHostedReviewCacheKey(
+      repoPath,
+      branch,
+      ownerSettings,
+      options?.repoId ?? repo?.id,
+      repo?.connectionId,
+      repo?.executionHostId,
+      repo !== undefined
+    )
     const cached = get().hostedReviewCache[cacheKey]
     const hintKey = linkedReviewHintKey(options)
     const requestKey = hostedReviewRequestKey(cacheKey, hintKey)
@@ -183,21 +186,27 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
 
     const inflightRequest = inflightHostedReviewRequests.get(requestKey)
     const startRequest = (): Promise<HostedReviewInfo | null> => {
-      const generation = nextLookupGeneration()
+      const generation = (requestGenerations.get(cacheKey) ?? 0) + 1
       const requestStartedAt = Date.now()
-      requestGenerations.set(cacheKey, generation)
-      if (options?.exactReviewKey && cached) {
-        set((state) => ({
-          hostedReviewCache: {
-            ...state.hostedReviewCache,
-            [cacheKey]: { ...cached, stale: true }
-          }
-        }))
-      }
       const requestStartedEntry = get().hostedReviewCache[cacheKey]
+      requestGenerations.set(cacheKey, generation)
       const request = (async () => {
         try {
-          const args = hostedReviewBranchLookupArgs(branch, options)
+          const fallbackGitHubPR =
+            options?.linkedGitHubPR == null ? (options?.fallbackGitHubPR ?? null) : null
+          const args = {
+            branch,
+            ...(options?.admissionTier ? { admissionTier: options.admissionTier } : {}),
+            ...(options?.repoId !== undefined ? { repoId: options.repoId } : {}),
+            currentHeadOid: options?.currentHeadOid ?? null,
+            ...(options?.active === true ? { active: true } : {}),
+            linkedGitHubPR: options?.linkedGitHubPR ?? null,
+            ...(fallbackGitHubPR !== null ? { fallbackGitHubPR } : {}),
+            linkedGitLabMR: options?.linkedGitLabMR ?? null,
+            linkedBitbucketPR: options?.linkedBitbucketPR ?? null,
+            linkedAzureDevOpsPR: options?.linkedAzureDevOpsPR ?? null,
+            linkedGiteaPR: options?.linkedGiteaPR ?? null
+          }
           const review =
             target.kind === 'environment'
               ? await callRuntimeRpc<HostedReviewInfo | null>(
@@ -228,17 +237,15 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
                 return state
               }
               const currentPRCache = state.prCache ?? {}
-              const prCache = options?.exactReviewKey
-                ? currentPRCache
-                : clearHostedReviewConflictingPrCache({
-                    cache: currentPRCache,
-                    review,
-                    repoPath,
-                    repoId: options?.repoId ?? repo?.id,
-                    branch,
-                    settings: get().settings,
-                    repo
-                  })
+              const prCache = clearHostedReviewConflictingPrCache({
+                cache: currentPRCache,
+                review,
+                repoPath,
+                repoId: options?.repoId ?? repo?.id,
+                branch,
+                settings: ownerSettings,
+                repo
+              })
               return {
                 ...(prCache === currentPRCache ? {} : { prCache }),
                 hostedReviewCache: withHostedReviewCacheEntry(state.hostedReviewCache, cacheKey, {

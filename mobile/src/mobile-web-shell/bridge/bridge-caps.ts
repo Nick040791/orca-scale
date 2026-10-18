@@ -1,5 +1,3 @@
-import { MOBILE_BRIDGE_MAX_FRAME_BYTES } from '../../../../src/shared/mobile-bridge-frame-bytes'
-
 /**
  * The bridge's caps, its refusal vocabulary, and the single point that enforces them.
  *
@@ -18,9 +16,8 @@ export const BRIDGE_DIRECTIONS = ['page-to-shell', 'shell-to-page'] as const
 
 export type BridgeDirection = (typeof BRIDGE_DIRECTIONS)[number]
 
-/** Frame ceiling, in UTF-8 bytes of the raw string, checked before `JSON.parse` sees it. Never
- *  raise it alone: hosts size frames to what released shells accept. */
-export const BRIDGE_MAX_MESSAGE_BYTES = MOBILE_BRIDGE_MAX_FRAME_BYTES
+/** Frame ceiling, in UTF-8 bytes of the raw string, checked before `JSON.parse` sees it. */
+export const BRIDGE_MAX_MESSAGE_BYTES = 640 * 1024
 
 /** Nesting levels a page-to-shell frame may carry, counting the frame object itself as one. */
 export const BRIDGE_MAX_DEPTH = 16
@@ -140,6 +137,15 @@ export function isBridgeExternalLinkUrl(url: string): boolean {
   return readBridgeExternalLinkUrl(url) !== null
 }
 export const BRIDGE_MAX_PAGE_ROUTES = 64
+
+/**
+ * What a page may say it can be sent, bounded the way every other list on the envelope is.
+ *
+ * A frame bound and not a vocabulary: the shell acts on the names it knows and ignores the rest,
+ * which is what lets a newer page declare one an older shell has never heard of.
+ */
+export const BRIDGE_MAX_PAGE_ACCEPTS = 16
+export const BRIDGE_MAX_PAGE_ACCEPT_CHARS = 64
 
 /** A host id, its name and its endpoint. Bounded because the page renders all three. */
 export const BRIDGE_MAX_HOST_FIELD_CHARS = 1024

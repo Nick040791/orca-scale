@@ -17,7 +17,6 @@ import {
 } from '../../../../shared/workspace-cleanup-host-identity'
 import { WorkspaceCleanupBrowseToolbar } from './workspace-cleanup-browse-toolbar'
 import { WorkspaceCleanupConfirmRemove } from './workspace-cleanup-confirm-remove'
-import { WorkspaceCleanupConfirmStopAgents } from './workspace-cleanup-confirm-stop-agents'
 import { WorkspaceCleanupDialogHeader } from './workspace-cleanup-dialog-header'
 import {
   getWorkspaceCleanupDeletionPhaseByIdentity,
@@ -348,13 +347,7 @@ function WorkspaceCleanupDialogContent({
         showCloseButton={false}
         className="flex h-[min(820px,90vh)] w-[calc(100vw-3rem)] max-w-[calc(100vw-3rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-3rem)] xl:w-[980px] xl:max-w-[980px]"
       >
-        {removal.agentStopRequest ? (
-          <WorkspaceCleanupConfirmStopAgents
-            candidates={removal.agentStopRequest.candidates}
-            onBack={removal.cancelStopAgents}
-            onConfirm={removal.confirmStopAgents}
-          />
-        ) : !removal.confirming ? (
+        {!removal.confirming ? (
           <>
             <WorkspaceCleanupDialogHeader
               selectedCount={selectedCount}

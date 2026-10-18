@@ -21,11 +21,9 @@ import { agentJournalLinkageFields } from '../../shared/agent-session-journal-pr
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalItemBody,
-  AgentJournalItemIdentity,
-  AgentJournalProducerLinkage,
-  AgentJournalTurnScope
+  AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
-import type { StructuredAgentSessionItemAppendOptions } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
+import type { StructuredAgentSessionAppendOptions } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { ClaudeSubagentLinkageSource } from './claude-subagent-linkage'
 
 /**
@@ -38,7 +36,12 @@ import type { ClaudeSubagentLinkageSource } from './claude-subagent-linkage'
 export type ClaudeRowStamp = (
   identity: AgentJournalItemIdentity,
   body: AgentJournalItemBody
-) => StructuredAgentSessionItemAppendOptions
+) => StructuredAgentSessionAppendOptions
+
+/** The session's own agent wrote this row: nothing is stamped, nothing is owed.
+ *  Only for a site with no ledger to consult; a ledger-backed root write goes
+ *  through `stampFor(null)`, which also supersedes anything owed to the row. */
+export const rootClaudeRowStamp: ClaudeRowStamp = () => ({})
 
 /** Corrections outstanding at once, across every producer. */
 const MAX_OUTSTANDING_CORRECTIONS = 256
@@ -54,19 +57,17 @@ type OutstandingCorrection = {
    *  a tool call and its result do — and a correction carrying the older body
    *  would revert the row it is only meant to re-attribute. */
   body: AgentJournalItemBody
-  stamped: StructuredAgentSessionItemAppendOptions
+  stamped: StructuredAgentSessionAppendOptions
 }
 
 export type ClaudeProvisionalRowCorrectionsDeps = ClaudeSubagentLinkageSource & {
-  /** The turn a row written now belongs to: the open root turn, whoever produced the row. */
-  turnScope: () => AgentJournalTurnScope
   /** Re-appends a row under its own identity, which revises it in place.
    *  Returns whether the write was ADMITTED: a sink under backpressure refuses,
    *  and a correction dropped on a refusal is an obligation nothing re-derives. */
   rewrite: (
     identity: AgentJournalItemIdentity,
     body: AgentJournalItemBody,
-    options: StructuredAgentSessionItemAppendOptions
+    options: StructuredAgentSessionAppendOptions
   ) => boolean
   publish: () => void
 }
@@ -91,12 +92,12 @@ export class ClaudeProvisionalRowCorrections {
     if (parentToolUseId === null) {
       return (identity) => {
         this.supersede(identity)
-        return { turnScope: this.deps.turnScope() }
+        return {}
       }
     }
     return (identity, body) => {
       const provisional = this.deps.linkageFor(parentToolUseId).kind === 'pending'
-      const options = { ...this.stamp(parentToolUseId), turnScope: this.deps.turnScope() }
+      const options = this.stamp(parentToolUseId)
       if (provisional) {
         this.remember(parentToolUseId, identity, body, options)
       } else {
@@ -159,7 +160,7 @@ export class ClaudeProvisionalRowCorrections {
     this.outstanding.delete(agentJournalItemKey(identity))
   }
 
-  private stamp(parentToolUseId: string): ReturnType<typeof agentJournalLinkageFields> {
+  private stamp(parentToolUseId: string): StructuredAgentSessionAppendOptions {
     return agentJournalLinkageFields(this.deps.settledLinkageFor(parentToolUseId).linkage)
   }
 
@@ -170,16 +171,14 @@ export class ClaudeProvisionalRowCorrections {
     if (sameLinkage(options, correction.stamped)) {
       return 'unchanged'
     }
-    // A re-stamp revises the row, so its scope stays the one it was created with.
-    const restamped = { ...options, turnScope: correction.stamped.turnScope }
-    return this.deps.rewrite(correction.identity, correction.body, restamped) ? 'wrote' : 'refused'
+    return this.deps.rewrite(correction.identity, correction.body, options) ? 'wrote' : 'refused'
   }
 
   private remember(
     ref: string,
     identity: AgentJournalItemIdentity,
     body: AgentJournalItemBody,
-    stamped: StructuredAgentSessionItemAppendOptions
+    stamped: StructuredAgentSessionAppendOptions
   ): void {
     if (this.givenUp.has(ref)) {
       return
@@ -234,8 +233,8 @@ export class ClaudeProvisionalRowCorrections {
 }
 
 function sameLinkage(
-  left: AgentJournalProducerLinkage,
-  right: AgentJournalProducerLinkage
+  left: StructuredAgentSessionAppendOptions,
+  right: StructuredAgentSessionAppendOptions
 ): boolean {
   return (
     left.agentId === right.agentId &&

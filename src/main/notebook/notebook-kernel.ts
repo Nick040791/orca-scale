@@ -1,7 +1,6 @@
 import bridgePath from '../../../resources/notebook/kernel-bridge.py?asset&asarUnpack'
-import { spawnProcess } from '@orca/process-host'
-import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
-import { createNdjsonParser } from '../../shared/main-process-ndjson-framer'
+import { spawnProcess } from '../../shared/child-process/run-process'
+import { forceTerminateProcessTree } from '../../shared/child-process/process-tree-termination'
 import {
   KERNEL_OUTPUT_TYPES,
   type KernelFrame,
@@ -17,7 +16,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseFrame(value: unknown): BridgeFrame | null {
+function parseFrame(line: string): BridgeFrame | null {
+  let value: unknown
+  try {
+    value = JSON.parse(line)
+  } catch {
+    return null
+  }
   if (!isRecord(value)) {
     return null
   }
@@ -41,20 +46,17 @@ function parseFrame(value: unknown): BridgeFrame | null {
 
 /** Splits bridge stdout into frames, skipping any line that is not one. */
 export function createFrameReader(onFrame: (frame: BridgeFrame) => void): (text: string) => void {
-  // Each frame ships as its line completes; a consumer throw escapes the stdout listener and is fatal anyway.
-  const parser = createNdjsonParser(
-    (value) => {
-      const frame = parseFrame(value)
+  let partial = ''
+  return (text) => {
+    const lines = (partial + text).split('\n')
+    partial = lines.pop() ?? ''
+    for (const line of lines) {
+      const frame = parseFrame(line)
       if (frame) {
         onFrame(frame)
       }
-    },
-    // The bridge keeps fd 1 to itself, so an unreadable line means the frame channel is damaged.
-    (error) => console.warn('[notebook-kernel] Dropped an unreadable bridge record:', error),
-    // Notebook display frames can contain large images; preserve the existing unrestricted size.
-    { maxLineBytes: Number.POSITIVE_INFINITY }
-  )
-  return (text) => parser.feed(text)
+    }
+  }
 }
 
 export type NotebookKernel = {

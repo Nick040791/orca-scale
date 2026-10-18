@@ -4,9 +4,6 @@ export type PendingEditorReveal = {
   line: number
   column: number
   matchLength: number
-  viewStateId?: string
-  canApply?: () => boolean
-  onApplied?: () => void
 }
 
 export type PendingEditorFocusRequest = {

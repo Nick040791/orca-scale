@@ -478,7 +478,6 @@ describe('OrcaRuntimeService', () => {
     )
     const kill = vi.fn(() => true)
     const closeTerminal = vi.fn()
-    const closeTerminalPane = vi.fn()
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     runtime.setPtyController({
       write: () => true,
@@ -486,8 +485,7 @@ describe('OrcaRuntimeService', () => {
       getForegroundProcess: async () => null,
       listProcesses: async () => []
     })
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these close paths call only the listed notifier methods.
-    runtime.setNotifier({ closeTerminal, closeTerminalPane } as never)
+    runtime.setNotifier({ closeTerminal } as never)
     runtime.syncWindowGraph(1, {
       tabs: [
         {
@@ -526,13 +524,8 @@ describe('OrcaRuntimeService', () => {
     // Exact split leaf: kill only that leaf's PTY, keep the sibling, don't tear down the parent.
     expect(kill).toHaveBeenCalledWith('serve-right')
     expect(kill).not.toHaveBeenCalledWith('serve-left')
-    // Only the leaf-addressed notice for the closed pane; never a whole-tab close.
-    expect(closeTerminalPane).toHaveBeenCalledExactlyOnceWith('host-tab', HEADLESS_SECOND_LEAF_ID)
     expect(closeTerminal).not.toHaveBeenCalled()
     expect(getSession().tabsByWorktree[TEST_WORKTREE_ID]).toHaveLength(1)
-    expect(getSession().terminalLayoutsByTabId['host-tab']?.root).toEqual({
-      type: 'leaf',
-      leafId: HEADLESS_LEAF_ID
-    })
+    expect(getSession().terminalLayoutsByTabId['host-tab']).toBeDefined()
   })
 })

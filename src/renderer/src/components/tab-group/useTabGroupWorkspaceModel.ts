@@ -56,7 +56,10 @@ export function useTabGroupWorkspaceModel({
     tabBarOrder
   } = useTabGroupItemProjections({ groupId, worktreeId, worktreeState })
 
-  const { closeItem, closeMany } = useTabGroupTabCloseCommands({ worktreeId })
+  const { closeItem, closeMany, leaveWorktreeIfEmpty } = useTabGroupTabCloseCommands({
+    worktreeId,
+    groupTabs
+  })
 
   const { closeGroup, closeAllEditorTabsInGroup, closeOthers, closeToRight, closeToLeft } =
     useTabGroupCloseScopeCommands({
@@ -65,7 +68,8 @@ export function useTabGroupWorkspaceModel({
       group,
       groupTabs,
       closeItem,
-      closeMany
+      closeMany,
+      leaveWorktreeIfEmpty
     })
 
   const {

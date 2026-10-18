@@ -24,10 +24,10 @@ export function useMonacoContentSyncBridge(params: {
   content: string
   contentRef: MutableRefObject<string>
   contentSyncModeRef: MutableRefObject<MonacoContentSyncMode>
-  modelKey: string
+  filePath: string
   onContentChange: (content: string) => void
 }): MonacoContentSyncBridge {
-  const { editorRef, content, contentRef, contentSyncModeRef, modelKey, onContentChange } = params
+  const { editorRef, content, contentRef, contentSyncModeRef, filePath, onContentChange } = params
 
   const lastSyncedContentRef = useRef<string>(content)
 
@@ -38,9 +38,6 @@ export function useMonacoContentSyncBridge(params: {
   const handleChange = useCallback(
     (value: string | undefined) => {
       if (value !== undefined) {
-        if (editorRef.current?.getModel()?.uri.toString() !== modelKey) {
-          return
-        }
         // Why: split panes share one retained model, so a sibling must ignore the echoed programmatic-sync onChange or it marks the file dirty.
         if (isApplyingLargePasteRef.current) {
           lastSyncedContentRef.current = value
@@ -48,7 +45,7 @@ export function useMonacoContentSyncBridge(params: {
         }
         if (
           shouldIgnoreMonacoContentChange({
-            modelKey,
+            filePath,
             isApplyingProgrammaticContent: isApplyingProgrammaticContentRef.current
           })
         ) {
@@ -58,29 +55,25 @@ export function useMonacoContentSyncBridge(params: {
         onContentChange(value)
       }
     },
-    [editorRef, modelKey, onContentChange]
+    [filePath, onContentChange]
   )
 
   // Why: sync the model on external `content` drift; useLayoutEffect lands the overwrite before paint so no stale text flashes. On-mount handled in handleMount.
   useLayoutEffect(() => {
     const ed = editorRef.current
-    if (
-      !ed ||
-      ed.getModel()?.uri.toString() !== modelKey ||
-      lastSyncedContentRef.current === content
-    ) {
+    if (!ed || lastSyncedContentRef.current === content) {
       return
     }
-    beginProgrammaticContentSync(modelKey)
+    beginProgrammaticContentSync(filePath)
     isApplyingProgrammaticContentRef.current = true
     try {
       syncContentUpdate(ed, content, contentSyncModeRef.current)
       lastSyncedContentRef.current = content
     } finally {
       isApplyingProgrammaticContentRef.current = false
-      endProgrammaticContentSync(modelKey)
+      endProgrammaticContentSync(filePath)
     }
-  }, [content, contentSyncModeRef, editorRef, modelKey])
+  }, [content, contentSyncModeRef, editorRef, filePath])
 
   return {
     contentRef,

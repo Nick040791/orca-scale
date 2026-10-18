@@ -20,7 +20,6 @@ type ComposerSourceContextStateInput = Pick<
   | 'selectedRepo'
   | 'selectedRepoIsGit'
   | 'setInternalRepoId'
-  | 'setPendingInitialWorkspaceTarget'
   | 'selectedWorkspaceTarget'
 >
 
@@ -58,20 +57,18 @@ export function useComposerSourceContextState(input: ComposerSourceContextStateI
     selectedRepo,
     selectedRepoIsGit,
     setInternalRepoId,
-    setPendingInitialWorkspaceTarget,
     selectedWorkspaceTarget
   } = input
   const { getMatchingLinkedTaskSourceContext } = decisions
   const setRepoId = useCallback(
     (value: string) => {
-      setPendingInitialWorkspaceTarget(null)
       if (onRepoIdOverrideChange) {
         onRepoIdOverrideChange(value)
       } else {
         setInternalRepoId(value)
       }
     },
-    [onRepoIdOverrideChange, setInternalRepoId, setPendingInitialWorkspaceTarget]
+    [onRepoIdOverrideChange, setInternalRepoId]
   )
 
   const [name, setName] = useState<string>(

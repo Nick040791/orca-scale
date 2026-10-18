@@ -1,11 +1,14 @@
 import { useCallback, useState } from 'react'
 import type { OpenFile } from '@/store/slices/editor'
-import { ORCA_EDITOR_SAVE_AND_CLOSE_EVENT } from '@/components/editor/editor-autosave'
-import { discardEditorFileChangesAndClose } from '@/components/editor/discard-editor-file-changes'
+import {
+  ORCA_EDITOR_SAVE_AND_CLOSE_EVENT,
+  requestEditorSaveQuiesce
+} from '@/components/editor/editor-autosave'
 
 type UseTerminalSaveDialogParams = {
   openFiles: OpenFile[]
   closeFile: (fileId: string) => void
+  markFileDirty: (fileId: string, dirty: boolean) => void
 }
 
 type UseTerminalSaveDialogResult = {
@@ -19,7 +22,8 @@ type UseTerminalSaveDialogResult = {
 
 export function useTerminalSaveDialog({
   openFiles,
-  closeFile
+  closeFile,
+  markFileDirty
 }: UseTerminalSaveDialogParams): UseTerminalSaveDialogResult {
   const [saveDialogFileId, setSaveDialogFileId] = useState<string | null>(null)
 
@@ -55,9 +59,13 @@ export function useTerminalSaveDialog({
       return
     }
 
-    await discardEditorFileChangesAndClose(saveDialogFileId)
+    // Why: "Don't Save" must win over any pending autosave write for the same
+    // tab, even if the editor is currently waiting on a background debounce.
+    await requestEditorSaveQuiesce({ fileId: saveDialogFileId })
+    markFileDirty(saveDialogFileId, false)
+    closeFile(saveDialogFileId)
     setSaveDialogFileId(null)
-  }, [saveDialogFileId])
+  }, [closeFile, markFileDirty, saveDialogFileId])
 
   const handleSaveDialogCancel = useCallback(() => {
     setSaveDialogFileId(null)

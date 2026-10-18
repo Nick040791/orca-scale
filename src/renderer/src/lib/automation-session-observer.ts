@@ -1,9 +1,12 @@
 import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
 import { subscribeToPtyExit } from '@/components/terminal-pane/pty-dispatcher'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { getRemoteRuntimeTerminalMultiplexer } from '@/runtime/remote-runtime-terminal-multiplexer'
-import { isRemoteRuntimePtyId } from '../../../shared/remote-runtime-pty-id'
-import { getRemoteRuntimePtyOwner } from '@/runtime/runtime-terminal-stream'
+import { isRemoteRuntimePtyId } from '@/runtime/runtime-terminal-inspection'
+import {
+  getRemoteRuntimePtyEnvironmentId,
+  getRemoteRuntimeTerminalHandle
+} from '@/runtime/runtime-terminal-stream'
 import { useAppStore } from '@/store'
 import { createAgentStatusOscProcessor } from '../../../shared/agent-status-osc'
 import { runtimeWaitExitCode } from '@/lib/agent-background-session-exit'
@@ -65,11 +68,14 @@ export async function observeExistingAutomationSession(args: {
 
   if (isRemoteRuntimePtyId(ptyId)) {
     let disposed = false
-    const owner = getRemoteRuntimePtyOwner(ptyId)
-    if (!owner) {
+    const ownerEnvironmentId = getRemoteRuntimePtyEnvironmentId(ptyId)
+    const runtimeTarget = ownerEnvironmentId
+      ? ({ kind: 'environment', environmentId: ownerEnvironmentId } as const)
+      : getActiveRuntimeTarget(useAppStore.getState().settings)
+    const terminal = getRemoteRuntimeTerminalHandle(ptyId)
+    if (runtimeTarget.kind !== 'environment' || !terminal) {
       return () => {}
     }
-    const { target: runtimeTarget, terminal } = owner
     const stream = await getRemoteRuntimeTerminalMultiplexer(
       runtimeTarget.environmentId
     ).subscribeTerminal({

@@ -20,13 +20,6 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
       return appMock
     })
 
-    const appPrependListener = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-      const handlers = appEventHandlers.get(event) ?? []
-      handlers.unshift(handler)
-      appEventHandlers.set(event, handlers)
-      return appMock
-    })
-
     const on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       const handlers = eventHandlers.get(event) ?? []
       handlers.push(handler)
@@ -43,7 +36,6 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
     const reset = () => {
       appEventHandlers.clear()
       appOn.mockClear()
-      appPrependListener.mockClear()
       eventHandlers.clear()
       on.mockClear()
       autoUpdaterMock.checkForUpdates.mockReset()
@@ -69,7 +61,6 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
         isPackaged: true,
         getVersion: vi.fn(() => '1.0.51'),
         on: appOn,
-        prependListener: appPrependListener,
         quit: vi.fn()
       },
       browserWindowMock: {
@@ -104,7 +95,9 @@ vi.mock('@electron-toolkit/utils', () => ({
   is: isMock
 }))
 
-vi.mock('./ipc/pty/kill-all', () => ({ killAllPty: killAllPtyMock }))
+vi.mock('./ipc/pty', () => ({
+  killAllPty: killAllPtyMock
+}))
 
 vi.mock('./updater-nudge', () => ({
   fetchNudge: vi.fn().mockResolvedValue(null),

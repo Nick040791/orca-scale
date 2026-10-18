@@ -26,12 +26,7 @@ describe('scope identity at the search choke point', () => {
     setSessionSearchService(service)
     installSessionSearchScopeCatalogSource(() => CATALOG)
     await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        within: { kind: 'workspace', worktreeId: 'repo-1::/work/app' }
-      },
+      { query: 'needle', within: { kind: 'workspace', worktreeId: 'repo-1::/work/app' } },
       'ipc'
     )
     // Beside the request, not inside `filters.scopePaths`, which carries a wire cap.
@@ -46,12 +41,7 @@ describe('scope identity at the search choke point', () => {
     setSessionSearchService(service)
     installSessionSearchScopeCatalogSource(() => CATALOG)
     await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        within: { kind: 'project', projectKey: 'repo:repo-1' }
-      },
+      { query: 'needle', within: { kind: 'project', projectKey: 'repo:repo-1' } },
       'ipc'
     )
     // An exact match, so a leaked `within` would fail here as an extra key.
@@ -66,12 +56,7 @@ describe('scope identity at the search choke point', () => {
     setSessionSearchService(service)
     installSessionSearchScopeCatalogSource(() => CATALOG)
     await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        within: { kind: 'project', projectKey: 'repo:elsewhere' }
-      },
+      { query: 'needle', within: { kind: 'project', projectKey: 'repo:elsewhere' } },
       'ipc'
     )
     // The service owns the answer, because it owns the consent and readiness
@@ -89,12 +74,7 @@ describe('scope identity at the search choke point', () => {
     const service = fakeSearchService()
     setSessionSearchService(service)
     await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        within: { kind: 'workspace', worktreeId: 'repo-1::/work/app' }
-      },
+      { query: 'needle', within: { kind: 'workspace', worktreeId: 'repo-1::/work/app' } },
       'ipc'
     )
     expect(service.search).toHaveBeenCalledWith(
@@ -118,12 +98,7 @@ describe('scope identity at the search choke point', () => {
       settings: { workspaceDir: '/home/me/ws', nestWorkspaces: false }
     }))
     await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        within: { kind: 'project', projectKey: 'repo:repo-1' }
-      },
+      { query: 'needle', within: { kind: 'project', projectKey: 'repo:repo-1' } },
       'ipc'
     )
     const call = service.search.mock.lastCall
@@ -138,10 +113,7 @@ describe('scope identity at the search choke point', () => {
     const service = fakeSearchService()
     setSessionSearchService(service)
     installSessionSearchScopeCatalogSource(() => CATALOG)
-    await searchSessionService(
-      { query: 'needle', supportsQoderHistory: true, supportsJcodeHistory: true },
-      'ipc'
-    )
+    await searchSessionService({ query: 'needle' }, 'ipc')
     expect(service.search).toHaveBeenCalledWith({ query: 'needle', limit: 20 }, undefined)
   })
 
@@ -149,15 +121,7 @@ describe('scope identity at the search choke point', () => {
     const service = fakeSearchService()
     setSessionSearchService(service)
     installSessionSearchScopeCatalogSource(() => CATALOG)
-    await searchSessionService(
-      {
-        query: 'needle',
-        supportsQoderHistory: true,
-        supportsJcodeHistory: true,
-        filters: { scopePaths: ['/other'] }
-      },
-      'ipc'
-    )
+    await searchSessionService({ query: 'needle', filters: { scopePaths: ['/other'] } }, 'ipc')
     expect(service.search).toHaveBeenCalledWith(
       { query: 'needle', limit: 20, filters: { scopePaths: ['/other'] } },
       undefined

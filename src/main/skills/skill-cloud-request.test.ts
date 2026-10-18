@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { skillCloudRequest } from './skill-cloud-request'
-import type { SkillCloudRequestError } from './skill-cloud-request-error'
+import { skillCloudRequest, type SkillCloudRequestError } from './skill-cloud-request'
 
 vi.mock('electron', () => ({ app: { isPackaged: false } }))
 

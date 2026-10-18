@@ -24,7 +24,7 @@ export function renderAccountsRemovalDialogs(
     runCodexAccountAction,
     setRemoveClaudeTarget,
     setRemoveCodexTarget,
-    accountOwner
+    settings
   } = model
   return (
     <>
@@ -61,7 +61,7 @@ export function renderAccountsRemovalDialogs(
                 setRemoveCodexTarget(null)
                 void runCodexAccountAction(
                   `remove:${target.id}`,
-                  () => removeCodexProviderAccount(accountOwner, target.id),
+                  () => removeCodexProviderAccount(settings, target.id),
                   target.runtime
                 )
               }}
@@ -85,8 +85,8 @@ export function renderAccountsRemovalDialogs(
             </DialogTitle>
             <DialogDescription>
               {translate(
-                'settings.accounts.claudeRemoveFolder',
-                "Orca deletes this account's Claude folder and its sign-in from this computer. Chat history shared with System default stays. If it is selected, the next Claude you start uses System default."
+                'auto.components.settings.AccountsPane.854ebbcc45',
+                'Orca will delete the managed Claude auth for this saved account. If it is currently active, Orca falls back to the system default Claude login.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -104,7 +104,7 @@ export function renderAccountsRemovalDialogs(
                 setRemoveClaudeTarget(null)
                 void runClaudeAccountAction(
                   `remove:${target.id}`,
-                  () => removeClaudeProviderAccount(accountOwner, target.id),
+                  () => removeClaudeProviderAccount(settings, target.id),
                   target.runtime
                 )
               }}

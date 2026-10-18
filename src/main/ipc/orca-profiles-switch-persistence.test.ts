@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createWorkerMaintenanceFixture,
@@ -30,7 +30,7 @@ vi.mock('../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../telemetry/cohort-classifier', () => ({
   getCohortAtEmit: () => ({ nth_repo_added: 2 })
 }))
-vi.mock('../ssh/config/ssh-config-parser', () => ({
+vi.mock('../ssh/ssh-config-parser', () => ({
   loadUserSshConfig: () => ({ hosts: [] }),
   sshConfigHostsToTargets: () => []
 }))
@@ -38,6 +38,7 @@ vi.mock('../ssh/config/ssh-config-parser', () => ({
 describe('plain profile switch persistence', () => {
   it('preserves shutdown changes when quit starts during the switch checkpoint', async () => {
     const { store, authority, readState } = await createWorkerMaintenanceFixture()
+    store.upsertSshRemotePtyLease({ targetId: 'remote', ptyId: 'pty', state: 'attached' })
     await store.flushPendingOrThrowAsync()
     const started = maintenanceBarrier()
     const release = maintenanceBarrier()
@@ -64,26 +65,27 @@ describe('plain profile switch persistence', () => {
       )
       .catch((error: unknown) => error)
     await started.promise
-    store.getWorkspaceSession().activeTabId = 'last-tab'
+    store.markSshRemotePtyLeasesForShutdown('remote', 'detached')
     const final = store.flushFinalOrThrowAsync()
     release.resolve()
     await final
     await expect(switching).resolves.toEqual({ status: 'relaunching' })
     expect(readState()).toMatchObject({
       settings: { theme: 'dark' },
-      workspaceSession: { activeTabId: 'last-tab' }
+      sshRemotePtyLeases: [expect.objectContaining({ state: 'detached' })]
     })
   })
 
-  it('admits pre-relaunch writes and includes quit-time edits in the final source checkpoint', async () => {
+  it('admits pre-relaunch writes and includes SSH detach in the final source checkpoint', async () => {
     const { store, readState, dataFile } = await createWorkerMaintenanceFixture()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
+    store.upsertSshRemotePtyLease({ targetId: 'remote', ptyId: 'pty', state: 'attached' })
     await store.flushPendingOrThrowAsync()
     const cleanupSaved = vi.fn()
     let final: Promise<void> | undefined
     quit.mockImplementation(() => {
-      store.getWorkspaceSession().activeTabId = 'last-tab'
-      final = store.flushFinalOrThrowAsync()
+      store.markSshRemotePtyLeasesForShutdown('remote', 'detached')
+      final = store.flushFinalOrThrowAsync({ exportJsonCompatibility: true })
     })
     registerOrcaProfileHandlers(store, {
       onBeforeRelaunch: async () => {
@@ -106,8 +108,8 @@ describe('plain profile switch persistence', () => {
     expect(cleanupSaved).toHaveBeenCalledOnce()
     expect(readState()).toMatchObject({
       settings: { theme: 'light' },
-      workspaceSession: { activeTabId: 'last-tab' }
+      sshRemotePtyLeases: [expect.objectContaining({ state: 'detached' })]
     })
-    expect(existsSync(dataFile)).toBe(false)
+    expect(JSON.parse(readFileSync(dataFile, 'utf8'))).toEqual(readState())
   })
 })

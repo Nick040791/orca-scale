@@ -13,6 +13,7 @@ import {
   resolveFilesystemRouteForHost,
   resolveGitRouteForHost
 } from './providers/execution-host-provider-dispatch'
+import type { IFilesystemProvider } from './providers/types'
 import { detectGitRemoteIdentity } from './repo-git-remote-identity'
 import { detectRepoFileIcon } from './repo-icon-file-detection'
 import { joinWorktreeRelativePath } from './runtime/runtime-relative-paths'
@@ -55,6 +56,26 @@ async function detectLocalPackageHomepageIcon(repoPath: string): Promise<RepoIco
       return null
     }
     return packageHomepageIcon(JSON.parse(await readFile(packageJsonPath, 'utf8')))
+  } catch {
+    return null
+  }
+}
+
+async function detectRemotePackageHomepageIcon(
+  repoPath: string,
+  fsProvider: IFilesystemProvider
+): Promise<RepoIcon | null> {
+  try {
+    const packageJsonPath = joinWorktreeRelativePath(repoPath, 'package.json')
+    const info = await fsProvider.stat(packageJsonPath)
+    if (info.type !== 'file' || info.size > 128 * 1024) {
+      return null
+    }
+    const result = await fsProvider.readFile(packageJsonPath)
+    if (result.isBinary) {
+      return null
+    }
+    return packageHomepageIcon(JSON.parse(result.content))
   } catch {
     return null
   }
@@ -114,10 +135,14 @@ export async function detectRepoIcon({
       return fileIcon
     }
 
-    // Why the same route again: a remote repoPath must not be probed on the client filesystem —
-    // a same-named local path answers for the wrong repo.
-    const homepageIcon =
-      route.kind === 'local' ? await detectLocalPackageHomepageIcon(repoPath) : null
+    // Why the same route again: a remote repoPath with no provider, and every runtime host, must
+    // not be probed on the client filesystem — a same-named local path answers for the wrong repo.
+    const remoteProvider = route.kind === 'ssh' ? route.provider : null
+    const homepageIcon = remoteProvider
+      ? await detectRemotePackageHomepageIcon(repoPath, remoteProvider)
+      : route.kind === 'local'
+        ? await detectLocalPackageHomepageIcon(repoPath)
+        : null
     if (homepageIcon) {
       return homepageIcon
     }

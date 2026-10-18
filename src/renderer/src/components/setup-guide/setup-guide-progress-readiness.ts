@@ -1,4 +1,4 @@
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import type { ComputerUsePermissionStatusResult } from '../../../../shared/computer-use-permissions-types'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { Repo } from '../../../../shared/repo-types'
@@ -31,16 +31,16 @@ export const INITIAL_SETUP_SCRIPT_PROBE_STATE: SetupScriptProbeState = {
 
 export function getSetupScriptProbeSignature(
   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
-  orderedGitRepos: readonly Pick<Repo, 'id' | 'hookSettings' | 'connectionId' | 'executionHostId'>[]
+  orderedGitRepos: readonly Pick<Repo, 'id' | 'hookSettings'>[]
 ): string | null {
   if (!settings) {
     return null
   }
-  // Why: each repo's hooks are probed on its own host, so the host is part of the signature.
+  const target = getActiveRuntimeTarget(settings)
   return JSON.stringify({
+    runtime: target.kind === 'environment' ? target.environmentId : 'local',
     repos: orderedGitRepos.map((repo) => ({
       id: repo.id,
-      host: getRepoExecutionHostId(repo),
       commandSourcePolicy: repo.hookSettings?.commandSourcePolicy ?? null,
       setup: repo.hookSettings?.scripts?.setup ?? null
     }))

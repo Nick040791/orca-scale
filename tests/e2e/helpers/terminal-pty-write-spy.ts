@@ -71,10 +71,10 @@ export async function readTerminalPtyWriteEntries(
 }
 
 export async function setTerminalPtyWriteDelay(
-  app: Pick<ElectronApplication, 'evaluate'>,
+  app: ElectronApplication,
   delayMs: number
 ): Promise<void> {
-  await app.evaluate((_electron, nextDelayMs) => {
+  await app.evaluate((nextDelayMs) => {
     const global = globalThis as unknown as { __terminalPtyWriteDelayMs?: number }
     global.__terminalPtyWriteDelayMs = Math.max(0, nextDelayMs)
   }, delayMs)

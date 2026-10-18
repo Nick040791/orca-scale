@@ -1,50 +1,27 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest'
-
-// Why: these fixtures have neither inline visual owners nor sender navigation.
-const unusedChatLeaves = vi.hoisted(() => ({
-  inlineVisual: vi.fn(() => {
-    throw new Error('Unexpected inline visual in transcript fixture')
-  }),
-  openSender: vi.fn(() => {
-    throw new Error('Unexpected sender navigation in transcript fixture')
-  })
-}))
-vi.mock('./NativeChatInlineVisual', () => ({
-  NativeChatInlineVisual: unusedChatLeaves.inlineVisual
-}))
-vi.mock('@/lib/open-agent-message-sender', () => ({
-  openAgentMessageSender: unusedChatLeaves.openSender
-}))
-afterEach(() => {
-  expect(unusedChatLeaves.inlineVisual).not.toHaveBeenCalled()
-  expect(unusedChatLeaves.openSender).not.toHaveBeenCalled()
-})
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import type * as EditNormalization from '../../../../shared/native-chat-edit-normalize'
 import type { NativeChatLiveSession } from './use-native-chat-live-session'
 import { useStructuredAgentSessionMessages } from './use-structured-agent-session-messages'
 import { installNativeChatMessageListTestViewport } from './native-chat-message-list-test-viewport'
 
-const cost = vi.hoisted(() => ({ edits: 0 }))
+const cost = vi.hoisted(() => ({ edits: 0, milliseconds: 0 }))
 vi.mock('../../../../shared/native-chat-edit-normalize', async (importOriginal) => {
   const actual = await importOriginal<typeof EditNormalization>()
   return {
     ...actual,
     editFilesFromToolPair: (...args: Parameters<typeof actual.editFilesFromToolPair>) => {
       cost.edits += 1
-      return actual.editFilesFromToolPair(...args)
+      const start = performance.now()
+      const result = actual.editFilesFromToolPair(...args)
+      cost.milliseconds += performance.now() - start
+      return result
     }
   }
 })
-// Pacing is not this test's subject.
-vi.mock('./use-native-chat-paced-text', async (importOriginal) =>
-  (await import('./native-chat-unpaced-text-fixture')).unpacedTextModule(importOriginal)
-)
-
 const { NativeChatMessageList } = await import('./NativeChatMessageList')
-const { openToolRunMembers } = await import('./native-chat-tool-run-members-test-support')
 let restoreViewport = (): void => {}
 beforeAll(() => {
   restoreViewport = installNativeChatMessageListTestViewport()
@@ -67,7 +44,15 @@ function Transcript({ items }: { items: AgentJournalRenderItem[] }) {
     loadEarlier,
     readPhase: 'ready'
   }
-  return <NativeChatMessageList session={session} isWorking expandSignal />
+  return (
+    <NativeChatMessageList
+      session={session}
+      isWorking
+      expandSignal
+      fontScale={1}
+      showTurnStatus={false}
+    />
+  )
 }
 
 function row(index: number, body: AgentJournalRenderItem['body']): AgentJournalRenderItem {
@@ -75,9 +60,9 @@ function row(index: number, body: AgentJournalRenderItem['body']): AgentJournalR
 }
 
 it('does not re-diff expanded historical edits when an unrelated answer streams', () => {
-  const oldContent = Array.from({ length: 12 }, (_, index) => `old line ${index}`).join('\n')
-  const newContent = oldContent.replace('old line 6', 'changed line 6')
-  const items = Array.from({ length: 3 }, (_, index) =>
+  const oldContent = Array.from({ length: 400 }, (_, index) => `old line ${index}`).join('\n')
+  const newContent = oldContent.replace('old line 200', 'changed line 200')
+  const items = Array.from({ length: 20 }, (_, index) =>
     row(index, {
       kind: 'tool-call',
       name: 'Edit',
@@ -86,18 +71,18 @@ it('does not re-diff expanded historical edits when an unrelated answer streams'
     })
   )
   items.push(
-    row(3, { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Next task' }] })
+    row(20, { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'Next task' }] })
   )
-  const tail = row(4, {
+  const tail = row(21, {
     kind: 'message',
     role: 'assistant',
     blocks: [{ type: 'text', text: 'answer' }]
   })
   const { rerender } = render(<Transcript items={[...items, tail]} />)
-  expect(cost.edits).toBe(3)
-  openToolRunMembers()
+  expect(cost.edits).toBe(20)
   cost.edits = 0
-  for (let frame = 0; frame < 3; frame += 1) {
+  cost.milliseconds = 0
+  for (let frame = 0; frame < 20; frame += 1) {
     rerender(
       <Transcript
         items={[
@@ -115,9 +100,10 @@ it('does not re-diff expanded historical edits when an unrelated answer streams'
       />
     )
   }
+  console.info('Historical edit work over 20 stream frames:', { ...cost })
   expect(cost.edits).toBe(0)
-  expect(screen.getByText('answer 2')).toBeTruthy()
-  expect(screen.getAllByText('changed line 6')).toHaveLength(3)
+  expect(screen.getByText('answer 19')).toBeTruthy()
+  expect(screen.getAllByText('changed line 200')).toHaveLength(20)
 
   rerender(
     <Transcript
@@ -133,7 +119,6 @@ it('does not re-diff expanded historical edits when an unrelated answer streams'
       ]}
     />
   )
-  expect(cost.edits).toBe(1)
   expect(screen.getByText('Revised edit')).toBeTruthy()
-  expect(screen.getAllByText('changed line 6')).toHaveLength(2)
+  expect(screen.getAllByText('changed line 200')).toHaveLength(19)
 })

@@ -21,7 +21,6 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   browserPagesByWorkspace: {},
   browserCertificateFailuresByPageId: {},
   browserAnnotationsByPageId: {},
-  browserAnnotationMarkerIdsByPageId: {},
   remoteBrowserPageHandlesByPageId: {},
   clientHostedBrowserCloseIntentsByEnvironment: {},
   activeBrowserTabId: null,

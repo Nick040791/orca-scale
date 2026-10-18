@@ -21,7 +21,6 @@ import {
   WORKTREE_ID,
   WORKTREE_PATH,
   canaryProcess,
-  makeDeferred,
   makeSession
 } from './orca-runtime-terminal-close-continuity-state-fixture'
 import { createCloseContinuityGraphFixture } from './orca-runtime-terminal-close-continuity-graph-fixture'
@@ -47,11 +46,18 @@ export {
   makeSession
 } from './orca-runtime-terminal-close-continuity-state-fixture'
 
+function makeDeferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 export type CloseContinuityHarness = {
   runtime: OrcaRuntimeService
   acknowledged: ReturnType<typeof makeDeferred>
   closeTerminal: Mock<(...args: unknown[]) => unknown>
-  closeTerminalPane: Mock<(...args: unknown[]) => unknown>
   closeTerminalTab: Mock<(...args: unknown[]) => unknown>
   flushOrThrow: Mock<() => void>
   kill: Mock<(ptyId: string) => boolean>
@@ -62,7 +68,6 @@ export type CloseContinuityHarness = {
   syncFixtureTabWithoutLeaf: () => void
   syncSplitFixtureGraph: () => void
   getSession: () => WorkspaceSessionState
-  editSession: (edit: (session: WorkspaceSessionState) => WorkspaceSessionState) => void
   makeSessionUnavailable: () => void
   removeVictimFromInventory: () => void
   retirePersistedTab: () => void
@@ -118,7 +123,6 @@ function createHarness(
   let closeTerminalTabError: Error | null = null
   let closeTerminalTabAction: (() => void | Promise<void>) | null = null
   const closeTerminal = vi.fn()
-  const closeTerminalPane = vi.fn()
   const closeTerminalTab = vi.fn(() => {
     if (closeTerminalTabError) {
       return Promise.reject(closeTerminalTabError)
@@ -159,8 +163,7 @@ function createHarness(
     ...(options.includeCanary ? [canaryProcess] : [])
   ])
   const runtime = new OrcaRuntimeService(store as never)
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these close paths call only the listed notifier methods.
-  runtime.setNotifier({ closeTerminal, closeTerminalPane, closeTerminalTab } as never)
+  runtime.setNotifier({ closeTerminal, closeTerminalTab } as never)
   runtime.setPtyController({
     write: () => true,
     kill,
@@ -203,16 +206,12 @@ function createHarness(
     runtime,
     acknowledged,
     closeTerminal,
-    closeTerminalPane,
     closeTerminalTab,
     flushOrThrow: store.flushOrThrow,
     kill,
     stopAndWait,
     ...graph,
     getSession: () => session,
-    editSession: (edit) => {
-      session = edit(session)
-    },
     makeSessionUnavailable: () => {
       sessionAvailable = false
     },

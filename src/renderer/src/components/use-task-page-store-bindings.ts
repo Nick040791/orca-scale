@@ -2,10 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { useRepoMap, useAllWorktrees } from '@/store/selectors'
 import { localPreflightContextKey, getLocalPreflightContext } from '@/lib/local-preflight-context'
-import {
-  getProviderRuntimeContextKey,
-  isEnvironmentRuntimeContextKey
-} from '@/lib/provider-runtime-context'
+import { getProviderRuntimeContextKey } from '@/lib/provider-runtime-context'
 import { useRef } from 'react'
 import { getScreenSubmitShortcutLabel } from '@/lib/screen-submit-shortcut'
 export function useTaskPageStoreBindings() {
@@ -80,8 +77,6 @@ export function useTaskPageStoreBindings() {
   const linearStatusCurrent = linearStatusContextKey === providerRuntimeContextKey
   const jiraStatusCurrent = jiraStatusContextKey === providerRuntimeContextKey
   const preflightStatusCurrent = preflightStatusContextKey === expectedPreflightContextKey
-  // Why: the shared preflight follows the focused host; only a local one answers for desktop-owned repos.
-  const preflightDescribesDesktop = !isEnvironmentRuntimeContextKey(expectedPreflightContextKey)
   const linearStatusReady = linearStatusCurrent && linearStatusChecked
   const jiraStatusReady = jiraStatusCurrent && jiraStatusChecked
   const linearConnected = linearStatusCurrent && linearStatus.connected
@@ -152,7 +147,6 @@ export function useTaskPageStoreBindings() {
     linearStatusCurrent,
     jiraStatusCurrent,
     preflightStatusCurrent,
-    preflightDescribesDesktop,
     linearStatusReady,
     jiraStatusReady,
     linearConnected,

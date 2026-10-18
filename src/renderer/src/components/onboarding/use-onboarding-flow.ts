@@ -12,7 +12,7 @@ import { STEPS } from './use-onboarding-flow-types'
 import { persistStep, useCloseWith, usePersistCurrentStep } from './use-onboarding-flow-persistence'
 import { resolveOnboardingSettingsHydration } from './onboarding-settings-hydration'
 import { translate } from '@/i18n/i18n'
-import { useOnboardingYoloPermissions } from './use-onboarding-yolo-permissions'
+import { resolveAgentPermissionModeSummary } from '../../../../shared/tui-agent-permissions'
 import { isWindowsUserAgent } from '@/components/terminal-pane/pane-helpers'
 import {
   isSkippedStepIndex,
@@ -66,8 +66,12 @@ export function useOnboardingFlow(
       ? settings.defaultTuiAgent
       : null
   )
-  const { yoloPermissions, yoloPermissionsChosen, setYoloPermissionsInteractive } =
-    useOnboardingYoloPermissions(settings)
+  const [yoloPermissions, setYoloPermissions] = useState(
+    resolveAgentPermissionModeSummary({
+      agentDefaultArgs: settings?.agentDefaultArgs,
+      agentDefaultEnv: settings?.agentDefaultEnv
+    }) !== 'manual'
+  )
   // Why: hydrate theme from saved settings so users who already chose one see it preselected.
   const [theme, setTheme] = useState<GlobalSettings['theme']>(settings?.theme ?? 'dark')
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
@@ -76,6 +80,7 @@ export function useOnboardingFlow(
   // Why: settings hydrate async after the lazy initializers run; re-sync once before commit unless the user edited the field.
   const themeInteractedRef = useRef(false)
   const agentInteractedRef = useRef(false)
+  const yoloPermissionsInteractedRef = useRef(false)
   const [settingsHydrated, setSettingsHydrated] = useState(settings != null)
   const settingsHydration = resolveOnboardingSettingsHydration({
     settings,
@@ -92,6 +97,16 @@ export function useOnboardingFlow(
     }
     if (settingsHydration.selectedAgent !== undefined) {
       setSelectedAgent(settingsHydration.selectedAgent)
+    }
+  }
+  if (settings && !yoloPermissionsInteractedRef.current) {
+    const nextYoloPermissions =
+      resolveAgentPermissionModeSummary({
+        agentDefaultArgs: settings.agentDefaultArgs,
+        agentDefaultEnv: settings.agentDefaultEnv
+      }) !== 'manual'
+    if (nextYoloPermissions !== yoloPermissions) {
+      setYoloPermissions(nextYoloPermissions)
     }
   }
 
@@ -137,6 +152,10 @@ export function useOnboardingFlow(
     },
     []
   )
+  const setYoloPermissionsInteractive = useCallback((enabled: boolean) => {
+    yoloPermissionsInteractedRef.current = true
+    setYoloPermissions(enabled)
+  }, [])
 
   const detectedSet = useMemo(() => new Set(detectedAgentIds ?? []), [detectedAgentIds])
   const currentStep = STEPS[stepIndex]
@@ -260,7 +279,6 @@ export function useOnboardingFlow(
     currentStepId: currentStep.id,
     selectedAgent,
     yoloPermissions,
-    yoloPermissionsChosen,
     theme,
     settings,
     updateSettings,

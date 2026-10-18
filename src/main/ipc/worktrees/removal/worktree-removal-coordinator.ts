@@ -10,12 +10,7 @@ export type WorktreeRemovalInFlight = {
 export function getWorktreeRemovalOptionsKey(
   args: Pick<
     RemoveWorktreeArgs,
-    | 'force'
-    | 'allowUnverifiedPtyStop'
-    | 'skipArchive'
-    | 'allowFailedArchiveHook'
-    | 'approvedNestedWorktrees'
-    | 'expectedCheckout'
+    'force' | 'allowUnverifiedPtyStop' | 'skipArchive' | 'allowFailedArchiveHook'
   >
 ): string {
   const forceKey = args.force === true ? 'force' : 'normal'
@@ -27,11 +22,7 @@ export function getWorktreeRemovalOptionsKey(
   // onto the in-flight attempt that is about to refuse on it.
   const archiveFailureKey =
     args.allowFailedArchiveHook === true ? 'allow-failed-archive' : 'require-archive'
-  const checkoutKey =
-    args.approvedNestedWorktrees || args.expectedCheckout
-      ? `:${JSON.stringify([args.approvedNestedWorktrees, args.expectedCheckout])}`
-      : ''
-  return `${forceKey}:${archiveKey}:${ptyKey}:${archiveFailureKey}${checkoutKey}`
+  return `${forceKey}:${archiveKey}:${ptyKey}:${archiveFailureKey}`
 }
 
 export function getWorktreeRemovalInFlightKey(

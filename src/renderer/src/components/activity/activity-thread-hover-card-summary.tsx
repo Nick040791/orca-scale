@@ -5,7 +5,7 @@ import { useAppStore } from '@/store'
 import { RepoBadgeMark } from '@/components/repo/RepoBadgeLabel'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
-import { getWorktreeGitIdentityDisplay } from '../../../../shared/worktree/git-identity-display'
+import { getWorktreeGitIdentityDisplay } from '@/lib/worktree-git-identity-display'
 import { jumpToWorktreeFromSidebar } from '@/lib/worktree-jump-navigation'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
@@ -84,7 +84,7 @@ export function ActivityThreadHoverCardSummary({
       } else {
         const state = useAppStore.getState()
         if (state.getKnownWorktreeById(worktree.id, executionHostId)) {
-          state.acknowledgeAgents([thread.paneKey], undefined, 'explicit')
+          state.acknowledgeAgents([thread.paneKey])
           jumpToWorktreeFromSidebar(worktree.id, { executionHostId })
         }
       }

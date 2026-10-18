@@ -20,8 +20,6 @@ import { finalizeRuntimeMobileSessionTabsResult } from './runtime-mobile-session
 import type { RuntimeMobileSessionProjectionHost } from './runtime-mobile-session-projection-contract'
 import {
   getLatestAgentCandidateTitle,
-  getLeafDisplayRecord,
-  getPtyDisplayRecord,
   terminalTitleBlocksExplicitAgentStatus
 } from './runtime-worktree-status-projection'
 
@@ -148,20 +146,16 @@ export function projectRuntimeMobileSessionTabs(
     // null, because persisted ids can collide with an unrelated pane after restart — reading
     // that pane's tracker would publish its title here, ahead of every other source.
     const trackerOnlyTitle = host.getTrackedTitle(liveLeafPtyId ?? pty?.ptyId ?? null)
-    const displayLeaf = leaf
-      ? getLeafDisplayRecord(leaf, host.getTitleDisplayClear(leaf.ptyId))
-      : null
-    const displayPty = pty ? getPtyDisplayRecord(pty, host.getTitleDisplayClear(pty.ptyId)) : null
-    const leafTitle = displayLeaf
+    const leafTitle = leaf
       ? getLatestAgentCandidateTitle(
-          { title: displayLeaf.paneTitle, updatedAt: displayLeaf.paneTitleUpdatedAt },
-          { title: displayLeaf.lastOscTitle, updatedAt: displayLeaf.lastOscTitleAt }
+          { title: leaf.paneTitle, updatedAt: leaf.paneTitleUpdatedAt },
+          { title: leaf.lastOscTitle, updatedAt: leaf.lastOscTitleAt }
         )
       : null
-    const ptyTitle = displayPty
+    const ptyTitle = pty
       ? getLatestAgentCandidateTitle(
-          { title: displayPty.title, updatedAt: displayPty.titleUpdatedAt },
-          { title: displayPty.lastOscTitle, updatedAt: displayPty.lastOscTitleAt }
+          { title: pty.title, updatedAt: pty.titleUpdatedAt },
+          { title: pty.lastOscTitle, updatedAt: pty.lastOscTitleAt }
         )
       : null
     // Renderer omission is authoritative: PTY launch provenance outlives agent exit.
@@ -204,10 +198,7 @@ export function projectRuntimeMobileSessionTabs(
         (hookAgentStatus.providerSessionReceivedAt ?? -1) >= tab.agentStatus.updatedAt)
         ? hookAgentStatus.providerSession
         : tab.agentStatus?.providerSession
-    const nativeStatusPty = liveLeafPty ?? mobileStatusPty
-    const statusPty = nativeStatusPty
-      ? getPtyDisplayRecord(nativeStatusPty, host.getTitleDisplayClear(nativeStatusPty.ptyId))
-      : null
+    const statusPty = liveLeafPty ?? mobileStatusPty
     const normalizedTabAgentStatus = renewRuntimeMobileAgentStatusFromPtyTitle(
       tab.agentStatus
         ? normalizeCompatibleAgentStatusEntryForOwner(
@@ -256,14 +247,17 @@ export function projectRuntimeMobileSessionTabs(
           }
         : null
     // Why: web/mobile clients hold handles across renderer graph syncs; leaf handles are epoch-bound but PTY handles stay streamable.
-    const terminalPty = liveLeafPtyId
-      ? host.recordPty(liveLeafPtyId, snapshot.worktree, {
-          tabId: tab.parentTabId,
-          paneKey,
-          connected: true
-        })
+    const terminalHandle = liveLeafPtyId
+      ? host.issuePtyHandle(
+          host.recordPty(liveLeafPtyId, snapshot.worktree, {
+            tabId: tab.parentTabId,
+            paneKey,
+            connected: true
+          })
+        )
       : livePty
-    const terminalHandle = terminalPty ? host.issuePtyHandle(terminalPty) : null
+        ? host.issuePtyHandle(livePty)
+        : null
     const projectedAgentStatus =
       agentStatus ??
       host.buildPtyStatus(
@@ -295,10 +289,7 @@ export function projectRuntimeMobileSessionTabs(
       parentTabId: tab.parentTabId,
       leafId: tab.leafId,
       title,
-      ...(tab.customTitle !== undefined ? { customTitle: tab.customTitle } : {}),
       ...(tab.ptyId ? { ptyId: tab.ptyId } : {}),
-      // Bind identity to the handle's live owner, never a stale persisted surface.
-      ...(terminalPty?.incarnationId ? { incarnationId: terminalPty.incarnationId } : {}),
       ...(tab.terminalTheme ? { terminalTheme: tab.terminalTheme } : {}),
       ...(launchAgent ? { launchAgent } : {}),
       ...clientAgentStatus,

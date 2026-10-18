@@ -27,6 +27,7 @@ async function renderRunsTab(historyUnavailable: boolean): Promise<HTMLButtonEle
       <AutomationsDetailPane
         selected={makeAutomation()}
         selectedExternal={null}
+        selectedExternalRunPage={null}
         selectedRuns={[]}
         selectedRunsNotice={
           historyUnavailable
@@ -43,8 +44,12 @@ async function renderRunsTab(historyUnavailable: boolean): Promise<HTMLButtonEle
         hostLabelById={new Map()}
         selectedRunNowAvailability={null}
         worktreeMap={new Map()}
+        fetchExternalAutomationRuns={vi.fn()}
         onActivePaneTabChange={vi.fn()}
+        onClearExternalRunPage={vi.fn()}
         requestExternalAction={vi.fn()}
+        openExternalRunPage={vi.fn()}
+        openEditExternalDialog={vi.fn()}
         runNow={vi.fn()}
         openEditDialog={vi.fn()}
         toggleAutomation={vi.fn()}

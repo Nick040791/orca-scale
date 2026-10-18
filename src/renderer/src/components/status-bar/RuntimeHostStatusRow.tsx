@@ -14,7 +14,6 @@ import {
   type RuntimeHostConnectionState
 } from '@/runtime/runtime-host-connection-state'
 import type { RemoteRuntimeSharedConnectionDiagnostics } from '../../../../shared/remote-runtime-shared-control-types'
-import type { RuntimeHostBlockedCopy } from './remote-host-connection-status'
 
 function runtimeStatusLabel(state: RuntimeHostConnectionState): string {
   switch (state) {
@@ -141,54 +140,38 @@ export function RuntimeHostStatusRow({
   state,
   detail,
   diagnostics,
-  blocked,
   onConnect,
-  onDisconnect,
-  onRepair
+  onDisconnect
 }: {
   label: string
   state: RuntimeHostConnectionState
   detail?: string
   diagnostics?: RemoteRuntimeSharedConnectionDiagnostics | null
-  /** Set when the host refused this client; its copy replaces the transport state. */
-  blocked?: (RuntimeHostBlockedCopy & { canRepair: boolean }) | null
   onConnect?: () => Promise<void>
   onDisconnect?: () => Promise<void>
-  onRepair?: () => void
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const actionPointerActiveRef = useRef(false)
   const mountedRef = useMountedRef()
-  // Why: reconnecting with a revoked token is futile; a new pairing link is the only way back.
-  const repairs = Boolean(blocked?.canRepair && onRepair)
-  const actionLabel = repairs
-    ? translate('auto.components.status.bar.RuntimeHostStatusRow.repair', 'Re-pair…')
-    : blocked?.canRepair
-      ? null
-      : runtimeActionLabel(state)
-  const transportAction = isConnectedRuntimeHostState(state) ? onDisconnect : onConnect
-  const action = repairs ? onRepair : transportAction
-  const hasSubmenu = Boolean(detail || blocked)
+  const actionLabel = runtimeActionLabel(state)
 
   const handleAction = useCallback(async () => {
-    if (repairs) {
-      onRepair?.()
-      return
-    }
-    if (!transportAction) {
+    const action = isConnectedRuntimeHostState(state) ? onDisconnect : onConnect
+    if (!action) {
       return
     }
     setBusy(true)
     try {
-      await transportAction()
+      await action()
     } finally {
       if (mountedRef.current) {
         setBusy(false)
       }
     }
-  }, [mountedRef, onRepair, repairs, transportAction])
+  }, [mountedRef, onConnect, onDisconnect, state])
 
+  const action = isConnectedRuntimeHostState(state) ? onDisconnect : onConnect
   const lastConnectedLabel = diagnostics?.lastConnectedAt
     ? translate(
         'auto.components.status.bar.RuntimeHostStatusRow.last_connected',
@@ -207,17 +190,15 @@ export function RuntimeHostStatusRow({
         )
       : null
   const diagnosticLabel = [lastConnectedLabel, reconnectAttemptLabel].filter(Boolean).join(' · ')
-  const rawDetail =
-    blocked?.detail ?? diagnostics?.lastError ?? diagnostics?.lastClose?.reason ?? detail
-  const failureSummary = blocked?.summary ?? runtimeFailureSummary(state)
-  const failureExplanation = blocked ? blocked.explanation : runtimeFailureExplanation(state)
-  const dotColor = blocked ? 'bg-destructive' : runtimeDotColor(state)
-  const statusTone = blocked ? 'text-destructive' : runtimeStatusTone(state)
-  const showSpinner = !blocked && (state === 'checking' || state === 'reconnecting')
+  const rawDetail = diagnostics?.lastError ?? diagnostics?.lastClose?.reason ?? detail
+  const failureExplanation = runtimeFailureExplanation(state)
 
   const rowDetails = (
     <>
-      <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${dotColor}`} />
+      <span
+        aria-hidden="true"
+        className={`size-1.5 shrink-0 rounded-full ${runtimeDotColor(state)}`}
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-medium">{label}</div>
         <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -228,9 +209,11 @@ export function RuntimeHostStatusRow({
             )}
           </span>
           <span aria-hidden="true">·</span>
-          <span className={`inline-flex min-w-0 items-center gap-1 ${statusTone}`}>
-            {showSpinner ? <Loader2 className="size-2.5 shrink-0 animate-spin" /> : null}
-            <span className="truncate">{blocked?.label ?? runtimeStatusLabel(state)}</span>
+          <span className={`inline-flex min-w-0 items-center gap-1 ${runtimeStatusTone(state)}`}>
+            {state === 'checking' || state === 'reconnecting' ? (
+              <Loader2 className="size-2.5 shrink-0 animate-spin" />
+            ) : null}
+            <span className="truncate">{runtimeStatusLabel(state)}</span>
           </span>
         </div>
       </div>
@@ -240,7 +223,7 @@ export function RuntimeHostStatusRow({
   const actionButton = busy ? (
     <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
   ) : actionLabel && action ? (
-    hasSubmenu ? (
+    detail ? (
       <span
         aria-hidden="true"
         onPointerEnter={() => {
@@ -287,7 +270,7 @@ export function RuntimeHostStatusRow({
     )
   ) : null
 
-  if (!hasSubmenu) {
+  if (!detail) {
     return (
       <div className="flex items-center gap-2.5 px-2 py-1.5">
         {rowDetails}
@@ -311,7 +294,7 @@ export function RuntimeHostStatusRow({
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-[min(18rem,calc(100vw-1rem))] p-1.5">
         <div className="px-1.5 pt-0.5 pb-1.5">
-          <div className="text-[11px] font-semibold">{failureSummary}</div>
+          <div className="text-[11px] font-semibold">{runtimeFailureSummary(state)}</div>
           {failureExplanation ? (
             <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
               {failureExplanation}

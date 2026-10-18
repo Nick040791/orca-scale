@@ -74,8 +74,7 @@ export const mockApi = {
   },
   runtimeEnvironments: {
     call: runtimeEnvironmentTransportCall,
-    subscribe: runtimeEnvironmentSubscribe,
-    cancelSubscription: stubMock<[{ subscriptionId: string }]>().mockResolvedValue(undefined)
+    subscribe: runtimeEnvironmentSubscribe
   },
   cache: {
     getGitHub: stubMock().mockResolvedValue(null),

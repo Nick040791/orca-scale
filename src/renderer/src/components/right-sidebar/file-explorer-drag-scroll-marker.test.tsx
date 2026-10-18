@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FileExplorerVirtualRows } from './FileExplorerVirtualRows'
 import { useFileExplorerHandlers } from './useFileExplorerHandlers'
 import { createFileExplorerRowProjection } from './file-explorer-row-projection'
@@ -15,19 +15,12 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const roots: Root[] = []
 
-beforeEach(() => {
-  vi.spyOn(DataTransfer.prototype, 'setDragImage').mockImplementation(() => {})
-})
-
-afterEach(async () => {
+afterEach(() => {
   roots.splice(0).forEach((root) => {
     act(() => root.unmount())
   })
-  // Let drag ghosts remove themselves before clearing their parent.
-  await new Promise((resolve) => setTimeout(resolve, 0))
   document.body.replaceChildren()
   capturedHandlers = null
-  vi.restoreAllMocks()
 })
 
 async function renderToBody(element: React.JSX.Element): Promise<HTMLDivElement> {
@@ -147,41 +140,30 @@ describe('file explorer draggable rows carry the wheel-scroll marker', () => {
 
     expect(readWorkspaceFileDragSource(transfer)).toEqual({
       executionHostId: 'runtime:old-env',
-      workspaceId: 'old-workspace',
-      runtimeEnvironmentId: 'old-env'
+      workspaceId: 'old-workspace'
     })
   })
 
-  it.each([false, true])(
-    'omits mixed-owner selections, including nested SSH: %s',
-    async (nested) => {
-      const localNode: TreeNode = {
-        ...fileNode,
-        operationOwner: nested
-          ? { kind: 'runtime', executionHostId: 'ssh:remote-1', environmentId: 'env-a' }
-          : { kind: 'local' }
-      }
-      const sshNode: TreeNode = {
-        ...directoryNode,
-        operationOwner: nested
-          ? { kind: 'runtime', executionHostId: 'ssh:remote-1', environmentId: 'env-b' }
-          : { kind: 'ssh', connectionId: 'remote-1' }
-      }
-      const container = await renderToBody(
-        virtualRowsElement([localNode, sshNode], {
-          selectedPaths: new Set([localNode.path, sshNode.path]),
-          sourceWorkspaceId: 'workspace-1'
-        })
-      )
-      const transfer = new DataTransfer()
-      const event = new Event('dragstart', { bubbles: true, cancelable: true })
-      Object.defineProperty(event, 'dataTransfer', { value: transfer })
-
-      container.querySelector('[data-file-explorer-row]')?.dispatchEvent(event)
-
-      expect(readWorkspaceFileDragSource(transfer)).toBeNull()
+  it('omits ownership when selected cached rows came from different hosts', async () => {
+    const localNode: TreeNode = { ...fileNode, operationOwner: { kind: 'local' } }
+    const sshNode: TreeNode = {
+      ...directoryNode,
+      operationOwner: { kind: 'ssh', connectionId: 'remote-1' }
     }
-  )
+    const container = await renderToBody(
+      virtualRowsElement([localNode, sshNode], {
+        selectedPaths: new Set([localNode.path, sshNode.path]),
+        sourceWorkspaceId: 'workspace-1'
+      })
+    )
+    const transfer = new DataTransfer()
+    const event = new Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: transfer })
+
+    container.querySelector('[data-file-explorer-row]')?.dispatchEvent(event)
+
+    expect(readWorkspaceFileDragSource(transfer)).toBeNull()
+  })
 
   // A selection outlives the rows that showed it: nothing prunes selectedPaths
   // when a directory collapses, and the drag still carries every selected path.
@@ -285,6 +267,7 @@ function HandlersProbe({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElemen
     toggleDir: vi.fn(),
     loadDir: vi.fn(),
     statPath: vi.fn(),
+    authorizeExternalPath: vi.fn(),
     markPathAsDirectory: vi.fn(),
     setSelectedPath: vi.fn(),
     scrollRef

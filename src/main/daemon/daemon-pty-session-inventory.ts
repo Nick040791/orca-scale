@@ -11,10 +11,10 @@ import { recordAuthenticatedInventory } from './daemon-audit-classifier'
 import { isMissingWindowsNamedPipeError } from './daemon-endpoint-errors'
 import { DaemonPtyProcessInspection } from './daemon-pty-process-inspection'
 import { remainingDaemonRequestTimeoutMs } from './daemon-request-deadline'
-import { parsePtySessionId } from '../../shared/pty-session-id-format'
+import { parsePtySessionId } from './pty-session-id'
 import type { ListSessionsResult, SessionInfo } from './types'
 import { PtyProcessListAdmission } from '../providers/pty-process-list-admission'
-import type { PtyProcessInfo } from '../providers/pty-provider-contract'
+import type { PtyProcessInfo } from '../providers/types'
 
 export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspection {
   async listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]> {
@@ -63,7 +63,6 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
             ...(worktreeId ? { worktreeId } : {}),
             ...(session.terminalHandle ? { terminalHandle: session.terminalHandle } : {}),
             ...(session.wslDistro !== undefined ? { wslDistro: session.wslDistro } : {}),
-            ...(session.state === 'exiting' ? { exiting: true as const } : {}),
             ...this.validatedAgentSessionOwners(session.agentSessionOwners)
           })
         )
@@ -137,7 +136,7 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
 
   // Why: the daemon's kill-all-and-shutdown path suppresses onExit fanout (session.ts:246-252), so synthesize pty:exit
   // for every live session before teardown or renderer panes black-hole writes to a disposed adapter forever.
-  fanoutSyntheticExits(code: number, exit: { replacedByRestart?: true } = {}): void {
+  fanoutSyntheticExits(code: number): void {
     const ids = [...this.activeSessionIds]
     this.activeSessionIds.clear()
     this.sessionsAwaitingDaemonRecovery.clear()
@@ -158,11 +157,7 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
       // Why: don't catch listener throws — matches the natural onExit fanout so synthetic exits keep the same error semantics.
       emitPtyListeners(this.exitListeners, (listener) =>
         listener(
-          createPtyExitPayload(id, {
-            code,
-            incarnationId: this.sessionIncarnations.get(id),
-            ...exit
-          })
+          createPtyExitPayload(id, { code, incarnationId: this.sessionIncarnations.get(id) })
         )
       )
       this.sessionIncarnations.delete(id)

@@ -1,11 +1,9 @@
 import type { Socket } from 'node:net'
 import { StringDecoder } from 'node:string_decoder'
-import { isDaemonRequestFrame, isHelloFrame } from './daemon-client-frame-guards'
 import type { DaemonFileLog } from './daemon-file-log'
 import type { DaemonStreamDataBatcher } from './daemon-stream-data-batcher'
 import { createNdjsonParser, encodeNdjson } from './ndjson'
-import { BINARY_STREAM_FRAMING, type DaemonStreamFraming } from './daemon-stream-binary-framing'
-import type { DaemonRequest } from './types'
+import type { DaemonRequest, HelloMessage } from './types'
 
 // Idle time before the first probe. How long the close then takes is the OS's probe schedule, not
 // ours, which is why the producer-stall watchdog never waits on it.
@@ -15,8 +13,6 @@ export type ConnectedDaemonClient = {
   clientId: string
   controlSocket: Socket
   streamSocket: Socket | null
-  /** Set per stream socket by its hello; absent means NDJSON. */
-  streamFraming?: DaemonStreamFraming
   authenticatedPairEstablished: boolean
 }
 
@@ -112,13 +108,13 @@ export class DaemonClientConnections {
   }
 
   private handleFirstMessage(socket: Socket, message: unknown): void {
-    if (!isHelloFrame(message)) {
+    const hello = message as HelloMessage
+    if (hello.type !== 'hello') {
       this.options.log.log('client-hello-rejected', { reason: 'expected-hello' })
       socket.write(encodeNdjson({ type: 'hello', ok: false, error: 'Expected hello' }))
       socket.destroy()
       return
     }
-    const hello = message
     if (hello.version !== this.options.protocolVersion) {
       this.options.log.log('client-hello-rejected', {
         reason: 'protocol-mismatch',
@@ -143,22 +139,12 @@ export class DaemonClientConnections {
       return
     }
 
-    const streamFraming: DaemonStreamFraming =
-      hello.role === 'stream' && hello.streamFraming === BINARY_STREAM_FRAMING
-        ? BINARY_STREAM_FRAMING
-        : 'ndjson'
-    this.options.log.log('client-hello-accepted', {
-      role: hello.role,
-      clientId: hello.clientId,
-      ...(hello.role === 'stream' ? { streamFraming } : {})
-    })
+    this.options.log.log('client-hello-accepted', { role: hello.role, clientId: hello.clientId })
     const identity = this.options.identity
     socket.write(
       encodeNdjson({
         type: 'hello',
         ok: true,
-        // Why: this hello line is the socket's last NDJSON; the client switches readers on this field.
-        ...(streamFraming === BINARY_STREAM_FRAMING ? { streamFraming } : {}),
         ...(identity.launchNonce && identity.startedAtMs
           ? {
               daemonIdentity: {
@@ -184,12 +170,12 @@ export class DaemonClientConnections {
         socket.destroy()
         return
       }
-      this.installStreamSocket(socket, client, streamFraming)
+      this.installStreamSocket(socket, client)
       client.authenticatedPairEstablished = true
       this.options.onAuthenticatedPair()
       return
     }
-    // The guard checks only that role is a string; anything else was answered above.
+    // Parsed wire data is not made safe by the HelloMessage assertion above.
     socket.destroy()
   }
 
@@ -215,15 +201,7 @@ export class DaemonClientConnections {
   private setupControlParser(socket: Socket, clientId: string): void {
     const decoder = new StringDecoder('utf8')
     const parser = createNdjsonParser(
-      (message) => {
-        if (isDaemonRequestFrame(message)) {
-          this.options.onControlRequest(socket, clientId, message)
-          return
-        }
-        // Unroutable without an id, so no reply is possible; drop only this connection.
-        this.options.log.log('client-frame-rejected', { clientId })
-        socket.destroy()
-      },
+      (message) => this.options.onControlRequest(socket, clientId, message as DaemonRequest),
       () => {}
     )
     socket.removeAllListeners('data')
@@ -252,11 +230,7 @@ export class DaemonClientConnections {
     }
   }
 
-  private installStreamSocket(
-    socket: Socket,
-    client: ConnectedDaemonClient,
-    streamFraming: DaemonStreamFraming
-  ): void {
+  private installStreamSocket(socket: Socket, client: ConnectedDaemonClient): void {
     const previous = client.streamSocket
     socket.removeAllListeners('data')
     // A half-open peer (slept laptop, dropped NAT state) stops draining without closing, which would
@@ -265,7 +239,6 @@ export class DaemonClientConnections {
     // that dies — the producer-stall watchdog, not this, is what bounds those.
     socket.setKeepAlive(true, STREAM_SOCKET_KEEPALIVE_DELAY_MS)
     client.streamSocket = socket
-    client.streamFraming = streamFraming
     socket.on('drain', () => this.options.streamDataBatcher.flush(client.clientId))
     const cleanup = (): void => {
       socket.removeListener('close', cleanup)

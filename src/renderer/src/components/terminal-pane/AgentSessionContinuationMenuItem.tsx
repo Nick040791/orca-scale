@@ -13,8 +13,8 @@ export function AgentSessionContinuationMenuItem({
     <DropdownMenuItem onSelect={onSelect}>
       <MessageSquarePlus />
       {translate(
-        'components.agentSessionContinuation.handOffToAnotherAgent',
-        'Hand Off to Another Agent'
+        'components.agentSessionContinuation.continueInNewSession',
+        'Continue in New Session…'
       )}
     </DropdownMenuItem>
   )

@@ -78,7 +78,7 @@ function reasonGuidance(failure: Pick<ResumeFailure, 'outcome' | 'reason'>): Res
     return {
       text: translate(
         'auto.components.NativeChatResumeFailureGuidance.conflict',
-        'This chat is open in another Orca window or terminal. Close it there, then retry.'
+        'Another Orca window or terminal still owns this session. Close it, then retry.'
       ),
       primary: 'retry',
       secondary: 'open'
@@ -88,7 +88,7 @@ function reasonGuidance(failure: Pick<ResumeFailure, 'outcome' | 'reason'>): Res
     return {
       text: translate(
         'auto.components.NativeChatResumeFailureGuidance.ownershipUnknown',
-        'This chat isn’t ready to resume yet. Wait a moment, then retry.'
+        'Orca is still working out which process owns this session. Wait a moment, then retry.'
       ),
       primary: 'retry',
       secondary: 'open'

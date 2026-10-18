@@ -9,6 +9,7 @@ import {
   getPullRequestDraftContextMock,
   resolveHostedReviewBodyForGenerationMock,
   loadPullRequestLinkedIssueMock,
+  getSshGitProviderMock,
   resetFilesystemIpcMocks
 } from './filesystem-test-harness'
 
@@ -25,6 +26,10 @@ vi.mock(
   async () => (await import('./filesystem-test-harness')).crashBreadcrumbMock
 )
 vi.mock(
+  '../local-downloaded-folder-promotion',
+  async () => (await import('./filesystem-test-harness')).folderPromotionMock
+)
+vi.mock(
   '../git/status',
   async () => (await import('./filesystem-test-harness')).gitStatusModuleMock
 )
@@ -36,6 +41,10 @@ vi.mock('../git/worktree', async () => (await import('./filesystem-test-harness'
 vi.mock(
   '../providers/ssh-filesystem-dispatch',
   async () => (await import('./filesystem-test-harness')).sshFilesystemDispatchMock
+)
+vi.mock(
+  '../providers/ssh-git-dispatch',
+  async () => (await import('./filesystem-test-harness')).sshGitDispatchMock
 )
 vi.mock(
   '../text-generation/commit-message-text-generation',
@@ -63,7 +72,7 @@ vi.mock('../source-control/pull-request-linked-issue', async () => {
 import { registerFilesystemHandlers } from './filesystem'
 import { invalidateAuthorizedRootsCache } from './registered-worktree-roots-cache'
 
-describe('PR linked-issue lifetime on a local worktree', () => {
+describe.each(['local', 'SSH'])('PR linked-issue lifetime on %s', (host) => {
   const draftContext = {
     base: 'main',
     branch: 'feature/ai',
@@ -80,7 +89,8 @@ describe('PR linked-issue lifetime on a local worktree', () => {
     title: '',
     body: '',
     draft: false,
-    worktreePath: WORKTREE_FEATURE_PATH
+    worktreePath: host === 'SSH' ? '/remote/repo' : WORKTREE_FEATURE_PATH,
+    ...(host === 'SSH' ? { connectionId: 'conn-1' } : {})
   }
 
   beforeEach(() => {
@@ -93,6 +103,10 @@ describe('PR linked-issue lifetime on a local worktree', () => {
     })
     resolveHostedReviewBodyForGenerationMock.mockResolvedValue('')
     getPullRequestDraftContextMock.mockResolvedValue(draftContext)
+    getSshGitProviderMock.mockReturnValue({
+      exec: vi.fn(),
+      executeCommitMessagePlan: vi.fn()
+    })
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The existing IPC harness provides every Store member reached by this handler.
     registerFilesystemHandlers(store as never)
   })
@@ -158,5 +172,18 @@ describe('PR linked-issue lifetime on a local worktree', () => {
       await result
       process.off('unhandledRejection', unhandled)
     }
+  })
+
+  it('still rejects the caller when preparation succeeds but the lookup fails', async () => {
+    const issue = Promise.withResolvers<null>()
+    const failure = new Error('lookup failed')
+    linkedLookup.run = () => issue.promise
+    const result = Promise.resolve(
+      handlers.get('git:generatePullRequestFields')!(null, request)
+    ).catch((error: unknown) => error)
+    await nextTurn()
+    issue.reject(failure)
+    expect(await result).toBe(failure)
+    expect(generatePullRequestFieldsFromContextMock).not.toHaveBeenCalled()
   })
 })

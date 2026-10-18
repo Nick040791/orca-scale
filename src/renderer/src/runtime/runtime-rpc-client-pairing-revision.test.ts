@@ -5,7 +5,6 @@ import {
 } from '../../../shared/protocol-version'
 import { callRuntimeRpc, clearRuntimeCompatibilityCacheForTests } from './runtime-rpc-client'
 import { replaceRuntimeEnvironmentRevisions } from './runtime-environment-revision'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 
 const runtimeEnvironmentCall = vi.fn()
 
@@ -13,7 +12,7 @@ beforeEach(() => {
   clearRuntimeCompatibilityCacheForTests()
   replaceRuntimeEnvironmentRevisions([])
   runtimeEnvironmentCall.mockReset()
-  stubRuntimeEnvironmentBridge({ call: runtimeEnvironmentCall })
+  vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeEnvironmentCall } } })
 })
 
 it('captures the pairing revision before awaiting the compatibility probe', async () => {

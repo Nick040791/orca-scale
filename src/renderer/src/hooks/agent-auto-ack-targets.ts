@@ -1,13 +1,6 @@
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
-import { isOrcaWindowForegroundFocused } from '@/components/terminal-pane/terminal-notification-pane-visibility'
-import { isStructuredTab } from '../../../shared/structured-agent-session-tab'
-import type { Tab, TabGroup, TabGroupLayoutNode } from '../../../shared/tab-types'
-import { collectTabGroupLayoutGroupIds } from '../../../shared/workspace-layout/tab-group-moves'
-import { isPresenceConfirmed } from './agent-auto-ack-presence'
-import {
-  selectFloatingWorkspacePanelVisible,
-  type FloatingWorkspacePanelVisibilityState
-} from '@/store/floating-workspace-panel-selector'
+import { isStructuredTab } from '@/components/native-chat/structured-agent-session-tabs'
+import type { Tab } from '../../../shared/tab-types'
 
 export type AutoAckTabTarget = {
   tabId: string
@@ -16,43 +9,33 @@ export type AutoAckTabTarget = {
   surfaceKind: 'terminal' | 'structured'
 }
 
-export type AutoAckTargetState = FloatingWorkspacePanelVisibilityState & {
+type AutoAckTargetState = {
   activeView: string
+  activeTabId: string | null
   activeWorktreeId: string | null
-  layoutByWorktree?: Readonly<Record<string, TabGroupLayoutNode | undefined>>
-  groupsByWorktree: Readonly<Record<string, readonly Pick<TabGroup, 'id' | 'activeTabId'>[]>>
-  activeGroupIdByWorktree: Readonly<Record<string, string | null | undefined>>
-  unifiedTabsByWorktree: Readonly<Record<string, readonly Tab[]>>
+  activeTabIdByWorktree: Record<string, string | null>
+  getActiveTab: (worktreeId: string) => Tab | null
 }
 
 /**
- * The tab each visible group of a workspace shows: every leaf of its split layout, the focused
- * group first, or the focused group alone before any split exists.
+ * The one surface a workspace has on screen right now.
  *
  * Why the unified tab wins: a visible chat replaces the terminal in its group, but the
  * workspace's terminal tab id keeps naming the terminal that was there before — acknowledging
  * that id would clear a hidden terminal's unread.
  */
-function resolveWorkspaceAutoAckTargets(
+function resolveWorkspaceAutoAckTarget(
   state: AutoAckTargetState,
-  worktreeId: string
-): AutoAckTabTarget[] {
-  const groups = state.groupsByWorktree[worktreeId] ?? []
-  const focusedGroupId = state.activeGroupIdByWorktree[worktreeId] ?? groups[0]?.id
-  const groupIds = new Set(focusedGroupId ? [focusedGroupId] : [])
-  collectTabGroupLayoutGroupIds(state.layoutByWorktree?.[worktreeId], groupIds)
-  const tabs = state.unifiedTabsByWorktree[worktreeId] ?? []
-  const targets: AutoAckTabTarget[] = []
-  for (const groupId of groupIds) {
-    const activeTabId = groups.find((group) => group.id === groupId)?.activeTabId
-    const tab = activeTabId ? tabs.find((candidate) => candidate.id === activeTabId) : undefined
-    if (tab && isStructuredTab(tab)) {
-      targets.push({ tabId: tab.id, worktreeId, surfaceKind: 'structured' })
-    } else if (tab?.contentType === 'terminal') {
-      targets.push({ tabId: tab.entityId, worktreeId, surfaceKind: 'terminal' })
-    }
+  worktreeId: string,
+  terminalTabId: string | null
+): AutoAckTabTarget | null {
+  const activeTab = state.getActiveTab(worktreeId)
+  if (activeTab && isStructuredTab(activeTab)) {
+    return { tabId: activeTab.id, worktreeId, surfaceKind: 'structured' }
   }
-  return targets
+  return terminalTabId === null
+    ? null
+    : { tabId: terminalTabId, worktreeId, surfaceKind: 'terminal' }
 }
 
 /**
@@ -63,60 +46,32 @@ function resolveWorkspaceAutoAckTargets(
  * overlay that sits above every view and stays mounted while closed, and its active tab never
  * becomes the global `activeTabId` — so neither the view nor the tab id can stand in for "on screen".
  */
-export function resolveAutoAckTabTargets(state: AutoAckTargetState): AutoAckTabTarget[] {
-  // The floating pane is on top when two worktrees claim the same tab ID.
-  const targets = selectFloatingWorkspacePanelVisible(state)
-    ? resolveWorkspaceAutoAckTargets(state, FLOATING_TERMINAL_WORKTREE_ID)
-    : []
-  if (state.activeView !== 'terminal' || !state.activeWorktreeId) {
-    return targets
-  }
-  for (const target of resolveWorkspaceAutoAckTargets(state, state.activeWorktreeId)) {
-    if (!targets.some((existing) => existing.tabId === target.tabId)) {
-      targets.push(target)
+export function resolveAutoAckTabTargets(
+  state: AutoAckTargetState,
+  options: { floatingPanelVisible: boolean }
+): AutoAckTabTarget[] {
+  const targets: AutoAckTabTarget[] = []
+  if (options.floatingPanelVisible) {
+    const floating = resolveWorkspaceAutoAckTarget(
+      state,
+      FLOATING_TERMINAL_WORKTREE_ID,
+      state.activeTabIdByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? null
+    )
+    // The floating pane is on top when two worktrees claim the same tab ID.
+    if (floating) {
+      targets.push(floating)
     }
   }
-  return targets
-}
-
-/** The workspaces on screen: an open floating panel, and the active workspace in its own view. */
-export function onScreenWorkspaceIds(state: AutoAckTargetState): string[] {
-  const workspaceIds = selectFloatingWorkspacePanelVisible(state)
-    ? [FLOATING_TERMINAL_WORKTREE_ID]
-    : []
-  if (state.activeView === 'terminal' && state.activeWorktreeId) {
-    workspaceIds.push(state.activeWorktreeId)
+  if (state.activeView !== 'terminal') {
+    return targets
   }
-  return workspaceIds
-}
-
-/** A workspace on screen in a visible, focused window with the user confirmed present. */
-export function isWorkspaceOnScreen(state: AutoAckTargetState, workspaceId: string): boolean {
-  return (
-    isOrcaWindowForegroundFocused() &&
-    isPresenceConfirmed() &&
-    onScreenWorkspaceIds(state).includes(workspaceId)
-  )
-}
-
-/**
- * Whether a tab of either kind is on screen in a visible, focused window with the user confirmed
- * present — the scan's own gate, so marking skips exactly what the scan would read right away.
- */
-export function isTabOnScreen(
-  state: AutoAckTargetState,
-  worktreeId: string,
-  tabId: string,
-  surfaceKind: AutoAckTabTarget['surfaceKind']
-): boolean {
-  return (
-    isOrcaWindowForegroundFocused() &&
-    isPresenceConfirmed() &&
-    resolveAutoAckTabTargets(state).some(
-      (target) =>
-        target.surfaceKind === surfaceKind &&
-        target.tabId === tabId &&
-        target.worktreeId === worktreeId
-    )
-  )
+  const active = state.activeWorktreeId
+    ? resolveWorkspaceAutoAckTarget(state, state.activeWorktreeId, state.activeTabId)
+    : state.activeTabId === null
+      ? null
+      : { tabId: state.activeTabId, worktreeId: null, surfaceKind: 'terminal' as const }
+  if (active && !targets.some((target) => target.tabId === active.tabId)) {
+    targets.push(active)
+  }
+  return targets
 }

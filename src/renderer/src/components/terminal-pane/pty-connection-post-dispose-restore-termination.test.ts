@@ -70,13 +70,13 @@ vi.mock('./pty-transport', () => ({
 }))
 
 describe('connectPanePty', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
     transportFactoryQueue = []
     storeSubscribers = []
     mockStoreState = createInitialStoreState(() => mockStoreState)
-    await installTerminalTestGlobals()
+    installTerminalTestGlobals()
   })
 
   afterEach(async () => {

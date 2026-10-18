@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-import { useActivityTerminalPortalStatus } from './activity-terminal-portal-status'
+import { useActivityTerminalPortalStatus } from './ActivityPrototypePage'
 import {
   findActivityTerminalPortal,
   type ActivityTerminalPortalTarget

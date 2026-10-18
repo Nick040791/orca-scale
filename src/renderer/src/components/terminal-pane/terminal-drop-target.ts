@@ -1,5 +1,5 @@
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 
 export type CapturedTerminalDropTarget = {
   paneId: number
@@ -33,8 +33,9 @@ export function getCurrentTerminalDropTransport(
   ) {
     return null
   }
-  const paneStillMounted = manager
-    .getPanes()
-    .some((pane) => pane.id === target.paneId && pane.leafId === target.leafId)
+  const activePane = manager.getActivePane()
+  const paneStillMounted =
+    manager.getPanes().some((pane) => pane.id === target.paneId && pane.leafId === target.leafId) ||
+    (activePane?.id === target.paneId && activePane.leafId === target.leafId)
   return paneStillMounted ? liveTransport : null
 }

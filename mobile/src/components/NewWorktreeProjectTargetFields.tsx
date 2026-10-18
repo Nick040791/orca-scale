@@ -1,6 +1,5 @@
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native'
-import { ChevronDown } from 'lucide-react-native'
-import { HostKindIcon } from './HostKindIcon'
+import { ChevronDown, Monitor } from 'lucide-react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 
 type Selection = { label: string; detail?: string }
@@ -13,7 +12,7 @@ export function NewWorktreeProjectTargetFields({
   onOpenRunTarget
 }: {
   project: Selection | null
-  runTarget: (Selection & { hostId: string }) | null
+  runTarget: Selection | null
   projectBadgeColor: string | null
   onOpenProject: () => void
   onOpenRunTarget: () => void
@@ -34,7 +33,7 @@ export function NewWorktreeProjectTargetFields({
       <View style={styles.field}>
         <Text style={styles.label}>Run on</Text>
         <Pressable style={styles.fieldButton} onPress={onOpenRunTarget}>
-          <HostKindIcon hostId={runTarget?.hostId} size={14} />
+          <Monitor size={14} color={colors.textMuted} />
           <SelectionCopy selection={runTarget} placeholder="Select a run target" />
           <ChevronDown size={14} color={colors.textMuted} />
         </Pressable>

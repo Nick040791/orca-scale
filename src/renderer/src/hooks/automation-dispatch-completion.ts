@@ -15,7 +15,6 @@ import {
 } from './automation-agent-status-entry-change'
 import type { Worktree } from '../../../shared/worktree/types'
 import { isProvenProcessExit } from '../../../shared/terminal-exit-cause'
-import type { AutomationTerminalOwnership } from '@/lib/automation-terminal-ownership'
 
 type MarkDispatchResult = (result: AutomationDispatchResult) => Promise<void>
 
@@ -25,7 +24,7 @@ export function createAutomationDispatchCompletion(args: {
   precheckResult: AutomationPrecheckResult | null
   markDispatchResult: MarkDispatchResult
   releaseTerminalOwnership: () => void
-  finalizeTerminalOwnership: AutomationTerminalOwnership['finalize']
+  finalizeTerminalOwnership: () => boolean
 }) {
   const outputSnapshotBuffer = createAutomationRunOutputSnapshotBuffer()
   let latestAssistantMessage: string | null = null
@@ -67,23 +66,21 @@ export function createAutomationDispatchCompletion(args: {
       args.releaseTerminalOwnership()
       throw error
     }
-    await retireRunTerminal()
-  }
-  const retireRunTerminal = async (): Promise<void> => {
-    const retirement = await args.finalizeTerminalOwnership({
-      // Why: only a workspace made for this run is its own; a shared one would gather a sleeping tab per run.
-      preservePane: args.worktree.automationProvenance?.automationRunId === args.run.id
-    })
-    if (!retirement) {
-      return
+    if (args.finalizeTerminalOwnership()) {
+      await clearRetiredRunTerminalIdentity()
     }
-    // Why: drop pointers to the stopped process (best-effort) so "View run" never dead-ends;
-    // a slept pane keeps its tab and pane key, which reopen and resume it.
+  }
+  const clearRetiredRunTerminalIdentity = async (): Promise<void> => {
+    // Why: the owned terminal was just retired, so the run's pane/pty
+    // pointers now reference a closed tab. Drop them (best-effort) so
+    // "View run" resolves to the workspace/snapshot instead of dead-ending
+    // on an unavailable terminal.
     try {
       await args.markDispatchResult({
         runId: args.run.id,
         status: 'completed',
-        ...(retirement === 'closed' ? { terminalSessionId: null, terminalPaneKey: null } : {}),
+        terminalSessionId: null,
+        terminalPaneKey: null,
         terminalPtyId: null
       })
     } catch (error) {
@@ -137,7 +134,9 @@ export function createAutomationDispatchCompletion(args: {
       throw error
     }
     if (code === 0) {
-      await retireRunTerminal()
+      if (args.finalizeTerminalOwnership()) {
+        await clearRetiredRunTerminalIdentity()
+      }
     } else {
       args.releaseTerminalOwnership()
     }

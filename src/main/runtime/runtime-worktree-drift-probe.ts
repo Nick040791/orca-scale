@@ -4,7 +4,7 @@ import {
   getLocalProjectGitExecOptions,
   getLocalProjectWorktreeGitOptions
 } from '../project-runtime-git-options'
-import type { RuntimeStore } from './runtime-store-contract'
+import type { Store } from '../persistence'
 import type { RemoteTrackingBase } from './runtime-remote-fetch-controller'
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 
@@ -12,7 +12,7 @@ const DRIFT_PROBE_SUBJECT_LIMIT = 5
 
 export async function probeRuntimeWorktreeDrift(args: {
   selector: string
-  store: RuntimeStore | null
+  store: Store | null
   resolveWorktree: (selector: string) => Promise<ResolvedWorktree>
   resolveRemoteTrackingBase: (
     repoPath: string,

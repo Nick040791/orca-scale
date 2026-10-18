@@ -4,7 +4,6 @@ import { resolveAbsoluteDirOverride } from '../../shared/absolute-dir-override'
 import { wslGatedReadFile } from '../native-chat/wsl-transcript-fs-access'
 import { WslTranscriptFsError } from '../native-chat/wsl-transcript-fs-gate'
 import { asRecord } from './session-scanner-record-value'
-import { throwIfAiVaultScanCancelled } from './ai-vault-scan-cancellation'
 
 export { asRecord }
 
@@ -76,15 +75,11 @@ export function extractGitBranch(value: unknown): string | null {
 }
 
 export async function readJsonObjectIfExists(
-  filePath: string,
-  signal?: AbortSignal
+  filePath: string
 ): Promise<Record<string, unknown> | null> {
   try {
-    const parsed: unknown = JSON.parse(await wslGatedReadFile(filePath, 'utf-8', 'scan', signal))
-    return asRecord(parsed)
+    return asRecord(JSON.parse(await wslGatedReadFile(filePath, 'utf-8', 'scan')) as unknown)
   } catch (error) {
-    // A cancel is not "no file": null here would be cached as the enrichment.
-    throwIfAiVaultScanCancelled(signal)
     // A missing or malformed file is genuinely "no enrichment", but a gate
     // refusal must reach `parseSessionCandidate` as an issue — degrading it to
     // null caches the un-enriched session under an unchanged mtime, and the

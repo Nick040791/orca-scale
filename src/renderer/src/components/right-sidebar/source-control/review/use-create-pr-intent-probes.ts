@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
-import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
 import { getConnectionId } from '@/lib/connection-context'
-import { getRuntimeGitBranchCompare } from '@/runtime/runtime-git-diff-client'
+import { getRuntimeGitBranchCompare } from '@/runtime/runtime-git-client'
 import type { HostedReviewCreationEligibility } from '../../../../../../shared/hosted-review'
 import { refreshGitStatusForWorktreeStrict } from '../../git-status-refresh'
 import type { CreatePrIntentRunToken } from './create-pr-intent-flow'
@@ -18,7 +17,7 @@ import type { SourceControlLinkedReviews } from './use-linked-reviews'
  */
 export function useSourceControlCreatePrIntentProbes({
   activeRepo,
-  activeRepoTarget,
+  activeRepoSettings,
   beginGitBranchCompareRequest,
   fallbackGitHubPRNumber,
   getCreatePrIntentOperationTarget,
@@ -36,7 +35,7 @@ export function useSourceControlCreatePrIntentProbes({
   updateWorktreeGitIdentity
 }: {
   activeRepo: SourceControlWorktreeContext['activeRepo']
-  activeRepoTarget: SourceControlWorktreeContext['activeRepoTarget']
+  activeRepoSettings: SourceControlWorktreeContext['activeRepoSettings']
   beginGitBranchCompareRequest: SourceControlStoreActions['beginGitBranchCompareRequest']
   fallbackGitHubPRNumber: SourceControlLinkedReviews['fallbackGitHubPRNumber']
   getCreatePrIntentOperationTarget: SourceControlCreatePrIntentTarget['getCreatePrIntentOperationTarget']
@@ -64,7 +63,7 @@ export function useSourceControlCreatePrIntentProbes({
       const result = await getRuntimeGitBranchCompare(
         {
           // Why: intent may continue after a worktree switch; use the token's original host target, not whatever is focused later.
-          target: requireGitOwnerTarget(activeRepoTarget),
+          settings: activeRepoSettings,
           worktreeId: token.worktreeId,
           worktreePath: token.worktreePath,
           connectionId: getConnectionId(token.worktreeId) ?? undefined
@@ -74,7 +73,7 @@ export function useSourceControlCreatePrIntentProbes({
       setGitBranchCompareResult(token.worktreeId, requestKey, result)
       return result.summary.status === 'ready' ? (result.summary.commitsAhead ?? 0) : undefined
     },
-    [activeRepoTarget, beginGitBranchCompareRequest, setGitBranchCompareResult]
+    [activeRepoSettings, beginGitBranchCompareRequest, setGitBranchCompareResult]
   )
 
   const readHostedReviewCreationEligibilityForIntent = useCallback(
@@ -156,7 +155,7 @@ export function useSourceControlCreatePrIntentProbes({
       const target = getCreatePrIntentOperationTarget(token)
       return await refreshGitStatusForWorktreeStrict({
         // Why: intent can finish in the background after navigation; branch-safety checks must inspect the worktree that started it.
-        target: requireGitOwnerTarget(target.target),
+        settings: target.settings,
         worktreeId: target.worktreeId,
         worktreePath: target.worktreePath,
         connectionId: target.connectionId,

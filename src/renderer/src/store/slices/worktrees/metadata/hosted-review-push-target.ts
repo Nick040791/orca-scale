@@ -1,6 +1,6 @@
-import { callRuntimeRpc } from '../../../../runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import { isPositiveHostedReviewNumber } from '../../../../../../shared/hosted-review'
+import type { AppState } from '../../../types'
 import type {
   GitHubPrStartPoint,
   GitPushTarget,
@@ -10,11 +10,12 @@ import type {
 export const hostedReviewPushTargetLookupsInFlight = new Set<string>()
 
 export async function resolveGitHubReviewPushTarget(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   repoId: string,
   prNumber: number
 ): Promise<GitPushTarget | undefined> {
   try {
+    const target = getActiveRuntimeTarget(settings)
     const result =
       target.kind === 'local'
         ? await window.api.worktrees.resolvePrBase({ repoId, prNumber })
@@ -39,11 +40,12 @@ export async function resolveGitHubReviewPushTarget(
 }
 
 export async function resolveGitLabReviewPushTarget(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   repoId: string,
   mrIid: number
 ): Promise<GitPushTarget | undefined> {
   try {
+    const target = getActiveRuntimeTarget(settings)
     const result =
       target.kind === 'local'
         ? await window.api.worktrees.resolveMrBase({ repoId, mrIid })
@@ -69,21 +71,21 @@ export async function resolveGitLabReviewPushTarget(
 
 export function getHostedReviewPushTargetLookup(worktree: Worktree): {
   key: string
-  resolve: (target: RuntimeClientTarget) => Promise<GitPushTarget | undefined>
+  resolve: (settings: AppState['settings']) => Promise<GitPushTarget | undefined>
 } | null {
   const hostScope = worktree.hostId ?? ''
   if (isPositiveHostedReviewNumber(worktree.linkedPR)) {
     const prNumber = worktree.linkedPR
     return {
       key: `${worktree.id}:${hostScope}:github:${prNumber}`,
-      resolve: (target) => resolveGitHubReviewPushTarget(target, worktree.repoId, prNumber)
+      resolve: (settings) => resolveGitHubReviewPushTarget(settings, worktree.repoId, prNumber)
     }
   }
   if (isPositiveHostedReviewNumber(worktree.linkedGitLabMR)) {
     const mrIid = worktree.linkedGitLabMR
     return {
       key: `${worktree.id}:${hostScope}:gitlab:${mrIid}`,
-      resolve: (target) => resolveGitLabReviewPushTarget(target, worktree.repoId, mrIid)
+      resolve: (settings) => resolveGitLabReviewPushTarget(settings, worktree.repoId, mrIid)
     }
   }
   return null

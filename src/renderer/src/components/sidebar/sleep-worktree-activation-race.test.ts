@@ -88,7 +88,6 @@ describe('sleep flow vs slept-workspace activation', () => {
     expect(mocks.resumeWorkspace).toHaveBeenCalledWith({ workspaceId: 'wt-parent' })
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledTimes(1)
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-parent', {
-      navigationIntent: 'user-open',
       revealInSidebar: false
     })
 
@@ -103,7 +102,6 @@ describe('sleep flow vs slept-workspace activation', () => {
     await activateWorktreeFromSidebar('wt-parent')
 
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-parent', {
-      navigationIntent: 'user-open',
       revealInSidebar: false
     })
     expect(mocks.toastError).toHaveBeenCalledWith(

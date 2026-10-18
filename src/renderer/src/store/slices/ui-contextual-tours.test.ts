@@ -384,7 +384,8 @@ describe('createUISlice contextual tours', () => {
     stubContextualTourTargets([
       '[data-contextual-tour-target="terminal-pane-split-target"], [data-contextual-tour-target="workspace-agent-terminal-tip"]'
     ])
-    store.getState().hydratePersistedUI(makeAutoTourEligibleUI({ sidebarOpen: false }))
+    store.setState({ sidebarOpen: false })
+    store.getState().hydratePersistedUI(makeAutoTourEligibleUI())
     store
       .getState()
       .requestContextualTour('workspace-agent-sessions', 'setup_guide_parallel_work', false, {

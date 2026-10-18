@@ -1,4 +1,3 @@
-import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from './agent-chat-permission-mode'
 import type {
   AgentSessionOptionCatalog,
   CatalogMidSessionApply,
@@ -148,16 +147,13 @@ const CATEGORY_ORDER: Record<string, number> = {
   mode: 2
 }
 
-/** The snapshot's per-model descriptors, besides the model, in display order. Shared so the two
- *  platforms' option pills can never disagree about ordering. The permission mode has its own pill. */
+/** The snapshot's non-model descriptors in display order. Shared so the two
+ *  platforms' option pills can never disagree about ordering. */
 export function sortNativeChatSessionOptions(
   snapshot: readonly SessionOptionDescriptor[]
 ): SessionOptionDescriptor[] {
   return snapshot
-    .filter(
-      (descriptor) =>
-        descriptor.category !== 'model' && descriptor.id !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID
-    )
+    .filter((descriptor) => descriptor.category !== 'model')
     .sort((left, right) => {
       const leftOrder = CATEGORY_ORDER[left.category ?? ''] ?? 3
       const rightOrder = CATEGORY_ORDER[right.category ?? ''] ?? 3

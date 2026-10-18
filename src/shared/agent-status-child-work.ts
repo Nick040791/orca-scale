@@ -35,9 +35,6 @@ export type AgentChildWorkResidency = (typeof AGENT_CHILD_WORK_RESIDENCIES)[numb
 /** `open`: a start edge was seen and no end yet. `reported`: the provider's latest heartbeat
  *  named it; no end edge will come, so the next report or the settlement replaces it. */
 export type AgentChildWorkOperationBasis = (typeof AGENT_CHILD_WORK_OPERATION_BASES)[number]
-/** An ending the child did not report itself: the provider acknowledged a Stop. The child's own
- *  ending of the same run may still replace it; nothing else may. */
-export type AgentChildWorkOutcomeBasis = 'stop-acknowledged'
 
 /** What the child is doing now, in the vocabulary a hook-reported row uses for its own tool. */
 export type AgentChildWorkOperation = {
@@ -77,8 +74,6 @@ export type AgentChildWorkInput = {
   state: AgentChildWorkState
   membership: AgentChildWorkMembership
   outcome?: AgentChildWorkOutcome
-  /** Host-only, and only on a settled record: absent means the child reported its own ending. */
-  outcomeBasis?: AgentChildWorkOutcomeBasis
   name?: string
   description?: string
   agentType?: string

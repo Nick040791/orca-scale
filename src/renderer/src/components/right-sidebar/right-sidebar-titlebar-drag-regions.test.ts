@@ -14,4 +14,8 @@ describe('right sidebar titlebar drag regions', () => {
       RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME
     )
   })
+
+  it('keeps a shared no-drag class for interactive header controls', () => {
+    expect(RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME).toBe('right-sidebar-header-no-drag')
+  })
 })

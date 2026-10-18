@@ -102,9 +102,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       getForegroundProcess: async () => null
     })
 
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     await vi.runAllTimersAsync()
 
     await expect(submission).resolves.toMatchObject({ accepted: true })
@@ -132,7 +130,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     })
 
     const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving',
       acceptQueued: true,
       requestId: 'antigravity-pre-invocation',
       observationTimeoutMs: 20_000
@@ -159,9 +156,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       stateStartedAt: 1_000
     })
 
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     const rejected = expect(submission).rejects.toThrow('agent_prompt_stalled')
     await vi.runAllTimersAsync()
 
@@ -176,7 +171,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     const { runtime, handle, writes } = await createHookOnlyPromptRuntime(hook, 'codex')
 
     const firstPromise = runtime.sendTerminalAgentPrompt(handle, 'first prompt', {
-      inputKind: 'driving',
       acceptQueued: true,
       requestId: 'hook-queued-first',
       observationTimeoutMs: 0
@@ -199,7 +193,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       getForegroundProcess: async () => null
     })
     const secondPromise = runtime.sendTerminalAgentPrompt(handle, 'second prompt', {
-      inputKind: 'driving',
       acceptQueued: true,
       requestId: 'hook-queued-second',
       observationTimeoutMs: 500
@@ -226,9 +219,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
   it('does not write Enter after the PTY generation changes during settlement', async () => {
     vi.useFakeTimers()
     const { runtime, handle, writes } = await createPromptRuntime(() => undefined)
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     const rejected = expect(submission).rejects.toThrow('terminal_handle_stale')
 
     await vi.advanceTimersByTimeAsync(0)
@@ -265,7 +256,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     )
 
     const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving',
       signal: controller.signal
     })
     const rejected = expect(submission).rejects.toThrow('request_aborted')
@@ -301,9 +291,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       sequenceAtSpawnStart
     )
 
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     await vi.runAllTimersAsync()
 
     await expect(submission).resolves.toMatchObject({ accepted: true })
@@ -330,9 +318,9 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       sequenceAtSpawnStart
     )
 
-    await expect(
-      runtime.sendTerminalAgentPrompt(handle, 'review this', { inputKind: 'driving' })
-    ).rejects.toThrow('agent_prompt_blocked')
+    await expect(runtime.sendTerminalAgentPrompt(handle, 'review this')).rejects.toThrow(
+      'agent_prompt_blocked'
+    )
     expect(writes).toEqual([])
   })
 
@@ -343,9 +331,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
         runtime.onPtyData('pty-prompt', '\x1b]0;Codex waiting for permission\x07', Date.now())
       }
     })
-    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving'
-    })
+    const submission = runtime.sendTerminalAgentPrompt(handle, 'review this')
     const rejected = expect(submission).rejects.toThrow('agent_prompt_blocked')
 
     await vi.runAllTimersAsync()
@@ -365,10 +351,8 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       }
     })
 
-    const first = runtime.sendTerminalAgentPrompt(handle, 'first prompt', { inputKind: 'driving' })
-    const second = runtime.sendTerminalAgentPrompt(handle, 'second prompt', {
-      inputKind: 'driving'
-    })
+    const first = runtime.sendTerminalAgentPrompt(handle, 'first prompt')
+    const second = runtime.sendTerminalAgentPrompt(handle, 'second prompt')
     await vi.runAllTimersAsync()
     await Promise.all([first, second])
 
@@ -389,7 +373,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     runtime.onPtyData('pty-prompt', '\x1b]0;Codex working\x07', Date.now())
 
     const firstPromise = runtime.sendTerminalAgentPrompt(handle, 'first prompt', {
-      inputKind: 'driving',
       acceptQueued: true,
       requestId: 'queued-first',
       observationTimeoutMs: 0
@@ -397,7 +380,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     await vi.runAllTimersAsync()
     const first = await firstPromise
     const secondPromise = runtime.sendTerminalAgentPrompt(handle, 'second prompt', {
-      inputKind: 'driving',
       acceptQueued: true,
       requestId: 'queued-second',
       observationTimeoutMs: 0
@@ -436,7 +418,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     })
 
     const first = runtime.sendTerminalAgentPrompt(handle, 'obsolete prompt', {
-      inputKind: 'driving',
       beforeWrite: async () => {
         firstWriteReached()
         await firstGate
@@ -449,9 +430,7 @@ describe('agent prompt submission runtime hook and generation cases', () => {
       0
     )
 
-    const replacement = runtime.sendTerminalAgentPrompt(handle, 'replacement prompt', {
-      inputKind: 'driving'
-    })
+    const replacement = runtime.sendTerminalAgentPrompt(handle, 'replacement prompt')
     await vi.runAllTimersAsync()
     await expect(replacement).resolves.toMatchObject({ accepted: true })
     expect(writes.some((data) => data.includes('replacement prompt'))).toBe(true)
@@ -465,7 +444,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     let writeChecks = 0
 
     const submission = runtime.sendTerminalAgentPrompt(handle, 'x'.repeat(20_000), {
-      inputKind: 'driving',
       beforeWrite: () => {
         writeChecks += 1
         if (writeChecks === 2) {
@@ -488,7 +466,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     const controller = new AbortController()
     const { runtime, handle, writes } = await createPromptRuntime(() => undefined)
     const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving',
       signal: controller.signal
     })
     const rejected = expect(submission).rejects.toThrow('request_aborted')
@@ -506,7 +483,6 @@ describe('agent prompt submission runtime hook and generation cases', () => {
     const controller = new AbortController()
     const { runtime, handle, writes } = await createPromptRuntime(() => undefined)
     const submission = runtime.sendTerminalAgentPrompt(handle, 'review this', {
-      inputKind: 'driving',
       signal: controller.signal
     })
     const rejected = expect(submission).rejects.toThrow('request_aborted')

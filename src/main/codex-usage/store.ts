@@ -1,4 +1,3 @@
-import { codexOpenCodeTokenSessions } from '../usage/agent-token-usage'
 import { app } from 'electron'
 import { join } from 'node:path'
 import type {
@@ -20,7 +19,6 @@ import { resolveCodexAutomationRunUsage } from './codex-automation-run-attributi
 import { buildRecentSessions } from './codex-usage-session-rows'
 import { buildBreakdown, buildDaily, buildSummary } from './codex-usage-rollup-projections'
 import { UsageProviderStoreLifecycle } from '../usage/usage-provider-store-lifecycle'
-import { splitUsageCacheFileViaWorker } from '../usage/usage-scan-worker-spawn'
 
 const SCHEMA_VERSION = CODEX_USAGE_SCHEMA_VERSION
 
@@ -86,18 +84,13 @@ export class CodexUsageStore extends UsageProviderStoreLifecycle<
 > {
   constructor(store: Pick<Store, 'getRepos' | 'getAllWorktreeMeta'>) {
     super(store, {
-      tokenUsage: {
-        provider: 'codex',
-        selectSessions: (state) => codexOpenCodeTokenSessions(state.sessions)
-      },
       logTag: '[codex-usage]',
       resolveCacheFile: getCodexUsageFile,
       createDefaultState: getDefaultState,
       normalizeState: normalizePersistedState,
       sourceKey: 'processedFiles',
       dataPresenceKey: 'hasAnyCodexData',
-      scan: codexUsageProvider.scan,
-      splitCacheFile: splitUsageCacheFileViaWorker
+      scan: codexUsageProvider.scan
     })
   }
 
@@ -145,7 +138,6 @@ export class CodexUsageStore extends UsageProviderStoreLifecycle<
   }
 
   async getAutomationRunUsage(input: AutomationUsageLookupInput): Promise<AutomationRunUsage> {
-    await this.whenLoaded()
     return resolveCodexAutomationRunUsage(input, {
       getState: () => this.state,
       refresh: (force) => this.refresh(force),

@@ -4,11 +4,10 @@ export type WindowVisibilityTimeoutPollerTimer = ReturnType<typeof setTimeout>
 
 export function installWindowVisibilityTimeoutPoller(args: {
   run: () => Promise<void> | void
-  getDelayMs: () => number | null
-  cooldownMs?: number
+  getDelayMs: () => number
   setTimeoutFn?: (callback: () => void, delayMs: number) => WindowVisibilityTimeoutPollerTimer
   clearTimeoutFn?: (handle: WindowVisibilityTimeoutPollerTimer) => void
-}): (() => void) & { refresh: () => void } {
+}): () => void {
   const setTimeoutFn =
     args.setTimeoutFn ??
     ((callback: () => void, delayMs: number): WindowVisibilityTimeoutPollerTimer =>
@@ -19,99 +18,62 @@ export function installWindowVisibilityTimeoutPoller(args: {
   let timeoutId: WindowVisibilityTimeoutPollerTimer | null = null
   let disposed = false
   let inFlight = false
-  let lastRunAt = -Infinity
 
   const clearScheduledPoll = (): void => {
-    if (timeoutId === null) {
+    if (!timeoutId) {
       return
     }
     clearTimeoutFn(timeoutId)
     timeoutId = null
   }
 
-  const schedulePoll = (remainingMs?: number): void => {
+  const schedulePoll = (): void => {
     clearScheduledPoll()
     if (disposed || !isWindowVisible()) {
-      return
-    }
-    const delayMs = args.getDelayMs()
-    if (delayMs === null) {
       return
     }
     timeoutId = setTimeoutFn(() => {
       timeoutId = null
       runAndSchedule()
-    }, remainingMs ?? delayMs)
+    }, args.getDelayMs())
   }
 
-  function runAndSchedule(explicitRefresh = false): void {
+  function runAndSchedule(): void {
+    clearScheduledPoll()
     if (disposed || !isWindowVisible() || inFlight) {
       return
     }
-    const elapsedMs = Date.now() - lastRunAt
-    const cooldownRemainingMs = (args.cooldownMs ?? 0) - elapsedMs
-    if (cooldownRemainingMs > 0) {
-      if (explicitRefresh) {
-        clearScheduledPoll()
-        timeoutId = setTimeoutFn(() => {
-          timeoutId = null
-          runAndSchedule(true)
-        }, cooldownRemainingMs)
-      }
-      return
-    }
-    clearScheduledPoll()
-    lastRunAt = Date.now()
     inFlight = true
-    const finish = (): void => {
+    void Promise.resolve(args.run()).finally(() => {
       inFlight = false
       schedulePoll()
-    }
-    try {
-      void Promise.resolve(args.run()).then(finish, finish)
-    } catch {
-      finish()
-    }
+    })
   }
 
   const reconcileVisibility = (): void => {
     if (isWindowVisible()) {
-      const delayMs = args.getDelayMs()
-      const elapsedMs = Date.now() - lastRunAt
-      if (args.cooldownMs && delayMs !== null && elapsedMs < delayMs) {
-        if (timeoutId === null && !inFlight) {
-          schedulePoll(delayMs - elapsedMs)
-        }
-        return
-      }
       runAndSchedule()
     } else {
       clearScheduledPoll()
     }
   }
-  const reconcileFocus = (): void => {
-    if (args.getDelayMs() !== null) {
-      reconcileVisibility()
-    }
-  }
 
   runAndSchedule()
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('focus', reconcileFocus)
+    window.addEventListener('focus', reconcileVisibility)
   }
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', reconcileVisibility)
   }
 
-  const cleanup = (): void => {
+  return () => {
     disposed = true
     clearScheduledPoll()
     if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-      window.removeEventListener('focus', reconcileFocus)
+      window.removeEventListener('focus', reconcileVisibility)
     }
     if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
       document.removeEventListener('visibilitychange', reconcileVisibility)
     }
   }
-  return Object.assign(cleanup, { refresh: () => runAndSchedule(true) })
 }

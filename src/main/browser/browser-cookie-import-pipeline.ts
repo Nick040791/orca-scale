@@ -1,5 +1,4 @@
 import { dialog, session, type BrowserWindow } from 'electron'
-import { summarizePartitionSkips } from './browser-cookie-partition-summary'
 import type {
   BrowserCookieImportResult,
   BrowserCookieImportSummary
@@ -213,7 +212,7 @@ export async function importValidatedCookies(
     importedCookies: phase.importedCount,
     skippedCookies: skipped,
     ...(googleCookiesSkipped > 0 ? { googleCookiesSkipped } : {}),
-    ...summarizePartitionSkips(plan.skips),
+    ...(partitionSkipped > 0 ? { partitionSkippedCookies: partitionSkipped } : {}),
     domains: [...phase.domains].sort()
   }
 

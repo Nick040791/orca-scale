@@ -11,7 +11,7 @@ export function WorkspaceSpaceManagerView({
   model: WorkspaceSpaceManagerModel
 }): React.JSX.Element {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="space-y-5">
       <WorkspaceSpaceManagerOverview model={model} />
       <WorkspaceSpaceManagerToolbar model={model} />
       <WorkspaceSpaceManagerTable model={model} />

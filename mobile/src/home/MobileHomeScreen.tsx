@@ -11,13 +11,14 @@ import { hostRouteWithNotice } from '../host-route-notice'
 import { useResponsiveLayout } from '../layout/responsive-layout'
 import { triggerMediumImpact } from '../platform/haptics'
 import { useOpenMobileSession } from '../session/use-open-mobile-session'
+import type { TaskProvider } from '../tasks/mobile-task-providers'
 import { useOpenMobileTasks } from '../tasks/use-open-mobile-tasks'
 import { colors } from '../theme/mobile-theme'
 import {
   useDisconnectHostClient,
   useForceReconnect,
   useForgetHostClient
-} from '../transport/host-client-hooks'
+} from '../transport/client-context'
 import { hostEndpointLabel } from '../transport/host-endpoint-label'
 import { resolveHomeHostConnectionState } from '../transport/home-host-auto-connect'
 import { removeHostAndCloseClient } from '../transport/host-removal-lifecycle'
@@ -64,6 +65,15 @@ export function MobileHomeScreen() {
       })
     },
     [data.router, openMobileSession]
+  )
+
+  const openTasks = useCallback(
+    (provider?: TaskProvider) => {
+      if (data.primaryHost) {
+        openMobileTasks(data.primaryHost.id, provider)
+      }
+    },
+    [data.primaryHost, openMobileTasks]
   )
 
   function openHost(host: HostCatalogEntry): void {
@@ -120,12 +130,13 @@ export function MobileHomeScreen() {
             <MobileHomeListFooter
               accountsHosts={data.accountsHosts}
               connectedHosts={data.connectedHosts}
+              primaryHost={data.primaryHost}
+              primaryTaskProviders={data.primaryTaskProviders}
               resumeCard={data.resumeCard}
-              taskProvidersByHost={data.taskProvidersByHost}
               onCreateWorkspace={(hostId) => data.router.push(hostNewWorktreeRoute(hostId))}
               onOpenAccounts={openMobileAccounts}
               onOpenResume={openResume}
-              onOpenTasks={openMobileTasks}
+              onOpenTasks={openTasks}
               onPairDesktop={() => data.router.push('/pair-scan')}
             />
           }

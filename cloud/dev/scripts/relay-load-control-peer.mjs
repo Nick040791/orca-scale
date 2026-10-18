@@ -11,9 +11,6 @@ const { buildHostProofMacInput, HOST_CHALLENGE_PLAINTEXT_DOMAIN } = await import
   requireFromRelay.resolve('@orca-cloud/relay-contract')
 )
 
-export const CONTROL_SILENCE_LIMIT_MS = 75_000
-const CONTROL_SILENCE_CHECK_INTERVAL_MS = 15_000
-
 const REPORTABLE_ASSIGNMENT_ERRORS = [
   'relay_capacity_exhausted',
   'relay_connection_headroom_exhausted',
@@ -191,8 +188,7 @@ export class RelayLoadControlPeer {
     this.index = index
     this.options = options
     this.observe = observe
-    // A twin shares a host's keys, so it can seat the same relay host on a second cell.
-    this.keys = options.keys ?? nacl.box.keyPair()
+    this.keys = nacl.box.keyPair()
     this.relayHostId = createHash('sha256')
       .update(this.keys.publicKey)
       .digest('base64url')
@@ -214,8 +210,7 @@ export class RelayLoadControlPeer {
     this.spliceSequence = 0
   }
 
-  // `assignment`, when given, is used instead of asking the director.
-  connect(assignment) {
+  connect() {
     if (
       this.stopped ||
       this.connecting ||
@@ -224,7 +219,7 @@ export class RelayLoadControlPeer {
       return Promise.resolve()
     }
     this.connecting = true
-    const operation = this.connectOnce(assignment)
+    const operation = this.connectOnce()
     this.inFlight.add(operation)
     const finish = () => {
       this.connecting = false
@@ -238,12 +233,12 @@ export class RelayLoadControlPeer {
     return this.lastAssignment?.cellUrl
   }
 
-  async connectOnce(givenAssignment) {
+  async connectOnce() {
     let socket = null
     try {
       const relayToken = await this.relayToken()
       if (this.stopped) return
-      const assignment = givenAssignment ?? (await this.assignment(relayToken))
+      const assignment = await this.assignment(relayToken)
       if (this.stopped) return
       this.lastAssignment = assignment
       socket = this.createSocket(assignment, relayToken)
@@ -281,7 +276,6 @@ export class RelayLoadControlPeer {
       this.generation = ack.generation
       this.controlResumeSecret = ack.controlResumeSecret
       socket.on('message', (data) => this.onMessage(socket, data))
-      this.watchSilence(socket)
       socket.once('close', (code) => this.onClose(socket, code))
       socket.once('error', (error) => this.observe('socketError', { index: this.index, error }))
       this.observe('connected', { index: this.index })
@@ -745,9 +739,7 @@ export class RelayLoadControlPeer {
         body: JSON.stringify({
           v: 1,
           relayHostId: this.relayHostId,
-          ...(preferredRegion ? { preferredRegion } : {}),
-          // Desktops declare a reconnect after an established control; the director's sticky lane needs it.
-          ...(this.generation === undefined ? {} : { reconnect: true })
+          ...(preferredRegion ? { preferredRegion } : {})
         })
       },
       'relay assignment timeout',
@@ -825,23 +817,6 @@ export class RelayLoadControlPeer {
       this.drainExpected = true
       this.observe('drain', { index: this.index })
     }
-  }
-
-  // Desktops close a control after 75 s with no inbound frame (the cell pings every 15 s); the
-  // load balancer keeps a dead backend's client socket open, so without this a host never re-assigns.
-  watchSilence(socket) {
-    let lastInboundAt = Date.now()
-    const noteInbound = () => {
-      lastInboundAt = Date.now()
-    }
-    socket.on('message', noteInbound)
-    socket.on('ping', noteInbound)
-    socket.on('pong', noteInbound)
-    const timer = setInterval(() => {
-      if (Date.now() - lastInboundAt > CONTROL_SILENCE_LIMIT_MS) socket.terminate()
-    }, CONTROL_SILENCE_CHECK_INTERVAL_MS)
-    timer.unref?.()
-    socket.once('close', () => clearInterval(timer))
   }
 
   onClose(socket, code) {

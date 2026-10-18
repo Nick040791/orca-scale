@@ -36,9 +36,15 @@ describe('StatusIndicator', () => {
   it('renders working as a yellow spinner ring', () => {
     const markup = renderMarkup('working')
 
-    // The spinner's own classes and animation contract belong to AgentWorkingSpinner.test.tsx;
-    // this pins only that 'working' reaches for it.
+    expect(markup).toContain('border-yellow-500')
+    expect(markup).toContain('border-t-transparent')
+    // Why: rotation must come from the compositor-driven CSS animation, not a
+    // JS clock writing per-element styles on the input thread (STA-3328).
+    expect(markup).toContain('agent-working-spinner')
     expect(markup).toContain('data-agent-spinner')
+    // Why: under reduced motion the top border is filled so the static ring
+    // reads as a complete marker, not a broken partial spinner (#9515).
+    expect(markup).toContain('motion-reduce:border-t-yellow-500')
   })
 
   it('renders monitoring as a static heartbeat glyph', () => {
@@ -72,16 +78,11 @@ describe('StatusIndicator', () => {
     expect(classNames).toContain('bg-emerald-500')
   })
 
-  it("renders a user's Stop muted, distinct from done and from a failure", () => {
+  it('renders interrupted distinctly from done', () => {
     const classNames = renderDotClassNames('interrupted')
 
-    expect(classNames).toContain('bg-muted-foreground')
+    expect(classNames).toContain('bg-red-500')
     expect(classNames).not.toContain('bg-emerald-500')
-    expect(classNames).not.toContain('bg-red-500')
-  })
-
-  it('renders failed as a red dot', () => {
-    expect(renderDotClassNames('failed')).toContain('bg-red-500')
   })
 
   it.each([

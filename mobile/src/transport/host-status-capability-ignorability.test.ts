@@ -11,8 +11,8 @@ import { supportsMobileQuickCommands } from '../terminal/quick-commands'
 import { useHostStatusGates, type HostStatusGates } from './host-status-gates'
 import {
   hostAnsweredStatusProbe,
-  readProbedHostCapabilities,
-  readProbedHostStatus
+  readHostStatusGates,
+  readProbedHostCapabilities
 } from './host-status-probe-operations'
 import type { HostStatusReply } from './host-status-reply-schema'
 import type { RpcClient } from './rpc-client'
@@ -107,7 +107,7 @@ async function readEverything(capabilities: readonly string[]): Promise<ClientVi
   const gates = await renderGates(client)
   return {
     gates,
-    gateStatus: readProbedHostStatus(reply)?.status ?? null,
+    gateStatus: readHostStatusGates(reply),
     probedCapabilities: readProbedHostCapabilities(reply),
     answeredProbe: hostAnsweredStatusProbe(reply),
     quickCommandsSupported: supportsMobileQuickCommands(gates.hostCapabilities),

@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react'
-import { Loader2, MonitorSmartphone, Server, ServerOff } from 'lucide-react'
+import React, { useCallback, useMemo } from 'react'
+import { AlertTriangle, Loader2, MonitorSmartphone, Server, ServerOff } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DropdownMenu,
@@ -14,30 +14,53 @@ import { translate } from '@/i18n/i18n'
 import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
 import {
   isRuntimeOwnedSshTargetId,
-  toRuntimeExecutionHostId,
-  toSshExecutionHostId
+  toRuntimeExecutionHostId
 } from '../../../../shared/execution-host'
-import { buildExecutionHostRegistry } from '../../../../shared/execution-host-registry'
-import { pickerExecutionHosts } from '../../../../shared/managed-orcad-execution-host'
-import { isListedRemoteServer } from '../../../../shared/runtime-environments'
+import { isUserManagedRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import { RuntimeHostStatusRow } from './RuntimeHostStatusRow'
-import { connectedHostCountLabel, connectingHostsLabel } from './ssh-status-segment-copy'
+import {
+  connectedHostCountLabel,
+  connectingHostsLabel,
+  workspaceSyncProblemLabel
+} from './ssh-status-segment-copy'
 import { SshTargetStatusRow } from './SshTargetStatusRow'
-import { syncSshConfigTargetsPassively } from '../../lib/ssh-config-passive-sync'
-import { connectRuntimeHostAndReloadProjects } from './runtime-environment-explicit-connect'
+import { connectRuntimeEnvironmentAndRecordStatus } from './runtime-environment-explicit-connect'
 import {
   overallDotColor,
   overallStatus,
-  runtimeHostBlockedCopy,
   runtimeHostConnectionDetail,
-  runtimeHostStatusForOverall,
   sshStatusForOverall
 } from './remote-host-connection-status'
 import {
   isConnectedRuntimeHostState,
-  runtimeHostConnectionStateForEntry
+  runtimeHostConnectionStateForEntry,
+  runtimeStatusForOverall
 } from '@/runtime/runtime-host-connection-state'
-import { RuntimeRepairDialog } from '../settings/RuntimeRepairDialog'
+import { refreshRuntimeProjectWorktreesAndLineage } from '@/hooks/runtime-project-refresh-scheduler'
+import type { ExecutionHostId } from '../../../../shared/execution-host'
+
+export async function connectRuntimeHostForNavigation(args: {
+  environmentId: string
+  refreshStatus: (environmentId: string, timeoutMs: number) => Promise<boolean>
+  fetchRepos: (environmentId: string) => Promise<{ id: string }[]>
+  fetchWorktrees: (
+    repoId: string,
+    options: { executionHostId: ExecutionHostId; suppressRemoteLineageRefresh: true }
+  ) => Promise<unknown>
+  fetchLineage: (options: { executionHostId: ExecutionHostId }) => Promise<unknown>
+}): Promise<boolean> {
+  if (!(await args.refreshStatus(args.environmentId, 5_000))) {
+    return false
+  }
+  const repos = await args.fetchRepos(args.environmentId)
+  await refreshRuntimeProjectWorktreesAndLineage(
+    args.environmentId,
+    repos,
+    args.fetchWorktrees,
+    args.fetchLineage
+  )
+  return true
+}
 
 export function SshStatusSegment({
   compact,
@@ -53,59 +76,35 @@ export function SshStatusSegment({
   const runtimeStatusByEnvironmentId = useAppStore((s) => s.runtimeStatusByEnvironmentId)
   const readRuntimeHostStatusSnapshots = useAppStore((s) => s.readRuntimeHostStatusSnapshots)
   const hydrateRuntimeEnvironmentStatuses = useAppStore((s) => s.hydrateRuntimeEnvironmentStatuses)
+  const remoteWorkspaceSyncStatusByTargetId = useAppStore(
+    (s) => s.remoteWorkspaceSyncStatusByTargetId
+  )
   const setActiveView = useAppStore((s) => s.setActiveView)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const recordFeatureInteraction = useAppStore((s) => s.recordFeatureInteraction)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [repairTarget, setRepairTarget] = useState<{ id: string; label: string } | null>(null)
 
   const hostLabelOverrides = useMemo(() => getHostDisplayLabelOverrides(settings), [settings])
-  const userManagedEnvironments = runtimeEnvironments.filter(isListedRemoteServer)
-  // Why the registry: a managed server and its SSH host are one machine, shown on its active route.
-  const visibleHosts = new Map(
-    pickerExecutionHosts(
-      buildExecutionHostRegistry({
-        repos: [],
-        settings,
-        hostSource: 'configured-only',
-        sshTargetLabels,
-        sshConnectionStates,
-        runtimeEnvironments: userManagedEnvironments,
-        runtimeStatusByEnvironmentId,
-        hostLabelOverrides
-      })
-    ).map((host) => [host.id, host])
-  )
   const targets = Array.from(sshTargetLabels.entries())
     // Why: runtime-owned (per-workspace-env) SSH targets are hidden — never list them
     // as a user-facing SSH host in the status bar.
-    .filter(([id]) => !isRuntimeOwnedSshTargetId(id) && visibleHosts.has(toSshExecutionHostId(id)))
+    .filter(([id]) => !isRuntimeOwnedSshTargetId(id))
     .map(([id, label]) => {
       const state = sshConnectionStates.get(id)
       return {
         id,
-        label: visibleHosts.get(toSshExecutionHostId(id))?.label || label,
-        status: state?.status ?? ('disconnected' satisfies SshConnectionStatus)
+        label,
+        status: (state?.status ?? 'disconnected') as SshConnectionStatus,
+        syncStatus: remoteWorkspaceSyncStatusByTargetId[id]
       }
     })
-  const runtimeHosts = userManagedEnvironments
-    .filter((environment) => visibleHosts.has(toRuntimeExecutionHostId(environment.id)))
+  const runtimeHosts = runtimeEnvironments
+    .filter(isUserManagedRuntimeEnvironment)
     .map((environment) => {
       const statusEntry = runtimeStatusByEnvironmentId.get(environment.id)
-      const registryHost = visibleHosts.get(toRuntimeExecutionHostId(environment.id))
-      // Why the registry's verdict: it is the same blocked reason the sidebar and Settings show.
-      const blockedReason =
-        registryHost?.health === 'blocked' ? registryHost.blockedReason : undefined
+      const override = hostLabelOverrides.get(toRuntimeExecutionHostId(environment.id))
       return {
         id: environment.id,
-        label: registryHost?.label || environment.name || environment.id,
-        blockedReason,
-        blocked: blockedReason
-          ? {
-              ...runtimeHostBlockedCopy(blockedReason, registryHost?.compatibility),
-              canRepair: blockedReason === 'access-revoked'
-            }
-          : null,
+        label: override || environment.name || environment.id,
         snapshot: statusEntry?.snapshot,
         status: statusEntry?.status ?? null,
         active: settings?.activeRuntimeEnvironmentId === environment.id,
@@ -128,9 +127,24 @@ export function SshStatusSegment({
   const disconnectedTargets = targets.filter((target) => target.status !== 'connected')
   const connectRuntimeHost = useCallback(
     async (environmentId: string): Promise<void> => {
-      if (await connectRuntimeHostAndReloadProjects(environmentId)) {
-        recordFeatureInteraction('ssh')
+      const store = useAppStore.getState()
+      const reachable = await connectRuntimeHostForNavigation({
+        environmentId,
+        refreshStatus: connectRuntimeEnvironmentAndRecordStatus,
+        fetchRepos: store.fetchRuntimeEnvironmentRepos,
+        fetchWorktrees: store.fetchWorktrees,
+        fetchLineage: store.fetchWorktreeLineage
+      })
+      if (!reachable) {
+        toast.error(
+          translate(
+            'auto.components.status.bar.SshStatusSegment.runtime_connect_unavailable',
+            'Remote host is not reachable'
+          )
+        )
+        return
       }
+      recordFeatureInteraction('ssh')
     },
     [recordFeatureInteraction]
   )
@@ -160,24 +174,22 @@ export function SshStatusSegment({
 
   const statuses = [
     ...targets.map((t) => sshStatusForOverall(t.status)),
-    ...runtimeHostRows.map((host) => runtimeHostStatusForOverall(host.state, host.blockedReason))
+    ...runtimeHostRows.map((host) => runtimeStatusForOverall(host.state))
   ]
   const overall = overallStatus(statuses)
   const connectedHostCount = statuses.filter((status) => status === 'connected').length
   const anyConnecting = overall === 'connecting'
-  const openRepair = (host: { id: string; label: string }): void => {
-    // Why close first: the dialog must not open underneath the menu's focus trap.
-    setMenuOpen(false)
-    setRepairTarget({ id: host.id, label: host.label })
-  }
+  const syncProblem = targets.find(
+    (t) => t.syncStatus?.phase === 'conflict' || t.syncStatus?.phase === 'error'
+  )
+  const syncProblemLabel = syncProblem
+    ? workspaceSyncProblemLabel(syncProblem.syncStatus?.phase)
+    : null
   return (
     <DropdownMenu
-      open={menuOpen}
       onOpenChange={(open) => {
-        setMenuOpen(open)
         if (open) {
           void hydrateRuntimeEnvironmentStatuses()
-          void syncSshConfigTargetsPassively()
           recordFeatureInteraction('ssh')
         }
       }}
@@ -194,9 +206,13 @@ export function SshStatusSegment({
           {iconOnly ? (
             <span className="inline-flex items-center gap-1">
               <span
-                className={`inline-block size-2 rounded-full ${overallDotColor(overall, connectedHostCount)}`}
+                className={`inline-block size-2 rounded-full ${
+                  syncProblem ? 'bg-destructive' : overallDotColor(overall, connectedHostCount)
+                }`}
               />
-              {anyConnecting ? (
+              {syncProblem ? (
+                <AlertTriangle className="size-3 text-destructive" />
+              ) : anyConnecting ? (
                 <Loader2 className="size-3 animate-spin text-muted-foreground" />
               ) : (
                 <MonitorSmartphone className="size-3 text-muted-foreground" />
@@ -204,16 +220,12 @@ export function SshStatusSegment({
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              {anyConnecting ? (
+              {syncProblem ? (
+                <AlertTriangle className="size-3 text-destructive" />
+              ) : anyConnecting ? (
                 <Loader2 className="size-3 animate-spin text-yellow-500" />
               ) : overall === 'connected' ? (
                 <Server className="size-3 text-emerald-500" />
-              ) : overall === 'attention' ? (
-                connectedHostCount > 0 ? (
-                  <Server className="size-3 text-destructive" />
-                ) : (
-                  <ServerOff className="size-3 text-destructive" />
-                )
               ) : overall === 'partial' ? (
                 <Server className="size-3 text-muted-foreground" />
               ) : (
@@ -221,15 +233,18 @@ export function SshStatusSegment({
               )}
               {!compact && (
                 <span className="text-[11px]">
-                  <span className="text-muted-foreground">
-                    {anyConnecting
-                      ? connectingHostsLabel()
-                      : connectedHostCountLabel(connectedHostCount)}
+                  <span className={syncProblem ? 'text-destructive' : 'text-muted-foreground'}>
+                    {syncProblemLabel ??
+                      (anyConnecting
+                        ? connectingHostsLabel()
+                        : connectedHostCountLabel(connectedHostCount))}
                   </span>
                 </span>
               )}
               <span
-                className={`inline-block size-1.5 rounded-full ${overallDotColor(overall, connectedHostCount)}`}
+                className={`inline-block size-1.5 rounded-full ${
+                  syncProblem ? 'bg-destructive' : overallDotColor(overall, connectedHostCount)
+                }`}
               />
             </span>
           )}
@@ -251,14 +266,18 @@ export function SshStatusSegment({
             state={host.state}
             detail={runtimeHostConnectionDetail(host.remoteControl)}
             diagnostics={host.remoteControl}
-            blocked={host.blocked}
             onConnect={() => connectRuntimeHost(host.id)}
             onDisconnect={() => disconnectRuntimeHost(host.id)}
-            onRepair={() => openRepair(host)}
           />
         ))}
         {connectedTargets.map((t) => (
-          <SshTargetStatusRow key={t.id} targetId={t.id} label={t.label} status={t.status} />
+          <SshTargetStatusRow
+            key={t.id}
+            targetId={t.id}
+            label={t.label}
+            status={t.status}
+            syncStatus={t.syncStatus}
+          />
         ))}
         {inactiveRuntimeHosts.map((host) => (
           <RuntimeHostStatusRow
@@ -267,14 +286,18 @@ export function SshStatusSegment({
             state={host.state}
             detail={runtimeHostConnectionDetail(host.remoteControl)}
             diagnostics={host.remoteControl}
-            blocked={host.blocked}
             onConnect={() => connectRuntimeHost(host.id)}
             onDisconnect={() => disconnectRuntimeHost(host.id)}
-            onRepair={() => openRepair(host)}
           />
         ))}
         {disconnectedTargets.map((t) => (
-          <SshTargetStatusRow key={t.id} targetId={t.id} label={t.label} status={t.status} />
+          <SshTargetStatusRow
+            key={t.id}
+            targetId={t.id}
+            label={t.label}
+            status={t.status}
+            syncStatus={t.syncStatus}
+          />
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -290,14 +313,6 @@ export function SshStatusSegment({
           )}
         </DropdownMenuItem>
       </DropdownMenuContent>
-      {repairTarget && (
-        <RuntimeRepairDialog
-          open
-          onOpenChange={(open) => !open && setRepairTarget(null)}
-          environmentId={repairTarget.id}
-          name={repairTarget.label}
-        />
-      )}
     </DropdownMenu>
   )
 }

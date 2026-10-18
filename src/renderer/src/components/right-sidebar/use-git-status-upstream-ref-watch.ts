@@ -1,9 +1,8 @@
 import { useCallback, useEffect } from 'react'
 import { getConnectionId } from '@/lib/connection-context'
-import { setRuntimeGitStatusUpstreamRefWatch } from '@/runtime/runtime-git-status-client'
+import { setRuntimeGitStatusUpstreamRefWatch } from '@/runtime/runtime-git-client'
 import type { GitStatusResult } from '../../../../shared/git-status-types'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import { getWorktreeGitOwnerTarget } from './worktree-git-owner-target'
+import { getRightSidebarWorktreeRuntimeSettings } from './file-explorer-runtime-owner'
 
 export function useGitStatusUpstreamRefWatch(args: {
   enabled: boolean
@@ -11,12 +10,12 @@ export function useGitStatusUpstreamRefWatch(args: {
   worktreeId: string | null
   worktreePath: string | null
 }): (status: GitStatusResult) => void {
-  const owner = getWorktreeGitOwnerTarget(args.worktreeId)
-  // Why a string: it keys the effect, and a fresh target object each render would re-arm it.
-  const runtimeEnvironmentId = owner?.kind === 'environment' ? owner.environmentId : null
+  const runtimeEnvironmentId = args.worktreeId
+    ? getRightSidebarWorktreeRuntimeSettings(args.worktreeId).activeRuntimeEnvironmentId
+    : null
   const connectionId = args.worktreeId ? (getConnectionId(args.worktreeId) ?? undefined) : undefined
   const scope =
-    args.enabled && args.executionHostId && owner
+    args.enabled && args.executionHostId
       ? `${args.executionHostId}\0${runtimeEnvironmentId}\0${args.worktreeId}\0${args.worktreePath}`
       : null
 
@@ -30,7 +29,7 @@ export function useGitStatusUpstreamRefWatch(args: {
         : undefined
       void setRuntimeGitStatusUpstreamRefWatch(
         {
-          target: runtimeTargetForOwnerEnvironment(runtimeEnvironmentId),
+          settings: { activeRuntimeEnvironmentId: runtimeEnvironmentId },
           worktreeId: args.worktreeId,
           worktreePath: args.worktreePath,
           connectionId
@@ -62,7 +61,7 @@ export function useGitStatusUpstreamRefWatch(args: {
     return () => {
       void setRuntimeGitStatusUpstreamRefWatch(
         {
-          target: runtimeTargetForOwnerEnvironment(runtimeEnvironmentId),
+          settings: { activeRuntimeEnvironmentId: runtimeEnvironmentId },
           worktreeId,
           worktreePath,
           connectionId

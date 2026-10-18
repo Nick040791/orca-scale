@@ -10,11 +10,10 @@ import {
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, parse, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runProcessSync } from '@orca/process-host'
+import { runProcessSync } from '../../src/shared/child-process/run-process.ts'
 import { resolveCliCommand } from '../../src/shared/node-cli-command-resolution.ts'
 import { removeTreeSync } from '../../src/shared/windows-transient-lock-removal.ts'
 import { resolvePnpmCliInvocation } from './pnpm-cli-invocation.mjs'
-import { workspacePackageManifests } from './workspace-source-exports.mjs'
 
 /**
  * Run the command that actually consumes the patch hashes.
@@ -59,13 +58,7 @@ describe('patched dependencies', () => {
     // lockfile this repo does not track, and the real one must not move.
     const scratch = mkdtempSync(join(tmpdir(), 'orca-frozen-install-'))
     try {
-      for (const file of [
-        'package.json',
-        'pnpm-lock.yaml',
-        'pnpm-workspace.yaml',
-        ...workspacePackageManifests(PROJECT_DIR)
-      ]) {
-        mkdirSync(resolve(scratch, file, '..'), { recursive: true })
+      for (const file of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
         copyFileSync(join(PROJECT_DIR, file), join(scratch, file))
       }
       mkdirSync(join(scratch, 'config'), { recursive: true })

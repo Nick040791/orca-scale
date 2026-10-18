@@ -11,10 +11,6 @@ import {
 import { profileStateJsonExportPaths } from './profile-state-export-path'
 import { profileStateDatabaseBackupFiles } from '../profile-state-backup-path'
 import {
-  hasProfileStateAuthorityMarker,
-  profileStateAuthorityMarkerPath
-} from '../profile-state-authority-marker'
-import {
   assertProfileStateMaintenance,
   type ProfileStateMaintenance
 } from '../profile-state-access'
@@ -44,11 +40,6 @@ export function restoreProfileStateJsonExport(
   const retainedExports = profileStateJsonExportPaths(options.dataFile)
   const retainedBackups = profileStateDatabaseBackupFiles(options.databasePath)
   const recoveryFiles = [options.exportPath, ...retainedExports, ...retainedBackups]
-  const authorityMarker = profileStateAuthorityMarkerPath(options.databasePath)
-  const hasAuthorityMarker = hasProfileStateAuthorityMarker(options.databasePath)
-  if (hasAuthorityMarker) {
-    recoveryFiles.push(authorityMarker)
-  }
   if (existsSync(options.dataFile)) {
     recoveryFiles.push(options.dataFile)
   }
@@ -78,9 +69,6 @@ export function restoreProfileStateJsonExport(
     if (path !== options.exportPath) {
       rmSync(path)
     }
-  }
-  if (hasAuthorityMarker) {
-    rmSync(authorityMarker)
   }
   // Keep the selected revision retryable until no reserved artifact can block JSON startup.
   if (retainedArtifacts.includes(options.exportPath)) {

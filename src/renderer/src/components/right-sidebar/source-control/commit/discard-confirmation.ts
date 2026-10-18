@@ -10,10 +10,11 @@ export type DiscardConfirmationCopy = {
 }
 
 /**
- * Discard removes untracked files; staged additions retain their index version.
+ * Untracked and newly-added paths have no HEAD version to restore, so Orca's discard removes the
+ * working-tree file. Every surface that names the operation must say "delete" for these.
  */
 export function discardDeletesEntryFile(entry: Pick<GitStatusEntry, 'area' | 'status'>): boolean {
-  return entry.area === 'untracked' || entry.status === 'untracked'
+  return entry.area === 'untracked' || entry.status === 'untracked' || entry.status === 'added'
 }
 
 export function getDiscardEntryConfirmationCopy(
@@ -44,8 +45,8 @@ export function getDiscardEntryConfirmationCopy(
         { value0: name }
       ),
       description: translate(
-        'sourceControl.discard.restoreStagedVersionDescription',
-        'This will restore the last staged version and discard the deletion. This cannot be undone.'
+        'auto.components.right.sidebar.source.control.discard.confirmation.40e9357b2a',
+        'This will restore the file from HEAD and discard the deletion. This cannot be undone.'
       ),
       confirmLabel: 'Restore'
     }
@@ -58,8 +59,8 @@ export function getDiscardEntryConfirmationCopy(
       { value0: name }
     ),
     description: translate(
-      'sourceControl.discard.unstagedChangesDescription',
-      'This will revert the unstaged changes to this file. This cannot be undone.'
+      'auto.components.right.sidebar.source.control.discard.confirmation.1426c2efff',
+      'This will revert all changes to this file. This cannot be undone.'
     ),
     confirmLabel: 'Discard'
   }

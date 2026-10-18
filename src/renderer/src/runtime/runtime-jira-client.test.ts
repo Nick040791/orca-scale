@@ -3,27 +3,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   jiraCreateIssue,
-  jiraUpdateIssue,
   jiraGetIssue,
   jiraIssueComments,
   jiraListAssignableUsers,
-  jiraListAssignableUsersForProject,
   jiraLookupIssueSummary,
   jiraReadStatus,
   jiraSearchIssues,
-  jiraSearchIssuesForTarget,
-  jiraStatusForTarget,
-  jiraSearchUsers,
-  jiraListIssues
+  jiraSearchUsers
 } from './runtime-jira-client'
-import { JIRA_IMAGE_CAPABILITY } from '../../../shared/jira-attachment-image'
-import { clearJiraImageCache } from './runtime-jira-image-cache'
 import { clearRuntimeCompatibilityCacheForTests } from './runtime-rpc-client'
 import { createCompatibleRuntimeStatusResponse } from './runtime-compatibility-test-fixture'
 import {
   JIRA_USER_FIELDS_RUNTIME_CAPABILITY,
-  JIRA_TRANSITION_FIELDS_RUNTIME_CAPABILITY,
-  JIRA_CURRENT_SPRINT_RUNTIME_CAPABILITY,
   JIRA_USER_FIELDS_UPDATE_REQUIRED_MESSAGE
 } from '../../../shared/protocol-version'
 
@@ -31,10 +22,8 @@ type RuntimeSubscribeArgs = Parameters<typeof window.api.runtimeEnvironments.sub
 type RuntimeSubscribeCallbacks = Parameters<typeof window.api.runtimeEnvironments.subscribe>[1]
 
 const jiraSearchIssuesLocal = vi.fn()
-const jiraStatusLocal = vi.fn()
 const jiraListAssignableUsersLocal = vi.fn()
 const jiraSearchUsersLocal = vi.fn()
-const jiraProjectUsersLocal = vi.fn()
 const jiraCreateIssueLocal = vi.fn()
 const jiraReadStatusLocal = vi.fn()
 const jiraLookupIssueSummaryLocal = vi.fn()
@@ -45,10 +34,8 @@ const runtimeSubscribe = vi.fn()
 beforeEach(() => {
   clearRuntimeCompatibilityCacheForTests()
   jiraSearchIssuesLocal.mockReset()
-  jiraStatusLocal.mockReset()
   jiraListAssignableUsersLocal.mockReset()
   jiraSearchUsersLocal.mockReset()
-  jiraProjectUsersLocal.mockReset()
   jiraCreateIssueLocal.mockReset()
   jiraReadStatusLocal.mockReset()
   jiraLookupIssueSummaryLocal.mockReset()
@@ -58,14 +45,12 @@ beforeEach(() => {
   vi.stubGlobal('window', {
     api: {
       jira: {
-        status: jiraStatusLocal,
         readStatus: jiraReadStatusLocal,
         lookupIssueSummary: jiraLookupIssueSummaryLocal,
         cancelIssueSummary: jiraCancelIssueSummaryLocal,
         searchIssues: jiraSearchIssuesLocal,
         listAssignableUsers: jiraListAssignableUsersLocal,
         searchUsers: jiraSearchUsersLocal,
-        listAssignableUsersForProject: jiraProjectUsersLocal,
         createIssue: jiraCreateIssueLocal
       },
       runtimeEnvironments: {
@@ -77,31 +62,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  clearJiraImageCache()
   vi.unstubAllGlobals()
-})
-describe('current sprint runtime compatibility', () => {
-  it('rejects an old host instead of silently dropping a preset filter', async () => {
-    runtimeCall.mockImplementation(async (args) => {
-      if (args.method === 'status.get') {
-        const response = createCompatibleRuntimeStatusResponse()
-        if (!response.ok) {
-          throw new Error('Expected status fixture')
-        }
-        response.result.capabilities = response.result.capabilities?.filter(
-          (capability) => capability !== JIRA_CURRENT_SPRINT_RUNTIME_CAPABILITY
-        )
-        return response
-      }
-      return { id: 'rpc-1', ok: true, result: [] }
-    })
-    await expect(
-      jiraListIssues({ kind: 'environment', environmentId: 'sprint-old' }, 'all', 50, 'site-a', {
-        currentSprint: true
-      })
-    ).rejects.toThrow('Update the remote Orca server')
-    expect(runtimeCall.mock.calls.some(([args]) => args.method === 'jira.listIssues')).toBe(false)
-  })
 })
 
 describe('runtime Jira client search bounds', () => {
@@ -212,51 +173,16 @@ describe('runtime Jira client search bounds', () => {
   })
 
   it('rejects oversized local Jira search before IPC', async () => {
-    await expect(
-      jiraSearchIssues({ kind: 'local' }, 'secret-token-value'.repeat(1024), 30)
-    ).resolves.toEqual([])
+    await expect(jiraSearchIssues(null, 'secret-token-value'.repeat(1024), 30)).resolves.toEqual([])
 
     expect(jiraSearchIssuesLocal).not.toHaveBeenCalled()
     expect(runtimeCall).not.toHaveBeenCalled()
   })
 
-  it('keeps explicit Jira status and search on their owner with the selected site and query bounds', async () => {
-    runtimeCall.mockImplementation(async (args: { method: string }) => {
-      if (args.method === 'status.get') {
-        return createCompatibleRuntimeStatusResponse()
-      }
-      return {
-        id: 'rpc-result',
-        ok: true,
-        result:
-          args.method === 'jira.status'
-            ? { connected: true, viewer: null, selectedSiteId: 'all' }
-            : [],
-        _meta: { runtimeId: 'source-owner-runtime' }
-      }
-    })
-    const target = { kind: 'environment', environmentId: 'source-owner' } as const
-    await expect(jiraStatusForTarget(target)).resolves.toMatchObject({
-      connected: true,
-      selectedSiteId: 'all'
-    })
-    await jiraSearchIssuesForTarget(target, 'text ~ "login*"', 12, 'all')
-    await jiraSearchIssuesForTarget(target, 'secret-token-value'.repeat(1024), 12)
-    expect(runtimeCall).toHaveBeenCalledTimes(3)
-    expect(runtimeCall).toHaveBeenLastCalledWith({
-      selector: 'source-owner',
-      method: 'jira.searchIssues',
-      params: { jql: 'text ~ "login*"', limit: 12, siteId: 'all' },
-      timeoutMs: 30_000
-    })
-    expect(jiraStatusLocal).not.toHaveBeenCalled()
-    expect(jiraSearchIssuesLocal).not.toHaveBeenCalled()
-  })
-
   it('rejects oversized runtime Jira assignee search before RPC', async () => {
     await expect(
       jiraListAssignableUsers(
-        { kind: 'environment', environmentId: 'env-1' },
+        { activeRuntimeEnvironmentId: 'env-1' },
         'ORCA-1',
         'x'.repeat(9 * 1024),
         'site-1'
@@ -270,7 +196,7 @@ describe('runtime Jira client search bounds', () => {
   it('routes local Jira user search through IPC', async () => {
     jiraSearchUsersLocal.mockResolvedValue([{ accountId: 'account-1', displayName: 'Ada' }])
 
-    await expect(jiraSearchUsers({ kind: 'local' }, 'Ada', 'site-1')).resolves.toEqual([
+    await expect(jiraSearchUsers(null, 'Ada', 'site-1')).resolves.toEqual([
       { accountId: 'account-1', displayName: 'Ada' }
     ])
 
@@ -292,7 +218,7 @@ describe('runtime Jira client search bounds', () => {
     })
 
     await expect(
-      jiraSearchUsers({ kind: 'environment', environmentId: 'env-1' }, 'Ada', 'site-1')
+      jiraSearchUsers({ activeRuntimeEnvironmentId: 'env-1' }, 'Ada', 'site-1')
     ).resolves.toEqual([{ accountId: 'account-1', displayName: 'Ada' }])
     expect(runtimeCall).toHaveBeenNthCalledWith(
       1,
@@ -311,9 +237,9 @@ describe('runtime Jira client search bounds', () => {
   it('degrades remote Jira user search when the host lacks the capability', async () => {
     runtimeCall.mockResolvedValue(createRuntimeStatusWithoutJiraUserFieldsCapability())
 
-    await expect(
-      jiraSearchUsers({ kind: 'environment', environmentId: 'env-1' }, 'Ada')
-    ).resolves.toEqual([])
+    await expect(jiraSearchUsers({ activeRuntimeEnvironmentId: 'env-1' }, 'Ada')).resolves.toEqual(
+      []
+    )
     expect(runtimeCall).toHaveBeenCalledTimes(1)
     expect(runtimeCall).not.toHaveBeenCalledWith(
       expect.objectContaining({ method: 'jira.searchUsers' })
@@ -325,7 +251,7 @@ describe('runtime Jira client search bounds', () => {
 
     await expect(
       jiraCreateIssue(
-        { kind: 'environment', environmentId: 'env-1' },
+        { activeRuntimeEnvironmentId: 'env-1' },
         {
           projectId: 'project-1',
           issueTypeId: 'type-1',
@@ -355,7 +281,7 @@ describe('runtime Jira client search bounds', () => {
 
     await expect(
       jiraCreateIssue(
-        { kind: 'environment', environmentId: 'env-1' },
+        { activeRuntimeEnvironmentId: 'env-1' },
         { projectId: 'project-1', issueTypeId: 'type-1', title: 'Issue' }
       )
     ).resolves.toMatchObject({ ok: true, key: 'ORCA-1' })
@@ -379,7 +305,7 @@ describe('runtime Jira client search bounds', () => {
 
     await expect(
       jiraCreateIssue(
-        { kind: 'environment', environmentId: 'env-1' },
+        { activeRuntimeEnvironmentId: 'env-1' },
         {
           projectId: 'project-1',
           issueTypeId: 'type-1',
@@ -406,63 +332,7 @@ describe('runtime Jira client search bounds', () => {
     )
   })
 
-  it('uses project-scoped search locally and rejects oversized queries before IPC', async () => {
-    jiraProjectUsersLocal.mockResolvedValue([])
-    await jiraListAssignableUsersForProject({ kind: 'local' }, '100', 'Ada', 'site-1')
-    expect(jiraProjectUsersLocal).toHaveBeenCalledWith({
-      projectIdOrKey: '100',
-      query: 'Ada',
-      siteId: 'site-1'
-    })
-    await jiraListAssignableUsersForProject({ kind: 'local' }, '100', 'x'.repeat(20_000), 'site-1')
-    expect(jiraProjectUsersLocal).toHaveBeenCalledTimes(1)
-  })
-
-  it('falls back to site-wide remote search only when the host supports user fields', async () => {
-    runtimeCall.mockImplementation(async (args: { method: string }) =>
-      args.method === 'status.get'
-        ? createCompatibleRuntimeStatusResponse()
-        : { id: 'rpc-1', ok: true, result: [], _meta: { runtimeId: 'remote-runtime' } }
-    )
-    await jiraListAssignableUsersForProject(
-      { kind: 'environment', environmentId: 'env-1' },
-      '100',
-      'Ada',
-      'site-1'
-    )
-    expect(runtimeCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'jira.searchUsers',
-        selector: 'env-1',
-        params: { query: 'Ada', siteId: 'site-1' }
-      })
-    )
-    expect(jiraProjectUsersLocal).not.toHaveBeenCalled()
-    clearRuntimeCompatibilityCacheForTests()
-    runtimeCall.mockReset().mockResolvedValue(createRuntimeStatusWithoutJiraUserFieldsCapability())
-    await expect(
-      jiraListAssignableUsersForProject(
-        { kind: 'environment', environmentId: 'env-1' },
-        '100',
-        'Ada',
-        'site-1'
-      )
-    ).resolves.toEqual([])
-    expect(runtimeCall).toHaveBeenCalledTimes(1)
-    expect(runtimeCall).not.toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'jira.searchUsers' })
-    )
-  })
-
-  it('streams image-bearing issue and comment payloads from older remote runtimes', async () => {
-    const status = createCompatibleRuntimeStatusResponse()
-    if (!status.ok) {
-      throw new Error('Expected successful status')
-    }
-    status.result.capabilities = status.result.capabilities?.filter(
-      (capability) => capability !== JIRA_IMAGE_CAPABILITY
-    )
-    runtimeCall.mockResolvedValue(status)
+  it('streams image-bearing issue and comment payloads from remote runtimes', async () => {
     runtimeSubscribe.mockImplementation(
       async (args: RuntimeSubscribeArgs, callbacks: RuntimeSubscribeCallbacks) => {
         const payload =
@@ -486,10 +356,10 @@ describe('runtime Jira client search bounds', () => {
     )
 
     await expect(
-      jiraGetIssue({ kind: 'environment', environmentId: 'env-1' }, 'ORCA-1', 'site-1')
+      jiraGetIssue({ activeRuntimeEnvironmentId: 'env-1' }, 'ORCA-1', 'site-1')
     ).resolves.toMatchObject({ key: 'ORCA-1' })
     await expect(
-      jiraIssueComments({ kind: 'environment', environmentId: 'env-1' }, 'ORCA-1', 'site-1')
+      jiraIssueComments({ activeRuntimeEnvironmentId: 'env-1' }, 'ORCA-1', 'site-1')
     ).resolves.toMatchObject([{ id: 'comment-1' }])
 
     expect(runtimeSubscribe).toHaveBeenNthCalledWith(
@@ -512,40 +382,6 @@ describe('runtime Jira client search bounds', () => {
       },
       expect.anything()
     )
-    expect(runtimeCall).toHaveBeenCalledWith(expect.objectContaining({ method: 'status.get' }))
-  })
-})
-
-describe('required transition fields on mixed remote versions', () => {
-  it('refuses new transition fields before old hosts can silently strip them', async () => {
-    runtimeCall.mockImplementation(async (args: { method: string }) => {
-      if (args.method === 'status.get') {
-        const response = createCompatibleRuntimeStatusResponse()
-        if (!response.ok) {
-          throw new Error('Expected status fixture')
-        }
-        response.result.capabilities = response.result.capabilities?.filter(
-          (capability) => capability !== JIRA_TRANSITION_FIELDS_RUNTIME_CAPABILITY
-        )
-        return response
-      }
-      return { id: 'rpc-1', ok: true, result: { ok: true } }
-    })
-    const settings = {
-      kind: 'task-source' as const,
-      provider: 'jira' as const,
-      projectId: 'project-1',
-      hostId: 'runtime:env-1' as const
-    }
-    await expect(
-      jiraUpdateIssue(settings, 'APP-1', {
-        transitionId: '31',
-        transitionFields: { resolution: { id: '1' } }
-      })
-    ).rejects.toThrow('Update the remote Orca server')
-    expect(runtimeCall.mock.calls.some(([args]) => args.method === 'jira.updateIssue')).toBe(false)
-    await expect(jiraUpdateIssue(settings, 'APP-1', { transitionId: '11' })).resolves.toEqual({
-      ok: true
-    })
+    expect(runtimeCall).not.toHaveBeenCalled()
   })
 })

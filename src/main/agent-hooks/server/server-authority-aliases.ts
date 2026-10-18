@@ -16,11 +16,6 @@ export abstract class AgentHookServerAuthorityAliases extends AgentHookServerAut
     this.paneKeyAliasPersistenceListener = listener
   }
 
-  /** The pane key that owns `paneKey`'s agent status once aliases are followed. */
-  resolvePaneAuthorityOwner(paneKey: string): string {
-    return this.resolvePaneKeyAlias(paneKey)
-  }
-
   protected getPersistedPaneKeyAliases(): LegacyPaneKeyAliasEntry[] {
     return Array.from(this.legacyPaneKeyAliases.entries()).flatMap(([legacyPaneKey, entry]) =>
       entry.ptyId
@@ -149,14 +144,6 @@ export abstract class AgentHookServerAuthorityAliases extends AgentHookServerAut
     }
     const previousOwnerPaneKey = this.resolvePaneKeyAlias(fromPaneKey)
     const physicalPaneKey = this.getPhysicalPaneKeyForAuthority(fromPaneKey, ptyId)
-    const requestedPtyId = ptyId?.trim()
-    // Why: a repeat would clear the owner's own polls; a pane move announces from main and renderer.
-    if (
-      previousOwnerPaneKey === toPaneKey &&
-      (!requestedPtyId || this.legacyPaneKeyAliases.get(physicalPaneKey)?.ptyId === requestedPtyId)
-    ) {
-      return
-    }
     for (const key of [fromPaneKey, previousOwnerPaneKey, physicalPaneKey, toPaneKey]) {
       this.takeRetiredPaneRestartId(key)
     }
@@ -213,11 +200,6 @@ export abstract class AgentHookServerAuthorityAliases extends AgentHookServerAut
     this.restartedStatusLaunchTokenHashByPaneKey.delete(toPaneKey)
     if (restartedTokenHash) {
       this.restartedStatusLaunchTokenHashByPaneKey.set(toPaneKey, restartedTokenHash)
-    }
-    const agentExit = this.agentExitedAtByPaneKey.get(previousOwnerPaneKey)
-    if (agentExit) {
-      agentExit.paneKeys.add(toPaneKey)
-      this.agentExitedAtByPaneKey.set(toPaneKey, agentExit)
     }
     const activeTurnCompletedAt = this.activeHookTurnCompletedAtByPaneKey.get(previousOwnerPaneKey)
     if (activeTurnCompletedAt !== undefined) {

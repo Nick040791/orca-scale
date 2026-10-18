@@ -2,13 +2,10 @@
 //
 // A producer decodes provider frames into these edges and the host folds them into the one
 // record per child it owns. Edges carry facts, not records: which child is live, what it is
-// doing, how it ended, or that it is gone. Only a child's own ending settles it, or the end of its
-// session. Edges are host-internal: the producer and the store share one process.
+// doing, how it ended. Only a child's own ending settles it, or the end of its session.
 
 import type { AgentChildWorkAliasKind } from './agent-status-child-work-alias'
 import type {
-  AgentChildWorkId,
-  AgentChildWorkInvocationFence,
   AgentChildWorkKind,
   AgentChildWorkOperation,
   AgentChildWorkOutcome,
@@ -16,9 +13,9 @@ import type {
   AgentChildWorkState
 } from './agent-status-child-work'
 
-/** How the provider names one child. `id` is the stable handle: a task id, or the child's own
- *  thread. `runId` names the current run when the provider mints one per run (a task's spawn
- *  call, a thread's turn), and a different one is the provider starting the child again. */
+/** How the provider names one child. `id` is the stable handle today's wire already publishes
+ *  (a Claude task id); `runId` names the current run when the provider mints one per run (the
+ *  spawn call), and a different one is the provider starting the child again. */
 export type AgentChildWorkEvidenceHandle = {
   idKind: Extract<AgentChildWorkAliasKind, 'task_id' | 'thread_id'>
   id: string
@@ -73,42 +70,12 @@ export type AgentChildWorkEndedEvidence = {
   totalTokens?: number
 }
 
-/** The provider accepted a Stop of the run the host captured when it sent it. Settles that run
- *  provisionally (`cancelled`, basis `stop-acknowledged`) unless it already ended; never a later
- *  run. `outcome` is the run's own ending when the provider's answer named one. */
-export type AgentChildWorkStopAcknowledgedEvidence = {
-  type: 'stop-acknowledged'
-  observedAt: number
-  childWorkId: AgentChildWorkId
-  /** The provider handle the Stop named, for the host's open-work set, which keys by handle. */
-  handleId: string
-  invocation: AgentChildWorkInvocationFence
-  outcome?: AgentChildWorkOutcome
-}
-
-/** The user's next turn began: the provider accepted their next send. A turn the provider opens
- *  on its own is not one. Settled children are kept, with their outcome, until then; a settled
- *  child that still owns live work, at any depth, stays so that work keeps its owners. */
-export type AgentChildWorkTurnStartedEvidence = { type: 'turn-started'; observedAt: number }
-
 /** The provider session is gone: a child still live can no longer end on its own, so it settles
- *  with an outcome nobody reported. Settled children stay until the user's next turn or the
- *  parent's removal. */
+ *  with an outcome nobody reported. Settled children stay; the parent's removal drops them. */
 export type AgentChildWorkSessionEndedEvidence = { type: 'session-ended'; observedAt: number }
-
-/** Work that leaves nothing to report once it stops, such as a command whose process exited: its
- *  record goes rather than settles. For work that owns no other record. */
-export type AgentChildWorkRemovedEvidence = {
-  type: 'removed'
-  observedAt: number
-  handle: AgentChildWorkEvidenceHandle
-}
 
 export type AgentChildWorkEvidence =
   | AgentChildWorkLiveEvidence
   | AgentChildWorkOperationEvidence
   | AgentChildWorkEndedEvidence
-  | AgentChildWorkRemovedEvidence
-  | AgentChildWorkStopAcknowledgedEvidence
-  | AgentChildWorkTurnStartedEvidence
   | AgentChildWorkSessionEndedEvidence

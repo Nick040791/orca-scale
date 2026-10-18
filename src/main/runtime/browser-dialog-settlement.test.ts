@@ -12,12 +12,17 @@ vi.mock('electron', () => ({
   webContents: { fromId: () => ({ isDestroyed: () => false }) }
 }))
 
-import { RuntimeBrowserDialogs } from './browser/browser-dialogs'
-import { settleBrowserDialogOnLiveScreencast } from './browser-dialog-settlement'
-import type { ActiveBrowserScreencastPage } from './browser/browser-screencast-contracts'
+import { RuntimeBrowserCommandsWithBrowserSetHeaders } from './runtime-browser-commands-browser-set-headers'
+import type { ActiveBrowserScreencastPage } from './runtime-browser-commands-browser-command-target-params'
 import type { BrowserScreencastSession } from '../browser/browser-screencast-stream-types'
 
 const PAGE_ID = 'page-1'
+
+class DialogCommandsUnderTest extends RuntimeBrowserCommandsWithBrowserSetHeaders {
+  registerLiveScreencast(browserPageId: string, record: ActiveBrowserScreencastPage): void {
+    this.activeScreencastsByPageId.set(browserPageId, record)
+  }
+}
 
 function streamingPage(session: BrowserScreencastSession): ActiveBrowserScreencastPage {
   return {
@@ -43,19 +48,11 @@ function createCommands(settleDialog: (accept: boolean, promptText?: string) => 
     dialogAccept: vi.fn(async () => ({ via: 'bridge' })),
     dialogDismiss: vi.fn(async () => ({ via: 'bridge' }))
   }
-  const activeScreencastsByPageId = new Map<string, ActiveBrowserScreencastPage>()
-  const commands = new RuntimeBrowserDialogs(
-    {
-      resolveBrowserCommandTarget: async (params) => ({ browserPageId: params.page }),
-      requireAgentBrowserBridge: () => bridge
-    },
-    {
-      settleDialog: (pageId, accept, promptText) =>
-        settleBrowserDialogOnLiveScreencast(activeScreencastsByPageId, pageId, accept, promptText)
-    }
-  )
+  const host = { getAgentBrowserBridge: () => bridge }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the dialog path reads only getAgentBrowserBridge off the host.
+  const commands = new DialogCommandsUnderTest(host as never)
   const registerStream = (): void => {
-    activeScreencastsByPageId.set(
+    commands.registerLiveScreencast(
       PAGE_ID,
       streamingPage({
         stop: () => {},

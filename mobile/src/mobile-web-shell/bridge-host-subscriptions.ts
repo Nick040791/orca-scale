@@ -16,7 +16,6 @@ import {
 import type { BridgeBinaryEvent } from './bridge/bridge-screencast-binary'
 import type { BrowserScreencastFrame } from '../transport/browser-screencast-protocol'
 import type { RpcClient } from '../transport/rpc-client'
-import type { RpcEnvelopeFields } from '../transport/rpc-envelope-fields'
 
 /** Derived, so an arm added to the envelope's closed list is a compile error here rather than a
  *  reason this module never sends. */
@@ -117,13 +116,7 @@ export class BridgeHostSubscriptions {
    * Asked for only then, because encoding one costs the shell a base64 pass over the whole image
    * and a page with no listener would pay for frames it drops.
    */
-  start(
-    id: string,
-    method: string,
-    params: unknown,
-    wantsBinary = false,
-    envelope?: RpcEnvelopeFields
-  ): void {
+  start(id: string, method: string, params: unknown, wantsBinary = false): void {
     const record: OpenSubscription = {
       unsubscribe: () => undefined,
       seq: 0,
@@ -140,22 +133,16 @@ export class BridgeHostSubscriptions {
         : null
     }
     this.open.set(id, record)
-    const onBinaryFrame = wantsBinary
-      ? (frame: BrowserScreencastFrame) => this.deliverBinaryFrame(id, frame)
-      : undefined
     let unsubscribe: () => void
     try {
       unsubscribe = this.options.client.subscribe(
         method,
         params,
         (payload) => this.deliver(id, payload),
-        onBinaryFrame === undefined && envelope === undefined
-          ? undefined
-          : { onBinaryFrame, envelope }
+        wantsBinary ? { onBinaryFrame: (frame) => this.deliverBinaryFrame(id, frame) } : undefined
       )
     } catch (error) {
       this.open.delete(id)
-      record.backlog?.dispose()
       throw error
     }
     // A stream that emitted and overflowed inside `subscribe` is already retired, and its

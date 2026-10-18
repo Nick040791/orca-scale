@@ -1,4 +1,3 @@
-import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcRequest } from '../core'
@@ -25,8 +24,9 @@ const passthroughDedupe = <T>(_repo: string, _id: string | undefined, run: () =>
 describe('worktree.create navigation authority', () => {
   it.each([
     ['runtime', 'caller'],
-    // Mobile still needs the host renderer to provision setup/default tabs.
-    ['mobile', 'host']
+    // Why: no phone renderer provisions the host's setup/default tabs off the activation,
+    // so mobile creates keep the all-surface reveal until that work moves to the runtime.
+    ['mobile', 'all']
   ] as const)(
     'resolves create activation from the paired %s client kind',
     async (clientKind, expected) => {
@@ -50,34 +50,33 @@ describe('worktree.create navigation authority', () => {
     }
   )
 
-  it.each([undefined, 'all'] as const)(
-    'keeps an older CLI reveal on the host (navigation=%s)',
-    async (navigation) => {
-      const runtime = {
-        getRuntimeId: () => 'test-runtime',
-        dedupeWorktreeCreate: passthroughDedupe,
-        showRepo: vi.fn().mockResolvedValue(repo),
-        createManagedWorktree: vi.fn().mockResolvedValue({ worktree: { id: 'wt-1' } })
-      } as unknown as OrcaRuntimeService
-      const dispatcher = new RpcDispatcher({ runtime, methods: WORKTREE_METHODS })
+  it('keeps an older CLI reveal working against an updated host', async () => {
+    // Why: an old CLI cannot send `navigation`, but it pairs as a runtime device. Without the
+    // cliProvenanceRequest marker it would resolve to 'caller' and `--activate` would reveal
+    // nothing anywhere — strictly worse than the pre-fix behavior for that version skew.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      dedupeWorktreeCreate: passthroughDedupe,
+      showRepo: vi.fn().mockResolvedValue(repo),
+      createManagedWorktree: vi.fn().mockResolvedValue({ worktree: { id: 'wt-1' } })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: WORKTREE_METHODS })
 
-      await dispatcher.dispatchStreaming(
-        makeRequest('worktree.create', {
-          repo: 'repo-1',
-          name: 'feature',
-          activate: true,
-          cliProvenanceRequest: {},
-          ...(navigation ? { navigation } : {})
-        }),
-        () => {},
-        { clientKind: 'runtime', pairedDeviceId: 'device-1', connectionId: 'conn-1' }
-      )
+    await dispatcher.dispatchStreaming(
+      makeRequest('worktree.create', {
+        repo: 'repo-1',
+        name: 'feature',
+        activate: true,
+        cliProvenanceRequest: {}
+      }),
+      () => {},
+      { clientKind: 'runtime', pairedDeviceId: 'device-1', connectionId: 'conn-1' }
+    )
 
-      expect(runtime.createManagedWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ navigation: 'host' })
-      )
-    }
-  )
+    expect(runtime.createManagedWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ navigation: 'all' })
+    )
+  })
 
   it('still scopes a desktop create that carries no CLI marker', async () => {
     const runtime = {

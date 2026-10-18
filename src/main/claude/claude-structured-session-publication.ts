@@ -1,11 +1,12 @@
 import type { AgentSessionAcquisition } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { claudeProviderHandleLink } from './claude-structured-owner-identity'
 import type { ClaudePromptRegistry } from './claude-structured-prompt-replies'
-import type { ClaudeJournalTranslator } from './claude-journal-translator-contract'
+import type { ClaudeJournalTranslator } from './claude-structured-journal-translation'
 import type { ClaudeSession } from './claude-structured-session-state'
 import { ClaudeBackgroundTaskTracker } from './claude-background-task-tracker'
 import { ClaudeChildWorkDecoder } from './claude-child-work-decoder'
 import { ClaudeSlashCommandCatalog } from './claude-slash-command-catalog'
+import { createClaudeSessionStartupGate } from './claude-structured-session-startup-gate'
 
 /** The session as published at spawn: nothing the CLI reports at init is assumed yet. */
 export function createClaudeSessionPublication(input: {
@@ -26,19 +27,18 @@ export function createClaudeSessionPublication(input: {
   linkId?: string
   observedAt: number
   options?: ReadonlyMap<string, string>
-  initialization: ClaudeSession['initialization']
 }): { acquisition: AgentSessionAcquisition; session: ClaudeSession } {
-  const link = claudeProviderHandleLink({
-    sessionId: input.providerSessionId,
-    leafUuid: input.leafUuid,
-    resumed: input.continuesChain,
-    fence: input.fence,
-    ...(input.linkId ? { linkId: input.linkId } : {}),
-    observedAt: input.observedAt
-  })
   return {
     acquisition: {
       process: input.process,
+      link: claudeProviderHandleLink({
+        sessionId: input.providerSessionId,
+        leafUuid: input.leafUuid,
+        resumed: input.continuesChain,
+        fence: input.fence,
+        ...(input.linkId ? { linkId: input.linkId } : {}),
+        observedAt: input.observedAt
+      }),
       acquisitionGeneration: input.acquisitionGeneration
     },
     session: {
@@ -64,13 +64,10 @@ export function createClaudeSessionPublication(input: {
       reportedModelMutation: 0,
       confirmedOptions: new Set(),
       restoreSkippedOptions: new Set(),
-      launchedModel: null,
-      fastModeAtStart: false,
       translator: input.translator,
       events: input.events,
       ...(input.unbindReadingControl ? { unbindReadingControl: input.unbindReadingControl } : {}),
-      link,
-      initialization: input.initialization
+      startup: createClaudeSessionStartupGate()
     }
   }
 }

@@ -179,7 +179,7 @@ function getUpdaterCacheRoot(): string {
  * same-uid process can create its own `pending` directory, and per the design's trust model such a
  * process can already overwrite the real cached package anyway.
  */
-export async function isInUpdaterPendingCache(filePath: string): Promise<boolean> {
+async function isContainedInCache(filePath: string): Promise<boolean> {
   const cacheRoot = path.resolve(getUpdaterCacheRoot())
   if (!isInsideDirectory(cacheRoot, path.resolve(filePath))) {
     return false
@@ -224,7 +224,7 @@ async function validateArtifact(artifact: LinuxPackageArtifact): Promise<Validat
     return { ok: false, reason: 'hash-mismatch' }
   }
   try {
-    if (!(await isInUpdaterPendingCache(artifact.path))) {
+    if (!(await isContainedInCache(artifact.path))) {
       return { ok: false, reason: 'not-regular' }
     }
     const stats = await fsp.lstat(artifact.path)

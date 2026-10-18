@@ -13,14 +13,6 @@ const DISPLAYED_PRESENT_RETRY_FRAMES = 16
 type ViewportPresentMode = 'preserve-synchronized-output' | 'force-current-buffer'
 type DisplayedPresentRetry = { frames: number; mode: ViewportPresentMode }
 const pendingDisplayedPresentRetries = new WeakMap<ManagedPaneInternal, DisplayedPresentRetry>()
-// Public pane views are recreated; terminal teardown must cancel every view's retry.
-const presentRetryCancellations = new WeakMap<ManagedPane['terminal'], Set<() => void>>()
-
-export function cancelPendingTerminalViewportPresents(terminal: ManagedPane['terminal']): void {
-  for (const cancel of presentRetryCancellations.get(terminal) ?? []) {
-    cancel()
-  }
-}
 
 function schedulePresentWhenDisplayed(pane: ManagedPaneInternal, mode: ViewportPresentMode): void {
   if (typeof globalThis.requestAnimationFrame !== 'function') {
@@ -37,50 +29,25 @@ function schedulePresentWhenDisplayed(pane: ManagedPaneInternal, mode: ViewportP
     frames: DISPLAYED_PRESENT_RETRY_FRAMES,
     mode
   })
-  const terminal = pane.terminal
-  const cancellations = presentRetryCancellations.get(terminal) ?? new Set<() => void>()
-  presentRetryCancellations.set(terminal, cancellations)
-  let frameId: number | null = null
-  let cancelled = false
-  const finish = (): void => {
-    pendingDisplayedPresentRetries.delete(pane)
-    cancellations.delete(cancel)
-    if (cancellations.size === 0) {
-      presentRetryCancellations.delete(terminal)
-    }
-  }
-  const cancel = (): void => {
-    cancelled = true
-    if (frameId !== null) {
-      globalThis.cancelAnimationFrame(frameId)
-      frameId = null
-    }
-    finish()
-  }
-  cancellations.add(cancel)
   const tick = (): void => {
-    frameId = null
-    if (cancelled) {
-      return
-    }
     const retry = pendingDisplayedPresentRetries.get(pane)
     if (!retry || retry.frames <= 0 || !pane.terminal) {
-      finish()
+      pendingDisplayedPresentRetries.delete(pane)
       return
     }
     if (isManagedPaneDisplayNone(pane)) {
       if (retry.frames === 1) {
-        finish()
+        pendingDisplayedPresentRetries.delete(pane)
         return
       }
       retry.frames -= 1
-      frameId = globalThis.requestAnimationFrame(tick)
+      globalThis.requestAnimationFrame(tick)
       return
     }
-    finish()
+    pendingDisplayedPresentRetries.delete(pane)
     presentPaneViewportWithMode(pane, retry.mode)
   }
-  frameId = globalThis.requestAnimationFrame(tick)
+  globalThis.requestAnimationFrame(tick)
 }
 
 function presentPaneViewportWithMode(pane: ManagedPane, mode: ViewportPresentMode): void {

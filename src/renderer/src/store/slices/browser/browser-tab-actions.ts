@@ -18,14 +18,6 @@ import {
 import { getBrowserSessionProfileHostId } from './browser-host-state'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { admitBrowserPageMount } from '@/components/browser-pane/host-guest/browser-page-mount-admission'
-import { ownsGlobalSelection } from '../../global-selection-owner'
-import {
-  getRegisteredPairedBrowserTabCreator,
-  loadPairedBrowserTabCreator
-} from './paired-browser-tab-creator'
-import { findGroupAndWorktree } from '../tab-group-state'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../shared/layout-owner-switch'
-import { recordBrowserTabOpen } from './browser-layout-owner-commands'
 
 export function createBrowserTabActions(
   set: BrowserSliceSet,
@@ -103,7 +95,7 @@ export function createBrowserTabActions(
         })()
 
         const shouldActivate = options?.activate ?? true
-        const shouldUpdateGlobalActiveSurface = shouldActivate && ownsGlobalSelection(s, worktreeId)
+        const shouldUpdateGlobalActiveSurface = shouldActivate && s.activeWorktreeId === worktreeId
         const shouldFocusFloatingTab =
           shouldActivate && worktreeId === FLOATING_TERMINAL_WORKTREE_ID
         const shouldFocusAddressBar =
@@ -159,34 +151,19 @@ export function createBrowserTabActions(
         (t) => t.contentType === 'browser' && t.entityId === workspaceId
       )
       if (!alreadyHasUnifiedTab) {
-        const shouldActivate = options?.activate ?? true
-        const created = state.createUnifiedTab(worktreeId, 'browser', {
+        state.createUnifiedTab(worktreeId, 'browser', {
           entityId: workspaceId,
           label: browserTab.title,
           targetGroupId: options?.targetGroupId,
-          ...(options?.split ? { split: options.split } : {}),
-          ...(options?.afterTabId ? { afterTabId: options.afterTabId } : {}),
-          // Why no routing-host default: a substituted host would disown the wrapper from its worktree.
-          ...(options?.executionHostId ? { executionHostId: options.executionHostId } : {}),
-          activate: shouldActivate
+          activate: options?.activate ?? true
         })
-        // Why: unified creation already selected the tab and recorded the visit; only the group moves.
-        if (shouldActivate && created) {
-          get().focusGroup(worktreeId, created.groupId)
-        }
-      }
-      // Switch point: main records the tab under these ids before any later command names it.
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        recordBrowserTabOpen(get(), browserTab)
       }
       return browserTab
     },
 
     openNewBrowserTabInActiveWorkspace: async (groupId) => {
       const state = get()
-      // Why: the invoking group owns its workspace; global selection may already point elsewhere.
-      const worktreeId =
-        findGroupAndWorktree(state.groupsByWorktree, groupId)?.worktreeId ?? state.activeWorktreeId
+      const worktreeId = state.activeWorktreeId
       if (!worktreeId) {
         return
       }
@@ -202,11 +179,9 @@ export function createBrowserTabActions(
         if (!runtimeEnvironmentId) {
           throw new Error('The paired runtime browser provider is unavailable.')
         }
-        // The registered path stages on the click; a cold runtime loads before staging.
-        const createPairedBrowserTab =
-          getRegisteredPairedBrowserTabCreator() ?? (await loadPairedBrowserTabCreator())
+        const { createWebRuntimeSessionBrowserTab } = await import('@/runtime/web-runtime-session')
         try {
-          const created = await createPairedBrowserTab({
+          const created = await createWebRuntimeSessionBrowserTab({
             worktreeId,
             environmentId: runtimeEnvironmentId,
             url: defaultUrl,
@@ -232,7 +207,7 @@ export function createBrowserTabActions(
       get().createBrowserTab(worktreeId, defaultUrl, {
         title: translate('auto.store.slices.browser.d175274b6d', 'New Browser Tab'),
         focusAddressBar: true,
-        browserRuntimeEnvironmentId: null,
+        ...(runtimeEnvironmentId ? { browserRuntimeEnvironmentId: null } : {}),
         targetGroupId: groupId
       })
       get().recordFeatureInteraction('browser-tab-created')
@@ -255,10 +230,9 @@ export function createBrowserTabActions(
         if (!runtimeEnvironmentId) {
           return false
         }
-        const createPairedBrowserTab =
-          getRegisteredPairedBrowserTabCreator() ?? (await loadPairedBrowserTabCreator())
+        const { createWebRuntimeSessionBrowserTab } = await import('@/runtime/web-runtime-session')
         try {
-          return await createPairedBrowserTab({
+          return await createWebRuntimeSessionBrowserTab({
             worktreeId,
             environmentId: runtimeEnvironmentId,
             url,
@@ -275,7 +249,7 @@ export function createBrowserTabActions(
       get().createBrowserTab(worktreeId, url, {
         activate: true,
         sessionProfileId: profileId,
-        browserRuntimeEnvironmentId: null
+        ...(runtimeEnvironmentId ? { browserRuntimeEnvironmentId: null } : {})
       })
       return true
     }

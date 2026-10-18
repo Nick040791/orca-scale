@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import { setPtyOwnerHostColors } from '../../shared/pty-owner-color-query-colors'
+import { readCurrentProcessMacSystemResolverHealth } from '../network/macos-system-resolver-health'
 import type { ConnectedDaemonClient, DaemonClientConnections } from './daemon-client-connections'
 import type { DaemonFileLog } from './daemon-file-log'
 import type { DaemonPtySpawnPreparations } from './daemon-pty-spawn-preparations'
@@ -9,7 +9,6 @@ import type { DaemonSessionBackgroundRouting } from './daemon-session-background
 import { recordDaemonStreamBacklogEvent } from './daemon-stream-backlog-probe'
 import type { DaemonStreamDataBatcher } from './daemon-stream-data-batcher'
 import type { DaemonTerminalAdmission } from './daemon-terminal-admission'
-import { DaemonHealthRequests } from './daemon-health-requests'
 import type { TerminalHistorySeedTransferRegistry } from './terminal-history-seed-transfer-registry'
 import type { TerminalHost } from './terminal-host'
 import { SessionNotFoundError, type DaemonRequest } from './types'
@@ -29,11 +28,7 @@ type DaemonRequestRouterOptions = {
 }
 
 export class DaemonRequestRouter {
-  private readonly health: DaemonHealthRequests
-
-  constructor(private readonly options: DaemonRequestRouterOptions) {
-    this.health = new DaemonHealthRequests(options.ptySpawnHealthCheck, options.log)
-  }
+  constructor(private readonly options: DaemonRequestRouterOptions) {}
 
   async route(clientId: string, request: DaemonRequest): Promise<unknown> {
     const client = this.options.connections.get(clientId)
@@ -75,9 +70,6 @@ export class DaemonRequestRouter {
         return {
           appliedSeq: this.options.host.closeStartupQueryAuthority(request.payload.sessionId)
         }
-      case 'setColorQueryReplyColors':
-        setPtyOwnerHostColors(request.payload.colors)
-        return {}
       case 'write':
         return this.write(client, request.payload.sessionId, request.payload.data)
       case 'resize':
@@ -137,9 +129,6 @@ export class DaemonRequestRouter {
       case 'clearScrollback':
         this.options.host.clearScrollback(request.payload.sessionId)
         return {}
-      case 'resetInputModes':
-        this.options.host.resetInputModes(request.payload.sessionId)
-        return {}
       case 'listSessions':
         return { sessions: this.options.host.listSessions() }
       case 'shutdownIfIdle':
@@ -155,11 +144,12 @@ export class DaemonRequestRouter {
           { teardownSnapshot: request.payload.teardownSnapshot === true }
         )
       case 'ping':
+        return { pong: true }
       case 'systemResolverHealth':
-      case 'fullDiskAccessStatus':
+        return { health: await readCurrentProcessMacSystemResolverHealth() }
       case 'ptySpawnHealth':
-      case 'asyncIoHealth':
-        return this.health.handle(request)
+        await this.options.ptySpawnHealthCheck()
+        return { healthy: true }
       case 'shutdown':
         return this.shutdown(clientId, request.id, request.payload.killSessions)
     }

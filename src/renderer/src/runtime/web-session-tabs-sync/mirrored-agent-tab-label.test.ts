@@ -33,7 +33,6 @@ function build(
 ): Tab {
   const [mirrored] = buildMirroredAgentTabs(
     snapshot,
-    'runtime:env-1',
     new Map(),
     GROUP,
     0,
@@ -68,21 +67,12 @@ describe('buildMirroredAgentTabs', () => {
     expect(tab.customLabel).toBeNull()
   })
 
-  it('records the publishing host on a tab restored from before tabs carried one', () => {
-    const snapshot = snapshotWith('codex', 'Codex Chat')
-    const { executionHostId: _recorded, ...unrecorded } = build(snapshot)
-    const mirrored = build(snapshot, [unrecorded])
-    expect(mirrored.id).toBe(unrecorded.id)
-    expect(mirrored.executionHostId).toBe('runtime:env-1')
-  })
-
   it('keeps the provisional tab group when the host publishes a different group', () => {
     const snapshot = snapshotWith('codex', 'Codex Chat')
     const provisional = build(snapshot)
     const existing: Tab = { ...provisional, groupId: 'local-group' }
     const [mirrored] = buildMirroredAgentTabs(
       snapshot,
-      'runtime:env-1',
       new Map([['host-tab-1', 'host-group']]),
       GROUP,
       0,

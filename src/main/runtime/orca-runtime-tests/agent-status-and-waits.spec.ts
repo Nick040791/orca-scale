@@ -5,7 +5,6 @@ import {
   TEST_WORKTREE_ID,
   TEST_WORKTREE_PATH,
   expectStablePaneKeyEnv,
-  spawnedPtyEnv,
   store
 } from '../orca-runtime-test-fixtures.spec'
 
@@ -27,7 +26,8 @@ describe('OrcaRuntimeService', () => {
       command: 'codex',
       title: 'worker'
     })
-    const spawnedEnv = spawnedPtyEnv(spawn.mock.calls[0]?.[0])
+    const spawnedEnv =
+      (spawn.mock.calls[0]?.[0] as { env?: Record<string, string> } | undefined)?.env ?? {}
     const paneKey = expectStablePaneKeyEnv(spawnedEnv)
 
     runtime.onPtyData('pty-bg', 'before\x1b]999', 123)
@@ -150,28 +150,15 @@ describe('OrcaRuntimeService', () => {
       nextCursor: expect.any(String)
     })
 
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldClearNativeTimers: true })
-    try {
-      const [send] = await Promise.all([
-        runtime.sendTerminal(
-          terminal.handle,
-          {
-            text: 'continue',
-            enter: true
-          },
-          { inputKind: 'driving' }
-        ),
-        vi.runAllTimersAsync()
-      ])
-      expect(send).toMatchObject({
-        handle: terminal.handle,
-        accepted: true
-      })
-      expect(writes).toEqual(['continue', '\r'])
-    } finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
+    const send = await runtime.sendTerminal(terminal.handle, {
+      text: 'continue',
+      enter: true
+    })
+    expect(send).toMatchObject({
+      handle: terminal.handle,
+      accepted: true
+    })
+    expect(writes).toEqual(['continue', '\r'])
   })
 
   it('reports permission from blocked terminal wait text', async () => {

@@ -70,7 +70,7 @@ describe('pty side-effect pending census', () => {
 
   it('tracks a live output processor queue through enqueue, drain, and dispose', async () => {
     vi.useFakeTimers()
-    const { createPtyOutputProcessor } = await import('./pty-output-processor')
+    const { createPtyOutputProcessor } = await import('./pty-transport')
     const before = ptySideEffectCounts()
     const processor = createPtyOutputProcessor({ onTitleChange: vi.fn() })
 
@@ -95,9 +95,11 @@ describe('pty side-effect pending census', () => {
     expect(ptySideEffectCounts()).toEqual(before)
   })
 
-  it('excludes cleared consumed entries from retention after a bounded drain', async () => {
+  // Why: a partly drained queue still holds every entry until compaction, so depth alone
+  // would understate the retained bytes this census exists to attribute.
+  it('reports drained-but-uncompacted entries as retained after a bounded drain', async () => {
     vi.useFakeTimers()
-    const { createPtyOutputProcessor } = await import('./pty-output-processor')
+    const { createPtyOutputProcessor } = await import('./pty-transport')
     const before = ptySideEffectCounts()
     const processor = createPtyOutputProcessor({ onTitleChange: vi.fn() })
 
@@ -113,7 +115,7 @@ describe('pty side-effect pending census', () => {
     // One drain applies MAX_PTY_SIDE_EFFECTS_PER_DRAIN entries but stays under the compaction threshold.
     await vi.runOnlyPendingTimersAsync()
     expect(ptySideEffectCounts().pending).toBe(before.pending + 36)
-    expect(ptySideEffectCounts().retained).toBe(before.retained + 36)
+    expect(ptySideEffectCounts().retained).toBe(before.retained + 100)
 
     processor.flushPendingSideEffects()
     expect(ptySideEffectCounts()).toEqual({

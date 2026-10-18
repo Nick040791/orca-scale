@@ -1,10 +1,7 @@
 import type { SshMutationExpectation } from '../../../shared/ssh-types'
 import type { AppState } from '@/store/types'
 import { parseExecutionHostId, toSshExecutionHostId } from '../../../shared/execution-host'
-import {
-  getFloatingWorkspaceOperationRoute,
-  resolveWorktreeOperationRoute
-} from './worktree-operation-route'
+import { resolveWorktreeOperationRoute } from './worktree-operation-route'
 
 const SSH_OWNER_CHANGED_MESSAGE =
   "Couldn't verify the SSH connection. Reconnect the host and try again."
@@ -41,9 +38,7 @@ export function captureWorktreeSshMutationExpectation(
   state: AppState,
   worktreeId: string
 ): SshMutationExpectation & { expectedExecutionHostId: 'local' | `ssh:${string}` } {
-  const route =
-    getFloatingWorkspaceOperationRoute(worktreeId) ??
-    resolveWorktreeOperationRoute(state, worktreeId)
+  const route = resolveWorktreeOperationRoute(state, worktreeId)
   const host = parseExecutionHostId(route?.executionHostId)
   if (host?.kind === 'local' || host?.kind === 'runtime') {
     return { expectedExecutionHostId: 'local' }

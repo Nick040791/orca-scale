@@ -57,14 +57,12 @@ export function isLocalSshBrowserPartition(partition: string): boolean {
   return preparedByPartition.has(partition)
 }
 
-export function localSshBrowserPartitionForSession(webSession: Session): string | null {
-  return partitionBySession.get(webSession) ?? null
+export function localSshBrowserPartitionTargetId(partition: string): string | null {
+  return preparedByPartition.get(partition)?.targetId ?? null
 }
 
-/** The SSH target a session's prepared route partition egresses through, or null if unrouted. */
-export function localSshBrowserTargetIdForSession(webSession: Session): string | null {
-  const partition = partitionBySession.get(webSession)
-  return partition ? (preparedByPartition.get(partition)?.targetId ?? null) : null
+export function localSshBrowserPartitionForSession(webSession: Session): string | null {
+  return partitionBySession.get(webSession) ?? null
 }
 
 /**
@@ -220,3 +218,8 @@ export async function releaseLocalSshBrowserPartitionsForTarget(targetId: string
 }
 
 registerBrowserRoutePartitionRetentionProbe((partition) => preparedByPartition.has(partition))
+
+export function resetLocalSshBrowserPartitionsForTests(): void {
+  preparedByIdentityKey.clear()
+  preparedByPartition.clear()
+}

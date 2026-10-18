@@ -5,7 +5,6 @@ import { useAppStore } from '@/store'
 import { usePluginCommands } from '@/store/plugin-panels'
 import { useSettingsNavigationMetadata } from '@/hooks/useSettingsNavigationMetadata'
 import { dedupePaletteWorktrees } from '@/lib/palette-repo-resolution'
-import { getFolderWorkspaceWorktree } from '@/store/slices/worktrees/listing/detected-worktree-meta'
 import {
   selectPaletteIndexStatusSnapshot,
   selectPaletteStatusInputs
@@ -30,14 +29,9 @@ export function useWorktreeJumpPaletteStoreState({
   const recordFeatureInteraction = useAppStore((state) => state.recordFeatureInteraction)
   const revealSidebarRow = useAppStore((state) => state.revealSidebarRow)
   const worktreesByRepo = useAppStore((state) => state.worktreesByRepo)
-  const folderWorkspaces = useAppStore((state) => state.folderWorkspaces)
-  const workspaces = useMemo(
-    () =>
-      dedupePaletteWorktrees([
-        ...Object.values(worktreesByRepo).flat(),
-        ...folderWorkspaces.map(getFolderWorkspaceWorktree)
-      ]),
-    [folderWorkspaces, worktreesByRepo]
+  const allWorktrees = useMemo(
+    () => dedupePaletteWorktrees(Object.values(worktreesByRepo).flat()),
+    [worktreesByRepo]
   )
   const repos = useAppStore((state) => state.repos)
   const projectGroups = useAppStore((state) => state.projectGroups)
@@ -132,7 +126,7 @@ export function useWorktreeJumpPaletteStoreState({
     recordFeatureInteraction,
     revealSidebarRow,
     worktreesByRepo,
-    workspaces,
+    allWorktrees,
     repos,
     projectGroups,
     projects,

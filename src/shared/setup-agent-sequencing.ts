@@ -1,10 +1,9 @@
 import { encodePowerShellCommand } from './powershell-command-encoding'
-import { getPosixCodexShellLaunchPreflight } from './codex-shell-function'
-import { getPosixClaudeShellFunction } from './claude-shell-function'
 import {
   nativeWindowsPathToPosixShellPath,
   resolveSetupRunnerCommand,
   type SetupRunnerCommandPlatform,
+  type SetupRunnerCommandShell,
   type SetupRunnerShell
 } from './setup-runner-command'
 import { createNonSecureContextUuid } from './non-secure-context-uuid'
@@ -129,9 +128,7 @@ function buildPosixStartupScript(
     `rm -f ${marker} ${tmp} 2>/dev/null;`,
     // Why: failure and timeout announce themselves; a silent success left
     // "Waiting for setup..." as the pane's last line forever.
-    // Why here and not first: setup may be what puts codex on PATH, and this
-    // `bash -lc` never reads Orca's shell wrapper, so it defines the function itself.
-    `if [ "$status" = "0" ]; then echo ${quotePosixArg(SETUP_COMPLETE_MESSAGE)} >&2;\n${getPosixCodexShellLaunchPreflight() + getPosixClaudeShellFunction()}if [ -n "\${${SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV}:-}" ]; then eval "\$${SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV}"; exit "$?"; else ${startupSuccessCommand}; fi; fi;`,
+    `if [ "$status" = "0" ]; then echo ${quotePosixArg(SETUP_COMPLETE_MESSAGE)} >&2; if [ -n "\${${SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV}:-}" ]; then eval "\$${SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV}"; exit "$?"; else ${startupSuccessCommand}; fi; fi;`,
     'echo "Setup failed; skipping agent startup." >&2;',
     'exit "${status:-1}";',
     'fi;',
@@ -303,4 +300,11 @@ function quotePosixArg(value: string): string {
     return value
   }
   return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+export function getSetupAgentSequenceShellForTests(
+  runnerScriptPath: string,
+  platform: SetupRunnerCommandPlatform
+): SetupRunnerCommandShell {
+  return resolveSetupRunnerCommand(runnerScriptPath, platform).shell
 }

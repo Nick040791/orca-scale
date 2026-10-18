@@ -357,7 +357,8 @@ describe('release-cut.yml swaps the cached elevate.exe through the resolver', ()
     expect(step.run).toContain("$subject -notlike '*CN=SignPath Foundation*'")
   })
 
-  it('blocks the release when the cache swap fails', () => {
-    expect(swapStep()['continue-on-error']).toBeUndefined()
+  // The inner-signing chain stays fail-open: a loud red step, not an unbuildable release.
+  it('keeps the step unable to fail the release job', () => {
+    expect(swapStep()['continue-on-error']).toBe(true)
   })
 })

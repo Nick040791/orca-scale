@@ -1,13 +1,18 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { durableWriteTempPath, writeFileDurableSync } from '../../../durable-file-write'
-import { readProfileStateSnapshot } from '../profile-state-documents'
 import {
-  stageProfileStateRecoveryJson,
-  acceptProfileStateRecoveryJson
-} from './profile-state-json-acceptance'
-import { writeVersionedProfileStateExport } from './profile-state-versioned-export'
+  durableWriteTempPath,
+  writeFileDurable,
+  writeFileDurableSync
+} from '../../../durable-file-write'
+import {
+  readProfileStateSnapshot,
+  stageProfileStateJsonCompatibility,
+  acceptProfileStateJsonCompatibility
+} from '../profile-state-documents'
 import type Database from '../../../sqlite/sync-database'
+import { writeVersionedProfileStateExport } from './profile-state-versioned-export'
 import { ProfileStateRevisionConflictError } from '../profile-state-document-validation'
 
 function readExportSnapshot(db: Database.Database, expectedRevision?: number) {
@@ -30,25 +35,55 @@ export function writeProfileStateAuthorityJsonExport(
   return snapshot.revision
 }
 
-/** Explicit recovery republishes accepted JSON; ordinary profile saves never call this. */
-export function writeProfileStateRecoveryJsonExport(
+/** Stage both accepted versions before replacing canonical JSON for an older build. */
+export function writeProfileStateAuthorityCompatibilityExport(
   db: Database.Database,
   targetPath: string,
-  expectedRevision: number
-): number {
+  expectedRevision?: number
+): number | undefined {
   const snapshot = readExportSnapshot(db, expectedRevision)
-  writeVersionedProfileStateExport(
-    targetPath,
-    (path) => {
-      mkdirSync(dirname(path), { recursive: true })
-      writeFileDurableSync(durableWriteTempPath(path), path, snapshot.json)
-      return snapshot.revision
-    },
-    { retainAllExports: true }
-  )
+  if (snapshot.revision === 0) {
+    return undefined
+  }
+  writeCompatibilityRecoveryExport(targetPath, snapshot)
   const retained = existsSync(targetPath) ? readFileSync(targetPath, 'utf8') : undefined
-  stageProfileStateRecoveryJson(db, snapshot.json, snapshot.revision, retained)
+  mkdirSync(dirname(targetPath), { recursive: true })
+  stageProfileStateJsonCompatibility(db, snapshot.json, snapshot.revision, retained)
   writeFileDurableSync(durableWriteTempPath(targetPath), targetPath, snapshot.json)
-  acceptProfileStateRecoveryJson(db, snapshot.json, snapshot.revision)
+  acceptProfileStateJsonCompatibility(db, snapshot.json, snapshot.revision)
   return snapshot.revision
+}
+
+export async function writeProfileStateAuthorityCompatibilityExportAsync(
+  db: Database.Database,
+  targetPath: string,
+  expectedRevision?: number
+): Promise<number | undefined> {
+  const snapshot = readExportSnapshot(db, expectedRevision)
+  if (snapshot.revision === 0) {
+    return undefined
+  }
+  writeCompatibilityRecoveryExport(targetPath, snapshot)
+  const retained = await readFile(targetPath, 'utf8').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  })
+  await mkdir(dirname(targetPath), { recursive: true })
+  stageProfileStateJsonCompatibility(db, snapshot.json, snapshot.revision, retained)
+  await writeFileDurable(durableWriteTempPath(targetPath), targetPath, snapshot.json)
+  acceptProfileStateJsonCompatibility(db, snapshot.json, snapshot.revision)
+  return snapshot.revision
+}
+
+function writeCompatibilityRecoveryExport(
+  dataFile: string,
+  snapshot: { json: string; revision: number }
+): void {
+  writeVersionedProfileStateExport(dataFile, (path) => {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileDurableSync(durableWriteTempPath(path), path, snapshot.json)
+    return snapshot.revision
+  })
 }

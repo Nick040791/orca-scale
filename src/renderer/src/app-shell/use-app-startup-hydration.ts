@@ -1,11 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { restoreLocalStructuredChatsAtStartup } from '@/runtime/local-structured-chats'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
 import { installCodexDetachedPaneRestartExecutor } from '@/components/terminal-pane/codex-detached-pane-restart-scheduler'
 import { useAppStore } from '../store'
 import { reconcileHydratedWorkspaceTabModels } from './reconcile-hydrated-workspace-tab-models'
 import { useStartupActions } from './use-app-startup-actions'
-import { waitForNativeChatDraftsAtStartup } from './native-chat-draft-startup'
 import { WORKTREE_REFRESH_CONCURRENCY } from '../store/slices/worktrees'
 import { sweepRestoredCodexPanesForStaleAccounts } from '../lib/codex-stale-pane-sweep'
 import { fetchWorkspaceSessionWithRuntimeHostOwners } from '../lib/workspace-session-host-hydration'
@@ -37,6 +35,7 @@ import {
 } from '../../../shared/execution-host'
 import { mapWithConcurrency } from '../../../shared/map-with-concurrency'
 import type { OnboardingState } from '../../../shared/onboarding-state-types'
+import { restoreLocalStructuredSessionTabsOnce } from '../runtime/local-structured-session-tabs-sync'
 import { ensureLocalRuntimeCapabilities } from '../runtime/local-runtime-capabilities'
 
 async function listRuntimeSessionHostIdsForStartup(): Promise<ExecutionHostId[]> {
@@ -93,7 +92,7 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
         await timeRendererStartupStep('fetch-settings', () =>
           actions.fetchSettings({ deferOwnerWorktreeVisibilityDefaults: true })
         )
-        // Why: hidden-at-launch PTYs can query before any pane mounts; publish view attributes as soon as settings exist so every PTY owner answers from the composed theme.
+        // Why: hidden-at-launch PTYs can query OSC 10/11 before any pane mounts; publish view attributes as soon as settings exist so main's silent-until-push responder has data.
         publishTerminalViewAttributesAtAppStart(
           useAppStore.getState().settings,
           getSystemPrefersDark()
@@ -181,8 +180,7 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
         // Why: wait for both writers to settle before recovery so neither can mutate hydrated state afterward.
         const [sessionOutcome, catalogOutcome] = await Promise.allSettled([
           hydrationSessionChain,
-          localCatalogChain,
-          timeRendererStartupStep('native-chat-drafts', waitForNativeChatDraftsAtStartup)
+          localCatalogChain
         ])
         if (sessionOutcome.status === 'rejected') {
           throw sessionOutcome.reason
@@ -283,9 +281,11 @@ export function useAppStartupHydration(onOnboardingLoaded: (state: OnboardingSta
           await timeRendererStartupStep('recover-legacy-worker-terminals-post-reconnect', () =>
             window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
           )
-          await restoreLocalStructuredChatsAtStartup(useAppStore.getState().settings, (restore) =>
-            timeRendererStartupStep('project-structured-session-tabs', restore)
-          )
+          if (useAppStore.getState().settings?.experimentalStructuredNativeChat === true) {
+            await timeRendererStartupStep('project-structured-session-tabs', () =>
+              restoreLocalStructuredSessionTabsOnce()
+            )
+          }
           if (cancelled) {
             return
           }

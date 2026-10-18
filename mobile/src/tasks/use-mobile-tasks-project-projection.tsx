@@ -36,7 +36,7 @@ export function useMobileTasksProjectProjection(model: WorkspaceAndProjectStateM
     projectRowDetail,
     repoList,
     repos,
-    effectiveRepoIds,
+    selectedRepoIds,
     taskSource,
     taskStateHydrated,
     tasksSupportState
@@ -73,10 +73,10 @@ export function useMobileTasksProjectProjection(model: WorkspaceAndProjectStateM
   const reposById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
   const selectedHostedRepos = useMemo(
     () =>
-      effectiveRepoIds.size === 0
+      selectedRepoIds.size === 0
         ? hostedRepos
-        : hostedRepos.filter((repo) => effectiveRepoIds.has(repo.id)),
-    [effectiveRepoIds, hostedRepos]
+        : hostedRepos.filter((repo) => selectedRepoIds.has(repo.id)),
+    [hostedRepos, selectedRepoIds]
   )
   const findProjectRowRepo = useCallback(
     (row: GitHubProjectRow): RepoSummary | null =>

@@ -49,7 +49,7 @@ type WorktreeJumpPaletteOpenTabsInput = WorktreeJumpPaletteStoreState &
 export function useWorktreeJumpPaletteOpenTabs({
   paletteStatusInputsActive,
   browserSortedWorktrees,
-  workspaces,
+  allWorktrees,
   repoMap,
   repoByHostIdentity,
   worktreeOrder,
@@ -87,7 +87,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     }
     return buildSearchableBrowserPages({
       worktrees: browserSortedWorktrees,
-      ownershipWorktrees: workspaces,
+      ownershipWorktrees: allWorktrees,
       repoMap,
       repoMapByHostIdentity: repoByHostIdentity,
       worktreeOrder,
@@ -105,7 +105,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     activeTabType,
     activeWorktreeId,
     activeWorkspaceExecutionHostId,
-    workspaces,
+    allWorktrees,
     browserPagesByWorkspace,
     browserTabsByWorktree,
     browserSortedWorktrees,
@@ -127,7 +127,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     }
     return buildSearchableSimulatorTabs({
       worktrees: browserSortedWorktrees,
-      ownershipWorktrees: workspaces,
+      ownershipWorktrees: allWorktrees,
       repoMap,
       repoMapByHostIdentity: repoByHostIdentity,
       worktreeOrder,
@@ -144,7 +144,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     activeTabType,
     activeWorktreeId,
     activeWorkspaceExecutionHostId,
-    workspaces,
+    allWorktrees,
     browserSortedWorktrees,
     groupsByWorktree,
     repoByHostIdentity,
@@ -165,7 +165,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     }
     return buildSearchableWorkspaceTabs({
       worktrees: browserSortedWorktrees,
-      ownershipWorktrees: workspaces,
+      ownershipWorktrees: allWorktrees,
       repoMap,
       repoMapByHostIdentity: repoByHostIdentity,
       worktreeOrder,
@@ -200,7 +200,7 @@ export function useWorktreeJumpPaletteOpenTabs({
     activeTabTypeByWorktree,
     activeWorktreeId,
     activeWorkspaceExecutionHostId,
-    workspaces,
+    allWorktrees,
     agentStatusByPaneKey,
     browserSortedWorktrees,
     groupsByWorktree,

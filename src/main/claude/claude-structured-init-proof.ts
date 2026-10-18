@@ -1,4 +1,3 @@
-import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import { CLAUDE_DEFAULT_SETTING_SOURCES } from './claude-structured-launch-resolution'
 import type { ClaudeAuthDiagnostic } from './claude-structured-session-state'
 import { AgentSessionAcquisitionRefusal } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
@@ -47,56 +46,35 @@ export function readClaudeModels(initialization: unknown): unknown[] {
     : []
 }
 
-/**
- * The capabilities this CLI advertises: the first report given that names any, else `observed`.
- * A SessionStart proof and the 2.1.280 initialize result name none, so only a turn's system/init
- * may say what the binary supports, and a report naming none never retracts that.
- */
+/** CLI capabilities advertised on the initialize result or the yielded system/init frame. */
 export function readClaudeCapabilities(
-  observed: readonly string[],
-  ...reports: unknown[]
-): readonly string[] {
-  for (const report of reports) {
-    const advertised = isRecord(report) ? report.capabilities : undefined
-    const capabilities = Array.isArray(advertised)
-      ? advertised.filter((value): value is string => typeof value === 'string')
-      : []
-    if (capabilities.length > 0) {
-      return capabilities
-    }
-  }
-  return observed
+  init: ClaudeInitObservation,
+  initialization: unknown
+): string[] {
+  const fromResult = isRecord(initialization) ? initialization.capabilities : undefined
+  const fromFrame = init.message.capabilities
+  const source = Array.isArray(fromResult) ? fromResult : Array.isArray(fromFrame) ? fromFrame : []
+  return source.filter((value): value is string => typeof value === 'string')
 }
 
 export function claudeInitializationAuthError(
-  initialization: unknown,
-  accountKind?: AgentSessionAccountKind
+  initialization: unknown
 ): AgentSessionAcquisitionRefusal | null {
   const account =
-    isRecord(initialization) && isRecord(initialization.account) ? initialization.account : {}
-  // An API key (ANTHROPIC_API_KEY or a Console /login key) reports tokenSource "none".
-  const apiKeySource = readClaudeFrameString(account, 'apiKeySource')
-  return readClaudeFrameString(account, 'tokenSource') === 'none' &&
-    (apiKeySource === null || apiKeySource === 'none')
+    isRecord(initialization) && isRecord(initialization.account) ? initialization.account : null
+  return readClaudeFrameString(account ?? {}, 'tokenSource') === 'none'
     ? new AgentSessionAcquisitionRefusal(
-        'Claude is not signed in for the selected account. Sign in with the Claude CLI for this CLAUDE_CONFIG_DIR, then retry.',
-        'notSignedIn',
-        accountKind
+        'Claude is not signed in for the selected account. Sign in with the Claude CLI for this CLAUDE_CONFIG_DIR, then retry.'
       )
     : null
 }
 
 export function claudeAuthDiagnostic(
-  initialization: unknown,
-  init: ClaudeInitObservation | null,
+  init: ClaudeInitObservation,
   settings: unknown
 ): ClaudeAuthDiagnostic {
   const env = isRecord(settings) && isRecord(settings.env) ? settings.env : {}
-  const account =
-    isRecord(initialization) && isRecord(initialization.account) ? initialization.account : {}
-  const apiKeySource =
-    readClaudeFrameString(account, 'apiKeySource') ??
-    (init ? readClaudeFrameString(init.message, 'apiKeySource') : null)
+  const apiKeySource = readClaudeFrameString(init.message, 'apiKeySource')
   const configured = (key: string): boolean =>
     (typeof env[key] === 'string' && (env[key] as string).trim().length > 0) ||
     Boolean(process.env[key]?.trim())
@@ -107,59 +85,4 @@ export function claudeAuthDiagnostic(
     apiKeyConfigured: configured('ANTHROPIC_API_KEY'),
     settingSources: CLAUDE_DEFAULT_SETTING_SOURCES
   }
-}
-
-/** The CLI's own frame naming the session it runs (system/init or a SessionStart hook). Only a
- *  SessionStart hook sends one before the first turn, so startup takes it when it came and never
- *  waits for it. */
-export type ClaudeInitProof = {
-  promise: Promise<ClaudeInitObservation>
-  resolve: (init: ClaudeInitObservation) => void
-  reject: (error: Error) => void
-  /** A frame named another provider session. */
-  refuse: () => void
-  /** The proof seen so far, or null; throws when it was refused or the child failed first. */
-  seen: () => ClaudeInitObservation | null
-  /** Set once startup has read the proof: a later refusal ends the session. */
-  onRefusal: ((error: Error) => void) | null
-}
-
-export function createClaudeInitProof(): ClaudeInitProof {
-  let resolvePromise = (_init: ClaudeInitObservation): void => {}
-  let rejectPromise = (_error: Error): void => {}
-  const promise = new Promise<ClaudeInitObservation>((resolve, reject) => {
-    resolvePromise = resolve
-    rejectPromise = reject
-  })
-  void promise.catch(() => {})
-  let outcome: { init: ClaudeInitObservation } | { error: Error } | null = null
-  const reject = (error: Error): void => {
-    outcome ??= { error }
-    rejectPromise(error)
-  }
-  const proof: ClaudeInitProof = {
-    promise,
-    resolve: (init) => {
-      outcome ??= { init }
-      resolvePromise(init)
-    },
-    reject,
-    refuse: () => {
-      // A session already proven by its own frame keeps that proof.
-      if (outcome && 'init' in outcome) {
-        return
-      }
-      const error = new Error('claude provider session expected')
-      reject(error)
-      proof.onRefusal?.(error)
-    },
-    seen: () => {
-      if (outcome && 'error' in outcome) {
-        throw outcome.error
-      }
-      return outcome?.init ?? null
-    },
-    onRefusal: null
-  }
-  return proof
 }

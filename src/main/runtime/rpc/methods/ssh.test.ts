@@ -1,4 +1,3 @@
-import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcRequest } from '../core'
@@ -59,18 +58,8 @@ describe('ssh RPC methods', () => {
 
     const response = await dispatcher.dispatch(makeRequest('ssh.connect', { targetId: 'ssh-1' }))
 
-    expect(connectRegisteredSshTargetMock).toHaveBeenCalledWith('ssh-1', { automatic: false })
+    expect(connectRegisteredSshTargetMock).toHaveBeenCalledWith('ssh-1')
     expect(response).toMatchObject({ ok: true, result: { state } })
-  })
-
-  it("keeps a paired client's automatic connect from lifting a cancelled sign-in", async () => {
-    connectRegisteredSshTargetMock.mockResolvedValueOnce(null)
-    const runtime = { getRuntimeId: () => 'test-runtime' } as unknown as OrcaRuntimeService
-    const dispatcher = new RpcDispatcher({ runtime, methods: SSH_METHODS })
-
-    await dispatcher.dispatch(makeRequest('ssh.connect', { targetId: 'ssh-1', automatic: true }))
-
-    expect(connectRegisteredSshTargetMock).toHaveBeenCalledWith('ssh-1', { automatic: true })
   })
 
   it('returns null when the target has no registered state yet', async () => {

@@ -1,26 +1,12 @@
 import { z } from 'zod'
-import { TERMINAL_KITTY_FILE_MAX_BYTES } from '../terminal-kitty-file'
 import { OptionalFiniteNumber, OptionalString, requiredString } from './rpc-param-primitives'
 import { isTuiAgent } from '../tui-agent-config'
-import { SpawnIntentParam } from './agent-session-params'
 import {
   canonicalizeWindowsShellOverride,
   isSupportedWindowsShellOverride,
   listSupportedWindowsShellOverrides
 } from '../windows-terminal-shell'
 import { TERMINAL_PANE_SPLIT_SOURCES } from '../feature-education-telemetry'
-import { OptionalExecutionHostId } from './worktree-params'
-
-// Why refused at the boundary rather than at spawn: only the host knows the allowlist, and a
-// relay-side throw reaches the caller as an opaque spawn failure after the round trip.
-export const WindowsShellOverrideParam = z
-  .string()
-  .refine(isSupportedWindowsShellOverride, {
-    message: `shell must be one of: ${listSupportedWindowsShellOverrides().join(', ')}`
-  })
-  // Why here: the host is authoritative, so it canonicalizes even when a client did not; the
-  // spawn path exact-matches `.exe` spellings and must never see `cmd` or `Git-Bash`.
-  .transform((shell) => canonicalizeWindowsShellOverride(shell) ?? shell)
 
 export const TerminalHandle = z.object({
   terminal: requiredString('Missing terminal handle'),
@@ -28,26 +14,8 @@ export const TerminalHandle = z.object({
   expectedIncarnationId: requiredString('Missing PTY incarnation').optional()
 })
 
-export const TerminalReadKittyFile = TerminalHandle.extend({
-  path: z
-    .string()
-    .min(1)
-    .max(4096)
-    .refine((path) => !path.includes('\0')),
-  offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  length: z.number().int().nonnegative().max(TERMINAL_KITTY_FILE_MAX_BYTES).optional()
-})
-
 export const TerminalFocus = TerminalHandle.extend({
   navigation: z.enum(['caller', 'host']).optional()
-})
-
-/** `terminal.reveal` takes no handle: a pane a paired server owns has none on this host. */
-export const TerminalReveal = z.object({
-  worktreeId: requiredString('Missing worktree id').pipe(z.string().max(1024)),
-  tabId: requiredString('Missing tab id').pipe(z.string().max(128)),
-  leafId: requiredString('Missing leaf id').pipe(z.string().max(128)).optional(),
-  executionHostId: OptionalExecutionHostId
 })
 
 /**
@@ -137,8 +105,6 @@ export const TerminalSend = TerminalHandle.extend({
   interrupt: z.unknown().optional(),
   // Why: older hosts strip this optional intent and retain their direct-send behavior.
   agentPrompt: z.literal(true).optional(),
-  // Older hosts strip this and omit the proof; callers read their whole-write `accepted` verdict.
-  requireWriteSettlement: z.literal(true).optional(),
   // Why: waiting observes the same prompt receipt; it never authorizes a second write.
   waitSubmitMs: z.number().int().min(0).max(3_600_000).optional(),
   resolvedLaunchDraft: z
@@ -178,22 +144,6 @@ export const TerminalWait = TerminalHandle.extend({
   timeoutMs: OptionalFiniteNumber
 })
 
-const TerminalColorQueryReplyColorsParam = z.object({
-  foreground: z.string().max(128).optional(),
-  background: z.string().max(128).optional()
-})
-
-export const TerminalSetViewerColors = z.object({
-  colors: TerminalColorQueryReplyColorsParam
-})
-
-/** The provider session a terminal's launch resumes. */
-export const ResumeProviderSessionParam = z.object({
-  key: z.enum(['session_id', 'conversation_id']),
-  id: z.string().min(1).max(512),
-  transcriptPath: z.string().min(1).max(32_768).optional()
-})
-
 export const TerminalCreateParams = z.object({
   worktree: OptionalString,
   clientMutationId: z.string().min(1).max(128).optional(),
@@ -214,21 +164,40 @@ export const TerminalCreateParams = z.object({
         .optional()
     })
     .optional(),
-  resumeProviderSession: ResumeProviderSessionParam.optional(),
+  resumeProviderSession: z
+    .object({
+      key: z.enum(['session_id', 'conversation_id']),
+      id: z.string().min(1).max(512),
+      transcriptPath: z.string().min(1).max(32_768).optional()
+    })
+    .optional(),
   launchToken: OptionalString,
   launchAgent: z.string().refine(isTuiAgent).optional(),
   terminalKittyKeyboardProtocol: z.boolean().optional(),
-  terminalColorQueryReplies: TerminalColorQueryReplyColorsParam.optional(),
+  terminalColorQueryReplies: z
+    .object({
+      foreground: z.string().max(128).optional(),
+      background: z.string().max(128).optional()
+    })
+    .optional(),
   title: OptionalString,
   focus: z.unknown().optional(),
-  // Ignored here; the CLI still sends it for hosts before v1.4.211, which route on it.
   rendererBacked: z.unknown().optional(),
   activate: z.unknown().optional(),
   presentation: z.enum(['background', 'focused']).optional(),
   tabId: OptionalString,
   leafId: OptionalString,
-  spawnIntent: SpawnIntentParam.optional(),
-  shell: WindowsShellOverrideParam.optional()
+  // Why refused at the boundary rather than at spawn: only the host knows the allowlist, and a
+  // relay-side throw reaches the caller as an opaque spawn failure after the round trip.
+  shell: z
+    .string()
+    .refine(isSupportedWindowsShellOverride, {
+      message: `shell must be one of: ${listSupportedWindowsShellOverrides().join(', ')}`
+    })
+    // Why here: the host is authoritative, so it canonicalizes even when a client did not; the
+    // spawn path exact-matches `.exe` spellings and must never see `cmd` or `Git-Bash`.
+    .transform((shell) => canonicalizeWindowsShellOverride(shell) ?? shell)
+    .optional()
 })
 
 export const TerminalSplit = TerminalHandle.extend({

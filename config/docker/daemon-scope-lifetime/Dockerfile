@@ -1,6 +1,4 @@
-ARG BASE_IMAGE=debian:bookworm-slim
-FROM node:22-bookworm-slim AS node
-FROM ${BASE_IMAGE}
+FROM node:22-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV container=docker
@@ -11,8 +9,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --uid 1100 --create-home --shell /bin/sh orca-repro
 
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY process-fixture.cjs run-cases.cjs terminal-scope-cases.cjs /opt/daemon-scope-lifetime/
+COPY process-fixture.cjs run-cases.cjs /opt/daemon-scope-lifetime/
 
 STOPSIGNAL SIGRTMIN+3
 CMD ["/lib/systemd/systemd"]

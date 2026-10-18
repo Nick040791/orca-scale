@@ -1,11 +1,7 @@
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { FolderWorkspacePathStatusRequest } from '../../../../shared/folder-workspace-path-status'
-import { runtimeTargetForOwnerEnvironment } from '../../runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
-import type { WorktreeOperationRouteState } from '@/lib/worktree-operation-route'
-import type { ExecutionHostId } from '../../../../shared/execution-host'
-import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
+import { getActiveRuntimeTarget } from '../../runtime/runtime-rpc-client'
 import type { FolderWorkspacePathStatusRouteOptions } from '../repos/repo-state'
 import type { FolderWorkspaceUpdateField } from './folder-workspace-mutations'
 
@@ -21,11 +17,20 @@ export function getFolderWorkspacePathStatusScopeKey(
   return `folder-workspace:${request.folderWorkspaceId}`
 }
 
-export function getPathStatusOwnerCachePrefix(
-  owner: FolderWorkspacePathStatusRouteOptions
+export function getRuntimeTargetCachePrefix(
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 ): string {
-  const target = runtimeTargetForOwnerEnvironment(owner.runtimeEnvironmentId)
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
+}
+
+export function getFolderWorkspacePathStatusRouteSettings(
+  options: FolderWorkspacePathStatusRouteOptions | undefined,
+  fallbackSettings: GlobalSettings | null
+): Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined {
+  return options && 'runtimeEnvironmentId' in options
+    ? { activeRuntimeEnvironmentId: options.runtimeEnvironmentId ?? null }
+    : fallbackSettings
 }
 
 export function folderWorkspaceUpdateInvalidatesPathStatus(
@@ -48,9 +53,6 @@ export function mergeFolderWorkspaceUpdateResponse(
   }
   const next = { ...current }
   for (const field of fields) {
-    if (field === 'linkedItemsBase' || field === 'linkedItemsSelectionChanged') {
-      continue
-    }
     // Why: coalesced activity can land an older response after later local bumps.
     if (field === 'lastActivityAt') {
       next.lastActivityAt = Math.max(current.lastActivityAt, updated.lastActivityAt)
@@ -60,16 +62,4 @@ export function mergeFolderWorkspaceUpdateResponse(
   }
   next.updatedAt = Math.max(current.updatedAt, updated.updatedAt)
   return next
-}
-
-/** The folder workspace's owner, or `null` when its rows name none or disagree. */
-export function folderWorkspaceOwnerTarget(
-  state: WorktreeOperationRouteState,
-  folderWorkspaceId: string,
-  executionHostId: ExecutionHostId | null | undefined
-): RuntimeClientTarget | null {
-  return runtimeTargetForWorkspaceOwner(state, {
-    workspaceId: folderWorkspaceKey(folderWorkspaceId),
-    ...(executionHostId ? { hostId: executionHostId } : {})
-  })
 }

@@ -1,14 +1,9 @@
-import { PaneReparentFrameTracker } from './pane-reparent-frame-tracker'
-
 export function attachDomRendererFocusClassSync(
   terminalElement: HTMLElement | undefined
 ): () => void {
   if (!terminalElement) {
     return () => undefined
   }
-
-  let disposed = false
-  const frames = new PaneReparentFrameTracker(() => disposed)
 
   const sync = (): void => {
     const rows = terminalElement.querySelector<HTMLElement>('.xterm-rows')
@@ -21,13 +16,8 @@ export function attachDomRendererFocusClassSync(
   }
 
   const scheduleSync = (): void => {
-    if (disposed) {
-      return
-    }
     sync()
-    if (!disposed) {
-      frames.request(sync)
-    }
+    requestAnimationFrame(sync)
   }
 
   const observer = new MutationObserver(scheduleSync)
@@ -37,8 +27,6 @@ export function attachDomRendererFocusClassSync(
   scheduleSync()
 
   return () => {
-    disposed = true
-    frames.cancelPending()
     observer.disconnect()
     terminalElement.removeEventListener('focusin', scheduleSync)
     terminalElement.removeEventListener('focusout', scheduleSync)

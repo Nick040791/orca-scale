@@ -2,9 +2,11 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { Tab } from '../../shared/tab-types'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 
-/** The chat a saved tab shows, when it is this host's. */
-export function savedSessionId(tab: Tab): string | null {
+function savedSessionId(tab: Tab): string | null {
   if (tab.executionHostId && tab.executionHostId !== LOCAL_EXECUTION_HOST_ID) {
+    return null
+  }
+  if (tab.agentSessionAgent === 'claude') {
     return null
   }
   return tab.contentType === 'agent-session' ? tab.entityId : null

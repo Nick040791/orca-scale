@@ -17,8 +17,6 @@ export function useTerminalEditorCloseFoundation(
     ? openFiles.find((file) => file.id === saveDialogFileId)
     : null
   const pendingEditorCloseQueueRef = useRef<string[]>([])
-  // Why: a close request can carry what to do once its file actually closes; cancel drops it.
-  const closedReactionsRef = useRef(new Map<string, () => void>())
   const inFlightSaveFileIdRef = useRef<string | null>(null)
   const isClosingRef = useRef(false)
   const closeDialogDebounceTimersRef = useRef<Set<number>>(new Set())
@@ -78,7 +76,6 @@ export function useTerminalEditorCloseFoundation(
     setSaveDialogFileId,
     saveDialogFile,
     pendingEditorCloseQueueRef,
-    closedReactionsRef,
     inFlightSaveFileIdRef,
     isClosingRef,
     closeDialogDebounceTimersRef,

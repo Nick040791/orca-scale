@@ -13,16 +13,12 @@ vi.mock('electron', () => ({
     handle: (name: string, handler: (...args: unknown[]) => unknown) => handlers.set(name, handler)
   }
 }))
-vi.mock('./local-file-access-resolution', () => ({ resolveUserNamedRegularFile: authorize }))
+vi.mock('./filesystem-auth', () => ({ resolveAuthorizedPath: authorize }))
 import {
   closeAllLocalLogTailWatchers,
   getActiveLocalLogTailWatcherCount,
   registerLocalLogTailHandlers
 } from './local-log-tail'
-import type { Store } from '../persistence'
-
-// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: path resolution is mocked, so the store is never read.
-const NO_STORE = {} as Store
 
 class Sender extends EventEmitter {
   dead = false
@@ -45,7 +41,8 @@ beforeEach(async () => {
   filePath = join(directory, 'fixture.log')
   await writeFile(filePath, 'test\n')
   authorize.mockReset().mockResolvedValue(filePath)
-  registerLocalLogTailHandlers(NO_STORE)
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: authorization is mocked; the handler never reads Store in this isolated fixture.
+  registerLocalLogTailHandlers({} as never)
 })
 afterEach(async () => {
   closeAllLocalLogTailWatchers()

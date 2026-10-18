@@ -1,4 +1,3 @@
-import type { AgentJournalTurnScope } from '../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   boundInlineText,
@@ -16,35 +15,13 @@ import {
   type ClaudeMessageEnvelope
 } from './claude-structured-item-translation'
 import { claudeResultOutcome } from './claude-result-outcome'
-import type { ClaudeRowStamp } from './claude-provisional-row-corrections'
-import {
-  CLAUDE_API_RETRY_FRAME_KIND,
-  claudeApiRetryRowBody,
-  createClaudeApiRetryRuns
-} from './claude-api-retry-row'
-import {
-  CLAUDE_INFORMATIONAL_FRAME_KIND,
-  claudeInformationalRowBody
-} from './claude-informational-row'
+import { rootClaudeRowStamp, type ClaudeRowStamp } from './claude-provisional-row-corrections'
 
 export function claudeProviderFrameKind(message: Record<string, unknown>): string {
   const type = claudeText(message.type) ?? 'unknown'
   const subtype = claudeText(message.subtype)
   const eventType = claudeText(claudeRecord(message.event)?.type)
   return ['message', type, subtype ?? eventType].filter(Boolean).join(':')
-}
-
-// Telemetry the translator never journals: the token tally Claude sends after every thinking delta,
-// stream deltas no stream registry carries (signatures, tool input), and keep-alive pings.
-const PROGRESS_FRAME_KINDS: ReadonlySet<string> = new Set([
-  'message:system:thinking_tokens',
-  'message:stream_event:content_block_delta',
-  'message:stream_event:ping'
-])
-
-/** A frame that writes no row, so nothing streamed has to be journaled ahead of it. */
-export function isClaudeProgressFrame(message: Record<string, unknown>): boolean {
-  return PROGRESS_FRAME_KINDS.has(claudeProviderFrameKind(message))
 }
 
 const SETTLED_RESULT_KINDS: ReadonlySet<string> = new Set(
@@ -68,12 +45,11 @@ export function isSettledClaudeResultKind(kind: string): boolean {
  * would only be noise.
  */
 export function claudeResultFailure(
-  message: Record<string, unknown>,
-  leftToStop = false
+  message: Record<string, unknown>
 ): { text: string | null } | null {
   // A cancellation is not a fault and earns no error row; the outcome classifier
   // owns that distinction so this reader cannot drift from the turn's verdict.
-  if (claudeResultOutcome(message, leftToStop) !== 'failure') {
+  if (claudeResultOutcome(message) !== 'failure') {
     return null
   }
   const result = claudeText(message.result)?.trim()
@@ -128,9 +104,7 @@ export function isModeledClaudeContent(value: unknown): boolean {
 
 export function createClaudeProviderFrameFallback(
   sink: StructuredAgentSessionEventSink,
-  acquisitionId: string,
-  /** The frame's turn — the open one once `beforeAppend` ran — or the conversation. */
-  turnScope: () => AgentJournalTurnScope
+  acquisitionId: string
 ): {
   /** `displayText` leads the row when Claude knows the sentence the frame itself does not name. */
   append: (
@@ -147,38 +121,9 @@ export function createClaudeProviderFrameFallback(
   ) => boolean
 } {
   let sequence = 0
-  const retryRun = createClaudeApiRetryRuns()
   return {
     append: (kind, payload, displayText, beforeAppend, options, stamp) => {
       sequence += 1
-      const retrying = kind === CLAUDE_API_RETRY_FRAME_KIND ? claudeRecord(payload) : null
-      if (retrying) {
-        beforeAppend?.()
-        // One row per retry run, revised by each attempt, never the frame as a row.
-        const identity = {
-          provider: 'orca',
-          clientMessageId: `provider-retry:claude:${acquisitionId}:${retryRun(retrying)}`
-        } as const
-        const body = claudeApiRetryRowBody(retrying)
-        sink.appendItem(identity, body, stamp?.(identity, body) ?? { turnScope: turnScope() })
-        sink.publish()
-        return true
-      }
-      if (kind === CLAUDE_INFORMATIONAL_FRAME_KIND) {
-        // Never the frame as a row: a warning in its own words, any other level nothing.
-        const body = claudeInformationalRowBody(claudeRecord(payload) ?? {})
-        if (!body) {
-          return false
-        }
-        beforeAppend?.()
-        const identity = {
-          provider: 'orca',
-          clientMessageId: `provider-frame:claude:${acquisitionId}:${sequence}`
-        } as const
-        sink.appendItem(identity, body, stamp?.(identity, body) ?? { turnScope: turnScope() })
-        sink.publish()
-        return true
-      }
       const translated = unhandledProviderFrameJournalItem(
         'claude',
         kind,
@@ -198,7 +143,7 @@ export function createClaudeProviderFrameFallback(
         clientMessageId: `provider-frame:claude:${acquisitionId}:${sequence}`
       } as const
       const body = bounded ? { ...translated.body, text: bounded } : translated.body
-      sink.appendItem(identity, body, stamp?.(identity, body) ?? { turnScope: turnScope() })
+      sink.appendItem(identity, body, (stamp ?? rootClaudeRowStamp)(identity, body))
       sink.publish()
       return true
     }

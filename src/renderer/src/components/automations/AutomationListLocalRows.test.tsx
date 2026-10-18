@@ -55,7 +55,7 @@ function makeExternalJob(overrides: Partial<ExternalAutomationJob> = {}): Extern
   return {
     id: 'job-1',
     managerId: 'manager-1',
-    provider: 'openclaw',
+    provider: 'hermes',
     name: 'Nightly',
     schedule: '0 0 * * *',
     rawSchedule: null,
@@ -77,8 +77,8 @@ function makeExternalJob(overrides: Partial<ExternalAutomationJob> = {}): Extern
 function makeExternalManager(): ExternalAutomationManager {
   return {
     id: 'manager-1',
-    provider: 'openclaw',
-    label: 'Local OpenClaw',
+    provider: 'hermes',
+    label: 'Local Hermes',
     targetLabel: 'Local',
     target: { type: 'local' },
     status: 'available',
@@ -161,7 +161,7 @@ function renderExternalRows(handlers: {
   const job = makeExternalJob()
   const scope: ExternalAutomationScope = {
     owner: { authority: { kind: 'desktop' }, selector: { kind: 'self' } },
-    provider: 'openclaw'
+    provider: 'hermes'
   }
   return render(
     <AutomationListExternalRows
@@ -172,6 +172,7 @@ function renderExternalRows(handlers: {
       externalActionKey={null}
       onSelect={handlers.onSelect}
       onRequestAction={handlers.onRequestAction ?? vi.fn()}
+      onEdit={vi.fn()}
     />
   )
 }

@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { grantDirAclAsync, isPermissionError } from '../win32-utils'
-import { renameOverLockedTargetAsync } from './locked-executable-rename'
 
-type ExistingScript = { exists: false } | { exists: true; content: Buffer | null }
+type ExistingScript = { exists: false } | { exists: true; content: string | null }
 
 function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -12,7 +11,7 @@ function isMissingPathError(error: unknown): boolean {
 
 async function readExistingScript(scriptPath: string): Promise<ExistingScript> {
   try {
-    return { exists: true, content: await readFile(scriptPath) }
+    return { exists: true, content: await readFile(scriptPath, 'utf-8') }
   } catch (error) {
     if (isMissingPathError(error)) {
       return { exists: false }
@@ -29,7 +28,7 @@ async function readExistingScript(scriptPath: string): Promise<ExistingScript> {
   }
 }
 
-export async function scriptStillExists(scriptPath: string): Promise<boolean> {
+async function scriptStillExists(scriptPath: string): Promise<boolean> {
   try {
     await stat(scriptPath)
     return true
@@ -41,10 +40,7 @@ export async function scriptStillExists(scriptPath: string): Promise<boolean> {
   }
 }
 
-async function writeScriptWithAclRetry(
-  scriptPath: string,
-  content: string | Buffer
-): Promise<void> {
+async function writeScriptWithAclRetry(scriptPath: string, content: string): Promise<void> {
   try {
     await writeFile(scriptPath, content, 'utf-8')
   } catch (error) {
@@ -64,34 +60,13 @@ async function writeScriptWithAclRetry(
 // Why: refresh must not block Electron's main thread or create state for an absent CLI.
 export async function refreshManagedScriptIfPresent(
   scriptPath: string,
-  content: string | Buffer,
-  options: { moveLockedTargetAside?: boolean } = {}
-): Promise<boolean> {
-  return writeManagedScriptAtomically(
-    scriptPath,
-    content,
-    false,
-    options.moveLockedTargetAside === true
-  )
-}
-
-// Callers must establish ownership from a surviving managed script or registration first.
-export async function restoreManagedScript(scriptPath: string, content: string): Promise<void> {
-  await mkdir(dirname(scriptPath), { recursive: true })
-  await writeManagedScriptAtomically(scriptPath, content, true)
-}
-
-async function writeManagedScriptAtomically(
-  scriptPath: string,
-  content: string | Buffer,
-  allowMissing: boolean,
-  moveLockedTargetAside = false
+  content: string
 ): Promise<boolean> {
   const existing = await readExistingScript(scriptPath)
-  if (!existing.exists && !allowMissing) {
+  if (!existing.exists) {
     return false
   }
-  if (existing.exists && existing.content?.equals(Buffer.from(content))) {
+  if (existing.content === content) {
     if (process.platform !== 'win32') {
       await chmod(scriptPath, 0o755)
     }
@@ -104,10 +79,10 @@ async function writeManagedScriptAtomically(
     if (process.platform !== 'win32') {
       await chmod(tmpPath, 0o755)
     }
-    if (!allowMissing && !(await scriptStillExists(scriptPath))) {
+    if (!(await scriptStillExists(scriptPath))) {
       return false
     }
-    await renameOverLockedTargetAsync(tmpPath, scriptPath, moveLockedTargetAside)
+    await rename(tmpPath, scriptPath)
     return true
   } finally {
     await rm(tmpPath, { force: true }).catch(() => undefined)

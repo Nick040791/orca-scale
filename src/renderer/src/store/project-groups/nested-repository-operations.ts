@@ -5,8 +5,11 @@ import type {
   NestedRepoScanResult,
   ProjectGroupImportResult
 } from '../../../../shared/project-group-types'
-import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
-import { runtimeTargetForOwnerEnvironment } from '../../runtime/runtime-client-target'
+import {
+  callRuntimeRpc,
+  getActiveRuntimeTarget,
+  settingsForRuntimeOwner
+} from '../../runtime/runtime-rpc-client'
 import { translate } from '@/i18n/i18n'
 import type { RepoSlice } from '../repos/repo-state'
 
@@ -27,11 +30,12 @@ export function createNestedRepositoryActions(
   return {
     scanNestedRepos: async (path, connectionId, controls) => {
       try {
-        // Why: Add Project scans on the host the user picked; there is no row yet.
-        const target = runtimeTargetForOwnerEnvironment(controls.runtimeEnvironmentId)
+        const target = getActiveRuntimeTarget(
+          settingsForRuntimeOwner(get().settings, controls?.runtimeEnvironmentId)
+        )
         if (target.kind === 'local') {
           const unsubscribe =
-            controls.scanId && controls.onProgress
+            controls?.scanId && controls.onProgress
               ? window.api.projectGroups.onNestedScanProgress(({ scanId, scan }) => {
                   if (scanId === controls.scanId) {
                     controls.onProgress?.(normalizeNestedRepoScanResult(scan))
@@ -43,7 +47,7 @@ export function createNestedRepositoryActions(
               await window.api.projectGroups.scanNested({
                 path,
                 connectionId,
-                scanId: controls.scanId
+                scanId: controls?.scanId
               })
             )
           } finally {
@@ -67,7 +71,9 @@ export function createNestedRepositoryActions(
 
     cancelNestedRepoScan: async (scanId, options) => {
       try {
-        const target = runtimeTargetForOwnerEnvironment(options.runtimeEnvironmentId)
+        const target = getActiveRuntimeTarget(
+          settingsForRuntimeOwner(get().settings, options?.runtimeEnvironmentId)
+        )
         if (target.kind !== 'local') {
           return false
         }
@@ -80,7 +86,9 @@ export function createNestedRepositoryActions(
 
     importNestedRepos: async (args) => {
       try {
-        const target = runtimeTargetForOwnerEnvironment(args.runtimeEnvironmentId)
+        const target = getActiveRuntimeTarget(
+          settingsForRuntimeOwner(get().settings, args.runtimeEnvironmentId)
+        )
         const result =
           target.kind === 'local'
             ? await window.api.projectGroups.importNested(args)
@@ -96,7 +104,10 @@ export function createNestedRepositoryActions(
                 },
                 { timeoutMs: 60_000 }
               )
-        const catalogOptions = { runtimeEnvironmentId: args.runtimeEnvironmentId }
+        const catalogOptions =
+          'runtimeEnvironmentId' in args
+            ? { runtimeEnvironmentId: args.runtimeEnvironmentId }
+            : undefined
         await get().fetchProjectGroups(catalogOptions)
         await get().fetchFolderWorkspaces(catalogOptions)
         await (args.runtimeEnvironmentId

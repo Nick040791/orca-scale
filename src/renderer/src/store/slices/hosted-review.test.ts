@@ -11,7 +11,15 @@ const runtimeRpc = vi.hoisted(() => ({
   callRuntimeRpc: vi.fn()
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: runtimeRpc.callRuntimeRpc }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: runtimeRpc.callRuntimeRpc,
+  getActiveRuntimeTarget: (
+    settings: { activeRuntimeEnvironmentId?: string | null } | null | undefined
+  ) => {
+    const environmentId = settings?.activeRuntimeEnvironmentId?.trim()
+    return environmentId ? { kind: 'environment', environmentId } : { kind: 'local' }
+  }
+}))
 
 const mockApi = {
   hostedReview: {
@@ -42,12 +50,6 @@ function makeStore(settings: AppState['settings'] = null) {
     repos: [{ id: 'repo-1', path: '/repo', connectionId: null } as AppState['repos'][number]],
     prCache: {},
     ...createHostedReviewSlice(...(args as Parameters<typeof createHostedReviewSlice>))
-  }))
-}
-
-function stampRepoOwner(store: ReturnType<typeof makeStore>, executionHostId: `runtime:${string}`) {
-  store.setState((state) => ({
-    repos: state.repos.map((repo) => ({ ...repo, executionHostId }))
   }))
 }
 
@@ -227,20 +229,34 @@ describe('hosted review slice', () => {
     ).toBeUndefined()
   })
 
-  it('keeps a review lookup for an unknown repo on this computer while a server is focused', async () => {
-    // Before: the focused server answered for a repo no row owns.
-    mockApi.hostedReview.forBranch.mockResolvedValueOnce(review)
+  it('routes active runtime review lookups through runtime RPC', async () => {
+    runtimeRpc.callRuntimeRpc.mockResolvedValueOnce(review)
     const store = makeStore({
       activeRuntimeEnvironmentId: 'env-win'
     } as AppState['settings'])
 
-    await store.getState().fetchHostedReviewForBranch('C:\\repo', 'feature/windows', {
-      linkedGitHubPR: 12
-    })
+    await expect(
+      store.getState().fetchHostedReviewForBranch('C:\\repo', 'feature/windows', {
+        linkedGitHubPR: 12
+      })
+    ).resolves.toEqual(review)
 
-    expect(runtimeRpc.callRuntimeRpc).not.toHaveBeenCalled()
-    expect(mockApi.hostedReview.forBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ repoPath: 'C:\\repo', branch: 'feature/windows' })
+    expect(mockApi.hostedReview.forBranch).not.toHaveBeenCalled()
+    expect(runtimeRpc.callRuntimeRpc).toHaveBeenCalledWith(
+      { kind: 'environment', environmentId: 'env-win' },
+      'hostedReview.forBranch',
+      {
+        repo: 'C:\\repo',
+        repoPath: 'C:\\repo',
+        branch: 'feature/windows',
+        currentHeadOid: null,
+        linkedGitHubPR: 12,
+        linkedGitLabMR: null,
+        linkedBitbucketPR: null,
+        linkedAzureDevOpsPR: null,
+        linkedGiteaPR: null
+      },
+      { timeoutMs: 30_000 }
     )
   })
 
@@ -480,7 +496,6 @@ describe('hosted review slice', () => {
     const store = makeStore({
       activeRuntimeEnvironmentId: 'env-win'
     } as AppState['settings'])
-    stampRepoOwner(store, 'runtime:env-win')
 
     await store.getState().createHostedReview('/repo', {
       provider: 'github',
@@ -516,7 +531,6 @@ describe('hosted review slice', () => {
     const store = makeStore({
       activeRuntimeEnvironmentId: 'env-win'
     } as AppState['settings'])
-    stampRepoOwner(store, 'runtime:env-win')
 
     await store.getState().createStackedHostedReview('/repo', {
       provider: 'github',
@@ -539,25 +553,6 @@ describe('hosted review slice', () => {
     )
   })
 
-  it('creates a review for an unstamped local repo on this computer, not the focused server', async () => {
-    mockApi.hostedReview.create.mockResolvedValueOnce({ ok: true, number: 1, url: 'u' })
-    const focused = { activeRuntimeEnvironmentId: 'env-win' }
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the slice reads only the focus field of settings.
-    const store = makeStore(focused as AppState['settings'])
-
-    await store.getState().createHostedReview('/repo', {
-      provider: 'github',
-      base: 'main',
-      head: 'feature/create-pr',
-      title: 'Create PR'
-    })
-
-    expect(runtimeRpc.callRuntimeRpc).not.toHaveBeenCalled()
-    expect(mockApi.hostedReview.create).toHaveBeenCalledWith(
-      expect.objectContaining({ repoPath: '/repo', repoId: 'repo-1' })
-    )
-  })
-
   it('uses the selected worktree selector for runtime pull request creation eligibility', async () => {
     runtimeRpc.callRuntimeRpc.mockResolvedValueOnce({
       provider: 'github',
@@ -569,7 +564,6 @@ describe('hosted review slice', () => {
     const store = makeStore({
       activeRuntimeEnvironmentId: 'env-win'
     } as AppState['settings'])
-    stampRepoOwner(store, 'runtime:env-win')
 
     await store.getState().getHostedReviewCreationEligibility({
       repoPath: '/repo',

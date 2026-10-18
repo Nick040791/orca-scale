@@ -1,7 +1,7 @@
-import { spawnProcess } from '@orca/process-host'
+import { spawnProcess } from '../../shared/child-process/run-process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { relayBundleCandidates } from '../ssh/relay-bundle-paths'
+import { getAppEnvironment } from '../../shared/app-environment'
 import {
   WSL_BROWSER_NETWORK_RELAY_BUNDLE_NAME,
   WSL_BROWSER_NETWORK_RELAY_DIR,
@@ -28,7 +28,22 @@ export type WslBrowserNetworkRelayChild = ReturnType<typeof spawnProcess> & {
 type WslBrowserNetworkRelayBundle = { jsPath: string; version: string }
 
 export function resolveWslBrowserNetworkRelayBundle(): WslBrowserNetworkRelayBundle | null {
-  for (const dir of relayBundleCandidates('wsl')) {
+  const candidates: string[] = []
+  if (process.env.ORCA_RELAY_PATH) {
+    candidates.push(join(process.env.ORCA_RELAY_PATH, 'wsl'))
+  }
+  if (process.resourcesPath) {
+    candidates.push(join(process.resourcesPath, 'relay', 'wsl'))
+    candidates.push(join(process.resourcesPath, 'app.asar.unpacked', 'out', 'relay', 'wsl'))
+  }
+  try {
+    const appPath = getAppEnvironment().getAppPath()
+    candidates.push(join(appPath, 'resources', 'relay', 'wsl'))
+    candidates.push(join(appPath, 'out', 'relay', 'wsl'))
+  } catch {
+    // Tests, early startup and plain-Node hosts have no app path — env/resources candidates suffice.
+  }
+  for (const dir of candidates) {
     const jsPath = join(dir, WSL_BROWSER_NETWORK_RELAY_BUNDLE_NAME)
     const versionPath = join(dir, WSL_BROWSER_NETWORK_RELAY_VERSION_FILE)
     if (!existsSync(jsPath) || !existsSync(versionPath)) {

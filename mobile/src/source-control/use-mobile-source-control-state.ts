@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useForceReconnect } from '../transport/host-client-hooks'
-import { useWorkspaceClient } from '../transport/use-workspace-client'
+import { useHostClient, useForceReconnect } from '../transport/client-context'
 import { getWorktreeLabel } from '../session/worktree-label'
 import { useMobileGitRequests } from './use-mobile-git-requests'
 import { useMobileSourceControlLoaders } from './use-mobile-source-control-loaders'
@@ -33,6 +32,8 @@ import {
   type MobileBranchEntryView
 } from './mobile-source-control-screen-state'
 
+type MobileGitLocalBranches = RuntimeGitLocalBranches
+
 export type MobileSourceControlStateParams = {
   hostId: string
   worktreeId: string
@@ -60,13 +61,13 @@ export function useMobileSourceControlState(params: MobileSourceControlStatePara
     onOpenHistory
   } = params
   const insets = useSafeAreaInsets()
-  const { client, state: connState } = useWorkspaceClient(hostId)
+  const { client, state: connState } = useHostClient(hostId)
   const forceReconnect = useForceReconnect()
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [generatingMessage, setGeneratingMessage] = useState(false)
   const [showBranchPicker, setShowBranchPicker] = useState(false)
-  const [localBranches, setLocalBranches] = useState<RuntimeGitLocalBranches | null>(null)
+  const [localBranches, setLocalBranches] = useState<MobileGitLocalBranches | null>(null)
   const [createdPrUrl, setCreatedPrUrl] = useState<string | null>(null)
   const [createdPrWarning, setCreatedPrWarning] = useState<string | null>(null)
   const [discardTarget, setDiscardTarget] = useState<MobileGitStatusEntry | null>(null)
@@ -77,7 +78,7 @@ export function useMobileSourceControlState(params: MobileSourceControlStatePara
   const worktreeLabel = getWorktreeLabel(name, worktreeId)
   const statusIdentityKey = `${hostId}\0${worktreeId}`
   const { commitFailureRecovery, commitFailureRecoveryAction, recordCommitFailure } =
-    useMobileSourceControlCommitFailure({ client, connState, worktreeId, worktreeLabel })
+    useMobileSourceControlCommitFailure({ client, connState, worktreeId })
   const clearCommitFailureRecovery = useCallback(() => {
     recordCommitFailure(null)
   }, [recordCommitFailure])

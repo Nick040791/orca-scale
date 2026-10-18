@@ -16,19 +16,10 @@ export function TerminalMacKeyboardSection({
   const detectedLayout = useDetectedOptionAsAlt()
   const detectedLayoutLabel =
     detectedLayout === 'us'
-      ? translate(
-          'settings.terminal.optionLayoutAlt',
-          'ABC or U.S. — Option sends Alt/Esc sequences'
-        )
+      ? 'US English — Option sends Alt/Esc sequences'
       : detectedLayout === 'non-us'
-        ? translate(
-            'settings.terminal.optionLayoutCompose',
-            'layout uses Option to compose characters like @, €, [, ]'
-          )
-        : translate(
-            'settings.terminal.optionLayoutUnknown',
-            'unknown layout — Option composes characters (safe default)'
-          )
+        ? 'non-US layout — Option composes characters like @, €, [, ]'
+        : 'unknown layout — Option composes characters (safe default)'
 
   return (
     <>
@@ -58,35 +49,29 @@ export function TerminalMacKeyboardSection({
           alignTop
           label={translate('auto.components.settings.TerminalPane.0a10420e1a', 'Option as Alt')}
           description={
-            <>
-              {settings.terminalMacOptionAsAlt === 'auto'
+            settings.terminalMacOptionAsAlt === 'auto'
+              ? translate(
+                  'auto.components.settings.TerminalPane.d21c493808',
+                  'Auto — detected: {{value0}}.',
+                  {
+                    value0: detectedLayoutLabel
+                  }
+                )
+              : settings.terminalMacOptionAsAlt === 'false'
                 ? translate(
-                    'auto.components.settings.TerminalPane.d21c493808',
-                    'Auto — detected: {{value0}}.',
-                    {
-                      value0: detectedLayoutLabel
-                    }
+                    'auto.components.settings.TerminalPane.d8998bb328',
+                    'Option composes special characters for your keyboard layout.'
                   )
-                : settings.terminalMacOptionAsAlt === 'false'
+                : settings.terminalMacOptionAsAlt === 'true'
                   ? translate(
-                      'auto.components.settings.TerminalPane.d8998bb328',
-                      'Option composes special characters for your keyboard layout.'
+                      'auto.components.settings.TerminalPane.b62373091a',
+                      'Both Option keys send Alt/Esc sequences.'
                     )
-                  : settings.terminalMacOptionAsAlt === 'true'
-                    ? translate(
-                        'auto.components.settings.TerminalPane.b62373091a',
-                        'Both Option keys send Alt/Esc sequences.'
-                      )
-                    : translate(
-                        'auto.components.settings.TerminalPane.ce3aadf0b2',
-                        'The {{value0}} Option key sends Alt/Esc; the other composes special characters.',
-                        { value0: settings.terminalMacOptionAsAlt }
-                      )}{' '}
-              {translate(
-                'settings.terminal.optionShortcutHint',
-                'Choose Both for Option shortcuts, Off for accents and symbols, or Left/Right to use one Option key for each.'
-              )}
-            </>
+                  : translate(
+                      'auto.components.settings.TerminalPane.ce3aadf0b2',
+                      'The {{value0}} Option key sends Alt/Esc; the other composes special characters.',
+                      { value0: settings.terminalMacOptionAsAlt }
+                    )
           }
           control={
             <SettingsSegmentedControl

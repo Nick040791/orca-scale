@@ -1,9 +1,8 @@
 import { sendMobileResizeRestream } from './terminal-snapshot-publication'
 import { updateViewportForClient } from './terminal-viewport-update'
-import {
-  isMultiplexStreamAttached,
-  type MultiplexSubscribeRequest,
-  type TerminalMultiplexConnection
+import type {
+  MultiplexSubscribeRequest,
+  TerminalMultiplexConnection
 } from './terminal-multiplex-connection'
 import type { MultiplexPublishedInitialState } from './terminal-multiplex-initial-snapshot'
 import type { TerminalMultiplexStream } from './terminal-stream-types'
@@ -71,11 +70,14 @@ export function activateMultiplexStream(
         (opcode, payload) => state.sendFrame(request.streamId, opcode, payload),
         event,
         () =>
-          isMultiplexStreamAttached(state, stream) && stream.resizeGeneration === resizeGeneration
+          !state.closed &&
+          streams.get(request.streamId) === stream &&
+          stream.resizeGeneration === resizeGeneration
       )
         .then((restreamed) => {
           if (
-            !isMultiplexStreamAttached(state, stream) ||
+            state.closed ||
+            streams.get(request.streamId) !== stream ||
             stream.resizeGeneration !== resizeGeneration
           ) {
             return
@@ -87,7 +89,8 @@ export function activateMultiplexStream(
         // Why: on re-stream failure, still emit the geometry-only Resized frame so the client never misses the resize.
         .catch(() => {
           if (
-            !isMultiplexStreamAttached(state, stream) ||
+            state.closed ||
+            streams.get(request.streamId) !== stream ||
             stream.resizeGeneration !== resizeGeneration
           ) {
             return

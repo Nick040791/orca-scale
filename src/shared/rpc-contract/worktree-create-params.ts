@@ -1,12 +1,10 @@
 import { z } from 'zod'
-import { WorkspaceAttachmentsSchema } from '../workspace-attachment-schema'
 import { WorkspaceLinkedItemSchema } from '../workspace-linked-item-schema'
 import { TaskSourceContextSchema } from '../task-source-context-schema'
 import { workspaceSourceSchema } from '../telemetry-events'
 import { RUNTIME_NAVIGATION_TARGETS } from '../runtime-navigation'
 import { sleepingAgentLaunchConfigSchema } from '../workspace-session-sleeping-agents'
 import { isTuiAgent } from '../tui-agent-config'
-import { LaunchSourceParam } from './launch-source-param'
 import {
   OptionalBoolean,
   OptionalFiniteNumber,
@@ -44,7 +42,6 @@ export const WorktreeCreate = z
     linkedAzureDevOpsPR: TriStateLinkedIssue,
     linkedGiteaPR: TriStateLinkedIssue,
     linkedWorkItem: WorkspaceLinkedItemSchema.nullable().optional(),
-    linkedItems: WorkspaceAttachmentsSchema.optional(),
     linkedTaskSourceContext: TaskSourceContextSchema.nullable().optional(),
     comment: OptionalString,
     displayName: OptionalString,
@@ -58,11 +55,6 @@ export const WorktreeCreate = z
       .optional(),
     workspaceStatus: OptionalString,
     manualOrder: OptionalFiniteNumber,
-    // Why: the client's "Nest Workspaces" choice; absent (older clients) keeps the host's own setting.
-    nestWorkspaces: z.boolean().optional(),
-    // Why: the client's Keep Local Main Up to Date choice; absent (older clients) keeps the host's.
-    refreshLocalBaseRefOnWorktreeCreate: z.boolean().optional(),
-    localBaseRefSuggestionDismissed: z.boolean().optional(),
     sparseCheckout: z
       .object({
         directories: z.array(z.string()),
@@ -100,7 +92,6 @@ export const WorktreeCreate = z
         coordinatorHandle: OptionalString
       })
       .optional(),
-    setupOnly: z.boolean().optional(),
     setupDecision: z
       .unknown()
       .transform((v) =>
@@ -119,8 +110,6 @@ export const WorktreeCreate = z
     // workspaces execute in a different shell than the client process.
     startupAgent: OptionalTuiAgent,
     startupPrompt: OptionalString,
-    // Which surface asked for the agent the host launches from `startupAgent` or `startupDraft`.
-    launchSource: LaunchSourceParam.optional(),
     // Why: task-driven mobile creates need desktop parity: the host chooses
     // the same default/detected agent and drafts the linked issue/PR URL into it.
     startupDraft: OptionalString,
@@ -131,8 +120,6 @@ export const WorktreeCreate = z
     // Why: mobile retries a create interrupted by a connection migration with the
     // same key so the host dedupes instead of spawning a duplicate worktree.
     clientMutationId: z.string().min(1).max(128).optional(),
-    /** The requesting window's pending creation, so the host's in-progress entry shares its id. */
-    creationId: z.string().min(1).max(128).optional(),
     automationProvenanceRequest: AutomationWorkspaceProvenanceRequest.optional(),
     cliProvenanceRequest: CliWorkspaceProvenanceRequest.optional()
   })

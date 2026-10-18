@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
@@ -10,11 +10,6 @@ import {
   structuredAdoptionConflictError,
   type StructuredAgentSessionAdoptionOwnership
 } from './structured-agent-session-history-adoption'
-import { PI_SESSION_HISTORY } from '../pi/pi-session-history'
-import {
-  claudeProviderHandle,
-  codexProviderHandle
-} from '../../shared/agent-session-provider-handle-encoding'
 
 const OPERATION = '1800000000000-00000000000000000000000000000001'
 
@@ -23,7 +18,6 @@ function committedReplay(overrides: { callerKey?: string; operationId?: string }
   return findCommittedStructuredAgentSessionAdoptionReplay({
     agent: 'codex',
     providerSessionId: 'thread-1',
-    rowSessionId: (link) => link.handle.nativeId,
     selfSessionId: 'codex_adopted',
     callerKey: overrides.callerKey ?? 'client-1',
     operationId: overrides.operationId ?? OPERATION,
@@ -36,7 +30,7 @@ function committedReplay(overrides: { callerKey?: string; operationId?: string }
           origin: 'adopted',
           mintedAtFence: 1,
           observedAt: 1_800_000_000_000,
-          handle: codexProviderHandle('thread-1')
+          handle: { provider: 'codex', threadId: 'thread-1' }
         }
       ],
       accountHome: { variable: 'CODEX_HOME', path: '/home/dev/.codex-original' }
@@ -60,7 +54,6 @@ function ownership(
 ): StructuredAgentSessionAdoptionOwnership {
   return {
     sessionId: 'codex_owner',
-    workspaceId: 'workspace-owner',
     provider: 'codex',
     providerSessionId: 'thread-1',
     lease: agentSessionLeaseFixture(),
@@ -120,7 +113,7 @@ describe('findCommittedStructuredAgentSessionAdoptionReplay', () => {
   it('returns the record-pinned account and adopted handle for the exact committed operation', () => {
     expect(committedReplay()).toMatchObject({
       record: { accountHome: { path: '/home/dev/.codex-original' } },
-      providerHandle: codexProviderHandle('thread-1')
+      providerHandle: { kind: 'codex', threadId: 'thread-1' }
     })
   })
 
@@ -135,14 +128,17 @@ describe('findCommittedStructuredAgentSessionAdoptionReplay', () => {
     record.providerHandleChain[0] = {
       ...record.providerHandleChain[0]!,
       origin: 'adopted',
-      handle: claudeProviderHandle('provider-session-alpha-1', 'leaf-1')
+      handle: {
+        provider: 'claude',
+        sessionId: 'provider-session-alpha-1',
+        leafUuid: 'leaf-1'
+      }
     }
 
     expect(
       findCommittedStructuredAgentSessionAdoptionReplay({
         agent: 'claude',
         providerSessionId: 'provider-session-alpha-1',
-        rowSessionId: (link) => link.handle.nativeId,
         selfSessionId: 'claude_adopted',
         callerKey: 'client-1',
         operationId: OPERATION,
@@ -160,49 +156,12 @@ describe('findCommittedStructuredAgentSessionAdoptionReplay', () => {
         ]
       })
     ).toMatchObject({
-      providerHandle: claudeProviderHandle('provider-session-alpha-1', 'leaf-1')
+      providerHandle: {
+        kind: 'claude',
+        sessionId: 'provider-session-alpha-1',
+        leafUuid: 'leaf-1'
+      }
     })
-  })
-})
-
-describe('replaying a Pi adoption, whose handle names its session file', () => {
-  it("matches the row id the agent's Session History shows the file as", () => {
-    const file =
-      '/home/dev/.pi/agent/sessions/--repo--/2026-10-12T00-00-00-000Z_0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a.jsonl'
-    const lease = agentSessionLeaseFixture({ sessionId: 'pi_adopted' })
-    const record = agentSessionRecordFixture(lease)
-    record.provider = 'pi'
-    record.providerHandleChain[0] = {
-      ...record.providerHandleChain[0]!,
-      origin: 'adopted',
-      handle: { transport: 'jsonl-rpc', agent: 'pi', nativeId: file }
-    }
-    const replay = (providerSessionId: string) =>
-      findCommittedStructuredAgentSessionAdoptionReplay({
-        agent: 'pi',
-        providerSessionId,
-        rowSessionId: PI_SESSION_HISTORY.rowSessionId,
-        selfSessionId: 'pi_adopted',
-        callerKey: 'client-1',
-        operationId: OPERATION,
-        record,
-        operations: [
-          {
-            callerKey: 'client-1',
-            operationId: OPERATION,
-            fingerprint: 'fingerprint-1',
-            operationTimestamp: 1_800_000_000_000,
-            recordedAt: 1_800_000_000_000,
-            expiresAt: 1_900_000_000_000,
-            outcome: { status: 'succeeded', sessionId: 'pi_adopted' }
-          }
-        ]
-      })
-
-    expect(replay('0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a')).toMatchObject({
-      providerHandle: { nativeId: file }
-    })
-    expect(replay('0198c2a4-7d1e-7c3a-9a4b-000000000000')).toBeNull()
   })
 })
 
@@ -226,18 +185,50 @@ describe('structuredAdoptionConflictError', () => {
 })
 
 describe('resolveStructuredAgentSessionAdoption', () => {
+  it('takes the first candidate home that holds the transcript and probes no further', async () => {
+    const resolveTranscript = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('/home/dev/.codex/sessions/thread-1.jsonl')
+
+    await expect(
+      resolveStructuredAgentSessionAdoption({
+        agent: 'codex',
+        providerSessionId: 'thread-1',
+        candidateAccountHomes: ['/home/dev/.orca-codex', '/home/dev/.codex', '/never/probed'],
+        resolveTranscript
+      })
+    ).resolves.toEqual({
+      accountHomePath: '/home/dev/.codex',
+      transcriptPath: '/home/dev/.codex/sessions/thread-1.jsonl'
+    })
+    expect(resolveTranscript).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips blank and repeated candidates instead of probing them again', async () => {
+    const resolveTranscript = vi.fn().mockResolvedValue(null)
+
+    await expect(
+      resolveStructuredAgentSessionAdoption({
+        agent: 'claude',
+        providerSessionId: 'session-1',
+        candidateAccountHomes: ['', '   ', '/home/dev/.claude', ' /home/dev/.claude ', ''],
+        resolveTranscript
+      })
+    ).rejects.toThrow('agent_session_identity_required')
+    expect(resolveTranscript.mock.calls.map(([args]) => args.accountHomePath)).toEqual([
+      '/home/dev/.claude'
+    ])
+  })
+
   it('refuses rather than falling back to a home that does not hold the conversation', async () => {
     // A resume under the wrong home lands in a blank chat wearing the old chat's name.
     await expect(
       resolveStructuredAgentSessionAdoption({
+        agent: 'claude',
         providerSessionId: 'session-1',
-        candidateAccountHomes: [
-          { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude-work' },
-          { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude' }
-        ],
-        resolveTranscript: async () => null,
-        launchEnv: {},
-        workspaceCwd: '/repo'
+        candidateAccountHomes: ['/home/dev/.claude-work', '/home/dev/.claude'],
+        resolveTranscript: async () => null
       })
     ).rejects.toThrow('agent_session_identity_required')
   })

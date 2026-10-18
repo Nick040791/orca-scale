@@ -4,14 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { selectStructuredAgentContextUsage } from '../../shared/structured-agent-session-context-usage'
 import type { AgentSessionJournal } from '../native-chat/agent-session-journal/journal-store'
-import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-store-test-open'
 import { createDeferredStructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { settleStaleStructuredAgentSessionState } from '../native-chat/agent-session-wire/structured-agent-session-dead-generation-settlement'
 import { readAgentJournalTurn } from '../../shared/agent-session-turn-record'
 import { bindClaudeContextUsageCapture } from './claude-context-usage'
 import { createClaudeJournalTranslator } from './claude-structured-journal-translation'
-import { testEventSinkLogging } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
-import { claudeProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 const journals = createTrackedJournalOpener()
 let root: string
@@ -105,16 +103,16 @@ async function openJournal(): Promise<AgentSessionJournal> {
       workspaceId: 'workspace-1',
       hostId: 'local',
       agent: 'claude',
-      providerHandle: claudeProviderHandle('claude-session', null)
+      providerHandle: { kind: 'claude', sessionId: 'claude-session', leafUuid: null }
     },
     now: () => 9_000,
-    stateDirectory: join(root, 'orca-session')
+    journalDir: join(root, 'orca-session')
   })
 }
 
 /** One acquisition: a fresh sink and translator over the session's journal. */
 function acquire(journal: AgentSessionJournal) {
-  const deferred = createDeferredStructuredAgentSessionEventSink(testEventSinkLogging())
+  const deferred = createDeferredStructuredAgentSessionEventSink()
   const translator = createClaudeJournalTranslator({ sink: deferred.sink, coalesceMs: 0 })
   deferred.bind({ journal, fence: 1, publish: () => {} })
   const answers: ((value: unknown) => void)[] = []

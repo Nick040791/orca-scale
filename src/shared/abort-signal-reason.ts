@@ -16,8 +16,6 @@ export function waitForPromiseWithSignal<T>(promise: Promise<T>, signal?: AbortS
     return promise
   }
   if (signal.aborted) {
-    // Observe abandoned work so its later rejection stays handled.
-    void promise.catch(() => undefined)
     return Promise.reject(abortSignalReason(signal))
   }
   return new Promise<T>((resolve, reject) => {

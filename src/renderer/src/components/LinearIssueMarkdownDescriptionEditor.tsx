@@ -6,7 +6,6 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { LoaderCircle } from 'lucide-react'
 
 import { createRichMarkdownExtensions } from '@/components/editor/rich-markdown-extensions'
-import { setRichMarkdownImageResolverContext } from '@/components/editor/rich-markdown-image-context'
 import { encodeRawMarkdownHtmlForRichEditor } from '@/components/editor/raw-markdown-html'
 import {
   createRichMarkdownEditorCodec,
@@ -25,7 +24,6 @@ import {
 
 type LinearIssueMarkdownDescriptionEditorProps = {
   value: string
-  imageUrls?: Record<string, string>
   onChange: (value: string) => void
   onSave: (value: string) => void
   density: 'page' | 'drawer'
@@ -48,7 +46,6 @@ function createLinearIssueMarkdownExtensions(codec: RichMarkdownEditorCodec) {
 
 export function LinearIssueMarkdownDescriptionEditor({
   value,
-  imageUrls,
   onChange,
   onSave,
   density,
@@ -117,12 +114,6 @@ export function LinearIssueMarkdownDescriptionEditor({
     [codec, language]
   )
   useRichMarkdownSpellcheckAttribute(editor, richMarkdownSpellcheckEnabled)
-
-  useEffect(() => {
-    if (editor) {
-      setRichMarkdownImageResolverContext(editor, { filePath: '', imageUrls })
-    }
-  }, [editor, imageUrls])
 
   useEffect(() => {
     editorRef.current = editor

@@ -4,10 +4,12 @@ import type {
   AgentJournalItemIdentity
 } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
+import type { JournalLifecycleMutationInput } from '../native-chat/agent-session-journal/journal-row-builders'
 import { projectStructuredAgentSessionStatus } from '../../shared/structured-agent-session-projection'
 import {
   createDeferredStructuredAgentSessionEventSink,
-  type StructuredAgentSessionEventSink
+  type StructuredAgentSessionEventSink,
+  type StructuredAgentSessionEventTarget
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { createCodexJournalTranslator } from './codex-structured-journal-translation'
 import { MAX_CODEX_ACTIVE_TURNS } from './codex-structured-journal-translation-turn-state'
@@ -16,8 +18,6 @@ import {
   CODEX_USER_INPUT_METHOD
 } from './codex-structured-prompt-replies'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
-import { deferredTarget } from './codex-deferred-sink-target-test-support'
-import { testEventSinkLogging } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 
 const SESSION_ID = 'session-1'
 const THREAD_ID = 'thread-abc'
@@ -96,9 +96,37 @@ function translatorWith(tap = recorder(), window = manualWindow()) {
   return { translator, tap, window }
 }
 
+function deferredTarget(
+  log: AgentJournalItemBody[],
+  publishes: string[] = []
+): StructuredAgentSessionEventTarget {
+  return {
+    fence: 7,
+    journal: {
+      appendItem: vi.fn(async (_identity: AgentJournalItemIdentity, body: AgentJournalItemBody) => {
+        log.push(body)
+        return { cursor: { epoch: 'e', sequence: log.length } }
+      }),
+      appendTombstone: vi.fn(async () => ({ epoch: 'e', sequence: log.length })),
+      appendLifecycleBatch: vi.fn(
+        async (input: { mutations: readonly JournalLifecycleMutationInput[] }) => {
+          for (const mutation of input.mutations) {
+            if (mutation.kind === 'item') {
+              log.push(mutation.body)
+            }
+          }
+          return { epoch: 'e', sequence: log.length }
+        }
+      )
+    } as unknown as StructuredAgentSessionEventTarget['journal'],
+    publish: vi.fn(() => {
+      publishes.push('publish')
+    })
+  }
+}
+
 function hardWatermarkDeferred() {
   return createDeferredStructuredAgentSessionEventSink({
-    ...testEventSinkLogging(),
     watermarks: {
       pauseQueuedBytes: 1,
       maxQueuedBytes: 1,
@@ -259,7 +287,7 @@ describe('codex journal translation', () => {
     ).toBe('idle')
   })
 
-  describe('a turn-ending error is a row on the turn it names, and the completion ends it', () => {
+  describe('a terminal error ends the turn it names', () => {
     function statusOf(rows: readonly Row[]) {
       return projectStructuredAgentSessionStatus(
         reduced(rows).map((row, sequence) => ({
@@ -280,11 +308,7 @@ describe('codex journal translation', () => {
       })
     }
 
-    const FAILED_COMPLETION = notification('turn/completed', {
-      turn: { id: TURN_ID, status: 'failed', durationMs: 2_400 }
-    })
-
-    it('keeps the turn working through the error, and the failed completion settles it', () => {
+    it('settles the turn and keeps the provider sentence as its own row', () => {
       const tap = recorder()
       const translator = createCodexJournalTranslator({
         sink: tap.sink,
@@ -292,12 +316,9 @@ describe('codex journal translation', () => {
       })
 
       translator.handle(TURN_STARTED)
-      translator.handle(errorNotification({ turnId: TURN_ID, willRetry: false }))
-
       expect(statusOf(tap.rows)).toBe('working')
-      expect(tap.rows.filter((row) => row.body.kind === 'turn')).toHaveLength(1)
 
-      translator.handle(FAILED_COMPLETION)
+      translator.handle(errorNotification({ turnId: TURN_ID, willRetry: false }))
 
       expect(statusOf(tap.rows)).toBe('idle')
       expect(reduced(tap.rows).map((row) => row.body)).toContainEqual(
@@ -305,8 +326,7 @@ describe('codex journal translation', () => {
           kind: 'turn',
           turnId: TURN_ID,
           state: 'completed',
-          outcome: 'failure',
-          durationMs: 2_400
+          outcome: 'failure'
         })
       )
       // The message the user reads is still a row of its own.
@@ -333,7 +353,7 @@ describe('codex journal translation', () => {
       expect(tap.rows.filter((row) => row.body.kind === 'turn')).toHaveLength(1)
     })
 
-    it('writes only its row for an error after the turn completed', () => {
+    it('does not overwrite the terminal row of a turn that already completed', () => {
       const tap = recorder()
       const translator = createCodexJournalTranslator({
         sink: tap.sink,
@@ -341,16 +361,21 @@ describe('codex journal translation', () => {
       })
 
       translator.handle(TURN_STARTED)
-      translator.handle(FAILED_COMPLETION)
+      translator.handle(
+        notification('turn/completed', {
+          turn: { id: TURN_ID, status: 'failed', durationMs: 4_000 }
+        })
+      )
       const settled = reduced(tap.rows).find((row) => row.body.kind === 'turn')?.body
 
       translator.handle(errorNotification({ turnId: TURN_ID, willRetry: false }))
 
+      // The completion carries the duration a late error could not reconstruct.
       expect(reduced(tap.rows).find((row) => row.body.kind === 'turn')?.body).toEqual(settled)
       expect(statusOf(tap.rows)).toBe('idle')
     })
 
-    it('settles nothing when the error names no turn', () => {
+    it('settles the running turn when the error names no turn', () => {
       const tap = recorder()
       const translator = createCodexJournalTranslator({
         sink: tap.sink,
@@ -360,8 +385,117 @@ describe('codex journal translation', () => {
       translator.handle(TURN_STARTED)
       translator.handle(errorNotification({ willRetry: false }))
 
-      expect(statusOf(tap.rows)).toBe('working')
-      expect(tap.rows.filter((row) => row.body.kind === 'turn')).toHaveLength(1)
+      expect(statusOf(tap.rows)).toBe('idle')
+    })
+
+    it('does not reopen a running row when the completion arrives after the error', () => {
+      const tap = recorder()
+      const translator = createCodexJournalTranslator({
+        sink: tap.sink,
+        primaryThreadId: () => THREAD_ID
+      })
+
+      translator.handle(TURN_STARTED)
+      translator.handle(errorNotification({ turnId: TURN_ID, willRetry: false }))
+      translator.handle(notification('turn/completed', { turn: { id: TURN_ID, status: 'failed' } }))
+
+      expect(statusOf(tap.rows)).toBe('idle')
+    })
+  })
+
+  describe('the thread reporting it stopped running releases unanswered sends', () => {
+    function statusChanged(type: string) {
+      return notification('thread/status/changed', { threadId: THREAD_ID, status: { type } })
+    }
+
+    function translatorReporting(stopped: string[]) {
+      const tap = recorder()
+      const translator = createCodexJournalTranslator({
+        sink: tap.sink,
+        primaryThreadId: () => THREAD_ID,
+        onPrimaryThreadStoppedRunning: () => stopped.push(THREAD_ID)
+      })
+      return { tap, translator }
+    }
+
+    it.each(['idle', 'systemError'])('reports the thread stopped running on %s', (type) => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(statusChanged(type))
+
+      expect(stopped).toEqual([THREAD_ID])
+    })
+
+    it.each(['active', 'notLoaded'])('stays silent on %s', (type) => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(statusChanged(type))
+
+      expect(stopped).toEqual([])
+    })
+
+    it('stays silent while a turn is open, whatever the thread reports', () => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(TURN_STARTED)
+      translator.handle(statusChanged('systemError'))
+
+      expect(stopped).toEqual([])
+    })
+
+    it('releases after systemError arrives before the terminal error notification', () => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(TURN_STARTED)
+      translator.handle(statusChanged('systemError'))
+      expect(stopped).toEqual([])
+
+      translator.handle(
+        notification('error', {
+          turnId: TURN_ID,
+          willRetry: false,
+          error: { message: 'fatal' }
+        })
+      )
+
+      expect(stopped).toEqual([THREAD_ID])
+    })
+
+    it('releases after idle arrives before the terminal turn completion notification', () => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(TURN_STARTED)
+      translator.handle(statusChanged('idle'))
+      expect(stopped).toEqual([])
+
+      translator.handle(notification('turn/completed', { turn: { id: TURN_ID } }))
+
+      expect(stopped).toEqual([THREAD_ID])
+    })
+
+    it('reports once the open turn has settled', () => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(TURN_STARTED)
+      translator.handle(notification('turn/completed', { turn: { id: TURN_ID } }))
+      translator.handle(statusChanged('idle'))
+
+      expect(stopped).toEqual([THREAD_ID])
+    })
+
+    it('ignores a bare string status from a shape this build does not get', () => {
+      const stopped: string[] = []
+      const { translator } = translatorReporting(stopped)
+
+      translator.handle(notification('thread/status/changed', { status: 'idle' }))
+
+      expect(stopped).toEqual([])
     })
   })
 
@@ -588,7 +722,6 @@ describe('codex journal translation', () => {
     const publishes: string[] = []
     const readingControl = { pauseReading: vi.fn(), resumeReading: vi.fn() }
     const deferred = createDeferredStructuredAgentSessionEventSink({
-      ...testEventSinkLogging(),
       watermarks: {
         pauseQueuedBytes: 1,
         maxQueuedBytes: 1,

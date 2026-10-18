@@ -139,6 +139,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     beginHookRender()
     useTerminalPaneGlobalEffects({
       tabId: 'tab-1',
+      worktreeId: 'wt-1',
       isActive: false,
       isVisible: false,
       isSyncFitEnabled: false,
@@ -174,6 +175,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     beginHookRender()
     useTerminalPaneGlobalEffects({
       tabId: 'tab-1',
+      worktreeId: 'wt-1',
       isActive: false,
       isVisible: false,
       isSyncFitEnabled: true,

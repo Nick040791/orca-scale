@@ -10,13 +10,13 @@ import { useAppStore } from '@/store'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
 import { getForkAgentLaunchPlatform } from './terminal-agent-session-fork-launch-platform'
+import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
 import { slugifyForWorkspaceName } from '../../../../shared/workspace-name'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { translate } from '@/i18n/i18n'
 import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 
 type ForkAgentSessionFromPaneArgs = {
   pane: ManagedPane
@@ -231,12 +231,18 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
     return copyAgentSessionForkContext(fork)
   }
   const agentSessionLaunchPlan = planAgentSessionLaunch(useAppStore.getState(), {
-    requestId: newAgentLaunchRequestId(),
     agent: fork.agent,
     workspace: { kind: 'git-worktree', worktreeId: forkWorktreeId },
     prompt: fork.prompt,
     promptDelivery: 'draft'
   })
+  if (agentSessionLaunchPlan.route !== 'structured-native-chat') {
+    await preflightAgentTrust({
+      agent: fork.agent,
+      workspacePath: created.worktree.path,
+      connectionId: sourceRepo?.connectionId
+    })
+  }
   const launchPlatform = getForkAgentLaunchPlatform({
     repo: sourceRepo,
     worktreePath: created.worktree.path,
@@ -249,12 +255,10 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
     promptDelivery: 'draft',
     launchSource: 'terminal_context_menu',
     agentSessionLaunchPlan,
-    // Why: the launcher opens the fork's surface itself (chat, host terminal or local terminal), so
-    // revealing must not seed a sibling shell beside it.
-    beforeSurfaceOpen: () =>
+    beforeSurfaceOpen: (surface) =>
       activateAndRevealWorktree(forkWorktreeId, {
         sidebarRevealBehavior: 'auto',
-        providesInitialSurface: true
+        ...(surface.kind === 'local-agent-session' ? { providesInitialSurface: true } : {})
       }) !== false,
     ...(launchPlatform ? { launchPlatform } : {})
   })

@@ -71,9 +71,7 @@ export function clientEventStreamMountAdapters(
             stop = startHostWorktreeRefresh({
               client,
               fetchWorktrees: fetching('fetchWorktrees'),
-              fetchRepoMetadata: fetching('fetchRepoMetadata'),
-              // The view-settings family records its own reads.
-              syncViewSettings: () => Promise.resolve()
+              fetchRepoMetadata: fetching('fetchRepoMetadata')
             })
             return
           }

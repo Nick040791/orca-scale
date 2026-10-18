@@ -7,7 +7,6 @@ type PositionedTab = {
 
 export type WebSessionExistingTabIndex = {
   getEditorUnifiedTab: (fileId: string, hostTabId: string) => Tab | null
-  getEditorUnifiedTabByHostId: (hostTabId: string) => Tab | null
 }
 
 type BuildWebSessionExistingTabIndexArgs = {
@@ -46,8 +45,6 @@ export function buildWebSessionExistingTabIndex({
   }
 
   return {
-    getEditorUnifiedTabByHostId: (hostTabId) =>
-      getIndexes().editorTabById.get(hostTabId)?.tab ?? null,
     getEditorUnifiedTab: (fileId, hostTabId) => {
       const { editorTabById, editorTabByFileId } = getIndexes()
       const byHostId = editorTabById.get(hostTabId)

@@ -1,5 +1,4 @@
 import { open } from 'node:fs/promises'
-import { LOCAL_READ_OPEN_FLAGS } from '../ipc/filesystem/local-regular-file-read'
 import {
   LOCAL_LOG_TAIL_CHUNK_BYTES,
   type LocalLogTailReadResult
@@ -24,7 +23,7 @@ export async function readLocalLogTailRange(
     throw new Error('Invalid local log tail byte offset')
   }
 
-  const handle = await open(filePath, LOCAL_READ_OPEN_FLAGS)
+  const handle = await open(filePath, 'r')
   try {
     const initialStats = await handle.stat()
     if (!initialStats.isFile()) {

@@ -2,18 +2,17 @@ import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
 import type { Store } from '../../persistence'
 import type { Project, ProjectUpdateArgs } from '../../../shared/project-types'
+import type {
+  HostRepoCatalogSnapshot,
+  ListReposForExecutionHostArgs
+} from '../../../shared/host-repo-catalog-contract'
 import { normalizeExecutionHostId } from '../../../shared/execution-host'
 import { enrichRepoGitUsernames } from '../../repo-git-username-enrichment'
 import { enrichMissingRepoGitRemoteIdentities } from '../../repo-git-remote-identity-enrichment'
 import { invalidateAuthorizedRootsCache } from '../registered-worktree-roots-cache'
 import { notifyReposChanged } from './repos-changed-notification'
 import { ProjectUpdateIpcArgs, parseProjectGroupIpcArgs } from './repo-ipc-arg-schemas'
-import { visibleRepos } from '../../ssh/orcad-retained-source'
-import {
-  assertWslMoveProjectWritable,
-  assertWslMoveReposWritable,
-  isWslMoveSourceHost
-} from '../../persistence/moving-wsl-projects/wsl-move-scope-guard'
+import { listReposForExecutionHost } from './host-repo-catalog-snapshot'
 
 export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: Store): void {
   // Why one shared reference: enrichment dedupes coalesced callers by callback identity, so a fresh
@@ -24,8 +23,14 @@ export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: St
     enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     // Why: username resolution spawns git/gh, so keep it off this sync handler (issue #7225); it re-lists when values land.
     enrichRepoGitUsernames(store, { onChanged: broadcastReposChanged })
-    return visibleRepos(store)
+    return store.getRepos()
   })
+
+  ipcMain.handle(
+    'repos:listForExecutionHost',
+    (_event, args: ListReposForExecutionHostArgs): Promise<HostRepoCatalogSnapshot> =>
+      listReposForExecutionHost(store, args)
+  )
 
   ipcMain.handle('projects:list', () => {
     enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
@@ -38,8 +43,6 @@ export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: St
       rawArgs,
       'project_update_invalid_args'
     )
-    const project = store.getProjects().find((entry) => entry.id === args.projectId)
-    assertWslMoveReposWritable(store, project?.sourceRepoIds ?? [])
     return store.updateProject(args.projectId, args.updates)
   })
 
@@ -82,6 +85,12 @@ export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: St
     }
   )
 
+  ipcMain.handle('repos:remove', async (_event, args: { repoId: string }) => {
+    store.removeProject(args.repoId)
+    invalidateAuthorizedRootsCache()
+    notifyReposChanged(mainWindow)
+  })
+
   // Why: forget a project on one execution host without disturbing the same repo id on other hosts (SSH-workspace forget flow).
   ipcMain.handle(
     'repos:removeForHost',
@@ -89,9 +98,6 @@ export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: St
       const hostId = normalizeExecutionHostId(args.hostId)
       if (!hostId) {
         throw new Error(`Invalid host ID: ${args.hostId}`)
-      }
-      if (isWslMoveSourceHost(hostId)) {
-        assertWslMoveProjectWritable(store, { repoId: args.repoId })
       }
       store.removeProjectForHost(args.repoId, hostId)
       invalidateAuthorizedRootsCache()

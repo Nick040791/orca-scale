@@ -285,7 +285,6 @@ export function createAgentCompletionCoordinator(
     consumePendingStampedTailForAgent,
     consumeStampedTailForCurrentCoordinator,
     clearOriginStampedTail: () => identityScope.clearOriginStampedTail(),
-    clearProcessExitCompletion: () => identityScope.clearProcessExitCompletion(),
     recordWorkingBoundary,
     dropPendingTitle
   })
@@ -317,7 +316,6 @@ export function createAgentCompletionCoordinator(
     observeHookStatus: hookObserver.observeHookStatus,
     seedHookStatus: hookObserver.seedHookStatus,
     startProcessTracking: () => processMonitor.start(),
-    observeForegroundAgentProcess: processMonitor.observeRecognizedProcess,
     hasPendingHookDoneCompletion: lifecycle.hasPendingHookDoneCompletion,
     resetCompletionState: lifecycle.resetCompletionState,
     dispose: lifecycle.dispose

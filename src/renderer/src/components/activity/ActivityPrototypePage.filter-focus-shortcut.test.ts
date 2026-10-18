@@ -3,7 +3,7 @@ import {
   handleActivityFilterFocusShortcut,
   isActivityFilterFocusShortcut,
   shouldIgnoreActivityFilterFocusShortcutTarget
-} from './activity-filter-focus-shortcut'
+} from './ActivityPrototypePage'
 
 describe('activity filter focus shortcut', () => {
   it('matches Cmd+F on Mac and Ctrl+F elsewhere without extra modifiers', () => {

@@ -12,6 +12,7 @@ import {
   SIMULATOR_PALETTE_QUERY_MAX_BYTES,
   SIMULATOR_TYPE_SEARCH_ALIASES,
   buildSearchableSimulatorTabs,
+  isSimulatorPaletteQueryTooLarge,
   searchSimulatorTabs,
   simulatorPaletteTabTitle,
   type SearchableSimulatorTab
@@ -408,6 +409,7 @@ describe('simulator-palette-search', () => {
       })
     } as SearchableSimulatorTab
 
+    expect(isSimulatorPaletteQueryTooLarge(oversizedQuery)).toBe(true)
     expect(searchSimulatorTabs([entry], oversizedQuery)).toEqual([])
   })
 

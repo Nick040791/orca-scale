@@ -17,7 +17,6 @@
 
 import type { ElectronApplication } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
-import { retryTransientMainEvaluate } from './helpers/electron-main-evaluate-retry'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
   discoverActivePtyId,
@@ -60,27 +59,23 @@ declare global {
  * a previous arm write only to their own superseded probe object.
  */
 async function armMainProcessCrashProbe(electronApp: ElectronApplication): Promise<void> {
-  // Safe to repeat: re-arming supersedes the probe a collected attempt may have installed.
-  await retryTransientMainEvaluate(() =>
-    electronApp.evaluate(({ BrowserWindow }) => {
-      const probe: CrashProbe = { processGone: null, recoveredLoads: 0 }
-      globalThis.__crashProbe = probe
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.on('render-process-gone', (_event, details) => {
-          probe.processGone = { reason: details.reason, exitCode: details.exitCode ?? -1 }
-        })
-        win.webContents.on('did-finish-load', () => {
-          probe.recoveredLoads += 1
-        })
-      }
-    })
-  )
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const probe: CrashProbe = { processGone: null, recoveredLoads: 0 }
+    globalThis.__crashProbe = probe
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.on('render-process-gone', (_event, details) => {
+        probe.processGone = { reason: details.reason, exitCode: details.exitCode ?? -1 }
+      })
+      win.webContents.on('did-finish-load', () => {
+        probe.recoveredLoads += 1
+      })
+    }
+  })
 }
 
 async function readMainProcessCrashProbe(electronApp: ElectronApplication): Promise<CrashProbe> {
-  // Why: expect.poll does not retry a thrown read, and Electron's main evaluate can be collected spuriously.
-  return retryTransientMainEvaluate(() =>
-    electronApp.evaluate(() => globalThis.__crashProbe ?? { processGone: null, recoveredLoads: 0 })
+  return electronApp.evaluate(
+    () => globalThis.__crashProbe ?? { processGone: null, recoveredLoads: 0 }
   )
 }
 

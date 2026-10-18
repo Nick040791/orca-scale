@@ -201,9 +201,7 @@ export class BridgeTerminalOutputBacklog {
       this.syncSilence()
       return head.payload
     }
-    const chunks = [head.chunk]
-    let bytes = head.bytes
-    let lastUnit = head.chunk.charCodeAt(head.chunk.length - 1)
+    let chunk = head.chunk
     // Consecutive output only: anything else in between is state the reader applies in order, and
     // merging across it would deliver bytes out of order. Nothing compares stream ids here, because
     // a backlog belongs to one subscription and every `data` payload on it carries that
@@ -213,26 +211,16 @@ export class BridgeTerminalOutputBacklog {
       if (nextHeld.kind !== 'output') {
         break
       }
-      const firstUnit = nextHeld.chunk.charCodeAt(0)
-      // Joining lone surrogate halves replaces two six-byte escapes with one four-byte scalar.
-      const joinedPair =
-        lastUnit >= 0xd800 && lastUnit <= 0xdbff && firstUnit >= 0xdc00 && firstUnit <= 0xdfff
-      const mergedBytes =
-        bytes + nextHeld.bytes - outputPayloadBytes(nextHeld.streamId, '') - (joinedPair ? 8 : 0)
-      if (mergedBytes > allowedBytes) {
+      if (outputPayloadBytes(head.streamId, chunk + nextHeld.chunk) > allowedBytes) {
         break
       }
       this.queue.shift()
       this.take(nextHeld.bytes)
-      chunks.push(nextHeld.chunk)
-      bytes = mergedBytes
-      if (nextHeld.chunk.length > 0) {
-        lastUnit = nextHeld.chunk.charCodeAt(nextHeld.chunk.length - 1)
-      }
+      chunk += nextHeld.chunk
       this.merged += 1
     }
     this.syncSilence()
-    return { type: 'data', streamId: head.streamId, chunk: chunks.join('') }
+    return { type: 'data', streamId: head.streamId, chunk }
   }
 
   /** The page answered, so the silence clock starts again from here. */

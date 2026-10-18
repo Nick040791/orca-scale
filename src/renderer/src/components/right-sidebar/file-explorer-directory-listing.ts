@@ -1,8 +1,7 @@
-import { useAppStore } from '@/store'
-import { getRelativePathInsideRoot, joinPath } from '@/lib/path'
+import { joinPath, normalizeRelativePath } from '@/lib/path'
 import type { DirEntry } from '../../../../shared/filesystem-entry-types'
 import { sortDirEntries } from '../../../../shared/file-name-sort'
-import { readRuntimeDirectory } from '@/runtime/runtime-file-mutation-client'
+import { readRuntimeDirectory } from '@/runtime/runtime-file-client'
 import type { FileExplorerOperationOwner, TreeNode } from './file-explorer-types'
 import { shouldIncludeFileExplorerEntry } from './file-explorer-entries'
 import {
@@ -28,7 +27,9 @@ export function fileExplorerEntriesToTreeNodes(
     return {
       name: entry.name,
       path,
-      relativePath: getRelativePathInsideRoot(path, worktreePath) ?? entry.name,
+      relativePath: worktreePath
+        ? normalizeRelativePath(path.slice(worktreePath.length + 1))
+        : entry.name,
       isDirectory: entry.isDirectory,
       isSymlink: entry.isSymlink,
       depth: depth + 1,
@@ -49,21 +50,15 @@ export async function readFileExplorerDirectory(
   }
   const entries = await readRuntimeDirectory(
     {
-      target: route.target,
+      settings: route.settings,
       worktreeId: activeWorktreeId,
       worktreePath,
       connectionId: route.connectionId
     },
-    dirPath,
-    useAppStore.getState().settings?.followSymlinkedDirectories
-      ? { followSymlinks: true }
-      : undefined
+    dirPath
   )
   // Why: remote-runtime and paired-web routes return the host's order verbatim,
   // and an older host may still sort lexicographically; re-sorting an already
   // sorted local listing is near-free (adaptive sort).
-  return {
-    entries: sortDirEntries(entries),
-    operationOwner
-  }
+  return { entries: sortDirEntries(entries), operationOwner }
 }

@@ -1,4 +1,3 @@
-import { ImeInput } from '@/lib/ime-text-field'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronLeft, SearchIcon } from 'lucide-react'
@@ -238,7 +237,7 @@ export function PaletteFilterFieldOptions({
           className="mr-2 size-3.5 shrink-0 text-muted-foreground/60"
           aria-hidden="true"
         />
-        <ImeInput
+        <input
           ref={inputRef}
           value={optionQuery}
           onChange={(event) => onOptionQueryChange(event.target.value)}

@@ -1,11 +1,7 @@
-import {
-  pairedRuntimeConnectionFromOffer,
-  type PairedRuntimeConnection
-} from './paired-runtime-connection'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocketClient, { WebSocketServer, type WebSocket } from 'ws'
-import { encodePairingOffer, parsePairingCode } from './pairing'
+import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing'
 import {
   decrypt,
   decryptBytes,
@@ -21,9 +17,9 @@ import { MAX_TIMER_DELAY_MS } from './timer-delay'
 import {
   BROWSER_CLIENT_HOST_RUNTIME_CAPABILITY,
   BROWSER_CLIENT_PAGE_METADATA_RUNTIME_CAPABILITY,
-  BROWSER_NETWORK_TUNNEL_RUNTIME_CAPABILITY
+  BROWSER_NETWORK_TUNNEL_RUNTIME_CAPABILITY,
+  ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES
 } from './protocol-version'
-import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from './electron-remote-runtime-client-capabilities'
 
 const servers: WebSocketServer[] = []
 
@@ -341,12 +337,7 @@ describe('sendRemoteRuntimeRequest', () => {
     'rejects invalid timer delay %s before reading pairing data',
     async (timeoutMs) => {
       await expect(
-        sendRemoteRuntimeRequest(
-          pairedRuntimeConnectionFromOffer({ endpoint: '', deviceToken: '', publicKeyB64: '' }),
-          'status.get',
-          {},
-          timeoutMs
-        )
+        sendRemoteRuntimeRequest({} as PairingOffer, 'status.get', {}, timeoutMs)
       ).rejects.toMatchObject({ code: 'invalid_argument' })
     }
   )
@@ -535,7 +526,7 @@ async function createSubscriptionServer(
     disableAutoPong?: boolean
   } = {}
 ): Promise<{
-  pairing: PairedRuntimeConnection
+  pairing: PairingOffer
   nextBinary: Promise<Uint8Array>
   nextAuth: Promise<unknown>
 }> {
@@ -627,7 +618,7 @@ async function createSubscriptionServer(
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing), nextBinary, nextAuth }
+  return { pairing, nextBinary, nextAuth }
 }
 
 function sendEncrypted(ws: WebSocket, sharedKey: Uint8Array, message: unknown): void {
@@ -637,7 +628,7 @@ function sendEncrypted(ws: WebSocket, sharedKey: Uint8Array, message: unknown): 
 async function createClosingServer(
   code: number,
   reason: string
-): Promise<{ pairing: PairedRuntimeConnection }> {
+): Promise<{ pairing: PairingOffer }> {
   const serverKeyPair = generateKeyPair()
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   servers.push(wss)
@@ -658,10 +649,10 @@ async function createClosingServer(
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing) }
+  return { pairing }
 }
 
-async function createInvalidHandshakeServer(): Promise<{ pairing: PairedRuntimeConnection }> {
+async function createInvalidHandshakeServer(): Promise<{ pairing: PairingOffer }> {
   const serverKeyPair = generateKeyPair()
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   servers.push(wss)
@@ -682,7 +673,7 @@ async function createInvalidHandshakeServer(): Promise<{ pairing: PairedRuntimeC
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing) }
+  return { pairing }
 }
 
 async function createOneShotServer(
@@ -692,7 +683,7 @@ async function createOneShotServer(
     onRequest?: (request: Record<string, unknown>) => void
     sendUndecryptableResponse?: boolean
   } = {}
-): Promise<{ pairing: PairedRuntimeConnection }> {
+): Promise<{ pairing: PairingOffer }> {
   const serverKeyPair = generateKeyPair()
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   servers.push(wss)
@@ -767,5 +758,5 @@ async function createOneShotServer(
   if (!pairing) {
     throw new Error('Failed to create test pairing')
   }
-  return { pairing: pairedRuntimeConnectionFromOffer(pairing) }
+  return { pairing }
 }

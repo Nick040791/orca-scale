@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { getRuntimeGitStatus } from '@/runtime/runtime-git-status-client'
-import { getRuntimeGitUpstreamStatus } from '@/runtime/runtime-git-sync-client'
+import { getRuntimeGitStatus, getRuntimeGitUpstreamStatus } from '@/runtime/runtime-git-client'
 import {
   buildChecksPanelEligibilityGitFingerprint,
   shouldClearChecksPanelGitStatusSnapshot,
@@ -25,7 +24,7 @@ type ChecksPanelGitStatusEffectsInput = Pick<
   | 'gitStatusSnapshotRetryTimerRef'
   | 'isPanelVisible'
   | 'localExecutionScope'
-  | 'ownerTarget'
+  | 'ownerSettings'
   | 'panelContextKey'
   | 'panelContextKeyRef'
   | 'remoteStatusInvalidation'
@@ -91,7 +90,7 @@ export function useChecksPanelGitStatusEffects(model: ChecksPanelGitStatusEffect
     linkedPR,
     fallbackGitHubPRNumber,
     localExecutionScope,
-    ownerTarget,
+    ownerSettings,
     panelContextKey,
     panelContextKeyRef,
     remoteStatus,
@@ -144,7 +143,6 @@ export function useChecksPanelGitStatusEffects(model: ChecksPanelGitStatusEffect
       !isPanelVisible ||
       !activeWorktreeId ||
       !activeWorktreePath ||
-      !ownerTarget ||
       (!runtimeEnvironmentId && repoConnectionId && sshConnectionStatus !== 'connected')
     ) {
       if (gitStatusSnapshotRetryTimerRef.current) {
@@ -167,7 +165,7 @@ export function useChecksPanelGitStatusEffects(model: ChecksPanelGitStatusEffect
       shouldClearChecksPanelGitStatusSnapshot(snapshot, requestContextKey) ? null : snapshot
     )
     const context = {
-      target: ownerTarget,
+      settings: ownerSettings,
       worktreeId: activeWorktreeId,
       worktreePath: activeWorktreePath,
       connectionId
@@ -261,7 +259,7 @@ export function useChecksPanelGitStatusEffects(model: ChecksPanelGitStatusEffect
     gitStatusRefreshNonce,
     isFolder,
     isPanelVisible,
-    ownerTarget,
+    ownerSettings,
     panelContextKey,
     repo,
     repoConnectionId,

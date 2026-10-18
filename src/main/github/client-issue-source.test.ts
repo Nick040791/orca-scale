@@ -92,10 +92,7 @@ vi.mock('./github-api-repository', async (importOriginal) => {
   }
 })
 
-import { countWorkItems } from './client/list/count-work-items'
-import { getWorkItem } from './client/fetch/get-work-item'
-import { listWorkItems } from './client/list/list-work-items'
-import { _resetOwnerRepoCache } from './gh-utils'
+import { countWorkItems, getWorkItem, listWorkItems, _resetOwnerRepoCache } from './client'
 
 const PR_LIST_FIELDS =
   'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,headRepositoryOwner,reviewRequests'
@@ -733,6 +730,23 @@ describe('GitHub issue source split', () => {
       expect(result.issueSourceFellBack).toBeUndefined()
     })
 
+    it("preference='auto' + no upstream → queries origin", async () => {
+      resolveIssueSourceMock.mockResolvedValueOnce({
+        source: { owner: 'solo', repo: 'orca' },
+        fellBack: false
+      })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'solo', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' }).mockResolvedValueOnce({
+        stdout: '[]'
+      })
+
+      await listWorkItems('/repo-root', 10, undefined, undefined, 'auto')
+
+      expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(1, issueSearchArgs('solo/orca'), {
+        cwd: '/repo-root'
+      })
+    })
+
     it("preference='auto' + upstream exists → PRs query upstream too", async () => {
       // Why: fork-contribution PRs live on the upstream repo — the fork's own
       // PR list is almost always empty. 'auto' must resolve PRs upstream-first
@@ -785,6 +799,22 @@ describe('GitHub issue source split', () => {
       )
     })
 
+    it("preference='upstream' + upstream exists → queries upstream", async () => {
+      resolveIssueSourceMock.mockResolvedValueOnce({
+        source: { owner: 'stablyai', repo: 'orca' },
+        fellBack: false
+      })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' }).mockResolvedValueOnce({
+        stdout: '[]'
+      })
+
+      const result = await listWorkItems('/repo-root', 10, undefined, undefined, 'upstream')
+
+      expect(decodedIssueSearchPath(0)).toContain('q=repo:stablyai/orca is:issue is:open')
+      expect(result.issueSourceFellBack).toBeUndefined()
+    })
+
     it("preference='upstream' + no upstream → falls back to origin with fellBack=true", async () => {
       resolveIssueSourceMock.mockResolvedValueOnce({
         source: { owner: 'solo', repo: 'orca' },
@@ -799,6 +829,36 @@ describe('GitHub issue source split', () => {
 
       expect(decodedIssueSearchPath(0)).toContain('q=repo:solo/orca is:issue is:open')
       expect(result.issueSourceFellBack).toBe(true)
+    })
+
+    it("preference='origin' + upstream exists → queries origin (not upstream)", async () => {
+      resolveIssueSourceMock.mockResolvedValueOnce({
+        source: { owner: 'fork', repo: 'orca' },
+        fellBack: false
+      })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'fork', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' }).mockResolvedValueOnce({
+        stdout: '[]'
+      })
+
+      await listWorkItems('/repo-root', 10, undefined, undefined, 'origin')
+
+      expect(decodedIssueSearchPath(0)).toContain('q=repo:fork/orca is:issue is:open')
+    })
+
+    it("preference='origin' + no upstream → queries origin", async () => {
+      resolveIssueSourceMock.mockResolvedValueOnce({
+        source: { owner: 'solo', repo: 'orca' },
+        fellBack: false
+      })
+      getOwnerRepoMock.mockResolvedValueOnce({ owner: 'solo', repo: 'orca' })
+      ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' }).mockResolvedValueOnce({
+        stdout: '[]'
+      })
+
+      await listWorkItems('/repo-root', 10, undefined, undefined, 'origin')
+
+      expect(decodedIssueSearchPath(0)).toContain('q=repo:solo/orca is:issue is:open')
     })
 
     it('surfaces upstreamCandidate in sources regardless of effective preference', async () => {

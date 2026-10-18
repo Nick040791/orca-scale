@@ -5,11 +5,10 @@ import {
   screencastSubscriberDrivesAsMobile,
   type BrowserScreencastSubscriber
 } from './browser-screencast-driver-scope'
-import type { RuntimeBrowserCommands } from './browser/browser-commands'
-import type { RpcBinarySender } from './rpc/rpc-binary-sender'
+import type { RuntimeBrowserCommands } from './orca-runtime-browser'
 
 type RuntimeBrowserScreencastControllerDeps = {
-  getCommands: () => Pick<RuntimeBrowserCommands, 'browserScreencast'>
+  getCommands: () => RuntimeBrowserCommands
   registerSubscriptionCleanup: (
     subscriptionId: string,
     cleanup: () => void | Promise<void>,
@@ -62,7 +61,7 @@ export class RuntimeBrowserScreencastController {
       connectionId?: string
       pairedDeviceId?: string
       clientKind?: 'mobile' | 'runtime'
-      sendBinary?: RpcBinarySender
+      sendBinary?: (bytes: Uint8Array<ArrayBufferLike>) => boolean | void
       signal?: AbortSignal
       emit: (result: BrowserScreencastResult) => void
     }
@@ -115,11 +114,11 @@ export class RuntimeBrowserScreencastController {
       end(emitEnd)
     }
     const abortScreencast = (): void => cancel()
-    const sendBinaryAfterReady: RpcBinarySender = (bytes, sendOptions) => {
+    const sendBinaryAfterReady = (bytes: Uint8Array<ArrayBufferLike>): boolean | void => {
       if (!readyEmitted) {
         return false
       }
-      return options.sendBinary?.(bytes, sendOptions)
+      return options.sendBinary?.(bytes)
     }
 
     // Why: rotation can happen before ready, so replacements are connection-scoped immediately.

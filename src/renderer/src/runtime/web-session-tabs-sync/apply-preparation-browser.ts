@@ -7,19 +7,16 @@ import {
 } from './mirrored-browser-tabs'
 import { buildMirroredEditorTabs } from './tab-builders'
 import { buildMirroredAgentTabs, isReadyBrowserTab, isReadyEditorTab } from './terminal-surfaces'
-import {
-  hostSnapshotAffirmsAgentSessions,
-  hostSnapshotAffirmsClientHostedPages
-} from '../host-session-snapshot-authority'
+import { hostSnapshotAffirmsClientHostedPages } from '../host-session-snapshot-authority'
 import type { prepareWebSessionTabsSnapshotBase } from './apply-preparation-base'
 import type { OpenFile } from '../../store/slices/editor'
 import {
   advanceWebSessionOpenFilesIndex,
+  firstOpenFileByIdForWorktree,
   sameOpenFiles,
   webSessionOpenFilesForWorktree
 } from './state-equality-files'
 import { shouldRetainStructuredAgentSessionLaunchTab } from '@/lib/structured-agent-session-launch-registry'
-import { executionHostIdForSessionTabsOwner } from '../local-structured-session-owner'
 
 export function prepareWebSessionTabsSnapshotBrowser(
   base: ReturnType<typeof prepareWebSessionTabsSnapshotBase>
@@ -42,7 +39,6 @@ export function prepareWebSessionTabsSnapshotBrowser(
   const publishedAgentSessionIds = new Set(
     snapshot.tabs.filter((tab) => tab.type === 'agent-session').map((tab) => tab.sessionId)
   )
-  const agentSessionsAffirmed = hostSnapshotAffirmsAgentSessions(snapshot)
   const existingTabIndex = buildWebSessionExistingTabIndex({ unifiedTabs: currentUnifiedTabs })
   const readyBrowserTabs = reconcilesNonAgentTabs ? snapshot.tabs.filter(isReadyBrowserTab) : []
   const nextRemoteBrowserPageIds = new Set(readyBrowserTabs.map((tab) => tab.browserPageId))
@@ -116,7 +112,7 @@ export function prepareWebSessionTabsSnapshotBrowser(
   const mirroredEditorTabs = buildMirroredEditorTabs(
     snapshot,
     environmentId,
-    state.openFiles,
+    firstOpenFileByIdForWorktree(worktreeOpenFiles),
     existingTabIndex,
     hostGroupIdByTabId,
     targetGroupId,
@@ -126,7 +122,6 @@ export function prepareWebSessionTabsSnapshotBrowser(
   )
   const mirroredAgentTabs = buildMirroredAgentTabs(
     snapshot,
-    executionHostIdForSessionTabsOwner(environmentId),
     hostGroupIdByTabId,
     targetGroupId,
     mirroredTerminalTabEntries.length + mirroredBrowserTabs.length + mirroredEditorTabs.length,
@@ -135,10 +130,6 @@ export function prepareWebSessionTabsSnapshotBrowser(
   )
   const mirroredEditorFileIds = new Set(mirroredEditorTabs.map((entry) => entry.file.id))
   const mirroredEditorHostTabIds = new Set(mirroredEditorTabs.map((entry) => entry.hostTabId))
-  const mirroredOpenFiles = [
-    ...new Map(mirroredEditorTabs.map((entry) => [entry.file.id, entry.file])).values()
-  ]
-  const mirroredFileRecords = new Set(mirroredOpenFiles)
   const removedEditorFileIds = new Set(
     (reconcilesNonAgentTabs ? worktreeOpenFiles : [])
       .filter(
@@ -152,9 +143,8 @@ export function prepareWebSessionTabsSnapshotBrowser(
       .map((file) => file.id)
   )
   const isReplacedOpenFile = (file: OpenFile): boolean =>
-    mirroredFileRecords.has(file) ||
-    (file.runtimeEnvironmentId === environmentId &&
-      (removedEditorFileIds.has(file.id) || mirroredEditorFileIds.has(file.id)))
+    file.runtimeEnvironmentId === environmentId &&
+    (removedEditorFileIds.has(file.id) || mirroredEditorFileIds.has(file.id))
   const replacedOpenFileCount = worktreeOpenFiles.filter(isReplacedOpenFile).length
   // Why: both consumers below ask only about this worktree, so the surviving ids answer
   // them in worktree scope instead of walking every open file in the app.
@@ -164,6 +154,7 @@ export function prepareWebSessionTabsSnapshotBrowser(
   for (const fileId of mirroredEditorFileIds) {
     nextWorktreeOpenFileIds.add(fileId)
   }
+  const mirroredOpenFiles = mirroredEditorTabs.map((entry) => entry.file)
   const nextOpenFiles = (() => {
     // Why: with nothing to drop or mirror, rebuilding reproduces the array exactly, so
     // skip the global rebuild the equality check below would have thrown away anyway.
@@ -171,7 +162,12 @@ export function prepareWebSessionTabsSnapshotBrowser(
       return state.openFiles
     }
     const retained = state.openFiles.filter(
-      (file) => !(file.worktreeId === worktreeId && isReplacedOpenFile(file))
+      (file) =>
+        !(
+          file.worktreeId === worktreeId &&
+          file.runtimeEnvironmentId === environmentId &&
+          (removedEditorFileIds.has(file.id) || mirroredEditorFileIds.has(file.id))
+        )
     )
     const next = [...retained, ...mirroredOpenFiles]
     return sameOpenFiles(state.openFiles, next) ? state.openFiles : next
@@ -181,11 +177,9 @@ export function prepareWebSessionTabsSnapshotBrowser(
     if (tab.contentType === 'agent-session') {
       // A matching host row is authoritative; retaining the provisional tab beside its mirror
       // would briefly render two panes before lifecycle publication is recorded.
-      // A host that cannot list its chats is no evidence this one closed.
       return (
         !publishedAgentSessionIds.has(tab.entityId) &&
-        (!agentSessionsAffirmed ||
-          shouldRetainStructuredAgentSessionLaunchTab(worktreeId, tab.entityId))
+        shouldRetainStructuredAgentSessionLaunchTab(worktreeId, tab.entityId)
       )
     }
     if (tab.contentType === 'browser') {

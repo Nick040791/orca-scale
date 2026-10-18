@@ -3,7 +3,7 @@ import {
   resolveWorkspaceKanbanPointerDragSelection,
   shouldStartWorkspaceKanbanCardPointerDrag
 } from './use-workspace-kanban-card-pointer-drag'
-import { makeWorktree } from '../../store/slices/worktrees-slice-test-fixtures'
+import { makeWorktree } from '../../store/slices/store-test-helpers'
 
 function pointerEvent(overrides: Partial<PointerEvent> = {}): PointerEvent {
   return {

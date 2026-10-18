@@ -9,23 +9,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { commitStructuredAgentSessionLaunchPrompt } from './agent-launch-structured-prompt'
 import { structuredAgentSessionPayloadFingerprint } from '../../../../shared/structured-agent-session-mutation'
-import { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
+import { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-outbox'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
-import { recordingStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 
 const CALLER = { callerKey: 'trusted-local:runtime' }
 
 function hostWith(
   send: ReturnType<typeof vi.fn>,
-  journalSnapshot: ReturnType<typeof vi.fn> = vi.fn(() => ({ submissions: [] })),
-  log = recordingStructuredAgentSessionLogger()
+  journalSnapshot: ReturnType<typeof vi.fn> = vi.fn(() => ({ submissions: [] }))
 ): StructuredAgentSessionHost {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the stub implements the only members this module reaches; any other would throw rather than read a wrong value.
-  return {
-    send,
-    journalSnapshot,
-    deps: { logger: log.logger }
-  } as unknown as StructuredAgentSessionHost
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the stub implements the only method this module reaches; any other would throw rather than read a wrong value.
+  return { send, journalSnapshot } as unknown as StructuredAgentSessionHost
 }
 
 function commit(host: StructuredAgentSessionHost | null, text = 'do the thing') {
@@ -52,8 +46,6 @@ describe('committing a launch prompt', () => {
     expect(messageId).toBe(params.envelope.clientOperationId)
     expect(params.envelope).toMatchObject({ sessionId: 'sess-1', expectedRuntimeFence: 4 })
     expect(params.body).toEqual(structuredAgentSessionSendBody('do the thing', []))
-    // A restart keeps a launch's first prompt like a person's message, so the send says it is one.
-    expect(params.personsMessage).toBe(true)
     // The host recomputes and compares this, so a launch send must fingerprint like a client send.
     expect(params.envelope.payloadFingerprint).toBe(
       structuredAgentSessionPayloadFingerprint({
@@ -88,15 +80,11 @@ describe('committing a launch prompt', () => {
   })
 
   it('claims nothing, and does not fail the launch, when no row was committed', async () => {
-    const log = recordingStructuredAgentSessionLogger()
-    const failure = new Error('host gone')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const send = vi.fn(async () => {
-      throw failure
+      throw new Error('host gone')
     })
-    await expect(commit(hostWith(send, undefined, log))).resolves.toBeNull()
-    expect(log.entries.map((entry) => entry.fields)).toEqual([
-      { scope: 'launch-prompt', sessionId: 'sess-1', error: failure }
-    ])
+    await expect(commit(hostWith(send))).resolves.toBeNull()
   })
 
   it('sends nothing when there is no host or no text', async () => {

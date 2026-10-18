@@ -34,18 +34,14 @@ describe('the source-control header control', () => {
     tree = null
   })
 
-  function render(
-    embedded: boolean,
-    handlers: { onBack: () => void; onClose: () => void },
-    ioBusy = false
-  ) {
+  function render(embedded: boolean, handlers: { onBack: () => void; onClose: () => void }) {
     let rendered: ReactTestRenderer | null = null
     act(() => {
       rendered = create(
         createElement(MobileSourceControlHeader, {
           embedded,
           worktreeLabel: 'wt',
-          ioBusy,
+          ioBusy: false,
           onRefresh: () => {},
           ...handlers
         })
@@ -85,19 +81,5 @@ describe('the source-control header control', () => {
     act(() => control?.props.onPress())
     expect(calls).toEqual(['close'])
     expect(labelled(rendered, 'Back to session')).toHaveLength(0)
-  })
-
-  it.each([false, true])('keeps navigation enabled during file I/O (embedded: %s)', (embedded) => {
-    const onBack = vi.fn()
-    const onClose = vi.fn()
-    const rendered = render(embedded, { onBack, onClose }, true)
-    const navigation = labelled(rendered, embedded ? 'Close source control' : 'Back to session').at(
-      0
-    )
-    expect(navigation?.props.disabled).not.toBe(true)
-    expect(labelled(rendered, 'Refresh source control').at(0)?.props.disabled).toBe(true)
-    act(() => navigation?.props.onPress())
-    expect(embedded ? onClose : onBack).toHaveBeenCalledTimes(1)
-    expect(embedded ? onBack : onClose).not.toHaveBeenCalled()
   })
 })

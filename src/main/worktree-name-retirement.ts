@@ -20,7 +20,7 @@ import {
   getWorktreePathSettings,
   hasRepoWorktreeBasePath
 } from './ipc/worktree-logic'
-import { worktreePathComparisonKey } from './worktree-path-comparison-key'
+import { worktreePathComparisonKey } from './ipc/worktree-path-comparison'
 import {
   retirementHostIdentity,
   retirementNamespaceKey,

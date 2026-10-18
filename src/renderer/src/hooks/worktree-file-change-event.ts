@@ -6,10 +6,3 @@ export type WorktreeFileChangeEventDetail = {
   payload: FsChangedPayload
   runtimeEnvironmentId: string | null
 }
-
-declare global {
-  // oxlint-disable-next-line typescript/consistent-type-definitions -- WindowEventMap requires declaration merging.
-  interface WindowEventMap {
-    'orca:worktree-file-change': CustomEvent<WorktreeFileChangeEventDetail>
-  }
-}

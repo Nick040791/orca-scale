@@ -110,7 +110,11 @@ describe('CreateFromPicker host routing', () => {
 
     await renderPicker(repo)
 
-    expect(getRuntimeRepoBaseRefDefault).toHaveBeenCalledWith('runtime:owner-runtime', repo.id)
+    expect(getRuntimeRepoBaseRefDefault).toHaveBeenCalledWith(
+      { activeRuntimeEnvironmentId: 'owner-runtime' },
+      repo.id,
+      'runtime:owner-runtime'
+    )
   })
 
   // Why: the composer's Branch tab already lists on an empty query; a minimum-length gate left
@@ -127,7 +131,13 @@ describe('CreateFromPicker host routing', () => {
       await new Promise((resolve) => setTimeout(resolve, 250))
     })
 
-    expect(searchRuntimeRepoBaseRefs).toHaveBeenCalledWith('local', repo.id, '', 30)
+    expect(searchRuntimeRepoBaseRefs).toHaveBeenCalledWith(
+      { activeRuntimeEnvironmentId: null },
+      repo.id,
+      '',
+      30,
+      'local'
+    )
   })
 
   it('keeps an explicit local repo on the local client even when a runtime is focused', async () => {
@@ -136,7 +146,11 @@ describe('CreateFromPicker host routing', () => {
 
     await renderPicker(repo)
 
-    expect(getRuntimeRepoBaseRefDefault).toHaveBeenCalledWith('local', repo.id)
+    expect(getRuntimeRepoBaseRefDefault).toHaveBeenCalledWith(
+      { activeRuntimeEnvironmentId: null },
+      repo.id,
+      'local'
+    )
     expect(searchRuntimeRepoBaseRefs).not.toHaveBeenCalled()
   })
 })

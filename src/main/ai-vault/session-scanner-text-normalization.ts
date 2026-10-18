@@ -1,5 +1,4 @@
 import { sliceAtCodeUnitLimit } from '../../shared/surrogate-safe-text-slice'
-import { withoutNativeChatVisualDirectiveLines } from '../../shared/native-chat-visual-directive'
 
 export { sliceAtCodeUnitLimit }
 
@@ -39,31 +38,17 @@ export function normalizeTitleText(value: string): string | null {
   return finalizeNormalizedText(normalizeStringText(value, SESSION_TITLE_TEXT_LIMIT))
 }
 
-/**
- * `role` 'assistant': a reply's visual lines show only in a chat transcript, so a preview drops
- * them, per text part and before lines are folded into one.
- */
-export function extractPreviewContentText(value: unknown, role?: string): string | null {
-  return normalizeContentText(value, SESSION_PREVIEW_TEXT_LIMIT, role === 'assistant')
+export function extractPreviewContentText(value: unknown): string | null {
+  return normalizeContentText(value, SESSION_PREVIEW_TEXT_LIMIT)
 }
 
-export function normalizePreviewText(value: string, role?: string): string | null {
-  return finalizeNormalizedText(
-    normalizeStringText(previewSource(value, role === 'assistant'), SESSION_PREVIEW_TEXT_LIMIT)
-  )
+export function normalizePreviewText(value: string): string | null {
+  return finalizeNormalizedText(normalizeStringText(value, SESSION_PREVIEW_TEXT_LIMIT))
 }
 
-function previewSource(text: string, dropVisualLines: boolean): string {
-  return dropVisualLines ? withoutNativeChatVisualDirectiveLines(text) : text
-}
-
-function normalizeContentText(
-  value: unknown,
-  limit: number,
-  dropVisualLines = false
-): string | null {
+function normalizeContentText(value: unknown, limit: number): string | null {
   if (typeof value === 'string') {
-    return finalizeNormalizedText(normalizeStringText(previewSource(value, dropVisualLines), limit))
+    return finalizeNormalizedText(normalizeStringText(value, limit))
   }
   if (!Array.isArray(value)) {
     return null
@@ -76,7 +61,7 @@ function normalizeContentText(
       continue
     }
     appendInterPartSpace(builder)
-    appendNormalizedString(builder, previewSource(text, dropVisualLines))
+    appendNormalizedString(builder, text)
     if (builder.truncated) {
       break
     }

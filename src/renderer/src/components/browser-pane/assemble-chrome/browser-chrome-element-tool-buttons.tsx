@@ -12,8 +12,6 @@ export type BrowserChromeElementTools = {
   onStartIntent: (intent: GrabIntent) => void
   disabled: boolean
   grabShortcutLabel: string
-  /** Omitted where the annotate chord isn't wired (the workspace doc preview). */
-  annotateShortcutLabel?: string
   annotationCount: number
 }
 
@@ -99,16 +97,10 @@ export function BrowserChromeElementToolButtons({
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={4}>
-            {tools.annotateShortcutLabel
-              ? translate(
-                  'auto.components.browser.pane.BrowserPane.cc4a071d3a',
-                  'Annotate page element ({{value0}})',
-                  { value0: tools.annotateShortcutLabel }
-                )
-              : translate(
-                  'auto.components.browser.pane.BrowserPane.fc9be38f6f',
-                  'Annotate page element'
-                )}
+            {translate(
+              'auto.components.browser.pane.BrowserPane.fc9be38f6f',
+              'Annotate page element'
+            )}
           </TooltipContent>
         </Tooltip>
       ) : null}

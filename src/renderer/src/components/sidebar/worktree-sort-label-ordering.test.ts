@@ -7,16 +7,11 @@ import {
   compareWorktreeSortLabel,
   getWorktreeSortLabel,
   type SortBy
-} from '../../../../shared/sidebar-list/smart-sort'
-import { compareCodePoints, compareSidebarText } from '../../../../shared/sidebar-list/text-order'
-import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
+} from './smart-sort'
 
-/** The comparator with labels derived per comparison instead of precomputed. */
+/** The comparator as it read before labels were precomputed. */
 function legacyCompareWorktreeSortLabel(a: Worktree, b: Worktree): number {
-  return (
-    compareSidebarText(getWorktreeSortLabel(a), getWorktreeSortLabel(b)) ||
-    compareCodePoints(getWorktreeHostIdentity(a), getWorktreeHostIdentity(b))
-  )
+  return getWorktreeSortLabel(a).localeCompare(getWorktreeSortLabel(b))
 }
 
 const TRICKY_LABELS: readonly (string | null)[] = [
@@ -152,14 +147,5 @@ describe('worktree sort label ordering', () => {
     expect(Math.sign(compareWorktreeSortLabel(local, remote, labels))).toBe(
       Math.sign(legacyCompareWorktreeSortLabel(local, remote))
     )
-  })
-
-  it('breaks an equal-label tie by host-qualified id, independent of input order', () => {
-    const local: Worktree = { ...makeWorktree(0, 'same'), id: 'shared', hostId: 'local' }
-    const remote: Worktree = { ...makeWorktree(1, 'same'), id: 'shared', hostId: 'ssh:box' }
-    const labels = buildWorktreeSortLabels([local, remote])
-    const compare = (a: Worktree, b: Worktree): number => compareWorktreeSortLabel(a, b, labels)
-    expect([remote, local].sort(compare)).toEqual([local, remote])
-    expect([local, remote].sort(compare)).toEqual([local, remote])
   })
 })

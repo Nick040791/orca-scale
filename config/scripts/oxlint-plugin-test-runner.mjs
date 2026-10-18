@@ -10,25 +10,19 @@ const oxlintPackageDirectory = path.dirname(
 )
 const oxlintPath = path.join(oxlintPackageDirectory, 'bin', 'oxlint')
 
-export function runOxlintPluginOnSource({ source, ...options }) {
-  return runOxlintPluginOnSources({ ...options, sources: [source] })[0]
-}
-
-export function runOxlintPluginOnSources({
+export function runOxlintPluginOnSource({
   pluginName,
   pluginPath,
   rules,
-  sources,
+  source,
   extension = 'tsx'
 }) {
   const directory = mkdtempSync(path.join(tmpdir(), `orca-${pluginName}-lint-`))
-  const sourcePaths = sources.map((_, index) =>
-    path.join(directory, `sample-${index}.${extension}`)
-  )
+  const sourcePath = path.join(directory, `sample.${extension}`)
   const configPath = path.join(directory, 'oxlint.json')
 
   try {
-    sources.forEach((source, index) => writeFileSync(sourcePaths[index], source))
+    writeFileSync(sourcePath, source)
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -48,7 +42,7 @@ export function runOxlintPluginOnSources({
     )
     const result = spawnSync(
       process.execPath,
-      [oxlintPath, '--config', configPath, '--format', 'json', ...sourcePaths],
+      [oxlintPath, '--config', configPath, '--format', 'json', sourcePath],
       { encoding: 'utf8' }
     )
     if (result.error) {
@@ -57,16 +51,7 @@ export function runOxlintPluginOnSources({
     if (!result.stdout.trim()) {
       throw new Error(result.stderr || `${pluginName} did not produce Oxlint output`)
     }
-    const diagnostics = JSON.parse(result.stdout).diagnostics
-    const byFile = new Map(sourcePaths.map((file) => [file, []]))
-    for (const diagnostic of diagnostics) {
-      const findings = byFile.get(path.resolve(diagnostic.filename))
-      if (!findings) {
-        throw new Error(`Unexpected Oxlint diagnostic file: ${diagnostic.filename}`)
-      }
-      findings.push(diagnostic)
-    }
-    return sourcePaths.map((file) => byFile.get(file))
+    return JSON.parse(result.stdout).diagnostics
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

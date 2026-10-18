@@ -17,8 +17,8 @@ export class RuntimeAiVaultCommands {
       | null
   ) {}
 
-  list(args?: AiVaultListArgs, signal?: AbortSignal): Promise<AiVaultListResult> {
-    return listAiVaultSessions(args, { signal })
+  list(args?: AiVaultListArgs): Promise<AiVaultListResult> {
+    return listAiVaultSessions(args)
   }
 
   resolveTitles(

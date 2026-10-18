@@ -1,4 +1,3 @@
-import { normalizeExplorerDisplayRootByWorktree } from '../../../shared/file-explorer-display-root'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import {
   getDefaultUIState,
@@ -15,11 +14,9 @@ import { normalizeStatusBarUsageMode } from '../../../shared/status-bar-usage-mo
 import { clampMarkdownTocPanelWidth } from '../../../shared/markdown-toc-panel-width'
 import { clampCombinedDiffFileTreeWidth } from '../../../shared/combined-diff-file-tree-width'
 import {
-  normalizeExecutionHostScope,
   normalizeVisibleExecutionHostIds,
   normalizeExecutionHostOrder
 } from '../../../shared/execution-host'
-import { workspaceHostScopeForVisibleHosts } from '../../../shared/workspace-view/workspace-host-visibility'
 import { normalizeManualRepoOrder } from '../../../shared/manual-repo-order'
 import { normalizeBrowserPageZoomLevel } from '../../../shared/browser-page-zoom'
 import { normalizeFeatureTipIds } from '../../../shared/feature-tips'
@@ -41,7 +38,6 @@ import {
 } from './ui-selection-normalization'
 import {
   mergeContextualTourSeenIds,
-  mergeFeatureTipSeenIds,
   mergeFeatureInteractions,
   stripMainOwnedTelemetryMarkerFromUI
 } from './ui-interaction-merge'
@@ -57,7 +53,6 @@ export type UIUpdateOperations = {
   notifyUIChanged: () => void
 }
 
-/** Applies a sanitized partial update while keeping active-view persistence separate from durable UI fields. */
 export function updatePersistedUI(
   operations: UIUpdateOperations,
   updates: Partial<PersistedState['ui']>
@@ -102,11 +97,6 @@ export function updatePersistedUI(
             operations.state.ui?.rightSidebarExplorerView,
             nextRightSidebarTab
           )
-  const nextVisibleWorkspaceHostIds = normalizeVisibleExecutionHostIds(
-    sanitizedUpdates.visibleWorkspaceHostIds !== undefined
-      ? sanitizedUpdates.visibleWorkspaceHostIds
-      : operations.state.ui?.visibleWorkspaceHostIds
-  )
   const nextUI = {
     ...currentUI,
     ...durableUpdates,
@@ -160,17 +150,10 @@ export function updatePersistedUI(
     combinedDiffFileTreeWidth: clampCombinedDiffFileTreeWidth(
       sanitizedUpdates.combinedDiffFileTreeWidth ?? operations.state.ui?.combinedDiffFileTreeWidth
     ),
-    visibleWorkspaceHostIds: nextVisibleWorkspaceHostIds,
-    // A paired client writes only the list; the scope must follow, or "all hosts" revives it.
-    ...(sanitizedUpdates.visibleWorkspaceHostIds !== undefined &&
-    sanitizedUpdates.workspaceHostScope === undefined
-      ? {
-          workspaceHostScope: workspaceHostScopeForVisibleHosts(
-            nextVisibleWorkspaceHostIds,
-            normalizeExecutionHostScope(currentUI.workspaceHostScope)
-          )
-        }
-      : {}),
+    visibleWorkspaceHostIds:
+      sanitizedUpdates.visibleWorkspaceHostIds !== undefined
+        ? normalizeVisibleExecutionHostIds(sanitizedUpdates.visibleWorkspaceHostIds)
+        : normalizeVisibleExecutionHostIds(operations.state.ui?.visibleWorkspaceHostIds),
     agentsVisibleHostIds:
       sanitizedUpdates.agentsVisibleHostIds !== undefined
         ? normalizeVisibleExecutionHostIds(sanitizedUpdates.agentsVisibleHostIds)
@@ -186,23 +169,13 @@ export function updatePersistedUI(
     browserDefaultZoomLevel: normalizeBrowserPageZoomLevel(
       sanitizedUpdates.browserDefaultZoomLevel ?? operations.state.ui?.browserDefaultZoomLevel
     ),
-    explorerDisplayRootByWorktree:
-      sanitizedUpdates.explorerDisplayRootByWorktree !== undefined
-        ? normalizeExplorerDisplayRootByWorktree(sanitizedUpdates.explorerDisplayRootByWorktree)
-        : normalizeExplorerDisplayRootByWorktree(
-            operations.state.ui?.explorerDisplayRootByWorktree
-          ),
     showDotfilesByWorktree:
       sanitizedUpdates.showDotfilesByWorktree !== undefined
         ? normalizeShowDotfilesByWorktree(sanitizedUpdates.showDotfilesByWorktree)
         : normalizeShowDotfilesByWorktree(operations.state.ui?.showDotfilesByWorktree),
-    // Why: a stale renderer or paired client must not erase a dismissal, or a one-time tip replays.
     featureTipsSeenIds:
       sanitizedUpdates.featureTipsSeenIds !== undefined
-        ? mergeFeatureTipSeenIds(
-            operations.state.ui?.featureTipsSeenIds,
-            sanitizedUpdates.featureTipsSeenIds
-          )
+        ? normalizeFeatureTipIds(sanitizedUpdates.featureTipsSeenIds)
         : normalizeFeatureTipIds(operations.state.ui?.featureTipsSeenIds),
     // Why: renderer and paired clients can mark different tours seen from stale snapshots; union so completed tours stay suppressed.
     contextualToursSeenIds:

@@ -1,9 +1,6 @@
 import type { AgentSessionStatusSummary } from './agent-session-wire'
 import { foldAgentLeadStatus } from './agent-lead-status-fold'
-import {
-  agentChildWorkLiveness,
-  type AgentChildWorkLivenessCandidate
-} from './agent-status-child-work-liveness'
+import { agentChildWorkLiveness } from './agent-status-child-work-liveness'
 import type { AgentMainAgentStatus, AgentStatusState, AgentWorkingMode } from './agent-status-types'
 import type { StructuredAgentSessionProjectedStatus } from './structured-agent-session-projection'
 
@@ -24,27 +21,23 @@ function structuredAgentSessionLeadState(
 
 /** The agent-status state one structured session summary stands for, with its live child
  *  work folded in the same way the hook lane folds a subagent roster. Shared across the
- *  process boundary so `worktree ps`, mobile and the sidebar cannot disagree about one session.
- *  `childWork` is the host's child records (or their views); only an older host's summary, which
- *  publishes none, is read by its live background tasks. */
+ *  process boundary so `worktree ps`, mobile and the sidebar cannot disagree about one session. */
 export function structuredAgentSessionAgentStatus(
-  summary: Pick<AgentSessionStatusSummary, 'turnOutcome' | 'stopping'> & {
+  summary: Pick<AgentSessionStatusSummary, 'backgroundTasks' | 'turnOutcome'> & {
     status: StructuredAgentSessionProjectedStatus
-    childWork?: readonly AgentChildWorkLivenessCandidate[]
   }
 ): StructuredAgentSessionAgentStatus {
   const leadState = structuredAgentSessionLeadState(summary.status)
   const resolution = foldAgentLeadStatus({
     leadState,
-    childWorkLiveness: agentChildWorkLiveness(summary.childWork)
+    childWorkLiveness: agentChildWorkLiveness(summary.backgroundTasks)
   })
   return {
     state: resolution.stateName,
     ...(resolution.workingMode ? { workingMode: resolution.workingMode } : {}),
     mainAgent: {
       state: leadState,
-      ...(leadState === 'done' && summary.turnOutcome ? { outcome: summary.turnOutcome } : {}),
-      ...(leadState === 'working' && summary.stopping ? { stopping: true as const } : {})
+      ...(leadState === 'done' && summary.turnOutcome ? { outcome: summary.turnOutcome } : {})
     }
   }
 }

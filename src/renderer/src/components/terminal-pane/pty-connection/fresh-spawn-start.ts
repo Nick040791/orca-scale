@@ -1,8 +1,4 @@
-import type { SpawnDeferralReason } from '../../../../../shared/host-spawn-admission'
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
 import { useAppStore } from '@/store'
-import { hasWorktreeTeardownStarted } from '@/store/slices/worktree-delete-state-types'
-import { PROCESS_BOUNDARY_GROUND } from '../../../../../shared/terminal-mode-reset-profiles'
 import { hasPtySerializer } from '../pty-buffer-serializer'
 import { writeTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 
@@ -10,6 +6,7 @@ import { settleSpawnThatLeftPaneUnbound } from './unbound-pane-spawn-recovery'
 import { STARTUP_CWD_FALLBACK_NOTICE } from './startup-cwd-fallback-notice'
 import { pendingSpawnByPaneKey, pendingSpawnGenerationByPaneKey } from './pty-connect-limits'
 import { shouldWritePtyOutputForeground } from './foreground-output-scan'
+import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
 import { toProcessExitStartup } from './process-exit-startup'
 import type {
   PendingStartupCommand,
@@ -38,11 +35,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       }
     }
 
-    if (
-      hasWorktreeTeardownStarted(
-        useAppStore.getState().deleteStateByWorktreeId?.[session.deps.worktreeId]
-      )
-    ) {
+    if (useAppStore.getState().deleteStateByWorktreeId?.[session.deps.worktreeId]?.isDeleting) {
       // Why: the worktree is being deleted; its PTYs were just killed for the
       // filesystem teardown. A fresh shell must not spawn into a directory the
       // removal is about to delete (main fences it anyway), and the pane is
@@ -59,9 +52,11 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
     // Why: a canceled old replay clear can preserve xterm's native
     // isUserScrolling flag. A replacement shell must start in follow mode.
     session.resetFreshSpawnFollowOutput()
-    // Why: a fresh spawn is a new process, so a restart-in-place must not
-    // inherit the old TUI's screen, mouse or kitty modes in xterm or the mirror.
-    session.writeInputModeGround(PROCESS_BOUNDARY_GROUND)
+    // Why: a fresh spawn is a new process with kitty keyboard flags at
+    // zero. The exit-handler reset alone is not enough: a late exit from a
+    // replaced PTY takes the stale-transport early return and skips it, so
+    // a restart-in-place would leak the old TUI's flags into a fresh shell.
+    session.kittyKeyboardModes.reset()
     session.prepareFreshShellViewportForSpawn(options)
     const coldRestoreOverride =
       startupOverride && 'launchConfig' in startupOverride
@@ -88,8 +83,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
     }
 
     session.transportConnectInFlightSince = Date.now()
-    session.pendingSpawnDeferral = null
-    const visibleAtSpawn = session.deps.isVisibleRef.current === true
     const effectiveStartup = startupOverride === undefined ? session.paneStartup : startupOverride
     const outputCallbacks = session.captureTransportOutputCallbacks(
       session.reportError,
@@ -100,6 +93,14 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       cols: session.cols,
       rows: session.rows,
       ...(startupOverride?.command ? { command: startupOverride.command } : {}),
+      ...(session.connectionId &&
+      startupOverride?.command &&
+      !session.shouldDeliverStartupViaTerminalPaste
+        ? { commandDelivery: 'provider' as const }
+        : {}),
+      ...(session.connectionId && startupOverride?.command
+        ? { startupCommandDelivery: 'shell-ready' as const }
+        : {}),
       ...(startupOverride?.env
         ? { env: session.mergeStartupEnvWithPaneIdentity(startupOverride.env) }
         : {}),
@@ -110,7 +111,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       ...(coldRestoreOverride ? { launchToken: coldRestoreOverride.launchToken } : {}),
       ...(coldRestoreOverride ? { launchAgent: coldRestoreOverride.agent } : {}),
       ...(session.shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
-      resumeSpawnIntent: visibleAtSpawn ? 'user-resume' : 'automatic-restore',
       ...(session.pendingReplacedPtyId
         ? { claimReplacedPtyId: session.claimPendingReplacedPtyId }
         : {}),
@@ -139,16 +139,12 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
             : typeof spawnedPtyId === 'string'
               ? spawnedPtyId
               : session.transport.getPtyId()
-        const deferral: SpawnDeferralReason | null = resolvedPtyId
-          ? null
-          : session.pendingSpawnDeferral
-        session.pendingSpawnDeferral = null
-        if (deferral) {
-          // Why before the launch-config cleanup below: a deferred launch is postponed, not dead.
+        if (resolvedPtyId && !session.claimCapturedDirectSshRetryPty(resolvedPtyId)) {
           releaseDeferredCwdFence()
-          clearPreSignaledSerializer()
           session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
-          session.enterSpawnDeferredSleep(deferral, startupOverride, options, visibleAtSpawn)
+          // Why: an outstanding declare keeps main's cooperation gate suppressing
+          // this paneKey's daemon-snapshot seed until something releases it.
+          clearPreSignaledSerializer()
           return null
         }
         const connectResult =
@@ -252,6 +248,15 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
             void window.api.pty.settlePaneSerializer(session.cacheKey, gen).catch(() => {})
           }
         }
+        if (resolvedPtyId && session.connectionId) {
+          if (
+            session.shouldUseProviderSshStartupDelivery &&
+            (startupOverride?.command || session.paneStartup?.command)
+          ) {
+            session.armStartupDraftReadinessObservation()
+          }
+          session.schedulePendingStartupCommandDelivery()
+        }
         session.finishReattachLiveDataDeferral(Boolean(resolvedPtyId), outputCallbacks.generation)
         return resolvedPtyId
       })
@@ -273,6 +278,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           pendingSpawnGenerationByPaneKey.delete(session.pendingSpawnKey)
         }
       })
+    session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
     void trackedPromise.then((spawnedPtyId) => {
       if (spawnedPtyId) {
         // The dual of settleSpawnThatLeftPaneUnbound below, and the only place a
@@ -282,7 +288,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         // 'pending' for the whole settlement bound and blocks the tab's next
         // recovery. Generation-gated in the store, so a spawn with no recovery
         // attempt in flight writes nothing.
-        session.settlePaneAttachAttempt?.('success')
+        session.settlePaneAttachAttempt?.(undefined, 'success')
         return
       }
       queueMicrotask(() => {
@@ -291,11 +297,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           session.transport.getPtyId() ||
           pendingSpawnByPaneKey.has(session.pendingSpawnKey)
         ) {
-          return
-        }
-        if (session.deferredSpawn) {
-          // Why no remount: the host would defer the remount's restore again, in a loop.
-          session.settlePaneAttachAttempt?.('failed')
           return
         }
         settleSpawnThatLeftPaneUnbound(session)

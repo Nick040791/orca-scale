@@ -1,4 +1,4 @@
-import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
+import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import type { RuntimeStatus } from '../../../../../shared/runtime-types'
 import { RemoteBrowserPageSession } from './remote-browser-page-session'
 import { openRemoteBrowserScreencastStream } from './remote-browser-screencast-subscription'
@@ -11,14 +11,14 @@ import {
   remoteBrowserStreamLostNotice,
   remoteBrowserStreamRetrying,
   remoteBrowserStreamStopped,
-  REMOTE_BROWSER_STREAM_IDLE,
-  remoteBrowserStreamNotice,
-  type RemoteBrowserStreamStatus
+  remoteBrowserStreamUnreachableNotice,
+  REMOTE_BROWSER_STREAM_IDLE
 } from './remote-browser-stream-status'
 import {
+  isPermanentRemoteBrowserStreamFailure,
   isRemoteBrowserPageMissingError,
   remoteBrowserStreamUnsupportedError,
-  resolveRemoteBrowserStreamFailure
+  resolveRemoteBrowserStreamRestartFailure
 } from './remote-browser-stream-errors'
 import {
   areRemoteViewportSizesNear,
@@ -40,7 +40,6 @@ export class RemoteBrowserStreamLifecycle {
   private subscription: RemoteBrowserStreamSubscription | null = null
   private streamViewportSize: RemoteBrowserViewportSize | null = null
   private readonly liveness = new RemoteBrowserStreamLiveness()
-  private status: RemoteBrowserStreamStatus = REMOTE_BROWSER_STREAM_IDLE
 
   constructor(private readonly deps: RemoteBrowserStreamLifecycleDeps) {
     this.tokens = new RemoteBrowserOperationTokens(deps.identity)
@@ -49,17 +48,8 @@ export class RemoteBrowserStreamLifecycle {
     // each restart subscribes fine, then the stream ends before 'ready', so the catch that normally
     // reports never runs. 'stopped' carries its notice, so that case cannot go silent.
     this.restartScheduler = new RemoteBrowserStreamRestartScheduler(undefined, () =>
-      this.setStatus(
-        remoteBrowserStreamStopped(
-          remoteBrowserStreamNotice(this.status) ?? remoteBrowserStreamLostNotice()
-        )
-      )
+      deps.setStatus(remoteBrowserStreamStopped(remoteBrowserStreamLostNotice()))
     )
-  }
-
-  private setStatus(status: RemoteBrowserStreamStatus): void {
-    this.status = status
-    this.deps.setStatus(status)
   }
 
   forgetStreamViewportSize(): void {
@@ -72,11 +62,11 @@ export class RemoteBrowserStreamLifecycle {
     const { tokens, deps } = this
     // A reopen (tab switch, environment or worktree change, or Reconnect) starts a fresh budget, so
     // 'opening' replaces whatever the previous attempt ended on — including a spent 'stopped'.
-    this.setStatus(REMOTE_BROWSER_STREAM_OPENING)
+    deps.setStatus(REMOTE_BROWSER_STREAM_OPENING)
     this.retireInFlightWork()?.unsubscribe()
     const operationToken = tokens.createOperationToken()
     if (!operationToken) {
-      this.setStatus(REMOTE_BROWSER_STREAM_IDLE)
+      deps.setStatus(REMOTE_BROWSER_STREAM_IDLE)
       return () => {}
     }
     void this.session
@@ -108,21 +98,30 @@ export class RemoteBrowserStreamLifecycle {
           deps.closeMissingRemotePage(tokens.remotePage)
           return
         }
-        // Why classified: a host that cannot stream must read the same here as on the restart path.
-        const failure = resolveRemoteBrowserStreamFailure(error, 'opening')
-        if (failure.logRawError) {
+        // Why classified here too: the same condition (a host that cannot stream) reaches both this
+        // path and the restart path, and it must not read as "unreachable" here and as its own
+        // specific message there.
+        const permanent = isPermanentRemoteBrowserStreamFailure(error)
+        if (!permanent) {
           console.warn('[browser-pane] remote browser failed to open:', error)
         }
         // Why this can be the loser of a race: the stream token is claimed before subscribe is
         // awaited, so a close can arrive and arm a restart while this promise is still rejecting —
-        // the host closes the subscription and only then throws (src/main/ipc/runtime-environments/runtime-environments.ts
+        // the host closes the subscription and only then throws (src/main/ipc/runtime-environments.ts
         // 'pairing changed'). Publishing 'stopped' over an armed restart shows a manual control for
         // one backoff step and then swaps it for a spinner. The armed restart is the newer owner.
         if (this.restartScheduler.isScheduled) {
           return
         }
-        // An initial open has no retry budget; preserve manual recovery.
-        this.setStatus(remoteBrowserStreamStopped(failure.message))
+        // "Unreachable" rather than "lost": nothing was ever established here. And this path never
+        // had a stream, so the retry budget never runs — 'stopped' is what hands the user a way back.
+        deps.setStatus(
+          remoteBrowserStreamStopped(
+            permanent && error instanceof Error
+              ? error.message
+              : remoteBrowserStreamUnreachableNotice()
+          )
+        )
       })
     return () => {
       cancelled = true
@@ -152,7 +151,7 @@ export class RemoteBrowserStreamLifecycle {
     // Why: without a token the .then/.catch below would mutate busy/remoteError on behalf of a
     // restart that a newer operation has already replaced.
     const restartToken = this.tokens.createOperationToken(pageId)
-    this.setStatus(REMOTE_BROWSER_STREAM_OPENING)
+    this.deps.setStatus(REMOTE_BROWSER_STREAM_OPENING)
     current.unsubscribe()
     void this.startStream(pageId)
       .then((subscription) => {
@@ -175,13 +174,15 @@ export class RemoteBrowserStreamLifecycle {
         if (this.restartScheduler.isScheduled) {
           return
         }
-        // Why classified: raw transport text (e.g. "pairing changed") is for logs, not the pane.
-        const failure = resolveRemoteBrowserStreamFailure(error)
+        // Why classified rather than forwarded: this was the one failure path still putting raw
+        // transport text in the UI ("Runtime environment pairing changed; refresh and try again"),
+        // which is written for logs and names our internals. The other two paths already classify.
+        const failure = resolveRemoteBrowserStreamRestartFailure(error)
         if (failure.logRawError) {
           console.warn('[browser-pane] remote stream resize failed:', error)
         }
         // A resize during a blip tears down a live subscription and never reaches the budget.
-        this.setStatus(remoteBrowserStreamStopped(failure.message))
+        this.deps.setStatus(remoteBrowserStreamStopped(failure.message))
       })
   }
 
@@ -278,7 +279,7 @@ export class RemoteBrowserStreamLifecycle {
             // 'live' carries no notice, so a toast the retry already healed cannot survive
             // (STA-3483).
             this.liveness.markReady()
-            this.setStatus(REMOTE_BROWSER_STREAM_LIVE)
+            deps.setStatus(REMOTE_BROWSER_STREAM_LIVE)
             deps.applyTabInfo(event.tab)
             void deps.syncViewport(event.browserPageId).catch(() => {})
           },
@@ -287,17 +288,25 @@ export class RemoteBrowserStreamLifecycle {
           // close below is deliberately non-restarting, so nothing else would hand the user a way
           // back. Its message is the host's own, which is more specific than any substitute.
           onFailed: (message) => {
-            this.setStatus(remoteBrowserStreamStopped(message))
+            deps.setStatus(remoteBrowserStreamStopped(message))
             this.handleStreamClosed(token, false)
           },
-          // Why 'stopped': notifySubscriptionsError delivers onError without a close, so 'retrying'
-          // would leave the pane busy forever; a following close replaces this with 'retrying'.
-          // Why cancel the deadline: this path keeps its token, so the armed ready-deadline would
-          // later republish 'retrying' over the reconnect control. Not clear(): a following close
-          // must still refill the budget for a stream that had been healthy.
+          // Why 'stopped' and not 'retrying': a transport error is NOT guaranteed to be followed by
+          // a close. The web client's notifySubscriptionsError clears its subscription map and then
+          // delivers onError only, so on that path no close ever arrives — and 'retrying' would
+          // leave the pane busy forever with no way back, worse than the bug this PR fixes. When a
+          // close does follow (the usual case) it publishes 'retrying', which replaces this within
+          // the same tick. Landing in the actionable state and being corrected is safe; the reverse
+          // is not.
+          // Why the deadline is cancelled here: this is the one stream-ending path that keeps its
+          // token, so the 'never said ready' deadline stays armed and its guard still passes. It
+          // would then fire against a stream already declared stopped and republish 'retrying' —
+          // withdrawing the reconnect control 30s after handing it over, with no user action, and
+          // reopening the strand this whole feature exists to remove. Not clear(): a close that
+          // does follow must still refill the budget for a stream that had been healthy.
           onTransportError: () => {
             this.liveness.stopWaitingForReady()
-            this.setStatus(remoteBrowserStreamStopped(remoteBrowserStreamLostNotice()))
+            deps.setStatus(remoteBrowserStreamStopped(remoteBrowserStreamLostNotice()))
           },
           onPageMissing: () => deps.closeMissingRemotePage(pageId),
           onFrame: (bytes) => deps.handleFrameBytes(token, bytes),
@@ -326,7 +335,7 @@ export class RemoteBrowserStreamLifecycle {
     // Why no notice yet: the budget exists to absorb a blip invisibly, so nothing is said until an
     // attempt has actually failed. A non-restarting close leaves whatever the caller published.
     if (restart) {
-      this.setStatus(remoteBrowserStreamRetrying(null))
+      this.deps.setStatus(remoteBrowserStreamRetrying(null))
     }
     const current = this.subscription
     this.subscription = null
@@ -353,7 +362,7 @@ export class RemoteBrowserStreamLifecycle {
       createRemoteBrowserStreamRestartAttempt(token, {
         tokens: this.tokens,
         session: this.session,
-        setStatus: (status) => this.setStatus(status),
+        setStatus: (status) => this.deps.setStatus(status),
         applyTabInfo: (tab) => this.deps.applyTabInfo(tab),
         closeMissingRemotePage: (remotePageId) => this.deps.closeMissingRemotePage(remotePageId),
         startStream: (pageId) => this.startStream(pageId),

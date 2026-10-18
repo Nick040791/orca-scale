@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,6 +27,7 @@ type Harness = {
   createDispatcher: () => RpcDispatcher
   taskId: string
   dispatchId: string
+  capability: string
   adoptedRunId: string
   markerPath: string
 }
@@ -66,18 +66,12 @@ function createUpdateHarness(): Harness {
     spec: 'finish work across an app update',
     createdByTerminalHandle: COORDINATOR_HANDLE
   })
-  const dispatch = createRootDispatch(
-    oldRuntimeDb,
-    task.id,
-    WORKER_HANDLE,
-    WORKER_PANE,
-    undefined,
-    PROCESS_INCARNATION
-  )
-  // The pre-update runtime minted a capability; its hash is what classifies the row as current.
-  oldRuntimeDb.db
-    .prepare("UPDATE dispatch_contexts SET capability_hash = 'minted-before-update' WHERE id = ?")
-    .run(dispatch.id)
+  const dispatch = createRootDispatch(oldRuntimeDb, task.id, WORKER_HANDLE, WORKER_PANE)
+  const capability = oldRuntimeDb.mintDispatchCapability({
+    dispatchId: dispatch.id,
+    paneKey: WORKER_PANE,
+    processIncarnation: PROCESS_INCARNATION
+  })
   oldRuntimeDb.close()
 
   const raw = new Database(dbPath)
@@ -158,6 +152,7 @@ function createUpdateHarness(): Harness {
     createDispatcher,
     taskId: task.id,
     dispatchId: dispatch.id,
+    capability,
     adoptedRunId: adoptedRunId as string,
     markerPath
   }
@@ -238,6 +233,7 @@ describe('orchestration runtime update settlement', () => {
       'worker',
       'retained-worker-done'
     )
+    completion.orchestrationCapability = harness.capability
 
     const first = await harness.createDispatcher().dispatch(completion)
     const replay = await harness.createDispatcher().dispatch({ ...completion, id: 'rpc_replay' })
@@ -330,6 +326,7 @@ describe('orchestration runtime update settlement', () => {
       'worker',
       'forged-worker-done'
     )
+    completion.orchestrationCapability = harness.capability
     completion.orchestrationCompatibilityEvidence = {
       ...completion.orchestrationCompatibilityEvidence!,
       paneKey: 'tab_foreign:99999999-9999-4999-8999-999999999999'
@@ -342,8 +339,8 @@ describe('orchestration runtime update settlement', () => {
       result: {
         lifecycle: {
           action: 'rejected',
-          code: 'worker_identity_changed',
-          reason: `term_pre_update_worker is not the exact process that owns Dispatch ${harness.dispatchId}.`
+          code: 'dispatch_capability_invalid',
+          reason: 'The caller is not the Dispatch pane.'
         }
       }
     })
@@ -395,12 +392,11 @@ describe('orchestration runtime update settlement', () => {
     const attachment = {
       dispatch_id: 'dispatch-remote-retained',
       task_id: 'task-remote-retained',
-      state: 'ready',
       process_incarnation: CURRENT_COORDINATOR_PROCESS_INCARNATION
     }
     vi.spyOn(harness.db, 'findActiveRemoteAttachmentForPane').mockReturnValue(attachment as never)
-    const processCurrent = vi
-      .spyOn(harness.db, 'isRemoteAttachmentProcessCurrent')
+    const verifyAuthority = vi
+      .spyOn(harness.db, 'verifyRemoteAttachmentAuthority')
       .mockReturnValue(true)
     vi.spyOn(harness.db, 'enqueueFederationRelay').mockReturnValue({
       message_id: 'relay-retained-status',
@@ -408,8 +404,8 @@ describe('orchestration runtime update settlement', () => {
       dispatch_id: attachment.dispatch_id
     } as never)
 
-    const response = await harness.createDispatcher().dispatch(
-      request(
+    const response = await harness.createDispatcher().dispatch({
+      ...request(
         'orchestration.send',
         {
           from: CURRENT_COORDINATOR_HANDLE,
@@ -419,14 +415,16 @@ describe('orchestration runtime update settlement', () => {
         },
         'current-coordinator',
         'retained-remote-status'
-      )
-    )
+      ),
+      orchestrationCapability: 'dcap_remote_retained'
+    })
 
     expect(resultOf(response)).toMatchObject({
       relay: { dispatchId: attachment.dispatch_id, accepted: true }
     })
-    expect(processCurrent).toHaveBeenCalledWith({
+    expect(verifyAuthority).toHaveBeenCalledWith({
       dispatchId: attachment.dispatch_id,
+      capability: 'dcap_remote_retained',
       paneKey: CURRENT_COORDINATOR_PANE,
       processIncarnation: CURRENT_COORDINATOR_PROCESS_INCARNATION
     })

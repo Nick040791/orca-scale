@@ -9,7 +9,6 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
-import { recordingStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 
 const hostRef: { current: unknown } = { current: null }
 
@@ -58,9 +57,6 @@ type HostOptions = {
   indexThrows?: boolean
 }
 
-/** The hide a close sends; its hidden notice waits for the close's outcome. */
-const HIDE_PENDING_CLOSE = [SESSION, false, undefined, { deferHiddenNotice: true }]
-
 function installHost(options: HostOptions = {}) {
   const entry = record(SESSION)
   const held = new Set([SESSION])
@@ -75,7 +71,6 @@ function installHost(options: HostOptions = {}) {
       visible.delete(sessionId)
     }
   })
-  const notifySessionTabHidden = vi.fn()
   const close = vi.fn(async (sessionId: string) => {
     if (options.closeThrows) {
       throw options.closeThrows
@@ -90,10 +85,8 @@ function installHost(options: HostOptions = {}) {
       throw new Error('the event sink could not be flushed')
     }
   })
-  const log = recordingStructuredAgentSessionLogger()
   hostRef.current = {
     deps: {
-      logger: log.logger,
       store: {
         getRecord: (id: string) => (id === SESSION ? entry : null),
         getSessionTabId: (id: string) => {
@@ -106,10 +99,9 @@ function installHost(options: HostOptions = {}) {
     },
     hasSession: (sessionId: string) => held.has(sessionId),
     setSessionTabVisibility,
-    notifySessionTabHidden,
     close
   }
-  return { close, setSessionTabVisibility, notifySessionTabHidden, visible, log }
+  return { close, setSessionTabVisibility, visible }
 }
 
 describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
@@ -132,7 +124,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
     expect(host.visible.has(SESSION)).toBe(false)
     expect(retire).toHaveBeenCalledWith(SESSION)
     // The hide is the only visibility write a settled close performs.
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('restores the tab when the close throws and the child is still there', async () => {
@@ -145,14 +137,9 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
     expect(outcome.reason).toBe('provider round trip failed')
     expect(host.visible.has(SESSION)).toBe(true)
     expect(host.setSessionTabVisibility.mock.calls).toEqual([
-      HIDE_PENDING_CLOSE,
+      [SESSION, false],
       [SESSION, true, TAB_ID]
     ])
-    // Sent once, after the tab is back: a chat worker's Dispatch reads the chat as open.
-    expect(host.notifySessionTabHidden.mock.calls).toEqual([[SESSION]])
-    expect(host.notifySessionTabHidden.mock.invocationCallOrder[0]).toBeGreaterThan(
-      host.setSessionTabVisibility.mock.invocationCallOrder[1]!
-    )
   })
 
   it('restores the tab when the post-close observation is not `exited`', async () => {
@@ -164,7 +151,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
     expect(outcome.closeAttempted).toBe(true)
     expect(host.visible.has(SESSION)).toBe(true)
     expect(host.setSessionTabVisibility.mock.calls).toEqual([
-      HIDE_PENDING_CLOSE,
+      [SESSION, false],
       [SESSION, true, TAB_ID]
     ])
   })
@@ -178,7 +165,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
 
     expect(outcome.stopped).toBe(false)
     expect(host.visible.has(SESSION)).toBe(false)
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('does not put the tab back when the caller is discarding the workspace anyway', async () => {
@@ -193,7 +180,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
 
     expect(outcome.stopped).toBe(false)
     expect(host.visible.has(SESSION)).toBe(false)
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('does not publish a tab for a session that was already hidden', async () => {
@@ -202,7 +189,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
     await closeStructuredAgentSessionChild(SESSION)
 
     expect(host.visible.has(SESSION)).toBe(false)
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('does not roll back a visibility write that never landed', async () => {
@@ -216,15 +203,15 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
       reason: 'visibility write failed'
     })
     expect(host.close).not.toHaveBeenCalled()
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('keeps the original failure when the restore itself throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const host = installHost({ stuck: true })
-    const restoreFailure = new Error('agent_session_identity_required')
     host.setSessionTabVisibility.mockImplementation(async (_sessionId, isVisible) => {
       if (isVisible) {
-        throw restoreFailure
+        throw new Error('agent_session_identity_required')
       }
     })
 
@@ -233,9 +220,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
     expect(outcome.stopped).toBe(false)
     expect(outcome.closeAttempted).toBe(true)
     expect(outcome.reason).not.toContain('agent_session_identity_required')
-    expect(host.log.entries.map((entry) => entry.fields)).toEqual([
-      { scope: 'close-tab-restore', sessionId: SESSION, error: restoreFailure }
-    ])
+    expect(warn).toHaveBeenCalled()
   })
 
   it('claims nothing when the visible-tab index cannot be read', async () => {
@@ -243,7 +228,7 @@ describe('closeStructuredAgentSessionChild tab-visibility rollback', () => {
 
     await closeStructuredAgentSessionChild(SESSION)
 
-    expect(host.setSessionTabVisibility.mock.calls).toEqual([HIDE_PENDING_CLOSE])
+    expect(host.setSessionTabVisibility.mock.calls).toEqual([[SESSION, false]])
   })
 
   it('reports no close attempt when no host is installed', async () => {

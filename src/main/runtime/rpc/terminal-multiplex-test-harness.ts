@@ -16,13 +16,10 @@ export const SET_OUTPUT_PAUSED_OPCODE = 16 as TerminalStreamOpcode
 export const WRITE_UNAVAILABLE_OPCODE = 17 as TerminalStreamOpcode
 
 export function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
-  // Why: every terminal subscription registers at admission, even one that never reaches a pty.
-  const registry = createSubscriptionRegistryDouble()
   const serializeAuthoritativeTerminalBuffer =
     overrides.serializeAuthoritativeTerminalBuffer ??
     ((ptyId: string, opts?: { scrollbackRows?: number }) =>
       overrides.serializeTerminalBuffer?.(ptyId, opts))
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This partial runtime supplies the terminal RPC methods these tests invoke.
   return {
     getRuntimeId: () => 'test-runtime',
     subscribeToPtyExit: vi.fn(() => vi.fn()),
@@ -43,7 +40,6 @@ export function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRu
     isRemoteDesktopViewerOwner: vi.fn().mockReturnValue(false),
     serializeAuthoritativeTerminalBuffer,
     getPtyOutputSequence: vi.fn().mockReturnValue(0),
-    registerOwnedSubscriptionCleanup: registry.registerOwnedSubscriptionCleanup,
     ...overrides
   } as OrcaRuntimeService
 }

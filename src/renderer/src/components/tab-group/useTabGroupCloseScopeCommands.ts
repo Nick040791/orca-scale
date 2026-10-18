@@ -1,8 +1,6 @@
 import { useCallback } from 'react'
 import type { Tab, TabGroup } from '../../../../shared/tab-types'
 import { useAppStore } from '../../store'
-import { captureWorkspaceEmptiedReaction } from './workspace-emptied-reaction'
-import { isEditorTabContentType } from '@/store/slices/editor/tabs/editor-tab-content-type'
 
 export function useTabGroupCloseScopeCommands({
   groupId,
@@ -10,7 +8,8 @@ export function useTabGroupCloseScopeCommands({
   group,
   groupTabs,
   closeItem,
-  closeMany
+  closeMany,
+  leaveWorktreeIfEmpty
 }: {
   groupId: string
   worktreeId: string
@@ -18,11 +17,11 @@ export function useTabGroupCloseScopeCommands({
   groupTabs: Tab[]
   closeItem: (itemId: string, opts?: { skipEmptyCheck?: boolean }) => void
   closeMany: (itemIds: string[]) => void
+  leaveWorktreeIfEmpty: () => void
 }) {
   const closeEmptyGroup = useAppStore((state) => state.closeEmptyGroup)
 
   const closeGroup = useCallback(() => {
-    const whenEmptied = captureWorkspaceEmptiedReaction(worktreeId)
     const items = [...(useAppStore.getState().unifiedTabsByWorktree[worktreeId] ?? [])].filter(
       (item) => item.groupId === groupId
     )
@@ -31,15 +30,18 @@ export function useTabGroupCloseScopeCommands({
     }
     // Why: closing tabs doesn't remove the group shell; empty split groups are layout state, collapse the placeholder pane here.
     closeEmptyGroup(worktreeId, groupId)
-    whenEmptied()
-  }, [closeEmptyGroup, closeItem, groupId, worktreeId])
+    leaveWorktreeIfEmpty()
+  }, [closeEmptyGroup, closeItem, groupId, leaveWorktreeIfEmpty, worktreeId])
 
   const closeAllEditorTabsInGroup = useCallback(() => {
     for (const item of groupTabs) {
-      if (isEditorTabContentType(item.contentType)) {
-        if (!item.isPinned) {
-          closeItem(item.id)
-        }
+      if (
+        item.contentType === 'editor' ||
+        item.contentType === 'diff' ||
+        item.contentType === 'conflict-review' ||
+        item.contentType === 'check-details'
+      ) {
+        closeItem(item.id)
       }
     }
   }, [closeItem, groupTabs])

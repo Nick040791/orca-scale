@@ -20,6 +20,10 @@ vi.mock('electron', () => ({
   }
 }))
 vi.mock('node:fs/promises', () => ({ ...mocks, writeFile: vi.fn() }))
+vi.mock('./filesystem-download-folder', () => ({
+  registerFilesystemDownloadFolderHandlers: vi.fn()
+}))
+vi.mock('../providers/ssh-filesystem-dispatch', () => ({ requireSshFilesystemProvider: vi.fn() }))
 
 import { createFilesystemHandlerContext } from './filesystem/filesystem-handler-context'
 import { registerFilesystemDownloadHandlers } from './filesystem/filesystem-download-handlers'

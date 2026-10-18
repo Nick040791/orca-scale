@@ -123,16 +123,7 @@ export function buildPaletteFilterPredicate(
     return null
   }
 
-  // Why expand: a merged host row matches workspaces owned by either of its ids.
-  const selectedHostIds =
-    filter.hostIds.length > 0
-      ? new Set(
-          filter.hostIds.flatMap((hostId) => [
-            hostId,
-            ...(model.equivalentHostIdsById?.get(hostId) ?? [])
-          ])
-        )
-      : null
+  const selectedHostIds = filter.hostIds.length > 0 ? new Set(filter.hostIds) : null
   const selectedRepoIds = filter.repoIds.length > 0 ? new Set(filter.repoIds) : null
   const repoMatchesSelectedHost = (repoId: string): boolean => {
     if (!selectedHostIds) {

@@ -352,8 +352,7 @@ describe('OrcaRuntimeService', () => {
       isDestroyed: () => false,
       webContents: {
         isDestroyed: () => false,
-        setBackgroundThrottling,
-        capturePage: vi.fn(async () => null)
+        setBackgroundThrottling
       }
     })
 
@@ -366,8 +365,7 @@ describe('OrcaRuntimeService', () => {
 
     acknowledged.resolve()
     await expect(pending).resolves.toEqual({ closed: true })
-    // The final release restores throttling on the next task, after any native destruction.
-    await vi.waitFor(() => expect(setBackgroundThrottling.mock.calls).toEqual([[false], [true]]))
+    expect(setBackgroundThrottling.mock.calls).toEqual([[false], [true]])
   })
 
   it('accepts a paired close after the renderer already persisted its removal', async () => {
@@ -436,8 +434,7 @@ describe('OrcaRuntimeService', () => {
       isDestroyed: () => false,
       webContents: {
         isDestroyed: () => false,
-        setBackgroundThrottling: vi.fn(),
-        capturePage: vi.fn(async () => null)
+        setBackgroundThrottling: vi.fn()
       }
     })
 

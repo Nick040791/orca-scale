@@ -1,16 +1,10 @@
-import { spawnProcess } from '@orca/process-host'
+import { spawnProcess } from '../../shared/child-process/run-process'
 import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
 import {
   buildWindowsHostInteractiveLoginSpawn,
   type WindowsHostInteractiveLoginSpawn
 } from '../../shared/windows-interactive-login-spawn'
-import {
-  buildWslExecArgs,
-  buildWslLoginShellCommand,
-  quotePosixShell
-} from '../../shared/wsl-login-shell-command'
 import { resolveClaudeCommand } from '../codex-cli/command'
-import { resolveWslExecutablePath } from '../wsl/wsl-executable-path'
 import { buildWindowsCommandInvocation } from './windows-command-invocation'
 import { terminateClaudeProcess } from './claude-login-process-termination'
 
@@ -25,10 +19,13 @@ export type ClaudeCommandConfig = {
 }
 
 export type ClaudeCommandOptions = {
+  allowFailure?: boolean
   signal?: AbortSignal
   keepStdinOpen?: boolean
-  /** BROWSER for Claude, as Claude's own host sees the path. */
-  browser?: string
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
 export function runClaudeCommandProcess(
@@ -57,8 +54,7 @@ export function runClaudeCommandProcess(
       args,
       configDir,
       interactiveLogin,
-      hostClaudeCommand,
-      options?.browser
+      hostClaudeCommand
     )
     const child = spawnProcess({
       program: spawnConfig.command,
@@ -153,7 +149,7 @@ export function runClaudeCommandProcess(
         return
       }
       settle(() => {
-        if (code === 0) {
+        if (code === 0 || options?.allowFailure) {
           resolvePromise(output)
           return
         }
@@ -192,30 +188,19 @@ type ClaudeSpawnConfig = {
   windowsVerbatimArguments: boolean
 }
 
-// Why only this variable: account terminals set just CLAUDE_CONFIG_DIR, so Claude keys the login the same way.
-function claudeConfigDirEnv(configDir: string, browser: string | undefined): NodeJS.ProcessEnv {
-  return browser
-    ? { CLAUDE_CONFIG_DIR: configDir, BROWSER: browser }
-    : { CLAUDE_CONFIG_DIR: configDir }
-}
-
-function wslClaudeCommand(linuxPath: string, args: string[], browser: string | undefined): string {
-  const claude = `claude ${args.map(quotePosixShell).join(' ')}`
-  const configDir = `CLAUDE_CONFIG_DIR=${quotePosixShell(linuxPath)}`
-  if (!browser) {
-    return `exec env ${configDir} ${claude}`
+function claudeConfigDirEnv(configDir: string): NodeJS.ProcessEnv {
+  return {
+    CLAUDE_CONFIG_DIR: configDir,
+    // Why: Claude Code 2.1.220+ hashes this for the Keychain service name.
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: configDir
   }
-  // Why chmod here: a file Orca writes over \\wsl$ arrives without an exec bit; a failure must not stop the login.
-  const helper = quotePosixShell(browser)
-  return `chmod 700 ${helper}; exec env ${configDir} BROWSER=${helper} ${claude}`
 }
 
 function resolveClaudeInvocation(
   args: string[],
   configDir: ClaudeCommandConfig,
   interactiveLogin: WindowsHostInteractiveLoginSpawn | null,
-  hostClaudeCommand: () => string,
-  browser: string | undefined
+  hostClaudeCommand: () => string
 ): ClaudeSpawnConfig {
   const spawnConfig = interactiveLogin
     ? {
@@ -223,19 +208,21 @@ function resolveClaudeInvocation(
         args: interactiveLogin.args,
         env: withCliRuntimeOnPath(hostClaudeCommand(), {
           ...process.env,
-          ...claudeConfigDirEnv(configDir.windowsPath, browser)
+          ...claudeConfigDirEnv(configDir.windowsPath)
         }),
         windowsVerbatimArguments: false
       }
     : configDir.linuxPath && configDir.wslDistro
       ? {
-          // Same login as the CLI's WSL sign-in: the distro's login shell finds an nvm/mise claude.
-          command: resolveWslExecutablePath(),
-          args: buildWslExecArgs(configDir.wslDistro, [
-            '/bin/sh',
-            '-c',
-            buildWslLoginShellCommand(wslClaudeCommand(configDir.linuxPath, args, browser))
-          ]),
+          command: 'wsl.exe',
+          args: [
+            '-d',
+            configDir.wslDistro,
+            '--exec',
+            'bash',
+            '-lc',
+            `export CLAUDE_CONFIG_DIR=${shellQuote(configDir.linuxPath)}; export CLAUDE_SECURESTORAGE_CONFIG_DIR=${shellQuote(configDir.linuxPath)}; exec claude ${args.map(shellQuote).join(' ')}`
+          ],
           env: process.env,
           windowsVerbatimArguments: false
         }
@@ -244,7 +231,7 @@ function resolveClaudeInvocation(
             ...buildWindowsCommandInvocation(hostClaudeCommand(), args),
             env: withCliRuntimeOnPath(hostClaudeCommand(), {
               ...process.env,
-              ...claudeConfigDirEnv(configDir.windowsPath, browser)
+              ...claudeConfigDirEnv(configDir.windowsPath)
             })
           }
         : {
@@ -252,7 +239,7 @@ function resolveClaudeInvocation(
             args,
             env: withCliRuntimeOnPath(hostClaudeCommand(), {
               ...process.env,
-              ...claudeConfigDirEnv(configDir.windowsPath, browser)
+              ...claudeConfigDirEnv(configDir.windowsPath)
             }),
             windowsVerbatimArguments: false
           }

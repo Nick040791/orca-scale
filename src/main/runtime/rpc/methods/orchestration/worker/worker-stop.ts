@@ -9,13 +9,12 @@ import {
   resolveStructuredWorkerForDispatch,
   stopStructuredWorker
 } from '../../orchestration-structured-worker-lifecycle'
-import { isStructuredWorkerHandle } from '../../../../../../shared/structured-worker-handle'
+import { isStructuredWorkerHandle } from '../../../../structured-worker-identity'
 import { WorkerDispatchParams } from '../../../../../../shared/rpc-contract/orchestration-worker-stop-params'
 
 export const ORCHESTRATION_WORKER_STOP_METHODS = [
   defineMethod({
     name: 'orchestration.workerStop',
-    permission: 'workspace',
     params: WorkerDispatchParams,
     handler: (params, { runtime, orchestrationMutation }) =>
       dedupeWorkerStop(runtime, params.dispatch, async () => {
@@ -142,7 +141,6 @@ export const ORCHESTRATION_WORKER_STOP_METHODS = [
           })
         }
         const observation = await inspectWorkerTerminal(runtime, db, params.dispatch)
-        const liveHandle = observation.terminalHandle ?? handle
         // The host exit can settle this stop while terminal inspection is awaiting inventory.
         if (db.getWorkerDispatch(params.dispatch)?.state === 'stopped') {
           runtime.notifyMessageArrived(`dispatch:${params.dispatch}`, 'status')
@@ -155,15 +153,9 @@ export const ORCHESTRATION_WORKER_STOP_METHODS = [
         }
         // Why `unverifiable` still proceeds: losing contact is a reason to report
         // the outcome honestly, never a reason to stop trying to stop the worker.
-        // Why a structured worker's `exited` also proceeds: it is not final — the worker is still
-        // addressable and the next mail or typed message restarts it (a crashed agent's chat, or
-        // an old session mid-`/clear` before its successor exists). Its stop closes and hides
-        // whichever session runs it, as for a live structured worker.
         if (
           !observation.exact ||
-          (observation.status !== 'live' &&
-            observation.status !== 'unverifiable' &&
-            !isStructuredWorkerHandle(handle))
+          (observation.status !== 'live' && observation.status !== 'unverifiable')
         ) {
           return unknownReceipt(
             params.dispatch,
@@ -209,7 +201,7 @@ export const ORCHESTRATION_WORKER_STOP_METHODS = [
           }
         }
         const closed = await runtime
-          .closeTerminal(liveHandle)
+          .closeTerminal(handle)
           .then((close) => ({ close }) as const)
           .catch(
             (error: unknown) =>

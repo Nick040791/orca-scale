@@ -9,12 +9,9 @@ import {
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
-import { hostWorktreeTarget } from '../../../../shared/worktree/host-qualified-identity'
-import { getFolderWorkspaceHostId } from '../../../../shared/folder-workspace-execution-host'
 import { catalogOwnsHost, getProjectGroupHostId } from '../slices/project-group-owner-routing'
 import type { FolderWorkspaceUpdateTicket } from '../slices/folder-workspace-update-coordinator'
-import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from '../../runtime/runtime-rpc-client'
 import type {
   FolderWorkspaceUpdateCoordinatorInstance,
   FolderWorkspaceUpdateField
@@ -23,8 +20,7 @@ import {
   folderWorkspaceUpdateInvalidatesPathStatus,
   mergeFolderWorkspaceUpdateResponse
 } from './folder-workspace-routing'
-import { getRuntimeTargetHostId } from '../../runtime/runtime-client-target'
-import { adoptFromEndpoint } from '../adopt-from-endpoint'
+import { getRuntimeTargetHostId } from '../runtime-target-host'
 import { mergeByIdentity, unchangedMergeSource } from '../catalog-identity'
 
 export type FetchedFolderWorkspaceCatalog = {
@@ -75,6 +71,32 @@ function createFolderWorkspaceHostResolver(
     hostByGroupId ??= createFolderWorkspaceHostIndex(projectGroups)
     return getFolderWorkspaceHostIdFromIndex(workspace, hostByGroupId)
   }
+}
+
+export function getFolderWorkspaceHostId(
+  workspace: FolderWorkspace,
+  projectGroups: readonly ProjectGroup[]
+): ExecutionHostId {
+  const explicitHostId = parseExecutionHostId(workspace.executionHostId)?.id
+  if (explicitHostId) {
+    return explicitHostId
+  }
+  if (workspace.connectionId) {
+    return toSshExecutionHostId(workspace.connectionId)
+  }
+  let matchingHostId: ExecutionHostId | undefined
+  for (const group of projectGroups) {
+    if (group.id !== workspace.projectGroupId) {
+      continue
+    }
+    const hostId = getProjectGroupHostId(group)
+    if (matchingHostId === undefined) {
+      matchingHostId = hostId
+    } else if (matchingHostId !== hostId) {
+      return LOCAL_EXECUTION_HOST_ID
+    }
+  }
+  return matchingHostId ?? LOCAL_EXECUTION_HOST_ID
 }
 
 function getFolderWorkspaceHostIdentity(
@@ -162,6 +184,20 @@ export function clearRestoredFolderWorkspaceSessionOwners(
   return next
 }
 
+export function folderWorkspaceWithFetchedOwner(
+  workspace: FolderWorkspace,
+  target: RuntimeClientTarget,
+  projectGroups: readonly ProjectGroup[]
+): FolderWorkspace {
+  return {
+    ...workspace,
+    executionHostId:
+      target.kind === 'environment'
+        ? getRuntimeTargetHostId(target)
+        : getFolderWorkspaceHostId(workspace, projectGroups)
+  }
+}
+
 export async function fetchFolderWorkspaceCatalogForTarget(
   target: RuntimeClientTarget,
   projectGroups: readonly ProjectGroup[]
@@ -177,10 +213,18 @@ export async function fetchFolderWorkspaceCatalogForTarget(
             { timeoutMs: 15_000, reuseRecentCompatibilityFailure: true }
           )
         ).folderWorkspaces
-  const resolveOwnHostId = createFolderWorkspaceHostResolver(projectGroups)
-  const ownedFolderWorkspaces = fetchedFolderWorkspaces.map((row) =>
-    adoptFromEndpoint(target, { kind: 'folderWorkspace', row, resolveOwnHostId })
-  )
+  let ownedFolderWorkspaces: FolderWorkspace[]
+  if (target.kind === 'local') {
+    const resolveHostId = createFolderWorkspaceHostResolver(projectGroups)
+    ownedFolderWorkspaces = fetchedFolderWorkspaces.map((workspace) => ({
+      ...workspace,
+      executionHostId: resolveHostId(workspace)
+    }))
+  } else {
+    ownedFolderWorkspaces = fetchedFolderWorkspaces.map((workspace) =>
+      folderWorkspaceWithFetchedOwner(workspace, target, projectGroups)
+    )
+  }
   return {
     folderWorkspaces: ownedFolderWorkspaces,
     hostId: getRuntimeTargetHostId(target)
@@ -243,12 +287,7 @@ export async function reconcileFailedFolderWorkspaceUpdate(args: {
         : {})
     }))
     if (!refreshed) {
-      args.get().purgeWorktreeTerminalState([
-        hostWorktreeTarget({
-          id: folderWorkspaceKey(args.folderWorkspaceId),
-          hostId: args.ownerHostId
-        })
-      ])
+      args.get().purgeWorktreeTerminalState([folderWorkspaceKey(args.folderWorkspaceId)])
     }
   } catch (err) {
     console.warn('Failed to reconcile folder workspace after update failure:', err)

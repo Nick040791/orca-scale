@@ -74,27 +74,40 @@ function repeatsRecentToolLabel(text: string, labels: ReadonlySet<string>): bool
   return false
 }
 
-/** The live provider activity for this turn; callers provide the broad fallback.
- *  Journal rows are history, not the present, so none of them ever becomes this line. */
+/** Prefer provider-authored activity copy; callers provide the broad fallback. */
 export function selectStructuredAgentTurnActivity(
   items: readonly AgentJournalRenderItem[],
   turnId: string | null,
   providerActivity?: AgentSessionTurnActivity | null
 ): NativeChatTurnActivity | null {
-  if (!turnId || providerActivity?.turnId !== turnId) {
-    return null
-  }
-  const text = activityLine(providerActivity.text)
-  if (!text) {
+  if (!turnId) {
     return null
   }
   const turnStartIndex = items.findLastIndex((item) => {
     const turn = readAgentJournalTurn(item.body)
     return turn?.turnId === turnId && turn.state === 'running'
   })
-  // Root-scoped: a subagent's tool label must not suppress the parent's own line.
+  // Scoped ONCE, for everything below: this answers what the session's own agent
+  // is doing. Both readers below consult the label set, so a subagent left in it
+  // would let a child's tool label suppress the parent's own activity line —
+  // child data deciding what the parent's surface shows.
   const turnItems = items.slice(Math.max(0, turnStartIndex)).filter(isRootAgentJournalItem)
-  return repeatsRecentToolLabel(text, recentToolActivityLabels(turnItems))
-    ? null
-    : { kind: 'description', text }
+  const toolLabels = recentToolActivityLabels(turnItems)
+  if (providerActivity?.turnId === turnId) {
+    const text = activityLine(providerActivity.text)
+    if (text && !repeatsRecentToolLabel(text, toolLabels)) {
+      return { kind: 'description', text }
+    }
+  }
+  for (let index = turnItems.length - 1; index >= 0; index -= 1) {
+    const body = turnItems[index]?.body
+    if (body?.kind !== 'status' || readAgentJournalTurn(body) || body.providerFrame) {
+      continue
+    }
+    const text = activityLine(body.text)
+    if (text && !repeatsRecentToolLabel(text, toolLabels)) {
+      return { kind: 'description', text }
+    }
+  }
+  return null
 }

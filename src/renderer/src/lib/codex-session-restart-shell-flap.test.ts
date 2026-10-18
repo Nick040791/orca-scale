@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
-import { defaultScopeHost } from '@/lib/default-creation-host'
-
-// Why: these cases model a switch made on the focused host, as the status bar does.
-const focusedOwner = () => defaultScopeHost(useAppStore.getState().settings)
 import {
   markLiveCodexSessionsForRestart,
   markRestoredStaleCodexSessionsForRestart
@@ -47,7 +43,7 @@ describe('spurious shell readings on Codex-launched panes', () => {
         ]
       },
       ptyIdsByTabId: { 'tab-1': [ptyId] },
-      pendingPaneAccountRestarts: {},
+      pendingCodexPaneRestartIds: {},
       codexRestartNoticeByPtyId: {}
     })
   }
@@ -103,7 +99,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     vi.mocked(window.api.pty.confirmForegroundProcess).mockResolvedValue('codex-aarch64-ap')
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -119,7 +114,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     vi.mocked(window.api.pty.confirmForegroundProcess).mockResolvedValue('zsh')
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -131,7 +125,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     vi.mocked(window.api.pty.confirmForegroundProcess).mockRejectedValue(new Error('daemon busy'))
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -145,7 +138,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     ).confirmForegroundProcess = undefined
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -157,7 +149,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     seedPane()
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -173,7 +164,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     })
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })
@@ -183,7 +173,7 @@ describe('spurious shell readings on Codex-launched panes', () => {
   })
 
   it('never routes a remote runtime pane through the local confirm bridge', async () => {
-    seedPane({ ptyId: 'remote:env-1@@term-1', launchAgent: 'codex' })
+    seedPane({ ptyId: 'remote:term-1', launchAgent: 'codex' })
     useAppStore.setState({ settings: { activeRuntimeEnvironmentId: 'env-1' } as never })
     runtimeEnvironmentCall.mockResolvedValue({
       id: 'rpc-1',
@@ -193,7 +183,6 @@ describe('spurious shell readings on Codex-launched panes', () => {
     })
 
     await markLiveCodexSessionsForRestart({
-      owner: focusedOwner(),
       previousAccountLabel: ACCOUNT_A,
       nextAccountLabel: ACCOUNT_B
     })

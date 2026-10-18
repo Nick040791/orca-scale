@@ -50,6 +50,16 @@ function parseAheadBehind(stdout: string): { ahead: number; behind: number } {
   }
 }
 
+async function remoteExists(runGit: GitForkSyncRunner, remote: string): Promise<boolean> {
+  const { stdout } = await runGit(['remote'])
+  for (const rawLine of iterateGitOutputLines(stdout)) {
+    if (rawLine.trim() === remote) {
+      return true
+    }
+  }
+  return false
+}
+
 function* iterateGitOutputLines(output: string): Generator<string> {
   let lineStart = 0
 
@@ -237,12 +247,11 @@ export async function syncForkDefaultBranch(
   const upstreamRemote = options.upstreamRemote ?? DEFAULT_UPSTREAM_REMOTE
   const expectedUpstream = validateGitForkSyncExpectedUpstream(options.expectedUpstream)
   const baseResult = { originRemote, upstreamRemote, ahead: 0, behind: 0 }
-  const { stdout: remoteStdout } = await runGit(['remote'])
-  const remotes = new Set(Array.from(iterateGitOutputLines(remoteStdout), (line) => line.trim()))
-  if (!remotes.has(originRemote)) {
+
+  if (!(await remoteExists(runGit, originRemote))) {
     return { ...baseResult, status: 'blocked', reason: 'missing-origin' }
   }
-  if (!remotes.has(upstreamRemote)) {
+  if (!(await remoteExists(runGit, upstreamRemote))) {
     return { ...baseResult, status: 'blocked', reason: 'missing-upstream' }
   }
   if (
@@ -278,13 +287,9 @@ export async function syncForkDefaultBranch(
     return { ...resultWithBranch, status: 'blocked', reason: 'missing-origin-branch' }
   }
 
-  const counts =
-    originOid === upstreamOid && /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(originOid)
-      ? { ahead: 0, behind: 0 }
-      : parseAheadBehind(
-          (await runGit(['rev-list', '--left-right', '--count', `${originOid}...${upstreamOid}`]))
-            .stdout
-        )
+  const counts = parseAheadBehind(
+    (await runGit(['rev-list', '--left-right', '--count', `${originOid}...${upstreamOid}`])).stdout
+  )
 
   if (counts.ahead > 0 || !(await isAncestor(runGit, originOid, upstreamOid))) {
     return { ...resultWithBranch, ...counts, status: 'blocked', reason: 'diverged' }

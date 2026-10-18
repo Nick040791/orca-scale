@@ -1,12 +1,12 @@
 import type { ParsedExecutionHost } from '../../../shared/execution-host'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { taskSourceRuntimeTarget } from './task-source-runtime-target'
+import { getTaskSourceRuntimeSettings } from '../../../shared/task-source-context'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
+import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   getExplicitRuntimeOwnerEnvironmentId,
-  getHostlessSourceRepoOwnerEnvironmentId,
   type RepoRuntimeOwnerState
 } from './repo-runtime-owner'
 
@@ -25,27 +25,25 @@ export function getGitHubSourceRuntimeHost(
 export function getGitHubSourceRuntimeTarget(
   sourceContext: TaskSourceContext | null | undefined
 ): RuntimeClientTarget {
-  return taskSourceRuntimeTarget(sourceContext?.provider === 'github' ? sourceContext : null)
+  return getActiveRuntimeTarget(
+    getTaskSourceRuntimeSettings(sourceContext?.provider === 'github' ? sourceContext : null)
+  )
 }
 
-// Why: PR reads and actions run on the repo's explicit owner host (#6957, #7623);
-// a local or absent source never downgrades a runtime-owned repo to local IPC,
+// Why: PR mutations must run on the repo's explicit owner host (#6957); a
+// local or absent source never downgrades a runtime-owned repo to local IPC,
 // a runtime source still overrides, and the globally focused runtime is never
 // used as a fallback — a repo without an explicit owner is a local repo.
-export function getGitHubRepoRoutingTarget(
+export function getGitHubMutationRoutingSettings(
   state: RepoRuntimeOwnerState,
   repoId: string | null | undefined,
   sourceContext: TaskSourceContext | null | undefined
-): RuntimeClientTarget {
+): Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> {
   const sourceHost = getGitHubSourceRuntimeHost(sourceContext)
-  if (sourceHost) {
-    return runtimeTargetForOwnerEnvironment(sourceHost.environmentId)
+  return {
+    activeRuntimeEnvironmentId:
+      sourceHost?.environmentId ?? getExplicitRuntimeOwnerEnvironmentId(state, repoId)
   }
-  return runtimeTargetForOwnerEnvironment(
-    sourceContext?.provider === 'github'
-      ? getHostlessSourceRepoOwnerEnvironmentId(state.repos, repoId)
-      : getExplicitRuntimeOwnerEnvironmentId(state, repoId)
-  )
 }
 
 export function canUseGitHubRepoContext(

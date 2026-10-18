@@ -2,9 +2,9 @@ import { useCallback, useEffect } from 'react'
 import { getConnectionId } from '@/lib/connection-context'
 import {
   cancelRuntimeGenerateCommitMessage,
-  generateRuntimeCommitMessage
-} from '@/runtime/runtime-git-generation-client'
-import type { RuntimeGenerateCommitMessageOverrides } from '@/runtime/runtime-git-client-context'
+  generateRuntimeCommitMessage,
+  type RuntimeGenerateCommitMessageOverrides
+} from '@/runtime/runtime-git-client'
 import { useAppStore } from '@/store'
 import {
   createRunningCommitMessageGenerationRecord,
@@ -29,7 +29,7 @@ import { writeCommitDraftForWorktree } from './commit-drafts'
  */
 export function useSourceControlCommitMessageGeneration({
   activeRepo,
-  activeRepoTarget,
+  activeRepoSettings,
   activeWorktreeId,
   allocateCommitMessageGenerationRequestId,
   commitMessageGenerationRecords,
@@ -48,7 +48,7 @@ export function useSourceControlCommitMessageGeneration({
   worktreePath
 }: {
   activeRepo: SourceControlWorktreeContext['activeRepo']
-  activeRepoTarget: SourceControlWorktreeContext['activeRepoTarget']
+  activeRepoSettings: SourceControlWorktreeContext['activeRepoSettings']
   activeWorktreeId: string | null
   allocateCommitMessageGenerationRequestId: SourceControlStoreActions['allocateCommitMessageGenerationRequestId']
   commitMessageGenerationRecords: SourceControlStoreActions['commitMessageGenerationRecords']
@@ -82,12 +82,7 @@ export function useSourceControlCommitMessageGeneration({
 
   const handleGenerate = useCallback(
     async (overrides?: RuntimeGenerateCommitMessageOverrides): Promise<void> => {
-      if (
-        !activeWorktreeId ||
-        !worktreePath ||
-        !activeCommitMessageGenerationKey ||
-        !activeRepoTarget
-      ) {
+      if (!activeWorktreeId || !worktreePath || !activeCommitMessageGenerationKey) {
         return
       }
       if (generateInFlightRef.current[activeWorktreeId]) {
@@ -123,7 +118,7 @@ export function useSourceControlCommitMessageGeneration({
           worktreePath,
           connectionId,
           requestId,
-          runtimeTarget: activeRepoTarget
+          runtimeTargetSettings: activeRepoSettings
         })
       )
       setGenerateInFlightByWorktree((prev) => ({ ...prev, [activeWorktreeId]: true }))
@@ -132,8 +127,7 @@ export function useSourceControlCommitMessageGeneration({
         const result = await generateRuntimeCommitMessage(
           {
             // Why: route generation by the repo OWNER host, not the focused runtime.
-            target: activeRepoTarget,
-            prefs: settings,
+            settings: activeRepoSettings,
             worktreeId: activeWorktreeId,
             worktreePath,
             connectionId
@@ -206,7 +200,7 @@ export function useSourceControlCommitMessageGeneration({
     },
     [
       activeCommitMessageGenerationKey,
-      activeRepoTarget,
+      activeRepoSettings,
       activeWorktreeId,
       allocateCommitMessageGenerationRequestId,
       generateInFlightRef,
@@ -214,7 +208,6 @@ export function useSourceControlCommitMessageGeneration({
       setCommitMessageGenerationRecord,
       setGenerateErrors,
       setGenerateInFlightByWorktree,
-      settings,
       updateCommitDrafts,
       updateCommitMessageGenerationRecord,
       worktreePath
@@ -253,20 +246,17 @@ export function useSourceControlCommitMessageGeneration({
       resolveCommitMessageGenerationCancel(record)
     )
     const connectionId = getConnectionId(activeWorktreeId) ?? undefined
-    if (!activeRepoTarget) {
-      return
-    }
     // Why: fire-and-forget; the in-flight promise resolves {canceled: true} where the spinner clears, so awaiting would just delay UI feedback.
     void cancelRuntimeGenerateCommitMessage({
       // Why: route the cancel by the repo OWNER host, not the focused runtime.
-      target: activeRepoTarget,
+      settings: activeRepoSettings,
       worktreeId: activeWorktreeId,
       worktreePath,
       connectionId
     })
   }, [
     activeCommitMessageGenerationKey,
-    activeRepoTarget,
+    activeRepoSettings,
     activeWorktreeId,
     generateInFlightRef,
     updateCommitMessageGenerationRecord,

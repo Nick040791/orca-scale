@@ -10,8 +10,6 @@ export type CommitMessageAgentEnvironmentResolvers = {
   prepareForClaudeLaunch?: (
     target?: CommitMessageAgentRuntimeTarget
   ) => Promise<ClaudeRuntimeAuthPreparation>
-  /** The login-shell base env chats start from; a host-only source, never used for WSL. */
-  resolveBaseEnvironment?: () => Promise<Record<string, string>>
 }
 
 export type CommitMessageAgentRuntimeTarget = {
@@ -34,8 +32,8 @@ function cloneProcessEnv(): Record<string, string> {
 // Orca terminal it can inherit an Orca-owned CODEX_HOME override; strip only
 // that (CODEX_HOME matching the private ORCA_CODEX_HOME marker), preserving a
 // user-set CODEX_HOME.
-function withoutOrcaCodexHomeOverride(base: Record<string, string>): Record<string, string> {
-  const env = { ...base }
+function cloneProcessEnvWithoutOrcaCodexHomeOverride(): Record<string, string> {
+  const env = cloneProcessEnv()
   if (env.ORCA_CODEX_HOME && env.CODEX_HOME === env.ORCA_CODEX_HOME) {
     delete env.CODEX_HOME
   }
@@ -43,26 +41,17 @@ function withoutOrcaCodexHomeOverride(base: Record<string, string>): Record<stri
   return env
 }
 
-function readInheritedOrShellEnvVar(
-  name: string,
-  sourceName: string | undefined,
-  base: Record<string, string> | undefined
-): string | undefined {
-  // Why: the login-shell base is what chats use, so it beats Orca's own inherited value.
+function readInheritedOrShellEnvVar(name: string, sourceName?: string): string | undefined {
   return (
     (sourceName ? process.env[sourceName] : undefined) ??
-    base?.[name] ??
     process.env[name] ??
     readShellStartupEnvVar(name, process.env.HOME, process.env.SHELL)
   )
 }
 
-function prepareShellConfigDirEnv(
-  agentId: string,
-  base: Record<string, string> | undefined
-): { ok: true; env?: NodeJS.ProcessEnv } | null {
+function prepareShellConfigDirEnv(agentId: string): { ok: true; env?: NodeJS.ProcessEnv } | null {
   const configVar =
-    agentId === 'opencode' || agentId === 'opencode2'
+    agentId === 'opencode'
       ? 'OPENCODE_CONFIG_DIR'
       : agentId === 'pi' || agentId === 'omp'
         ? 'PI_CODING_AGENT_DIR'
@@ -77,7 +66,7 @@ function prepareShellConfigDirEnv(
   // the Pi one (and vice versa). PI_CODING_AGENT_DIR is the binary-facing var
   // both kinds consume — see src/main/pi/titlebar-extension-service.ts.
   const sourceVar =
-    agentId === 'opencode' || agentId === 'opencode2'
+    agentId === 'opencode'
       ? 'ORCA_OPENCODE_SOURCE_CONFIG_DIR'
       : agentId === 'pi'
         ? 'ORCA_PI_SOURCE_AGENT_DIR'
@@ -85,29 +74,15 @@ function prepareShellConfigDirEnv(
           ? 'ORCA_OMP_SOURCE_AGENT_DIR'
           : undefined
 
-  const value = readInheritedOrShellEnvVar(configVar, sourceVar, base)
+  const value = readInheritedOrShellEnvVar(configVar, sourceVar)
   if (!value) {
-    return base ? { ok: true, env: base } : { ok: true }
+    return { ok: true }
   }
 
   // Why: GUI-launched Orca may not inherit shell startup exports, but these
   // vars point the headless CLI at the user's auth/config root. Nested Orca
   // launches inherit PTY overlays, so prefer ORCA_*_SOURCE_* when present.
-  return { ok: true, env: { ...(base ?? cloneProcessEnv()), [configVar]: value } }
-}
-
-async function resolveHostBaseEnv(
-  resolvers: CommitMessageAgentEnvironmentResolvers | undefined
-): Promise<Record<string, string> | undefined> {
-  if (!resolvers?.resolveBaseEnvironment) {
-    return undefined
-  }
-  try {
-    return { ...(await resolvers.resolveBaseEnvironment()) }
-  } catch (error) {
-    console.error('[commit-message] Failed to resolve the login-shell environment:', error)
-    return undefined
-  }
+  return { ok: true, env: { ...cloneProcessEnv(), [configVar]: value } }
 }
 
 export async function prepareLocalCommitMessageAgentEnv(
@@ -115,20 +90,15 @@ export async function prepareLocalCommitMessageAgentEnv(
   resolvers: CommitMessageAgentEnvironmentResolvers | undefined,
   target?: CommitMessageAgentRuntimeTarget
 ): Promise<{ ok: true; env?: NodeJS.ProcessEnv } | { ok: false; error: string }> {
-  // Why: a Dock-launched Orca lacks the user's shell exports (proxy URLs, tokens); WSL
-  // resolves env in the guest, so it keeps Orca's own env.
-  const hostBase = target?.runtime === 'wsl' ? undefined : await resolveHostBaseEnv(resolvers)
   // Why: a non-null result short-circuits the resolvers below, so any agent added
   // to prepareShellConfigDirEnv must not also need a Codex/Claude-style resolver.
-  const shellConfigEnv =
-    target?.runtime === 'wsl' ? null : prepareShellConfigDirEnv(agentId, hostBase)
+  const shellConfigEnv = target?.runtime === 'wsl' ? null : prepareShellConfigDirEnv(agentId)
   if (shellConfigEnv) {
     return shellConfigEnv
   }
   if (!resolvers) {
     return { ok: true }
   }
-  const base = hostBase ?? cloneProcessEnv()
 
   try {
     if (agentId === 'codex' && resolvers.prepareForCodexLaunch) {
@@ -141,26 +111,28 @@ export async function prepareLocalCommitMessageAgentEnv(
         return {
           ok: true,
           env: codexHomeForTarget
-            ? { ...withoutOrcaCodexHomeOverride(base), CODEX_HOME: codexHomeForTarget }
-            : withoutOrcaCodexHomeOverride(base)
+            ? { ...cloneProcessEnvWithoutOrcaCodexHomeOverride(), CODEX_HOME: codexHomeForTarget }
+            : cloneProcessEnvWithoutOrcaCodexHomeOverride()
         }
       }
       if (codexHomePath && wslCodexHome) {
         // Why: this local generation path spawns the host Codex binary. A WSL
         // managed home is only valid when the process is routed through wsl.exe.
-        return hostBase ? { ok: true, env: hostBase } : { ok: true }
+        return { ok: true }
       }
       return {
         ok: true,
         env: codexHomePath
-          ? { ...base, CODEX_HOME: codexHomePath }
-          : withoutOrcaCodexHomeOverride(base)
+          ? { ...cloneProcessEnv(), CODEX_HOME: codexHomePath }
+          : cloneProcessEnvWithoutOrcaCodexHomeOverride()
       }
     }
 
     if (agentId === 'claude' && resolvers.prepareForClaudeLaunch) {
       const preparation = await resolvers.prepareForClaudeLaunch(target)
-      const env = applyClaudeEnvPatch({ ...base }, preparation.envPatch)
+      const env = applyClaudeEnvPatch(cloneProcessEnv(), preparation.envPatch, {
+        stripAuthEnv: preparation.stripAuthEnv
+      })
       return { ok: true, env }
     }
   } catch (error) {
@@ -171,5 +143,5 @@ export async function prepareLocalCommitMessageAgentEnv(
     }
   }
 
-  return hostBase ? { ok: true, env: hostBase } : { ok: true }
+  return { ok: true }
 }

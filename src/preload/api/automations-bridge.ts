@@ -3,13 +3,17 @@ import type { ExternalAutomationManagerResult, PreloadApi } from '../api-types'
 import type {
   AutomationDispatchRequest,
   AutomationDispatchResult,
+  ExternalAutomationRunsPage,
   AutomationRun,
   AutomationPrecheckResult
 } from '../../shared/automations-types'
 import type { AutomationOwnerRef } from '../../shared/automation-owner-ref'
 import type {
   ScopedExternalManagerActionRequest,
-  ScopedExternalManagerListRequest
+  ScopedExternalManagerCreateRequest,
+  ScopedExternalManagerListRequest,
+  ScopedExternalManagerRunsRequest,
+  ScopedExternalManagerUpdateRequest
 } from '../../shared/external-automation-scope'
 import type { AutomationsChangedPayload } from '../../shared/runtime-client-events'
 
@@ -18,6 +22,14 @@ export const automationsApi = {
     request: ScopedExternalManagerListRequest
   ): Promise<ExternalAutomationManagerResult> =>
     ipcRenderer.invoke('automations:listExternalManagerForOwner', request),
+  listExternalRunsForOwner: (
+    request: ScopedExternalManagerRunsRequest
+  ): Promise<ExternalAutomationRunsPage> =>
+    ipcRenderer.invoke('automations:listExternalRunsForOwner', request),
+  createExternalForOwner: (request: ScopedExternalManagerCreateRequest): Promise<void> =>
+    ipcRenderer.invoke('automations:createExternalForOwner', request),
+  updateExternalForOwner: (request: ScopedExternalManagerUpdateRequest): Promise<void> =>
+    ipcRenderer.invoke('automations:updateExternalForOwner', request),
   runExternalActionForOwner: (request: ScopedExternalManagerActionRequest): Promise<void> =>
     ipcRenderer.invoke('automations:runExternalActionForOwner', request),
   retainExternalScopes: (request: { owners: readonly AutomationOwnerRef[] }): Promise<void> =>

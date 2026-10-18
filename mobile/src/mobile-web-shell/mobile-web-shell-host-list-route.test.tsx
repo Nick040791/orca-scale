@@ -3,22 +3,30 @@ import { act, create } from 'react-test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type RouteDependencies = {
+  storage: Map<string, string>
   pathnames: string[]
   hostId: string | string[]
-  refusals: number
+  nativeRenders: number
 }
 
 const dependencies = vi.hoisted((): RouteDependencies => ({
+  storage: new Map(),
   pathnames: [],
   hostId: 'host-1',
-  refusals: 0
+  nativeRenders: 0
 }))
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
-  default: { getItem: async () => null, setItem: async () => {} }
+  default: {
+    getItem: async (key: string) => dependencies.storage.get(key) ?? null,
+    setItem: async (key: string, value: string) => {
+      dependencies.storage.set(key, value)
+    }
+  }
 }))
 
 vi.mock('react-native', () => ({
+  ActivityIndicator: 'ActivityIndicator',
   StyleSheet: { create: (styles: unknown) => styles },
   View: 'View'
 }))
@@ -27,11 +35,19 @@ vi.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ hostId: dependencies.hostId })
 }))
 
-vi.mock('./PageRouteUnavailableScreen', () => ({
-  PageRouteUnavailableScreen: () => {
-    dependencies.refusals += 1
+vi.mock('../components/WorkspaceDetailPlaceholder', () => ({
+  WorkspaceDetailPlaceholder: () => null
+}))
+
+vi.mock('../host-screen/HostScreen', () => ({
+  HostScreen: () => {
+    dependencies.nativeRenders += 1
     return null
   }
+}))
+
+vi.mock('../layout/responsive-layout', () => ({
+  useResponsiveLayout: () => ({ isWideLayout: false })
 }))
 
 vi.mock('./MobileWebShellScreen', () => ({
@@ -50,11 +66,14 @@ async function renderRoute(): Promise<void> {
   })
 }
 
-describe('the worktree-list route that hands off to the shell', () => {
+describe('the native worktree-list route that hands off to the shell', () => {
   beforeEach(() => {
+    dependencies.storage.clear()
     dependencies.pathnames.length = 0
-    dependencies.refusals = 0
+    dependencies.nativeRenders = 0
     dependencies.hostId = 'host-1'
+    Object.assign(globalThis, { __DEV__: true })
+    dependencies.storage.set('orca:mobileWebShellEnabled', 'true')
   })
 
   it('encodes the host id into the pathname, like the shell route already does', async () => {
@@ -69,17 +88,19 @@ describe('the worktree-list route that hands off to the shell', () => {
     }
   })
 
-  it('refuses a dot-segment host id instead of handing over a route the page refuses', async () => {
+  it('keeps a dot-segment host id native instead of handing over a route the page refuses', async () => {
     // `encodeURIComponent` leaves a dot alone and `%2e%2e` is a dot segment to the URL parser too,
-    // so this one cannot be encoded into a pathname the bridge accepts.
+    // so this one cannot be encoded into a pathname the bridge accepts. Handed over it reaches the
+    // phone as an `init` naming no screen and the page paints "Update Orca to open this
+    // workspace" over the native list that is sitting right behind this switch.
     for (const hostId of ['..', '.']) {
       dependencies.hostId = hostId
       dependencies.pathnames.length = 0
-      dependencies.refusals = 0
+      dependencies.nativeRenders = 0
       await renderRoute()
       expect(BRIDGE_ROUTE_PATHNAME_PATTERN.test(`/h/${hostId}`), hostId).toBe(false)
       expect(dependencies.pathnames, hostId).toEqual([])
-      expect(dependencies.refusals, hostId).toBeGreaterThan(0)
+      expect(dependencies.nativeRenders, hostId).toBeGreaterThan(0)
     }
   })
 
@@ -92,10 +113,10 @@ describe('the worktree-list route that hands off to the shell', () => {
     expect(dependencies.pathnames).toEqual(['/h/host-1'])
   })
 
-  it('refuses an empty repeated host id, which names no host at all', async () => {
+  it('stays native for an empty repeated host id, which names no host at all', async () => {
     dependencies.hostId = []
     await renderRoute()
     expect(dependencies.pathnames).toEqual([])
-    expect(dependencies.refusals).toBeGreaterThan(0)
+    expect(dependencies.nativeRenders).toBeGreaterThan(0)
   })
 })

@@ -9,12 +9,10 @@ export type DaemonAdoptedAppVersionMatch = (typeof DAEMON_ADOPTED_APP_VERSION_MA
 
 /**
  * Where the binary that forked the adopted daemon lives now. `updater-cache` is the Squirrel
- * ShipIt staging area — a daemon attributed there is the reported #17696 shape. `stable-copy` is
- * Orca's private signed bundle copy, run by launchd (#25848).
+ * ShipIt staging area — a daemon attributed there is the reported #17696 shape.
  */
 export const DAEMON_SPAWNER_PATH_CLASSES = [
   'applications',
-  'stable-copy',
   'updater-cache',
   'other',
   'missing',
@@ -62,17 +60,13 @@ export function isMacTccFolderClass(cwdClass: DaemonPtyCwdClass): cwdClass is Ma
 
 export function classifyDaemonSpawnerPath(
   spawnerExecPath: string | null,
-  exists: (path: string) => boolean,
-  stableCopyPrefix: string | null
+  exists: (path: string) => boolean
 ): DaemonSpawnerPathClass {
   if (!spawnerExecPath) {
     return 'unknown'
   }
   if (!exists(spawnerExecPath)) {
     return 'missing'
-  }
-  if (stableCopyPrefix && spawnerExecPath.startsWith(stableCopyPrefix)) {
-    return 'stable-copy'
   }
   if (/\/Library\/Caches\/[^/]*ShipIt\//.test(spawnerExecPath)) {
     return 'updater-cache'

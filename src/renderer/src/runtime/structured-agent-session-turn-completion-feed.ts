@@ -1,5 +1,4 @@
-// One host turn-completion stream per runtime target, fanned out to whoever is listening. It also
-// carries the host's prompt edges: an approval or question newly put to the user.
+// One host turn-completion stream per runtime target, fanned out to whoever is listening.
 //
 // The status feed next door is a mirror: it keeps the latest summary per session so a late reader
 // still learns what every session is doing. This one keeps NOTHING. A completion is an edge, and
@@ -10,14 +9,20 @@
 // That is deliberate. A retained completion would be a durable "unread is owed" obligation with
 // nothing to retire it, and a reconnect would then light the dot for work the user already read.
 
-import type { AgentSessionTurnCompletionEvent } from '../../../shared/agent-session-wire'
-import type { AgentSessionAttentionEdge } from '../../../shared/agent-session-attention'
+import type {
+  AgentSessionTurnCompletion,
+  AgentSessionTurnCompletionEvent
+} from '../../../shared/agent-session-wire'
 import { AGENT_SESSION_TURN_COMPLETION_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
-import { runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import {
+  runtimeEnvironmentSupportsCapability,
+  type RuntimeClientTarget
+} from './runtime-rpc-client'
 import { subscribeStructuredAgentSessionTurnCompletions } from './structured-agent-session-client'
 
-export type StructuredAgentSessionTurnCompletionListener = (edge: AgentSessionAttentionEdge) => void
+export type StructuredAgentSessionTurnCompletionListener = (
+  completion: AgentSessionTurnCompletion
+) => void
 
 export type StructuredAgentSessionTurnCompletionFeedOwner = {
   activate: () => () => void
@@ -43,11 +48,11 @@ function createOwner(target: RuntimeClientTarget): OwnedTurnCompletionFeed {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectAttempt = 0
 
-  const deliver = (edge: AgentSessionAttentionEdge): void => {
+  const deliver = (completion: AgentSessionTurnCompletion): void => {
     // A copy, so a listener that unsubscribes mid-fanout does not skip its neighbour.
     for (const listener of Array.from(listeners)) {
       try {
-        listener(edge)
+        listener(completion)
       } catch (error) {
         console.warn('[structured-session-completion] listener failed', error)
       }
@@ -100,10 +105,7 @@ function createOwner(target: RuntimeClientTarget): OwnedTurnCompletionFeed {
           return
         }
         reconnectAttempt = 0
-        // An arm this build cannot name is dropped, not handed on half-read.
-        if (event.type === 'completion' || event.type === 'prompt') {
-          deliver(event)
-        }
+        deliver(event.completion)
       },
       () => {
         if (active(candidate)) {

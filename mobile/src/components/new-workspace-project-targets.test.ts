@@ -43,16 +43,16 @@ describe('new workspace project targets', () => {
     expect(options[0]).toMatchObject({ label: 'orca', detail: 'stablyai/orca' })
   })
 
-  it('labels local, SSH, and paired runtime targets as the host list names them', () => {
+  it('labels local, SSH, and paired runtime targets', () => {
     expect(
       getNewWorkspaceRunTarget({ id: 'local', displayName: 'orca', path: '/src/orca' }, 'darwin')
-    ).toEqual({ hostId: 'local', label: LOCAL_HOST_LABEL, detail: '/src/orca' })
+    ).toEqual({ label: LOCAL_HOST_LABEL, detail: '/src/orca' })
     expect(
       getNewWorkspaceRunTarget({ id: 'local', displayName: 'orca', path: 'C:\\src\\orca' })
-    ).toMatchObject({ label: 'This computer' })
+    ).toEqual({ label: 'This computer', detail: 'C:\\src\\orca' })
     expect(
       getNewWorkspaceRunTarget({ id: 'local', displayName: 'orca', path: 'C:\\src\\orca' }, 'win32')
-    ).toMatchObject({ label: 'Local Windows' })
+    ).toEqual({ label: 'Local Windows', detail: 'C:\\src\\orca' })
     expect(
       getNewWorkspaceRunTarget({
         id: 'ssh',
@@ -60,19 +60,15 @@ describe('new workspace project targets', () => {
         path: 'C:\\src\\orca',
         executionHostId: 'ssh:Windows%20VM'
       })
-    ).toEqual({ hostId: 'ssh:Windows%20VM', label: 'Windows VM', detail: 'C:\\src\\orca' })
-    const server = {
-      id: 'runtime',
-      displayName: 'orca',
-      path: '/src/orca',
-      executionHostId: 'runtime:20269ff3-60aa-4e79-a581-513a3f8e394b'
-    } as const
-    const labels = new Map([[server.executionHostId, 'scratch-server']] as const)
-    expect(getNewWorkspaceRunTarget(server, 'darwin', labels)).toEqual({
-      hostId: server.executionHostId,
-      label: 'scratch-server',
-      detail: '/src/orca'
-    })
+    ).toEqual({ label: 'SSH · Windows VM', detail: 'C:\\src\\orca' })
+    expect(
+      getNewWorkspaceRunTarget({
+        id: 'runtime',
+        displayName: 'orca',
+        path: '/src/orca',
+        executionHostId: 'runtime:devbox'
+      })
+    ).toEqual({ label: 'Remote · devbox', detail: '/src/orca' })
   })
 
   it('shows one target per host when the project has multiple local worktrees', () => {
@@ -91,12 +87,8 @@ describe('new workspace project targets', () => {
     const projectId = buildNewWorkspaceProjectOptions(repos)[0]?.id ?? null
 
     expect(buildNewWorkspaceRunTargetOptions(repos, projectId, 'darwin')).toEqual([
-      expect.objectContaining({ id: 'local', label: LOCAL_HOST_LABEL, detail: '/src/orca-a' }),
-      expect.objectContaining({
-        id: 'ssh:build-server',
-        label: 'build-server',
-        detail: '/home/dev/orca'
-      })
+      expect.objectContaining({ id: 'local-a', label: LOCAL_HOST_LABEL, detail: '/src/orca-a' }),
+      expect.objectContaining({ id: 'ssh', label: 'SSH · build-server', detail: '/home/dev/orca' })
     ])
   })
 })

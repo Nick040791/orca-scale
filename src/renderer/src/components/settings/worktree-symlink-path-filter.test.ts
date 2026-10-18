@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   WORKTREE_SYMLINK_PATH_QUERY_MAX_BYTES,
   getWorktreeSymlinkPathFilterState,
+  isWorktreeSymlinkPathQueryTooLarge,
   type WorktreeSymlinkPathSuggestion
 } from './worktree-symlink-path-filter'
 
@@ -43,6 +44,7 @@ describe('worktree-symlink-path-filter', () => {
     const query = 'é'.repeat(WORKTREE_SYMLINK_PATH_QUERY_MAX_BYTES)
 
     expect(query.length).toBe(WORKTREE_SYMLINK_PATH_QUERY_MAX_BYTES)
+    expect(isWorktreeSymlinkPathQueryTooLarge(query)).toBe(true)
     expect(
       getWorktreeSymlinkPathFilterState({
         query,
@@ -68,6 +70,7 @@ describe('worktree-symlink-path-filter', () => {
       }
     ] as WorktreeSymlinkPathSuggestion[]
 
+    expect(isWorktreeSymlinkPathQueryTooLarge(oversizedQuery)).toBe(true)
     expect(
       getWorktreeSymlinkPathFilterState({
         query: oversizedQuery,

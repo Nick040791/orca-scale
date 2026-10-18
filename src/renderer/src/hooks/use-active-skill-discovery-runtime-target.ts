@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { getSingleFocusedRuntimeEnvironmentId } from '@/lib/single-runtime-legacy-owner'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { getActiveRuntimeTarget, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 
 /** Distinguishes "not known yet" from "known to be the local host", without
@@ -37,7 +36,9 @@ export function useActiveSkillDiscoveryRuntimeTarget(): RuntimeClientTarget | nu
   })
   return useMemo(
     () =>
-      ownerKey === UNRESOLVED ? null : runtimeTargetForOwnerEnvironment(parseOwnerKey(ownerKey)),
+      ownerKey === UNRESOLVED
+        ? null
+        : getActiveRuntimeTarget({ activeRuntimeEnvironmentId: parseOwnerKey(ownerKey) }),
     [ownerKey]
   )
 }

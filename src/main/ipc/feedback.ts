@@ -1,12 +1,10 @@
 import os from 'node:os'
 import { app, ipcMain } from 'electron'
-import { readFeedbackImagesDelivered, validateFeedbackImages } from './feedback-image-attachments'
-import type {
-  FeedbackImageAttachment,
-  FeedbackRequestFailure,
-  FeedbackSubmitArgs,
-  FeedbackSubmitResult
-} from '../../shared/feedback-submit-contract'
+import {
+  readFeedbackImagesDelivered,
+  validateFeedbackImages,
+  type FeedbackImageAttachment
+} from './feedback-image-attachments'
 import {
   errorFailure,
   FEEDBACK_API_URL,
@@ -17,6 +15,11 @@ import {
   type FeedbackSubmissionType,
   type FeedbackSubmitBody
 } from './feedback-request'
+import type {
+  FeedbackRequestFailure,
+  FeedbackSubmitArgs,
+  FeedbackSubmitResult
+} from '../../shared/feedback-submit-contract'
 
 export type {
   FeedbackDiagnosticBundleAttachment,

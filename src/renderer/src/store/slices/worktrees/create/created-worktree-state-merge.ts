@@ -1,4 +1,3 @@
-import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import type { WorktreeSliceSet } from '../listing/worktree-slice-types'
 import { appliedWorktreeCatalogVersionPatch } from '../listing/worktree-catalog-version-state'
 import type { CreateWorktreeResult } from '../../../../../../shared/worktree/create-types'
@@ -12,12 +11,11 @@ import {
 export function applyCreatedWorktree(
   set: WorktreeSliceSet,
   repoId: string,
-  result: CreateWorktreeResult,
-  executionHostId?: ExecutionHostId
+  result: CreateWorktreeResult
 ) {
   // Why: worktrees.onChanged can add this worktree before this callback runs; appending blindly would duplicate it (React key clash).
   set((s) => {
-    const hostId = executionHostId ?? repoHostId(s, repoId)
+    const hostId = repoHostId(s, repoId)
     const createdWorktree = withRepoHostOwnership(
       result.worktree,
       hostId,

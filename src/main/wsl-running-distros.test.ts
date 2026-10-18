@@ -1,18 +1,12 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ProcessResult } from '@orca/process-host/process-spec'
+import type * as childProcess from 'node:child_process'
 
-const { runProcessMock } = vi.hoisted(() => ({ runProcessMock: vi.fn() }))
+const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }))
 
-vi.mock('@orca/process-host', () => ({ runProcess: runProcessMock }))
-
-function exited(stdout: string, code: number | null = 0): ProcessResult {
-  return { code, signal: null, stdout, stderr: '', timedOut: false }
-}
-
-const FAILED = exited('', 1)
+vi.mock('child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof childProcess>()),
+  execFile: execFileMock
+}))
 
 import {
   _resetWslCachesForTests,
@@ -20,19 +14,10 @@ import {
   listRunningWslHomeDirsAsync
 } from './wsl'
 import { filterPathsToRunningWslDistrosAsync } from './wsl-running-path-filter'
-import { resetWslInteropSpawnDirectoryCache } from './wsl-interop-spawn-directory'
 import {
   observeWslTranscriptRunningState,
   resetWslTranscriptRunningObserverForTests
 } from './native-chat/wsl-transcript-running-observer'
-
-function restoreEnv(key: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[key]
-  } else {
-    process.env[key] = value
-  }
-}
 
 async function withPlatform<T>(value: NodeJS.Platform, fn: () => Promise<T>): Promise<T> {
   const original = process.platform
@@ -46,63 +31,36 @@ async function withPlatform<T>(value: NodeJS.Platform, fn: () => Promise<T>): Pr
 
 describe('running WSL distro discovery', () => {
   afterEach(() => {
-    runProcessMock.mockReset()
+    execFileMock.mockReset()
     _resetWslCachesForTests()
     resetWslTranscriptRunningObserverForTests()
     vi.useRealTimers()
   })
 
   it('lists only running user distros without starting them', async () => {
-    runProcessMock.mockResolvedValue(exited('Ubuntu\u0000\nDocker-Desktop\u0000\n'))
-
-    await withPlatform('win32', async () => {
-      await expect(listRunningWslDistrosAsync()).resolves.toEqual(['Ubuntu'])
-      expect(runProcessMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          program: 'wsl.exe',
-          args: ['--list', '--running', '--quiet'],
-          env: expect.objectContaining({ WSL_UTF8: '1' }),
-          timeoutMs: 5000
-        })
-      )
+    execFileMock.mockImplementation((_command, _args, _options, callback) => {
+      callback(null, 'Ubuntu\u0000\nDocker-Desktop\u0000\n')
     })
-  })
-
-  it('runs the startup probe from the system root, never the profile (#29845)', async () => {
-    runProcessMock.mockResolvedValue(exited('Ubuntu\n'))
-    const saved = { SystemRoot: process.env.SystemRoot, profile: process.env.ORCA_USER_DATA_PATH }
-    const systemRoot = mkdtempSync(join(tmpdir(), 'orca-wsl-probe-system-root-'))
-    const profile = mkdtempSync(join(tmpdir(), 'orca-wsl-probe-profile-'))
-    process.env.SystemRoot = systemRoot
-    process.env.ORCA_USER_DATA_PATH = profile
-    resetWslInteropSpawnDirectoryCache()
-    try {
-      await withPlatform('win32', () => listRunningWslDistrosAsync({ requireConfirmed: true }))
-      expect(runProcessMock).toHaveBeenCalledWith(
-        expect.objectContaining({ args: ['--list', '--running', '--quiet'], cwd: systemRoot })
-      )
-    } finally {
-      restoreEnv('SystemRoot', saved.SystemRoot)
-      restoreEnv('ORCA_USER_DATA_PATH', saved.profile)
-      resetWslInteropSpawnDirectoryCache()
-      rmSync(systemRoot, { recursive: true, force: true })
-      rmSync(profile, { recursive: true, force: true })
-    }
-  })
-
-  it('confirms an empty list when no distro runs', async () => {
-    // Captured on WSL 2.7: with nothing running, `--quiet` exits 0 with empty stdout in both
-    // encodings; only the non-quiet form prints the localized message and exits -1.
-    runProcessMock.mockResolvedValueOnce(exited('Ubuntu\r\n')).mockResolvedValueOnce(exited(''))
 
     await withPlatform('win32', async () => {
       await expect(listRunningWslDistrosAsync()).resolves.toEqual(['Ubuntu'])
-      await expect(listRunningWslDistrosAsync({ requireConfirmed: true })).resolves.toEqual([])
+      expect(execFileMock).toHaveBeenCalledWith(
+        'wsl.exe',
+        ['--list', '--running', '--quiet'],
+        expect.objectContaining({
+          env: expect.objectContaining({ WSL_UTF8: '1' }),
+          timeout: 5000,
+          windowsHide: true
+        }),
+        expect.any(Function)
+      )
     })
   })
 
   it('fails closed when running-distro discovery fails', async () => {
-    runProcessMock.mockResolvedValue(FAILED)
+    execFileMock.mockImplementation((_command, _args, _options, callback) => {
+      callback(new Error('wsl unavailable'), '')
+    })
 
     await withPlatform('win32', async () => {
       await expect(listRunningWslDistrosAsync()).resolves.toEqual([])
@@ -111,11 +69,15 @@ describe('running WSL distro discovery', () => {
 
   it('rejects stale running state for launch admission through failure and backoff', async () => {
     vi.useFakeTimers()
-    runProcessMock.mockResolvedValueOnce(exited('Ubuntu\n'))
+    execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+      callback(null, 'Ubuntu\n')
+    })
 
     await withPlatform('win32', async () => {
       await expect(listRunningWslDistrosAsync()).resolves.toEqual(['Ubuntu'])
-      runProcessMock.mockResolvedValue(FAILED)
+      execFileMock.mockImplementation((_command, _args, _options, callback) => {
+        callback(new Error('wsl unavailable'), '')
+      })
       const paths = ['\\\\wsl.localhost\\Ubuntu\\home\\ada']
       await expect(
         filterPathsToRunningWslDistrosAsync(paths, { requireConfirmed: true })
@@ -124,58 +86,56 @@ describe('running WSL distro discovery', () => {
       await expect(listRunningWslDistrosAsync({ requireConfirmed: true })).rejects.toThrow(
         'discovery is unavailable'
       )
-      expect(runProcessMock).toHaveBeenCalledTimes(2)
+      expect(execFileMock).toHaveBeenCalledTimes(2)
 
-      runProcessMock.mockResolvedValue(exited(''))
+      execFileMock.mockImplementation((_command, _args, _options, callback) => {
+        callback(null, '')
+      })
       await vi.advanceTimersByTimeAsync(15_001)
       await expect(
         filterPathsToRunningWslDistrosAsync(paths, { requireConfirmed: true })
       ).resolves.toEqual([])
-      expect(runProcessMock).toHaveBeenCalledTimes(3)
+      expect(execFileMock).toHaveBeenCalledTimes(3)
     })
   })
 
   it.each([true, false])(
     'shares the probe while preserving admission and observer failure policies (strict first: %s)',
     async (strictFirst) => {
-      runProcessMock.mockResolvedValueOnce(exited('Ubuntu\n'))
+      execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+        callback(null, 'Ubuntu\n')
+      })
 
       await withPlatform('win32', async () => {
         await listRunningWslDistrosAsync()
-        let finishProbe: ((result: ProcessResult) => void) | undefined
-        runProcessMock.mockImplementationOnce(
-          () =>
-            new Promise<ProcessResult>((resolve) => {
-              finishProbe = resolve
-            })
-        )
+        let finishProbe: ((error: Error | null, output: string) => void) | undefined
+        execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+          finishProbe = callback
+        })
         const first = listRunningWslDistrosAsync({ requireConfirmed: strictFirst })
         const second = listRunningWslDistrosAsync({ requireConfirmed: !strictFirst })
         const strict = strictFirst ? first : second
         const observer = strictFirst ? second : first
         const rejected = expect(strict).rejects.toThrow('discovery is unavailable')
-        expect(runProcessMock).toHaveBeenCalledTimes(2)
-        finishProbe?.(FAILED)
+        expect(execFileMock).toHaveBeenCalledTimes(2)
+        finishProbe?.(new Error('wsl unavailable'), '')
         await rejected
         await expect(observer).resolves.toEqual(['Ubuntu'])
-        expect(runProcessMock).toHaveBeenCalledTimes(2)
+        expect(execFileMock).toHaveBeenCalledTimes(2)
       })
     }
   )
 
   it('resolves homes only for the running distro set', async () => {
-    runProcessMock.mockImplementation(
-      ({ args }: { args: string[] }) =>
-        new Promise<ProcessResult>((resolve) => {
-          resolve(exited(args.includes('--running') ? 'Ubuntu\n' : '/home/ada\n'))
-        })
-    )
+    execFileMock.mockImplementation((_command, args, _options, callback) => {
+      callback(null, args.includes('--running') ? 'Ubuntu\n' : '/home/ada\n')
+    })
 
     await withPlatform('win32', async () => {
       await expect(listRunningWslHomeDirsAsync()).resolves.toEqual([
         '\\\\wsl.localhost\\Ubuntu\\home\\ada'
       ])
-      expect(runProcessMock.mock.calls.map(([spec]) => spec.args)).toEqual([
+      expect(execFileMock.mock.calls.map(([, args]) => args)).toEqual([
         ['--list', '--running', '--quiet'],
         ['-d', 'Ubuntu', '--exec', 'bash', '-c', 'echo $HOME']
       ])
@@ -184,12 +144,9 @@ describe('running WSL distro discovery', () => {
 
   it('single-flights concurrent probes without caching the result', async () => {
     let finishProbe: ((output: string) => void) | undefined
-    runProcessMock.mockImplementationOnce(
-      () =>
-        new Promise<ProcessResult>((resolve) => {
-          finishProbe = (output) => resolve(exited(output))
-        })
-    )
+    execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+      finishProbe = (output) => callback(null, output)
+    })
 
     await withPlatform('win32', async () => {
       const concurrent = [
@@ -197,29 +154,28 @@ describe('running WSL distro discovery', () => {
         listRunningWslDistrosAsync(),
         listRunningWslDistrosAsync()
       ]
-      expect(runProcessMock).toHaveBeenCalledTimes(1)
+      expect(execFileMock).toHaveBeenCalledTimes(1)
       finishProbe?.('Ubuntu\n')
       await expect(Promise.all(concurrent)).resolves.toEqual([['Ubuntu'], ['Ubuntu'], ['Ubuntu']])
 
-      runProcessMock.mockResolvedValueOnce(exited(''))
+      execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+        callback(null, '')
+      })
       await expect(listRunningWslDistrosAsync()).resolves.toEqual([])
-      expect(runProcessMock).toHaveBeenCalledTimes(2)
+      expect(execFileMock).toHaveBeenCalledTimes(2)
     })
   })
 
   it('single-flights cold HOME probes across concurrent callers', async () => {
     let finishList: ((output: string) => void) | undefined
     let finishHome: ((output: string) => void) | undefined
-    runProcessMock.mockImplementation(
-      ({ args }: { args: string[] }) =>
-        new Promise<ProcessResult>((resolve) => {
-          if (args.includes('--running')) {
-            finishList = (output) => resolve(exited(output))
-          } else {
-            finishHome = (output) => resolve(exited(output))
-          }
-        })
-    )
+    execFileMock.mockImplementation((_command, args, _options, callback) => {
+      if (args.includes('--running')) {
+        finishList = (output) => callback(null, output)
+      } else {
+        finishHome = (output) => callback(null, output)
+      }
+    })
 
     await withPlatform('win32', async () => {
       const concurrent = [
@@ -228,7 +184,7 @@ describe('running WSL distro discovery', () => {
         listRunningWslHomeDirsAsync()
       ]
       finishList?.('Ubuntu\n')
-      await vi.waitFor(() => expect(runProcessMock).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(2))
       finishHome?.('/home/ada\n')
 
       await expect(Promise.all(concurrent)).resolves.toEqual([
@@ -237,13 +193,15 @@ describe('running WSL distro discovery', () => {
         ['\\\\wsl.localhost\\Ubuntu\\home\\ada']
       ])
       expect(
-        runProcessMock.mock.calls.filter(([spec]) => spec.args.includes('echo $HOME'))
+        execFileMock.mock.calls.filter(([, args]) => args.includes('echo $HOME'))
       ).toHaveLength(1)
     })
   })
 
   it('shares a confirmed fresh probe between discovery and launch admission', async () => {
-    runProcessMock.mockResolvedValueOnce(exited('Ubuntu\n'))
+    execFileMock.mockImplementationOnce((_command, _args, _options, callback) =>
+      callback(null, 'Ubuntu\n')
+    )
     await withPlatform('win32', async () => {
       expect(
         await Promise.all([
@@ -251,12 +209,14 @@ describe('running WSL distro discovery', () => {
           listRunningWslDistrosAsync({ requireConfirmed: true })
         ])
       ).toEqual([['Ubuntu'], ['Ubuntu']])
-      expect(runProcessMock).toHaveBeenCalledOnce()
+      expect(execFileMock).toHaveBeenCalledOnce()
     })
   })
 
   it('filters stopped-distro UNC paths while preserving host paths', async () => {
-    runProcessMock.mockResolvedValue(exited('Ubuntu\n'))
+    execFileMock.mockImplementation((_command, _args, _options, callback) => {
+      callback(null, 'Ubuntu\n')
+    })
 
     await withPlatform('win32', async () => {
       await expect(
@@ -272,7 +232,7 @@ describe('running WSL distro discovery', () => {
   it('does not probe WSL on non-Windows hosts', async () => {
     await withPlatform('linux', async () => {
       await expect(listRunningWslDistrosAsync()).resolves.toEqual([])
-      expect(runProcessMock).not.toHaveBeenCalled()
+      expect(execFileMock).not.toHaveBeenCalled()
     })
   })
 
@@ -280,13 +240,10 @@ describe('running WSL distro discovery', () => {
   // a whole polling session, not just a single failed call.
   it('keeps reporting a session running through a sustained wsl.exe outage, without unbounded spawns', async () => {
     let spawnCount = 0
-    runProcessMock.mockImplementation(
-      () =>
-        new Promise<ProcessResult>((resolve) => {
-          spawnCount += 1
-          resolve(exited('Ubuntu\n'))
-        })
-    )
+    execFileMock.mockImplementation((_command, _args, _options, callback) => {
+      spawnCount += 1
+      callback(null, 'Ubuntu\n')
+    })
 
     await withPlatform('win32', async () => {
       // Seed a real last-known-good answer before the outage starts.
@@ -294,13 +251,10 @@ describe('running WSL distro discovery', () => {
       expect(spawnCount).toBe(1)
 
       // wsl.exe now fails on every call — a persistent, not transient, break.
-      runProcessMock.mockImplementation(
-        () =>
-          new Promise<ProcessResult>((resolve) => {
-            spawnCount += 1
-            resolve(FAILED)
-          })
-      )
+      execFileMock.mockImplementation((_command, _args, _options, callback) => {
+        spawnCount += 1
+        callback(new Error('wsl unavailable'), '')
+      })
 
       vi.useFakeTimers()
       const observedStates: boolean[] = []

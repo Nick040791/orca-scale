@@ -14,8 +14,6 @@ function Probe(props: { client: RpcClient; query: string }) {
     githubAvailable: true,
     gitlabAvailable: false,
     linearAvailable: false,
-    jiraAvailable: false,
-    jiraSites: [],
     mrStateFilter: 'opened',
     repos: [{ id: 'repo-1', displayName: 'orca', slug: { owner: 'stablyai', repo: 'orca' } }]
   })

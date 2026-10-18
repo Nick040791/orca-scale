@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { readTerminalCellBox, type TerminalCellBox } from './terminal-cell-box'
-import { fitDimensionsFromCell } from './terminal-grid-fit'
-import type {
-  TerminalInit,
-  TerminalWebViewHandle,
-  TerminalWebViewProps
-} from './terminal-webview-contract'
+import type { TerminalOscLinkRange } from '../../../src/shared/terminal-osc-link-ranges'
+import type { TerminalWebViewHandle, TerminalWebViewProps } from './terminal-webview-contract'
 import { useTerminalWebViewEngineErrorState } from './terminal-webview-engine-error-state'
 import { useTerminalWebReadyWatchdog } from './terminal-webview-ready-watchdog'
-import type { TerminalFrame, TerminalWebViewCommand } from './terminal-webview-messages'
+import type { TerminalWebViewCommand } from './terminal-webview-messages'
 import { createTerminalWebViewPendingMessages } from './terminal-webview-pending-messages'
 import { dispatchTerminalWebViewNotification } from './terminal-webview-notification-dispatch'
 import { routeTerminalQueryReply } from './terminal-webview-query-reply-routing'
@@ -20,7 +15,7 @@ import { createTerminalWriteCoalescer } from './terminal-write-coalescer'
  *
  * The document is the same program on both platforms — inside the WebView it is the generated
  * script, on the page it is the modules that script is generated from — so the readiness
- * handshake, the pending queue, the write coalescer, the ready promise and the whole
+ * handshake, the pending queue, the write coalescer, the ready and measure promises and the whole
  * imperative handle are the same too. What differs is only how a command reaches the document and
  * how a notify comes back: a `postMessage` across the WebView bridge, or a direct call.
  *
@@ -66,8 +61,7 @@ export function useTerminalWebViewController(
     onTerminalTap,
     onFileTap,
     onOpenUrl,
-    onTextScaleChange,
-    onCellBoxChange
+    onTextScaleChange
   } = props
   const { pingsOnForegroundRecovery, post } = transport
   const isWebReadyRef = useRef(false)
@@ -76,11 +70,9 @@ export function useTerminalWebViewController(
   const pendingPingIdRef = useRef<number | null>(null)
   const terminalThemeKey = useMemo(() => JSON.stringify(terminalTheme ?? null), [terminalTheme])
   // Why: each init() call posts 'init' to the document and arms a fresh ready promise. The
-  // document's init() rAF chain ends with a 'ready' notify that resolves it. A fit awaits this so
-  // it reads the box the init reported.
+  // document's init() rAF chain ends with a 'ready' notify that resolves it. measureFitDimensions
+  // awaits this so it doesn't race ahead of term.open() / renderService population.
   const promises = useTerminalWebViewReadyPromises()
-  // The box the current document last reported; its re-reports cover a text-size change.
-  const cellBoxRef = useRef<TerminalCellBox | null>(null)
   const { clearEngineError, engineError, reportEngineError, reportNativeEngineError } =
     useTerminalWebViewEngineErrorState(onEngineError)
   const { armWebReadyWatchdog, clearWebReadyWatchdog } = useTerminalWebReadyWatchdog(
@@ -156,8 +148,6 @@ export function useTerminalWebViewController(
       routeTerminalQueryReply(msg, onTerminalQueryReply)
 
       if (msg.type === 'web-ready') {
-        // Why: nothing subscribes before ready, so a ready's box only sizes the subscribe after it.
-        cellBoxRef.current = readTerminalCellBox(msg)
         confirmWebReady(true)
       } else if (
         msg.type === 'pong' &&
@@ -167,14 +157,11 @@ export function useTerminalWebViewController(
         confirmWebReady(false)
       } else if (msg.type === 'ready') {
         // Why: the document's init() rAF chain has run — term is open, renderService is
-        // populated, first paint has happened, and its box was reported. Resolve any pending
-        // awaitReady() so a queued fit reads that box.
+        // populated, first paint has happened. Resolve any pending awaitReady() so a queued
+        // measure can now safely read cell dims.
         promises.resolveReady()
-      } else if (msg.type === 'cell-box') {
-        cellBoxRef.current = readTerminalCellBox(msg)
-        if (msg.refit === true) {
-          onCellBoxChange?.()
-        }
+      } else if (msg.type === 'measure-result') {
+        promises.resolveMeasure(msg)
       } else {
         dispatchTerminalWebViewNotification(msg, {
           reportEngineError,
@@ -207,8 +194,7 @@ export function useTerminalWebViewController(
       onTerminalTap,
       onFileTap,
       onOpenUrl,
-      onTextScaleChange,
-      onCellBoxChange
+      onTextScaleChange
     ]
   )
 
@@ -223,7 +209,6 @@ export function useTerminalWebViewController(
     pendingPingIdRef.current = null
     pendingMessages.clear()
     writeCoalescer.clear()
-    cellBoxRef.current = null
     armWebReadyWatchdog()
   }, [armWebReadyWatchdog, pendingMessages, writeCoalescer])
 
@@ -236,17 +221,6 @@ export function useTerminalWebViewController(
   useEffect(() => {
     postMessage({ type: 'set-font-scale', fontScale: textScale })
   }, [postMessage, textScale])
-
-  const fitDimensions = useCallback(
-    (frame: TerminalFrame) => {
-      const cell = cellBoxRef.current
-      // Why: a box at another scale (a reload keeps the mount's) fits nothing; the route stays unmeasured.
-      return cell && cell.fontScale === textScale && frame.width > 0 && frame.height > 0
-        ? fitDimensionsFromCell(cell, frame.width, frame.height)
-        : null
-    },
-    [textScale]
-  )
 
   const handle = useMemo<TerminalWebViewHandle>(
     () => ({
@@ -263,7 +237,13 @@ export function useTerminalWebViewController(
       write(data: string) {
         writeCoalescer.write(data)
       },
-      init({ cols, rows, initialData, preserveScroll, oscLinks, frame }: TerminalInit) {
+      init(
+        cols: number,
+        rows: number,
+        initialData?: string,
+        preserveScroll?: boolean,
+        oscLinks?: TerminalOscLinkRange[]
+      ) {
         // Why: arm a fresh ready promise BEFORE posting init. The document resolves it via the
         // 'ready' notify at the end of its rAF chain.
         promises.armReady()
@@ -278,24 +258,28 @@ export function useTerminalWebViewController(
           oscLinks,
           terminalTheme,
           fontScale: textScale,
-          preserveScroll,
-          frame
+          preserveScroll
         })
       },
-      resize(cols: number, rows: number, frame: TerminalFrame | null) {
+      resize(cols: number, rows: number) {
         // Why: resize/reflow must observe all prior writes or bytes reorder.
         writeCoalescer.flushNow()
-        postMessage({ type: 'resize', cols, rows, frame })
+        postMessage({ type: 'resize', cols, rows })
       },
-      reflow(cols: number, rows: number, frame: TerminalFrame | null) {
+      reflow(cols: number, rows: number) {
         writeCoalescer.flushNow()
-        postMessage({ type: 'reflow', cols, rows, frame })
+        postMessage({ type: 'reflow', cols, rows })
       },
       clear() {
         writeCoalescer.clear()
         postMessage({ type: 'clear' })
       },
-      fitDimensions,
+      measureFitDimensions(containerHeight?: number) {
+        if (!isWebReadyRef.current) {
+          return Promise.resolve(null)
+        }
+        return promises.measure(sendToDocument, containerHeight)
+      },
       resetZoom() {
         postMessage({ type: 'reset-zoom' })
       },
@@ -311,7 +295,6 @@ export function useTerminalWebViewController(
     }),
     [
       armWebReadyWatchdog,
-      fitDimensions,
       pingsOnForegroundRecovery,
       postMessage,
       promises,

@@ -12,7 +12,6 @@ import { EventTime, ThreadAgentStateIndicator } from './activity-thread-controls
 import { ActivityThreadHoverCard } from './activity-thread-hover-card'
 import { activityThreadRowCopy } from './activity-thread-presentation'
 import type { AgentPaneThread } from './activity-thread-types'
-import type { ActivityThreadClickEvent } from './use-activity-thread-selection'
 
 function ActivityThreadRowAction({
   label,
@@ -58,7 +57,6 @@ function ActivityThreadRowAction({
 export const ActivityThreadRow = React.memo(function ActivityThreadRow({
   thread,
   selected,
-  multiSelected = false,
   onSelect,
   onJump,
   onMarkRead,
@@ -67,14 +65,11 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
   canJump,
   compactMode,
   disableMarkUnread = false,
-  showJumpAction = true,
-  previewSuppressed = false
+  showJumpAction = true
 }: {
   thread: AgentPaneThread
   selected: boolean
-  /** In the multi-selection and not the open row. */
-  multiSelected?: boolean
-  onSelect: (thread: AgentPaneThread, event: ActivityThreadClickEvent) => void
+  onSelect: (thread: AgentPaneThread) => void
   onJump: (thread: AgentPaneThread) => void
   onMarkRead: (thread: AgentPaneThread) => void
   onMarkUnread: (thread: AgentPaneThread) => void
@@ -83,7 +78,6 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
   compactMode: boolean
   disableMarkUnread?: boolean
   showJumpAction?: boolean
-  previewSuppressed?: boolean
 }): React.JSX.Element {
   const { taskTitle, statusLine, statusKind, needsAttention, workspaceLabel } =
     activityThreadRowCopy(thread)
@@ -95,18 +89,19 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
       thread={thread}
       onJumpToWorkspace={onJump}
       canJumpToWorkspace={canJump}
-      suppressed={previewSuppressed}
     >
       <div
         data-current={selected ? 'true' : undefined}
         data-worktree-card-surface="true"
         data-worktree-card-active={selected ? 'primary' : undefined}
-        data-worktree-card-selected={multiSelected || undefined}
-        onClick={(event) => onSelect(thread, event)}
+        onClick={() => onSelect(thread)}
         role="listitem"
         aria-label={taskTitle}
         aria-current={selected ? 'true' : undefined}
-        className="group relative flex w-full cursor-pointer flex-col gap-1 rounded-lg border border-transparent px-1.5 py-1.5 text-left transition-[background-color,border-color,opacity,box-shadow] duration-200 outline-none select-none worktree-sidebar-card-hover focus-visible:ring-1 focus-visible:ring-ring"
+        className={cn(
+          'group relative flex w-full cursor-pointer flex-col gap-1 rounded-lg border border-transparent px-1.5 py-1.5 text-left transition-[background-color,border-color,opacity,box-shadow] duration-200 outline-none select-none worktree-sidebar-card-hover focus-visible:ring-1 focus-visible:ring-ring',
+          selected && 'border-transparent'
+        )}
       >
         <div className="flex min-w-0 items-start gap-1.5">
           <span className="mt-0.5 inline-flex shrink-0">
@@ -120,7 +115,7 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
               aria-keyshortcuts="Enter Space"
               onClick={(event) => {
                 event.stopPropagation()
-                onSelect(thread, event)
+                onSelect(thread)
               }}
               className={cn(
                 'block min-w-0 w-full cursor-pointer text-left text-[13px] leading-5 outline-none focus-visible:ring-1 focus-visible:ring-ring',
@@ -138,10 +133,7 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
                   className={cn(
                     'min-w-0 break-words text-[13px] leading-5 text-foreground/80',
                     compactMode ? 'line-clamp-2' : 'line-clamp-3',
-                    '[&_*]:!m-0 [&_*]:!p-0 [&_br]:hidden [&_ol]:list-none [&_ul]:list-none',
-                    // Why: code blocks and tables otherwise render as scroll boxes the line clamp cannot cut.
-                    '[&_pre]:!max-h-none [&_pre]:!overflow-visible [&_pre]:!whitespace-normal [&_pre]:!rounded-none [&_pre]:!bg-transparent [&_pre]:![font:inherit] [&_pre_code]:![font:inherit]',
-                    '[&_div]:!overflow-visible [&_:is(table,thead,tbody,tr,th,td)]:!inline [&_:is(table,thead,tbody,tr,th,td)]:!align-baseline [&_:is(th,td)]:!border-0 [&_:is(th,td)]:!pr-2 [&_table]:![font:inherit]'
+                    '[&_*]:!m-0 [&_*]:!p-0 [&_br]:hidden [&_ol]:list-none [&_ul]:list-none'
                   )}
                 />
               ) : (
@@ -255,11 +247,6 @@ export const ActivityThreadRow = React.memo(function ActivityThreadRow({
             </div>
           </div>
         </div>
-        {/* Fills while the pointer rests; the hover card sets the attribute. Duration = rest minus progress delay. */}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-2 bottom-0 h-px origin-left scale-x-0 rounded-full bg-muted-foreground/50 group-data-[hover-card-resting]:scale-x-100 group-data-[hover-card-resting]:transition-transform group-data-[hover-card-resting]:duration-400 group-data-[hover-card-resting]:ease-linear motion-reduce:hidden"
-        />
       </div>
     </ActivityThreadHoverCard>
   )

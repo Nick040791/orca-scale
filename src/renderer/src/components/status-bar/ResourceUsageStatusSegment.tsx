@@ -44,7 +44,6 @@ export function ResourceUsageStatusSegment({
     setPopoverBodyNode,
     daemonActions,
     resourceSnapshot,
-    runtimeHostNotices,
     spaceScanReady,
     recordFeatureInteraction,
     unifiedRepos,
@@ -137,8 +136,7 @@ export function ResourceUsageStatusSegment({
           handleKillSession,
           appCollapsed,
           setAppCollapsed,
-          daemonUnreachable,
-          runtimeHostNotices
+          daemonUnreachable
         })}
         {renderResourceUsagePopoverFooter({
           handleOpenWorkspaceCleanup,

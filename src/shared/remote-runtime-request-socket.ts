@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { abortSignalReason, throwIfSignalAborted } from './abort-signal-reason'
-import type { PairedRuntimeConnection } from './paired-runtime-connection'
+import {
+  deriveSharedKey,
+  encrypt,
+  generateKeyPair,
+  publicKeyFromBase64,
+  publicKeyToBase64
+} from './e2ee-crypto'
+import type { PairingOffer } from './pairing'
 import type { RuntimeCapability } from './protocol-version'
 import { remoteRuntimeClientCapabilities } from './remote-runtime-client-capabilities'
 import {
-  createRemoteRuntimeClientHandshake,
   formatRemoteRuntimeCloseMessage,
   ignoreSettledRemoteRuntimeSocketError
 } from './remote-runtime-client-handshake'
@@ -30,7 +36,7 @@ import type { RuntimeStatus } from './runtime-types'
 import { isSafeTimerDelayMs, MAX_TIMER_DELAY_MS } from './timer-delay'
 
 export async function sendRemoteRuntimeRequestOnSocket<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
@@ -51,15 +57,20 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
   const serializedStatusRequest = statusRequestId
     ? serializeRemoteRuntimePayload({
         id: statusRequestId,
-        deviceToken: connection.credential.deviceToken,
+        deviceToken: pairing.deviceToken,
         method: 'status.get'
       })
     : null
+  const serializedAuth = serializeRemoteRuntimePayload({
+    type: 'e2ee_auth',
+    deviceToken: pairing.deviceToken,
+    clientCapabilities: remoteRuntimeClientCapabilities(clientCapabilities)
+  })
   const pendingRequest = {
     preparedRequest: prepareRemoteRuntimeRequest(new Map(), () =>
       serializeRemoteRuntimeRpcRequest({
         requestId,
-        deviceToken: connection.credential.deviceToken,
+        deviceToken: pairing.deviceToken,
         method,
         params,
         envelope
@@ -68,7 +79,8 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
   }
   let serializedRequest = takeRemoteRuntimePreparedRequest(pendingRequest)
   return await new Promise<RuntimeRpcResponse<TResult>>((resolve, reject) => {
-    const handshake = createRemoteRuntimeClientHandshake(connection.hostPublicKeyB64)
+    const keyPair = generateKeyPair()
+    const sharedKey = deriveSharedKey(keyPair.secretKey, publicKeyFromBase64(pairing.publicKeyB64))
     let settled = false
     let ws: WebSocket | null = null
     let router: RemoteRuntimeRequestResponseRouter<TResult>
@@ -151,17 +163,12 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
         )
         return
       }
-      ws?.send(handshake.channel.sealText(request))
+      ws?.send(encrypt(request, sharedKey))
     }
 
     router = new RemoteRuntimeRequestResponseRouter({
-      handshake,
-      sealAuth: () =>
-        handshake.sealAuth(
-          { kind: 'token', deviceToken: connection.credential.deviceToken },
-          { clientCapabilities: remoteRuntimeClientCapabilities(clientCapabilities) }
-        ),
-      isSettled: () => settled,
+      sharedKey,
+      serializedAuth,
       serializedStatusRequest,
       requestId,
       statusRequestId,
@@ -183,7 +190,7 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
       const connectOptions = remoteRuntimeConnectOptions({
         maxPayload: REMOTE_RUNTIME_MAX_WEBSOCKET_FRAME_BYTES
       })
-      ws = new WebSocket(connection.endpoint, connectOptions)
+      ws = new WebSocket(pairing.endpoint, connectOptions)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       finishError(
@@ -193,14 +200,19 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
     }
 
     function onOpen(): void {
-      ws?.send(handshake.helloText())
+      ws?.send(
+        JSON.stringify({
+          type: 'e2ee_hello',
+          publicKeyB64: publicKeyToBase64(keyPair.publicKey)
+        })
+      )
     }
 
     function onError(error: Error): void {
       finishError(
         new RemoteRuntimeClientError(
           'remote_runtime_unavailable',
-          remoteRuntimeConnectFailureMessage(error, connection.endpoint),
+          remoteRuntimeConnectFailureMessage(error, pairing.endpoint),
           { pairingStage: router.pairingStage }
         )
       )

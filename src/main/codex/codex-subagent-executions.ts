@@ -1,11 +1,6 @@
 import type { NativeChatSubagentState } from '../../shared/native-chat-types'
-import {
-  MAX_SUBAGENT_FIELD_CHARS,
-  canReplaceSubagentState
-} from '../../shared/native-chat-subagent-summary'
+import { MAX_SUBAGENT_FIELD_CHARS } from '../../shared/native-chat-subagent-summary'
 
-/** Children kept past this evict the oldest that ran and ended, else the oldest never started; a
- *  running child is always kept, however many run. */
 const MAX_CHILDREN = 128
 const MAX_SETTLED_TURNS = 256
 /** Turn ordinals remembered per child; a row from an older run reads as its first. */
@@ -20,6 +15,7 @@ export type CodexExecutionChild = {
   agentThreadId: string
   registered: boolean
   label: string | null
+  parentTurnId: string | null
   /** The thread whose stream carried this child's `started` activity. Codex
    *  emits that item on the spawning agent's own session, so it names the parent. */
   spawnerThreadId: string | null
@@ -37,9 +33,16 @@ export class CodexSubagentExecutions {
   register(
     agentThreadId: string,
     label: string | null,
+    parentTurnId: string | null | undefined,
     spawnerThreadId?: string
-  ): CodexExecutionChild {
+  ): CodexExecutionChild | undefined {
     const child = this.child(agentThreadId)
+    if (!child) {
+      return undefined
+    }
+    if (!child.registered || parentTurnId !== undefined) {
+      child.parentTurnId = parentTurnId ?? null
+    }
     // A child is spawned once; its announcement is delivered twice, never by another thread.
     child.spawnerThreadId ??= spawnerThreadId ?? null
     child.registered = true
@@ -63,6 +66,9 @@ export class CodexSubagentExecutions {
       return null
     }
     const child = this.child(agentThreadId)
+    if (!child) {
+      return null
+    }
     this.numberTurn(child, turnId)
     if (
       state === 'working' &&
@@ -71,11 +77,7 @@ export class CodexSubagentExecutions {
     ) {
       return null
     }
-    // A turn's first outcome latches, except lost contact: a later verdict still says how it ended.
-    const execution = {
-      turnId,
-      state: settled !== undefined && !canReplaceSubagentState(settled, state) ? settled : state
-    }
+    const execution = { turnId, state: settled ?? state }
     if (state !== 'working') {
       this.settledTurns.set(key, execution.state)
       while (this.settledTurns.size > MAX_SETTLED_TURNS) {
@@ -90,15 +92,6 @@ export class CodexSubagentExecutions {
       child.execution = execution
     }
     return { child, execution }
-  }
-
-  /** The child's thread closed with no `turn/completed`: the turn it was running ended, and how
-   *  it went is unknown. A child running none has nothing to end. */
-  closeThread(agentThreadId: string): void {
-    const current = this.children.get(agentThreadId)?.execution
-    if (current?.state === 'working') {
-      this.observeTurn(agentThreadId, current.turnId, 'unverifiable')
-    }
   }
 
   /** Survives the child's turn, so a row outliving that turn can still name it. */
@@ -116,36 +109,18 @@ export class CodexSubagentExecutions {
     return this.children.get(agentThreadId)?.turnOrdinals.get(turnId) ?? null
   }
 
-  /** The child as last observed, without creating one. */
-  find(agentThreadId: string): Readonly<CodexExecutionChild> | undefined {
-    return this.children.get(agentThreadId)
-  }
-
-  /** The child and every child it spawned, at any depth. */
-  lineage(agentThreadId: string): CodexExecutionChild[] {
-    const lineage: CodexExecutionChild[] = []
-    const seen = new Set<string>()
-    const pending = [agentThreadId]
-    for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
-      const child = this.children.get(id)
-      if (!child || seen.has(id)) {
-        continue
-      }
-      seen.add(id)
-      lineage.push(child)
-      for (const spawned of this.children.values()) {
-        if (spawned.spawnerThreadId === id) {
-          pending.push(spawned.agentThreadId)
-        }
-      }
-    }
-    return lineage
-  }
-
   workingChildren(): CodexExecutionChild[] {
     return [...this.children.values()].filter(
       (child) => child.registered && child.execution?.state === 'working'
     )
+  }
+
+  settleSession(): void {
+    for (const child of this.children.values()) {
+      if (child.execution?.state === 'working') {
+        child.execution = { ...child.execution, state: 'unverifiable' }
+      }
+    }
   }
 
   clear(): void {
@@ -158,26 +133,23 @@ export class CodexSubagentExecutions {
     return { children: this.children.size, settledTurns: this.settledTurns.size }
   }
 
-  private child(agentThreadId: string): CodexExecutionChild {
+  private child(agentThreadId: string): CodexExecutionChild | undefined {
     const existing = this.children.get(agentThreadId)
     if (existing) {
       return existing
     }
     if (this.children.size >= MAX_CHILDREN) {
-      // Refusing a running child would hide it while it runs. One announced but not started is
-      // about to run, so it goes only when no child has ended; a restored history announces many.
-      const children = [...this.children.values()]
-      const evicted =
-        children.find((child) => child.execution !== null && child.execution.state !== 'working') ??
-        children.find((child) => child.execution === null)
-      if (evicted) {
-        this.children.delete(evicted.agentThreadId)
+      const settled = [...this.children].find(([, child]) => child.execution?.state !== 'working')
+      if (!settled) {
+        return undefined
       }
+      this.children.delete(settled[0])
     }
     const child: CodexExecutionChild = {
       agentThreadId,
       registered: false,
       label: null,
+      parentTurnId: null,
       spawnerThreadId: null,
       execution: null,
       turnOrdinals: new Map(),

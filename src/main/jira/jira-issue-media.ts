@@ -11,11 +11,6 @@ import {
 } from './attachment-images'
 import type { JiraClientForSite } from './authenticated-request'
 import { asRecord, asString, type JiraRecord } from './jira-record-pages'
-import {
-  JIRA_IMAGE_MAX_BYTES,
-  JIRA_IMAGE_MAX_REFERENCES,
-  type JiraMediaFormat
-} from '../../shared/jira-attachment-image'
 
 export type MediaRequest = {
   attachmentField: unknown
@@ -26,10 +21,7 @@ export type MediaRequest = {
 }
 
 /** Pooled: HTML/ADF selection only — no binary downloads. */
-export function collectIssueMediaRequest(
-  raw: JiraRecord,
-  mediaFormat?: JiraMediaFormat
-): MediaRequest | undefined {
+export function collectIssueMediaRequest(raw: JiraRecord): MediaRequest | undefined {
   const fields = asRecord(raw.fields)
   const renderedFields = asRecord(raw.renderedFields)
   const htmlIds = extractAttachmentContentIdsFromHtml(
@@ -39,8 +31,7 @@ export function collectIssueMediaRequest(
   const selection = selectPreferredAttachmentIds({
     renderedHtmlIds: htmlIds,
     attachmentField: fields.attachment,
-    mediaAttrs,
-    ...(mediaFormat ? { maxBytes: JIRA_IMAGE_MAX_BYTES, maxImages: JIRA_IMAGE_MAX_REFERENCES } : {})
+    mediaAttrs
   })
   if (selection.needCount === 0 && selection.preferredIds.length === 0) {
     return undefined
@@ -63,8 +54,7 @@ export type PreparedMedia = {
 /** Unpooled: binary downloads + resolver (outside the Jira API semaphore). */
 export async function prepareMediaResolver(
   client: JiraClientForSite,
-  request: MediaRequest,
-  mediaFormat?: JiraMediaFormat
+  request: MediaRequest
 ): Promise<PreparedMedia | undefined> {
   if (request.preferredIds.length === 0) {
     warnIfMediaResolutionIncomplete({
@@ -80,8 +70,7 @@ export async function prepareMediaResolver(
   const images = await loadIssueImageAttachments(
     client,
     request.attachmentField,
-    request.preferredIds,
-    mediaFormat
+    request.preferredIds
   )
   if (images.length === 0) {
     warnIfMediaResolutionIncomplete({

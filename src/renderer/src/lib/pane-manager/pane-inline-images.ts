@@ -1,7 +1,5 @@
 import type { ImageAddon } from '@xterm/addon-image'
 import type { Terminal } from '@xterm/xterm'
-import type { KittyFileRequest } from './terminal-kitty-file-reader'
-import { readTerminalKittyFile } from './terminal-kitty-file-reader'
 import { refreshTerminalDa1Owner } from './terminal-da1-ownership'
 import type { ManagedPaneInternal } from './pane-manager-types'
 import {
@@ -11,7 +9,6 @@ import {
   setTerminalImageAddonLoadHandlers
 } from './terminal-image-addon-loader'
 import { buildInlineImageAddonOptions } from './terminal-inline-image-options'
-import { repaintTerminalAfterImageAdded } from './terminal-image-added-repaint'
 
 // Panes whose setting is on but that opened before the lazy addon chunk
 // resolved. The loader's onLoaded handler drains them into a real attach.
@@ -20,7 +17,6 @@ const panesAwaitingImageAddon = new Set<ManagedPaneInternal>()
 // Keyed on the terminal, not the pane: PTY connections hold a toPublicPane()
 // wrapper, which does not carry imageAddon.
 const terminalsRenderingInlineImages = new WeakSet<Terminal>()
-const imageRepaintByPane = new WeakMap<ManagedPaneInternal, { dispose(): void }>()
 
 /** True only once the addon is really attached — not while its chunk loads or after it fails. */
 export function terminalRendersInlineImages(terminal: Terminal): boolean {
@@ -61,17 +57,9 @@ export function attachInlineImages(pane: ManagedPaneInternal): void {
   pane.imageAttachmentDeferred = false
   let imageAddon: ImageAddon | null = null
   try {
-    const options = {
-      ...buildInlineImageAddonOptions(),
-      readKittyFile: (request: KittyFileRequest) => readTerminalKittyFile(pane.terminal, request)
-    }
-    imageAddon = new ImageAddonConstructor(options)
+    imageAddon = new ImageAddonConstructor(buildInlineImageAddonOptions())
     pane.terminal.loadAddon(imageAddon)
     pane.imageAddon = imageAddon
-    const repaint = repaintTerminalAfterImageAdded(pane.terminal, imageAddon)
-    if (repaint) {
-      imageRepaintByPane.set(pane, repaint)
-    }
     terminalsRenderingInlineImages.add(pane.terminal)
   } catch (err) {
     console.warn('[terminal] inline-image addon failed to attach for pane', pane.id, err)
@@ -91,8 +79,6 @@ export function detachInlineImages(pane: ManagedPaneInternal): void {
   panesAwaitingImageAddon.delete(pane)
   pane.imageAttachmentDeferred = false
   terminalsRenderingInlineImages.delete(pane.terminal)
-  imageRepaintByPane.get(pane)?.dispose()
-  imageRepaintByPane.delete(pane)
   if (pane.imageAddon) {
     try {
       pane.imageAddon.dispose()

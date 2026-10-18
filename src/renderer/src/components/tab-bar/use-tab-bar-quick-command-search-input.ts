@@ -1,5 +1,6 @@
 import { useCallback, type KeyboardEvent, type RefObject } from 'react'
 
+import { useImeEnterGestureOwnership } from '@/lib/ime-composition-keyboard-event'
 import { isSelectAllShortcut } from '@/lib/editable-target'
 
 type SearchInputOptions<TCommand> = {
@@ -21,10 +22,18 @@ export function useTabBarQuickCommandSearchInput<TCommand>({
   onRun,
   selectedCommand
 }: SearchInputOptions<TCommand>): {
+  onBlur: () => void
+  onCompositionEnd: () => void
+  onCompositionStart: () => void
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
+  onKeyUp: ReturnType<typeof useImeEnterGestureOwnership>['onKeyUp']
 } {
+  const imeEnter = useImeEnterGestureOwnership()
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (imeEnter.ownsKeyDown(event)) {
+        return
+      }
       if (isSelectAllShortcut(event)) {
         event.stopPropagation()
         return
@@ -62,6 +71,7 @@ export function useTabBarQuickCommandSearchInput<TCommand>({
       commandValue,
       filteredCommands,
       getCommandId,
+      imeEnter,
       onCommandValueChange,
       onRun,
       selectedCommand
@@ -69,6 +79,10 @@ export function useTabBarQuickCommandSearchInput<TCommand>({
   )
 
   return {
-    onKeyDown
+    onBlur: imeEnter.reset,
+    onCompositionEnd: () => imeEnter.setComposing(false),
+    onCompositionStart: () => imeEnter.setComposing(true),
+    onKeyDown,
+    onKeyUp: imeEnter.onKeyUp
   }
 }

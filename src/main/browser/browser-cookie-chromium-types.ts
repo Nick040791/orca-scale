@@ -9,7 +9,6 @@ import type { CookieImportOptions } from './browser-cookie-import-pipeline'
 import type {
   ImportedCookieFields,
   ImportWritePhase,
-  ImportWritePlanResult,
   SourceCookieToWrite
 } from './browser-cookie-import-write'
 import type { SourcePartitionRead } from './browser-cookie-source-partition'
@@ -30,11 +29,12 @@ export type ScannedChromiumCookie = {
   sourceRow: ChromiumSourceRow
 }
 
-export type ChromiumImportPlan = ImportWritePlanResult<{
-  sourceRow: ChromiumSourceRow
-  domain: string
-  partition: SourcePartitionRead
-}>
+export type ChromiumImportPlan = {
+  writes: { sourceRow: ChromiumSourceRow; domain: string; partition: SourcePartitionRead }[]
+  skips: unknown[]
+  skippedFamilies: Set<string>
+  hasUnrepresentableSkip: boolean
+}
 
 export type ChromiumImportContext = {
   browser: DetectedBrowser

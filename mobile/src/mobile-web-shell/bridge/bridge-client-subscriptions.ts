@@ -1,5 +1,4 @@
 import type { BrowserScreencastFrame } from '../../transport/browser-screencast-protocol'
-import type { RpcEnvelopeFields } from '../../transport/rpc-envelope-fields'
 import {
   BRIDGE_PROTOCOL_VERSION,
   type BridgeClientMessage,
@@ -73,8 +72,7 @@ export class BridgeClientSubscriptions {
     method: string,
     params: unknown,
     onData: (result: unknown) => void,
-    onBinaryFrame?: (frame: BrowserScreencastFrame) => void,
-    envelope?: RpcEnvelopeFields
+    onBinaryFrame?: (frame: BrowserScreencastFrame) => void
   ): boolean {
     this.streams.set(id, { onData, onBinaryFrame, lastSeq: 0, unackedFrames: 0, unackedBytes: 0 })
     const sent = this.options.send({
@@ -85,8 +83,7 @@ export class BridgeClientSubscriptions {
       params,
       // Asked for only when there is something to hand the frames to, so a shell that pays to
       // encode binary is one a listener is waiting on.
-      ...(onBinaryFrame === undefined ? {} : { wantsBinary: true }),
-      ...(envelope === undefined ? {} : { envelope })
+      ...(onBinaryFrame === undefined ? {} : { wantsBinary: true })
     })
     if (sent) {
       return true

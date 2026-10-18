@@ -21,7 +21,7 @@ describe('OrchestrationSkillAgentCoverage', () => {
         sources={[
           {
             id: 'claude-home',
-            label: 'Claude Code home',
+            label: 'Claude home',
             path: '/Users/test/.claude/skills',
             sourceKind: 'home',
             providers: ['claude'],
@@ -36,7 +36,7 @@ describe('OrchestrationSkillAgentCoverage', () => {
             description: null,
             providers: ['claude'],
             sourceKind: 'home',
-            sourceLabel: 'Claude Code home',
+            sourceLabel: 'Claude home',
             rootPath: '/Users/test/.claude/skills',
             directoryPath: '/Users/test/.claude/skills/orchestration',
             skillFilePath: '/Users/test/.claude/skills/orchestration/SKILL.md',

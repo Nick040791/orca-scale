@@ -1,5 +1,5 @@
 import { defineMethod, defineStreamingMethod } from '../core'
-import { Screencast } from '../../../../shared/rpc-contract/browser-params'
+import { Screencast } from './browser-schemas'
 import { BrowserError } from '../../../browser/browser-error'
 import { BROWSER_UNAVAILABLE_ERROR_CODE } from '../../../../shared/runtime-types'
 import { runtimeBrowserCommandsFactoryIsAvailable } from '../../runtime-browser-commands-factory'
@@ -8,7 +8,6 @@ import { ScreencastUnsubscribe } from '../../../../shared/rpc-contract/browser-s
 export const BROWSER_SCREENCAST_METHODS = [
   defineStreamingMethod({
     name: 'browser.screencast',
-    permission: 'workspace',
     params: Screencast,
     handler: async (
       params,
@@ -27,7 +26,6 @@ export const BROWSER_SCREENCAST_METHODS = [
   }),
   defineMethod({
     name: 'browser.screencast.unsubscribe',
-    permission: 'workspace',
     params: ScreencastUnsubscribe,
     handler: async (params, { runtime }) => {
       if (!runtimeBrowserCommandsFactoryIsAvailable()) {

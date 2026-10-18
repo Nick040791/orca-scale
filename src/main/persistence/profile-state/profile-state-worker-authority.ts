@@ -25,7 +25,6 @@ export class ProfileStateWorkerAuthority implements AsyncProfileStateAuthority {
       workerPath?: string
       backupWorkerPath?: string
       onFailure?: (error: Error) => void
-      onSaveDelayChanged?: (delayed: boolean) => void
     } = {}
   ) {
     this.writer = new ProfileStateWriteWorkerClient(initialization, options)
@@ -79,6 +78,14 @@ export class ProfileStateWorkerAuthority implements AsyncProfileStateAuthority {
 
   writeLatestJsonExport(dataFile: string): Promise<number | undefined> {
     return this.writer.writeLatestJsonExport(dataFile)
+  }
+
+  writeJsonCompatibilityExport(targetPath: string): Promise<number | undefined> {
+    return this.writer.writeJsonCompatibilityExportAsync(targetPath)
+  }
+
+  writeJsonCompatibilityExportAsync(targetPath: string): Promise<number | undefined> {
+    return this.writeJsonCompatibilityExport(targetPath)
   }
 
   scheduleBackup(): void {

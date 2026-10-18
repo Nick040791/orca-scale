@@ -1,42 +1,36 @@
 import { useMemo } from 'react'
 import type { WorkspaceStatusDefinition } from '../../../src/shared/worktree/types'
-import type { ExecutionHostId } from '../../../src/shared/execution-host'
-import type {
-  WorkspaceGroupBy,
-  WorkspaceSortBy
-} from '../../../src/shared/workspace-view/workspace-view-options'
+import type { MobileGroupMode, MobileSortMode } from './workspace-view-settings'
 import {
-  buildSectionRepoMap,
-  buildMobileWorkspacePlan,
+  buildSections,
   type FilterState,
-  type ProjectSectionCatalog,
   type Section,
-  type SectionRepo,
   type Worktree
 } from './workspace-list-sections'
-import { buildFilterRepos, type WorkspaceSectionRepo } from './workspace-filter-repos'
+import { repoColor } from './repo-color'
+
+export type WorkspaceSectionRepo = {
+  name: string
+  id: string
+  color: string
+}
 
 export function useWorkspaceSections(args: {
   displayWorktrees: Worktree[]
-  sortMode: WorkspaceSortBy
+  sortMode: MobileSortMode
   filters: FilterState
   search: string
-  groupMode: WorkspaceGroupBy
+  groupMode: MobileGroupMode
   pinnedIds: Set<string>
-  showPinnedInGroups: boolean
-  projectCatalog: ProjectSectionCatalog
-  /** Every catalog repo on every host, which is what the desktop's filter lists. */
-  filterCatalogRepos: readonly SectionRepo[]
+  repoIdsByName: Map<string, string>
+  repoColorsByName: Map<string, string>
   collapsedGroups: Set<string>
   workspaceStatuses: readonly WorkspaceStatusDefinition[]
-  /** Each repo's host, for rows that predate their own hostId. */
-  repoHostIdByRepoId: ReadonlyMap<string, ExecutionHostId>
 }): {
   sections: Section[]
   rawSections: Section[]
   uniqueRepos: WorkspaceSectionRepo[]
-  /** Each row's repo by id, as the desktop's cards look theirs up for colour and icon. */
-  repoById: ReadonlyMap<string, SectionRepo>
+  uniqueRepoColors: Map<string, string>
 } {
   const {
     displayWorktrees,
@@ -45,54 +39,55 @@ export function useWorkspaceSections(args: {
     search,
     groupMode,
     pinnedIds,
-    showPinnedInGroups,
-    projectCatalog,
-    filterCatalogRepos,
+    repoIdsByName,
+    repoColorsByName,
     collapsedGroups,
-    workspaceStatuses,
-    repoHostIdByRepoId
+    workspaceStatuses
   } = args
 
-  const uniqueRepos = useMemo(
-    () => buildFilterRepos(filterCatalogRepos, displayWorktrees),
-    [filterCatalogRepos, displayWorktrees]
+  const uniqueRepos = useMemo(() => {
+    const repos = new Map<string, { id: string; color: string }>()
+    for (const w of displayWorktrees) {
+      if (!repos.has(w.repo)) {
+        repos.set(w.repo, {
+          id: repoIdsByName.get(w.repo) ?? w.repoId,
+          color: repoColorsByName.get(w.repo) ?? repoColor(w.repo)
+        })
+      }
+    }
+    return [...repos.entries()].map(([name, { id, color }]) => ({ name, id, color }))
+  }, [displayWorktrees, repoColorsByName, repoIdsByName])
+
+  const uniqueRepoColors = useMemo(
+    () => new Map(uniqueRepos.map((repo) => [repo.name, repo.color])),
+    [uniqueRepos]
   )
 
-  const repoById = useMemo(
-    () => buildSectionRepoMap(projectCatalog.repos, displayWorktrees),
-    [projectCatalog.repos, displayWorktrees]
-  )
-
-  const plan = useMemo(
+  const rawSections = useMemo(
     () =>
-      buildMobileWorkspacePlan(
+      buildSections(
         displayWorktrees,
         sortMode,
         filters,
         search,
         groupMode,
         pinnedIds,
-        projectCatalog,
+        repoIdsByName,
         workspaceStatuses,
-        undefined,
-        showPinnedInGroups,
-        repoHostIdByRepoId
+        collapsedGroups
       ),
     [
-      repoHostIdByRepoId,
       displayWorktrees,
       sortMode,
       filters,
       search,
       groupMode,
       pinnedIds,
-      projectCatalog,
+      repoIdsByName,
       workspaceStatuses,
-      showPinnedInGroups
+      collapsedGroups
     ]
   )
-
-  const rawSections = useMemo(() => plan.render(collapsedGroups), [plan, collapsedGroups])
 
   const sections = useMemo(
     () =>
@@ -103,5 +98,5 @@ export function useWorkspaceSections(args: {
     [rawSections, collapsedGroups]
   )
 
-  return { sections, rawSections, uniqueRepos, repoById }
+  return { sections, rawSections, uniqueRepos, uniqueRepoColors }
 }

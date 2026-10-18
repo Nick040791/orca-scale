@@ -2,7 +2,6 @@ export const CLI_GLOBAL_VALUE_FLAGS: readonly string[] = ['pairing-code', 'envir
 export const CLI_GLOBAL_FLAGS: readonly string[] = ['help', 'json', ...CLI_GLOBAL_VALUE_FLAGS]
 
 export const CLI_BOOLEAN_FLAGS = new Set([
-  'accept-changed-state',
   'all',
   'allow-failed-archive-hook',
   'attachments',
@@ -16,7 +15,6 @@ export const CLI_BOOLEAN_FLAGS = new Set([
   'dry-run',
   'enter',
   'focus',
-  'grant-desktop-control',
   'force',
   'fresh',
   'full',
@@ -28,7 +26,6 @@ export const CLI_BOOLEAN_FLAGS = new Set([
   'index-status',
   'interrupt',
   'json',
-  'latest-json',
   'local',
   'messages',
   'me',
@@ -48,14 +45,12 @@ export const CLI_BOOLEAN_FLAGS = new Set([
   'run-hooks',
   'show-profile',
   'staged',
-  'supervise',
   'tab',
   'tasks',
   'text-stdin',
   'unread',
   'value-stdin',
-  'wait',
-  'yes'
+  'wait'
 ])
 
 function commandPathStartsAt(

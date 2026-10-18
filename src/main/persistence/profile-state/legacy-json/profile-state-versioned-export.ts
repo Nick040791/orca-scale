@@ -10,8 +10,7 @@ import {
 /** An existing revision must never be replaced with different content. */
 export function writeVersionedProfileStateExport(
   dataFile: string,
-  writeExport: (targetPath: string) => number,
-  options: { retainAllExports?: boolean } = {}
+  writeExport: (targetPath: string) => number
 ): number | undefined {
   const stagingPath = durableWriteTempPath(`${dataFile}.sqlite-export.pending`)
   try {
@@ -32,9 +31,7 @@ export function writeVersionedProfileStateExport(
       fsyncFileSync(targetPath)
       bestEffortFsyncDirectorySync(dirname(targetPath))
     }
-    if (!options.retainAllExports) {
-      pruneProfileStateJsonExports(dataFile)
-    }
+    pruneProfileStateJsonExports(dataFile)
     return revision
   } finally {
     rmSync(stagingPath, { force: true })

@@ -12,9 +12,6 @@ export type CodexUsageProcessedFile = {
   path: string
   mtimeMs: number
   size: number
-  /** Absent in older caches; identifies the file that produced this projection. */
-  physicalFileId?: string | null
-  ctimeMs?: number
 }
 
 /** Everything needed to resume parsing a grown rollout where the last scan

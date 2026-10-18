@@ -28,9 +28,9 @@ import {
 const MAX_DATA_BASE64_LENGTH = Math.ceil(MOBILE_WEB_BUNDLE_CHUNK_BYTES / 3) * 4 + 8
 
 /** A screen the desktop asks this shell to render from the bundle. Optional, because a desktop
- *  older than the field sends none, and then no route is served. Loose for the same reason the
- *  manifest is: a grant name this build does not know is not a reason to refuse a bundle, only that
- *  one route.
+ *  older than the field sends none and every route then stays native, which is where they all
+ *  start. Loose for the same reason the manifest is: a grant name this build does not know is not a
+ *  reason to refuse a bundle, it is a reason to leave that one route native.
  *
  *  `optionalGrants` is read so this build can honour it, and typed here only — the host's own
  *  schema is where its grammar and the ceiling over the union live. A shell without this line still
@@ -44,9 +44,7 @@ const pageRouteSchema = z.looseObject({
   optionalGrants: z
     .array(z.string().min(1).max(64))
     .max(MOBILE_WEB_BUNDLE_MAX_ROUTE_GRANTS)
-    .optional(),
-  // A value this build cannot read is no declaration, never a refused bundle.
-  canOwnHostArea: z.boolean().optional().catch(undefined)
+    .optional()
 })
 
 const assetSchema = z.looseObject({
@@ -74,7 +72,6 @@ export const MobileWebBundleManifestReadSchema = z
     buildId: z.string().regex(SHA256_PATTERN),
     minCompatibleRuntimeProtocolVersion: z.number().int().nonnegative(),
     runtimeProtocolVersion: z.number().int().nonnegative(),
-    pageVersion: z.number().int().nonnegative().optional(),
     entrypoint: MobileWebBundleAssetPathSchema,
     totalBytes: z.number().int().nonnegative().max(MOBILE_WEB_BUNDLE_MAX_TOTAL_BYTES),
     assets: z.array(assetSchema).min(1).max(MOBILE_WEB_BUNDLE_MAX_ASSETS),

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import { runProcessSync } from '@orca/process-host'
+import { runProcessSync } from '../../shared/child-process/run-process'
 
 const REPO_ROOT = join(__dirname, '..', '..', '..')
 const directories: string[] = []

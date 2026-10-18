@@ -1,4 +1,4 @@
-import type { GitHubAssignableUser, GitHubOwnerRepo } from '../../shared/github/pull-request-types'
+import type { GitHubAssignableUser } from '../../shared/github/pull-request-types'
 import type { IssueSourcePreference } from '../../shared/repo-types'
 import type { LocalGitExecOptions } from './gh-utils'
 import {
@@ -11,21 +11,19 @@ export async function listLabels(
   repoPath: string,
   preference?: IssueSourcePreference,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {},
-  repositoryOverride?: GitHubOwnerRepo | null
+  localGitOptions: LocalGitExecOptions = {}
 ): Promise<string[]> {
   const { ownerRepo, ghOptions } = await resolveGitHubRepoExecution(
     repoPath,
-    repositoryOverride ??
-      (async () =>
-        (
-          await resolveIssueGitHubApiRepositorySource(
-            repoPath,
-            preference,
-            connectionId,
-            localGitOptions
-          )
-        ).source),
+    async () =>
+      (
+        await resolveIssueGitHubApiRepositorySource(
+          repoPath,
+          preference,
+          connectionId,
+          localGitOptions
+        )
+      ).source,
     connectionId,
     localGitOptions
   )
@@ -59,21 +57,19 @@ export async function listAssignableUsers(
   repoPath: string,
   preference?: IssueSourcePreference,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {},
-  repositoryOverride?: GitHubOwnerRepo | null
+  localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubAssignableUser[]> {
   const { ownerRepo, ghOptions } = await resolveGitHubRepoExecution(
     repoPath,
-    repositoryOverride ??
-      (async () =>
-        (
-          await resolveIssueGitHubApiRepositorySource(
-            repoPath,
-            preference,
-            connectionId,
-            localGitOptions
-          )
-        ).source),
+    async () =>
+      (
+        await resolveIssueGitHubApiRepositorySource(
+          repoPath,
+          preference,
+          connectionId,
+          localGitOptions
+        )
+      ).source,
     connectionId,
     localGitOptions
   )

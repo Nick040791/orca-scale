@@ -4,14 +4,16 @@ import type { RemoveWorktreeResult } from '../../../../../../shared/worktree/cre
 import { getRepoIdFromWorktreeId } from '../../worktree-helpers'
 import { parseExecutionHostId } from '../../../../../../shared/execution-host'
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
-import { runtimeTargetForOwnerEnvironment } from '../../../../runtime/runtime-client-target'
+import { getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import { forgetHugeRepoWarningDismissalsForWorktrees } from '@/lib/source-control-huge-repo-warning-dismissals'
 import { forgetWorktreeSleepIntent } from '@/lib/worktree-sleep-intent'
 import { readIpcErrorDetail } from '@/lib/ipc-error'
 import { isArchiveHookRemovalError } from '../../../../../../shared/worktree/archive-hook-removal-gate'
+import { showPreservedBranchToast } from '@/components/sidebar/preserved-branch-toast'
 import {
   resolveWorktreeOperationRouteResult,
-  resolveWorktreeOperationRouteResultForHost
+  resolveWorktreeOperationRouteResultForHost,
+  settingsForWorktreeOperationRoute
 } from '@/lib/worktree-operation-route'
 import {
   beginHostQualifiedRemoval,
@@ -27,7 +29,7 @@ import {
   isLockedWorktreeRemovalError
 } from '../../../../../../shared/worktree/removal'
 import { preservedBranchCleanupKey } from '../../../../../../shared/preserved-branch-cleanup'
-import { getWorktreeDeleteStateKey } from './worktree-delete-state'
+import { composeWorktreeHostIdentity } from '../../../../../../shared/worktree/host-qualified-identity'
 import { pruneHostedReviewLinkMutationGenerations } from '../metadata/hosted-review-link-mutation'
 import { rememberAuthoritativelyRemovedWorktrees } from '../listing/authoritative-worktree-removal-memory'
 import { preservedBranchRuntimeTargetByCleanupKey } from './preserved-branch-cleanup-target'
@@ -39,9 +41,6 @@ import { recordRemovedWorktreeSnapshotPrune } from './removed-worktree-snapshot-
 import { clearSessionCommitDraftForWorktree } from '@/lib/source-control-commit-draft-session'
 import { dispatchWorktreeRemoval } from './dispatch-worktree-removal'
 import { tearDownRemovedWorktreeRendererState } from './removed-worktree-renderer-teardown'
-import { captureWorktreeStateBeforeRemoval } from './worktree-state-before-removal'
-import { resolveWorktreeRemovalPreference } from './worktree-removal-preference'
-import { completePreservedBranchCleanup } from './complete-preserved-branch-cleanup'
 
 export function createRemoveWorktree(
   set: WorktreeSliceSet,
@@ -49,7 +48,7 @@ export function createRemoveWorktree(
 ): WorktreeSlice['removeWorktree'] {
   return async (removalTarget, force, options) => {
     const worktreeId = removalTarget.id
-    const policy = resolveWorktreeRemovalPreference(get().settings, force, options)
+    const forgetLocalOnly = options?.mode === 'forget-local'
     // Why (STA-4343): this is the ONE chokepoint every delete entry point shares,
     // so host qualification is enforced here rather than at any single caller — a
     // guard bolted onto the sidebar would drift from the cleanup dialog's. The
@@ -60,7 +59,7 @@ export function createRemoveWorktree(
       get,
       worktreeId,
       requiredExecutionHostId,
-      policy.forgetLocalOnly,
+      forgetLocalOnly,
       options?.ignoreWorkspaceCleanupScanSurvivors === true
     )
     if (!start.ok) {
@@ -74,7 +73,9 @@ export function createRemoveWorktree(
     } = start
     const sameIdSurvivingHostId =
       catalogSameIdSurvivingHostId ?? options?.sameIdSurvivingHostId ?? null
-    const deleteStateKey = getWorktreeDeleteStateKey(get(), worktreeId, requiredExecutionHostId)
+    const deleteStateKey = requiredExecutionHostId
+      ? composeWorktreeHostIdentity(requiredExecutionHostId, worktreeId)
+      : worktreeId
     set((s) => ({
       deleteStateByWorktreeId: {
         ...s.deleteStateByWorktreeId,
@@ -91,11 +92,10 @@ export function createRemoveWorktree(
 
     try {
       // Why: forget-local touches no remote, so there's no archive hook to run or trust prompt needed.
-      // Why `get`: same-repo local deletes start together, and one approval must cover the rest.
-      const skipArchive = policy.forgetLocalOnly
+      const skipArchive = forgetLocalOnly
         ? true
         : (await ensureHooksConfirmed(
-            get,
+            get(),
             getRepoIdFromWorktreeId(worktreeId),
             'archive',
             hostId,
@@ -107,34 +107,42 @@ export function createRemoveWorktree(
         worktreeId,
         requiredExecutionHostId
       )
-      const beforeRemoval = captureWorktreeStateBeforeRemoval(get(), worktreeId, hostId)
-      if (!policy.forgetLocalOnly) {
+      const terminalPtyIdsBeforeRemoval = (get().tabsByWorktree[worktreeId] ?? []).flatMap(
+        (tab) => get().ptyIdsByTabId[tab.id] ?? []
+      )
+      if (!forgetLocalOnly) {
         removalGenerationGuard?.assertCurrent()
       }
       // Why: forget-local clears Orca's records via local IPC regardless of host — the remote is gone or unreachable.
-      const target = runtimeTargetForOwnerEnvironment(removalRoute?.runtimeEnvironmentId ?? null)
-      const unprovableRemoteRouting = policy.forgetLocalOnly
+      const target = getActiveRuntimeTarget(
+        removalRoute
+          ? settingsForWorktreeOperationRoute(get().settings, removalRoute)
+          : get().settings
+            ? { ...get().settings, activeRuntimeEnvironmentId: null }
+            : { activeRuntimeEnvironmentId: null }
+      )
+      const unprovableRemoteRouting = forgetLocalOnly
         ? null
         : refuseUnprovableRemoteHostRouting(get, worktreeId, target.kind)
       if (unprovableRemoteRouting) {
         throw new Error(unprovableRemoteRouting)
       }
       let removalResult: RemoveWorktreeResult
-      let snapshotPruneHandledByLocalMain = policy.forgetLocalOnly || target.kind === 'local'
+      let snapshotPruneHandledByLocalMain = forgetLocalOnly || target.kind === 'local'
       try {
         removalResult = await dispatchWorktreeRemoval({
           worktreeId,
           hostId,
-          force: policy.force,
+          force,
           skipArchive,
-          get,
+          forgetLocalOnly,
           target,
-          options: policy.options,
+          options,
           assertCurrent: () => removalGenerationGuard?.assertCurrent()
         })
       } catch (error) {
         if (
-          !policy.forgetLocalOnly &&
+          !forgetLocalOnly &&
           target.kind !== 'local' &&
           (isRuntimeRepoNotFoundError(error) || isRuntimeSelectorNotFoundError(error))
         ) {
@@ -243,7 +251,7 @@ export function createRemoveWorktree(
         worktreeId,
         hostId,
         requiredExecutionHostId,
-        beforeRemoval,
+        terminalPtyIdsBeforeRemoval,
         catalogVersion: removalResult?.catalogVersion
       })
       // Why: Source Control may be unmounted during deletion, so it can't be the only stale-draft cleanup path.
@@ -266,22 +274,18 @@ export function createRemoveWorktree(
           target
         })
       }
-      const branchCleanupOptions = {
-        ...(hostId ? { hostId } : {}),
-        ...(removalRoute?.runtimeEnvironmentId
-          ? { runtimeEnvironmentId: removalRoute.runtimeEnvironmentId }
-          : {})
+      if (preservedBranch && options?.suppressPreservedBranchToast !== true) {
+        showPreservedBranchToast(removalResult, worktreeBeforeRemoval, (branch, expectedHead) => {
+          void get().forceDeletePreservedBranch(worktreeId, branch, expectedHead, {
+            ...(hostId ? { hostId } : {}),
+            ...(removalRoute?.runtimeEnvironmentId
+              ? { runtimeEnvironmentId: removalRoute.runtimeEnvironmentId }
+              : {})
+          })
+        })
       }
-      const autoDeletedBranch = await completePreservedBranchCleanup({
-        get,
-        worktreeId,
-        removalResult,
-        worktreeBeforeRemoval,
-        branchCleanupOptions,
-        suppressToast: options?.suppressPreservedBranchToast === true
-      })
       pruneHostedReviewLinkMutationGenerations([worktreeId])
-      return preservedBranch && cleanup && !autoDeletedBranch
+      return preservedBranch && cleanup
         ? {
             ok: true as const,
             preservedBranch: {
@@ -301,8 +305,8 @@ export function createRemoveWorktree(
       const error = readIpcErrorDetail(err) ?? (err instanceof Error ? err.message : String(err))
       const forceDeleteReason = classifyWorktreeForceDeleteReason(
         error,
-        policy.force,
-        policy.options?.allowUnverifiedPtyStop === true
+        force,
+        options?.allowUnverifiedPtyStop === true
       )
       const locked = isLockedWorktreeRemovalError(error)
       // Why (#19334): the refusal is the only failure a retry can clear by waiving rather than by

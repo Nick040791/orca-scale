@@ -1,9 +1,7 @@
 import { ChildProcess } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
-import type { ProcessSpec, SpawnedProcess } from '@orca/process-host/process-spec'
-import { ownFreshDaemonScope } from './daemon-cgroup-scope'
+import type { ProcessSpec, SpawnedProcess } from '../../shared/child-process/run-process'
 import { startDaemonScopeDeathWatch } from './daemon-scope-death-watch'
 
 const spawnProcess = vi.fn<(spec: ProcessSpec) => SpawnedProcess>()
@@ -15,39 +13,46 @@ afterEach(() => {
 
 function options() {
   return {
-    daemonScope: 'orca-daemon-launch-a.scope',
+    freshScope: true,
+    launchNonce: 'launch-a',
+    platform: 'linux' as const,
     spawn: spawnProcess,
+    detectScope: () => 'orca-daemon-launch-a.scope',
     log: vi.fn()
   }
 }
 
 describe('daemon scope death watch ownership', () => {
-  it('only a fresh scope the daemon is still in qualifies', () => {
-    const own = (unit: string | null) => () => unit
-    expect(ownFreshDaemonScope(true, 'launch-a', own('orca-daemon-launch-a.scope'))).toBe(
-      'orca-daemon-launch-a.scope'
-    )
-    // An adopted scope, a migrated legacy one, another daemon's, or none (macOS, Windows).
-    expect(ownFreshDaemonScope(false, 'launch-a', own('orca-daemon-launch-a.scope'))).toBeNull()
-    expect(ownFreshDaemonScope(true, undefined, own('orca-daemon-launch-a.scope'))).toBeNull()
-    for (const unit of [null, 'app-orca-123.scope', 'orca-daemon-other.scope']) {
-      expect(ownFreshDaemonScope(true, 'launch-a', own(unit))).toBeNull()
-    }
+  it.each(['darwin', 'win32'] as const)('never spawns on %s', (platform) => {
+    expect(startDaemonScopeDeathWatch({ ...options(), platform })).toBeNull()
+    expect(spawnProcess).not.toHaveBeenCalled()
   })
 
-  it('does not arm without an owned scope', () => {
-    expect(startDaemonScopeDeathWatch({ ...options(), daemonScope: null })).toBeNull()
+  it('does not arm an adopted scope even when its nonce matches', () => {
+    expect(startDaemonScopeDeathWatch({ ...options(), freshScope: false })).toBeNull()
+    expect(spawnProcess).not.toHaveBeenCalled()
+  })
+
+  it.each([null, 'app-orca-123.scope', 'orca-daemon-other.scope'])(
+    'rejects unverified ownership of %s',
+    (unit) => {
+      expect(startDaemonScopeDeathWatch({ ...options(), detectScope: () => unit })).toBeNull()
+      expect(spawnProcess).not.toHaveBeenCalled()
+    }
+  )
+
+  it('does not arm without the launcher nonce', () => {
+    expect(startDaemonScopeDeathWatch({ ...options(), launchNonce: undefined })).toBeNull()
     expect(spawnProcess).not.toHaveBeenCalled()
   })
 
   it('retains the lifetime pipe and uses the verified user bus', () => {
     vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', 'disabled:')
     vi.stubEnv('XDG_RUNTIME_DIR', '/run/user/1000')
-    const stdin = new PassThrough()
-    const child = Object.defineProperties(new ChildProcess(), {
-      stdin: { value: stdin },
-      stdout: { value: new PassThrough() },
-      stderr: { value: new PassThrough() }
+    const child = Object.assign(new ChildProcess(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough()
     })
     vi.spyOn(child, 'unref').mockImplementation(() => {})
     vi.mocked(spawnProcess).mockReturnValue(child)
@@ -72,13 +77,13 @@ describe('daemon scope death watch ownership', () => {
     expect(vi.mocked(spawnProcess).mock.calls[0][0].env).not.toHaveProperty(
       'DBUS_SESSION_BUS_ADDRESS'
     )
-    expect(stdin.writableEnded).toBe(false)
+    expect(child.stdin.writableEnded).toBe(false)
     expect(child.unref).toHaveBeenCalledOnce()
 
-    stdin.emit('error', new Error('pipe failed'))
+    child.stdin.emit('error', new Error('pipe failed'))
     child.emit('error', new Error('spawn failed'))
     child.emit('exit', 1, null)
-    expect(stdin.destroyed).toBe(true)
+    expect(child.stdin.destroyed).toBe(true)
     expect(opts.log.mock.calls.map(([event]) => event)).toEqual([
       'scope-death-watch-pipe-error',
       'scope-death-watch-error',

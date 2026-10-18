@@ -1,4 +1,3 @@
-import { ImeTextarea } from '@/lib/ime-text-field'
 import React from 'react'
 import { Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -40,7 +39,7 @@ export function AutomationEditorPromptSection({
         </div>
       ) : null}
       <div className="group/title mb-5 flex max-w-full items-start gap-1">
-        <ImeTextarea
+        <textarea
           ref={titleRef}
           value={draft.name}
           rows={1}

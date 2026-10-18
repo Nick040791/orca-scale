@@ -50,8 +50,7 @@ vi.mock('./rate-limit', () => ({
   spendsSharedGitHubComQuota: vi.fn(() => true)
 }))
 
-import { getPRCheckDetails } from './client/check/get-pr-check-details'
-import { _resetOwnerRepoCache } from './gh-utils'
+import { getPRCheckDetails, _resetOwnerRepoCache } from './client'
 
 describe('getPRCheckDetails', () => {
   beforeEach(() => {
@@ -153,8 +152,7 @@ describe('getPRCheckDetails', () => {
         cwd: '/repo-root',
         host: 'github.com',
         signal: expect.any(AbortSignal)
-      }),
-      expect.objectContaining({ onTerminationPending: expect.any(Function) })
+      })
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
@@ -163,8 +161,7 @@ describe('getPRCheckDetails', () => {
         cwd: '/repo-root',
         host: 'github.com',
         signal: expect.any(AbortSignal)
-      }),
-      expect.objectContaining({ onTerminationPending: expect.any(Function) })
+      })
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
@@ -173,8 +170,7 @@ describe('getPRCheckDetails', () => {
         cwd: '/repo-root',
         host: 'github.com',
         signal: expect.any(AbortSignal)
-      }),
-      expect.objectContaining({ onTerminationPending: expect.any(Function) })
+      })
     )
   })
 
@@ -183,7 +179,7 @@ describe('getPRCheckDetails', () => {
     ghExecFileAsyncMock.mockRejectedValueOnce(new Error('authentication failed'))
 
     await expect(getPRCheckDetails('/repo-root', { checkRunId: 88 })).rejects.toThrow(
-      'Could not load check details.'
+      'authentication failed'
     )
   })
 
@@ -294,13 +290,12 @@ describe('getPRCheckDetails', () => {
     })
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       4,
-      ['api', 'repos/acme/widgets/actions/jobs/8801/logs', '--allow-escape-sequences'],
+      ['api', 'repos/acme/widgets/actions/jobs/8801/logs'],
       expect.objectContaining({
         cwd: '/repo-root',
         host: 'github.com',
         signal: expect.any(AbortSignal)
-      }),
-      expect.objectContaining({ onTerminationPending: expect.any(Function) })
+      })
     )
     expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(4)
   })

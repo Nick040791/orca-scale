@@ -15,7 +15,6 @@ import {
   type AutomationDispatchResult
 } from './automation-row-action-dispatch'
 import { buildDraftPrecheck } from './automation-draft-model'
-import { hasExtraAgentArgs } from '../../../../shared/automation-extra-agent-args'
 import { buildAutomationRunContextForRepo } from './automation-run-context'
 import { resolveAutomationSetupDecisionForSave } from './automation-setup-decision'
 import {
@@ -35,6 +34,7 @@ export async function saveOrcaAutomation(
   const { repos, projectHostSetups } = store
   const {
     draft,
+    createTarget,
     editingAutomationId,
     editingRowKey,
     editingDestination,
@@ -97,6 +97,7 @@ export async function saveOrcaAutomation(
       )
     : projectHostSetups
   let setupDecision = resolveAutomationSetupDecisionForSave({
+    createTarget,
     workspaceMode: draft.workspaceMode,
     repoId: draft.projectId,
     repos: reposForDraft,
@@ -158,10 +159,6 @@ export async function saveOrcaAutomation(
     prompt: draft.prompt,
     precheck,
     agentId: draft.agentId,
-    // Sent only when it carries or clears extras, so other edits stay legacy-shaped.
-    ...(hasExtraAgentArgs(draft.extraAgentArgs) || currentAutomation?.extraAgentArgs
-      ? { extraAgentArgs: draft.extraAgentArgs }
-      : {}),
     runContext,
     projectId: draft.projectId,
     workspaceMode: draft.workspaceMode,
@@ -181,7 +178,6 @@ export async function saveOrcaAutomation(
     prompt: draft.prompt,
     precheck,
     agentId: draft.agentId,
-    ...(hasExtraAgentArgs(draft.extraAgentArgs) ? { extraAgentArgs: draft.extraAgentArgs } : {}),
     runContext,
     projectId: draft.projectId,
     workspaceMode: draft.workspaceMode,

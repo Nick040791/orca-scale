@@ -122,6 +122,10 @@ export function getWorkspaceCleanupGitState(
   return candidate.git.clean === false ? 'dirty' : 'unknown'
 }
 
+export function hasWorkspaceCleanupUnpushedCommits(candidate: WorkspaceCleanupCandidate): boolean {
+  return hasUnpushedCommits(candidate)
+}
+
 function compareWorkspaceCleanupCandidates(
   left: WorkspaceCleanupCandidate,
   right: WorkspaceCleanupCandidate,

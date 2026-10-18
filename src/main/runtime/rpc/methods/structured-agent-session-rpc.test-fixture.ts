@@ -16,11 +16,9 @@ import {
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 } from '../../../../shared/protocol-version'
-import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
+import type { RpcRequest, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
-import { createStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger'
-import { recordingStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 
 export const SESSION = 'session-alpha'
 export const FINGERPRINT = 'f'.repeat(64)
@@ -96,19 +94,15 @@ export const STATUS_ITEMS: AgentJournalRenderItem[] = [
 /** One indexed session over a journal that reads back fixed items; the projection is real. */
 function statusFeed(): StructuredAgentSessionStatusFeed {
   return new StructuredAgentSessionStatusFeed({
-    logger: createStructuredAgentSessionLogger(),
     sessions: new Map([
       [
         STATUS_SESSION,
         {
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the status feed reads only cursor(), lastActivityAt(), stopMarks, snapshot(), itemFence() and runningTurn() of a journal with no sends.
           journal: {
+            isReadOnly: false,
             cursor: () => ({ epoch: 'epoch-status', sequence: 2 }),
             lastActivityAt: () => 2,
-            stopMarks: { latest: () => null, revision: () => 0 },
-            snapshot: () => ({ items: STATUS_ITEMS, submissions: [] }),
-            itemFence: () => undefined,
-            runningTurn: () => null
+            snapshot: () => ({ items: STATUS_ITEMS })
           } as unknown as AgentSessionJournal,
           params: {
             location: {
@@ -145,7 +139,11 @@ export function hostStub(): StructuredAgentSessionHost {
           items: [],
           removedItemIds: [],
           submissions: [],
-          window: { oldest: null, newest: null, nextCursor: { epoch: 'epoch-a', sequence: 0 } },
+          window: {
+            oldest: null,
+            newest: null,
+            nextCursor: { epoch: 'epoch-a', sequence: 0 }
+          },
           liveCursor: { epoch: 'epoch-a', sequence: 0 },
           hasOlder: false,
           hasNewer: false
@@ -193,7 +191,6 @@ export function hostStub(): StructuredAgentSessionHost {
       current: { model: 'gpt-live' }
     })),
     history: vi.fn(() => ({ ok: true, page: { items: [] } })),
-    sessionAgent: vi.fn(() => null),
     journalSnapshot: vi.fn((sessionId: string) => ({
       sessionId,
       cursor: { epoch: 'epoch-a', sequence: 0 },
@@ -206,23 +203,16 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribeStatus: vi.fn((subscriber: StructuredAgentSessionStatusSubscriber) =>
       statusFeed().subscribe(subscriber)
     ),
-    subscribeTurnCompletions: vi.fn(() => () => undefined),
-    unsubscribe: vi.fn()
+    unsubscribe: vi.fn(),
+    release: vi.fn()
   })
-  // Not a call: the logger the host hands a runtime caller that reports for it.
-  const logger = recordingStructuredAgentSessionLogger().logger
-  Reflect.set(hostCalls, 'deps', { logger, store: { getOperationRow: vi.fn(() => null) } })
   return hostCalls as unknown as StructuredAgentSessionHost
 }
 
-export function dispatcher(
-  runtimeOverrides: Record<string, unknown> = {},
-  methods: readonly RpcAnyMethodDeclaration[] = STRUCTURED_AGENT_SESSION_METHODS
-): RpcDispatcher {
+export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcDispatcher {
   reset(runtimeCalls)
   Object.assign(runtimeCalls, {
     getStructuredAgentSessionCreateSupport: vi.fn(async () => ({ supported: true })),
-    structuredAgentSessionLaunchSeedOptions: vi.fn(() => undefined),
     resolveStructuredAgentSessionCreateIntent: vi.fn(async (params) => ({
       envelope: params.envelope,
       location: {
@@ -247,9 +237,7 @@ export function dispatcher(
   })
   const runtime = {
     getRuntimeId: () => 'runtime-1',
-    getClientSettings: () => ({ experimentalNativeChat: true }),
-    // The host reads saved settings privately; follow the client settings each test chose.
-    requireStore: () => ({ getSettings: () => runtime.getClientSettings() }),
+    getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
     registerSubscriptionCleanup: vi.fn(),
     cleanupSubscription: vi.fn(),
     cleanupSubscriptionsByPrefix: vi.fn(),
@@ -258,7 +246,7 @@ export function dispatcher(
   }
   return new RpcDispatcher({
     runtime: runtime as unknown as OrcaRuntimeService,
-    methods
+    methods: STRUCTURED_AGENT_SESSION_METHODS
   })
 }
 
@@ -270,14 +258,13 @@ export async function call(
   client?: {
     clientId?: string
     clientKind?: 'mobile' | 'runtime'
-    clientCapabilities?: readonly string[]
+    clientCapabilities?: string[]
     signal?: AbortSignal
   },
-  runtimeOverrides: Record<string, unknown> = {},
-  methods?: readonly RpcAnyMethodDeclaration[]
+  runtimeOverrides: Record<string, unknown> = {}
 ): Promise<RpcResponse> {
   const replies: RpcResponse[] = []
-  await dispatcher(runtimeOverrides, methods).dispatchStreaming(
+  await dispatcher(runtimeOverrides).dispatchStreaming(
     request(method, params),
     (raw) => replies.push(JSON.parse(raw) as RpcResponse),
     client
@@ -287,21 +274,6 @@ export async function call(
     throw new Error(`no reply for ${method}`)
   }
   return first
-}
-
-/** For a stream that opens with nothing to say: every reply it sent, possibly none. */
-export async function openStream(
-  method: string,
-  params: unknown,
-  client: Parameters<typeof call>[2]
-): Promise<RpcResponse[]> {
-  const replies: RpcResponse[] = []
-  await dispatcher().dispatchStreaming(
-    request(method, params),
-    (raw) => replies.push(JSON.parse(raw) as RpcResponse),
-    client
-  )
-  return replies
 }
 
 export const STRUCTURED_CLIENT = {

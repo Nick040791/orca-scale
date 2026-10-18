@@ -1,5 +1,6 @@
 import type { SshConnectionState } from '../../../../shared/ssh-types'
 import { useAppStore } from '../../store'
+import type { DirectSshBridgeRuntime } from './direct-ssh-bridge-runtime'
 
 /** Why: an unanswered ssh.getState burns the full 30s runtime-RPC timeout, so a serial walk
  * makes the last target wait (N-1) timeouts; a small pool keeps a wedged target from blocking
@@ -7,13 +8,13 @@ import { useAppStore } from '../../store'
 const HYDRATION_FANOUT = 4
 
 export async function hydrateDirectSshInitialState(
-  isStopped: () => boolean,
+  runtime: DirectSshBridgeRuntime,
   watermarkByTargetId: ReadonlyMap<string, number>,
   applySshConnectionStateChange: (targetId: string, state: SshConnectionState) => void
 ): Promise<void> {
   try {
     const targets = await window.api.ssh.listTargets()
-    if (isStopped()) {
+    if (runtime.isStopped()) {
       return
     }
     // Why: the loaded list is the hydration evidence (#9911) — never gate it behind the
@@ -22,7 +23,7 @@ export async function hydrateDirectSshInitialState(
     const hydrateRemovedLabels = async (): Promise<void> => {
       try {
         const removedLabels = await window.api.ssh.listRemovedTargetLabels()
-        if (!isStopped()) {
+        if (!runtime.isStopped()) {
           useAppStore.getState().setRemovedSshTargetLabels(removedLabels)
         }
       } catch (error) {
@@ -33,14 +34,14 @@ export async function hydrateDirectSshInitialState(
     void hydrateRemovedLabels()
     let nextIndex = 0
     const drainTargets = async (): Promise<void> => {
-      while (nextIndex < targets.length && !isStopped()) {
+      while (nextIndex < targets.length && !runtime.isStopped()) {
         const target = targets[nextIndex]
         nextIndex += 1
         const hydrationWatermark = watermarkByTargetId.get(target.id) ?? 0
         try {
           const state = await window.api.ssh.getState({ targetId: target.id })
           if (
-            !isStopped() &&
+            !runtime.isStopped() &&
             state &&
             (watermarkByTargetId.get(target.id) ?? 0) === hydrationWatermark
           ) {

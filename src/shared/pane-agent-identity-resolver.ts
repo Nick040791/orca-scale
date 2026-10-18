@@ -1,6 +1,6 @@
 import { resolveCanonicalPaneAgentEvidence } from './pane-agent-identity-adapter'
 import type { PaneAgentEvidenceSource } from './pane-agent-evidence-sources'
-import type { TerminalAgent } from './terminal-agent'
+import type { TuiAgent } from './tui-agent'
 
 export { PANE_AGENT_EVIDENCE_SOURCES } from './pane-agent-evidence-sources'
 export type { PaneAgentEvidenceSource } from './pane-agent-evidence-sources'
@@ -44,7 +44,7 @@ export type PaneAgentRunKey = {
   incarnation: number
 }
 
-export type PaneAgentEvidence<A extends string = TerminalAgent> = {
+export type PaneAgentEvidence<A extends string = TuiAgent> = {
   source: PaneAgentEvidenceSource
   agent: A
   /**
@@ -55,7 +55,7 @@ export type PaneAgentEvidence<A extends string = TerminalAgent> = {
   run?: PaneAgentRunKey
 }
 
-export type PaneAgentIdentityInput<A extends string = TerminalAgent> = {
+export type PaneAgentIdentityInput<A extends string = TuiAgent> = {
   evidence: readonly PaneAgentEvidence<A>[]
   /** The pane's current run. Undefined disables run filtering entirely (old peer, mixed version). */
   currentRun?: PaneAgentRunKey
@@ -72,7 +72,7 @@ export type PaneAgentIdentityInput<A extends string = TerminalAgent> = {
   allowSibling?: boolean
 }
 
-export type PaneAgentIdentity<A extends string = TerminalAgent> = {
+export type PaneAgentIdentity<A extends string = TuiAgent> = {
   agent: A | null
   /** Which class of evidence decided it. Null when nothing eligible remained. */
   source: PaneAgentEvidenceSource | null
@@ -86,14 +86,14 @@ export type PaneAgentIdentity<A extends string = TerminalAgent> = {
  * Resolves one pane's agent from ranked evidence.
  *
  * Generic over the agent vocabulary: the sidebar speaks the widened `AgentType` and the tab speaks
- * the strict `TerminalAgent`. Ranking evidence does not depend on which, and a cast at that boundary
+ * the strict `TuiAgent`. Ranking evidence does not depend on which, and a cast at that boundary
  * would only hide the mismatch.
  *
  * Returns null rather than guessing. A pane with no eligible evidence shows no agent, which is
  * recoverable; showing the wrong agent is not, and at the action surfaces (orchestration routing,
  * mailbox delivery, prompt-cache timers) it is a misdelivery rather than a cosmetic slip.
  */
-export function resolvePaneAgentIdentity<A extends string = TerminalAgent>(
+export function resolvePaneAgentIdentity<A extends string = TuiAgent>(
   input: PaneAgentIdentityInput<A>
 ): PaneAgentIdentity<A> {
   return resolveCanonicalPaneAgentEvidence(input)

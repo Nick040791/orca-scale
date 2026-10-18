@@ -27,8 +27,9 @@ export function normalizeClaudeAccountSelectionTarget(
 }
 
 export function normalizeClaudeRuntimeSelection(
-  settings: Partial<
-    Pick<GlobalSettings, 'activeClaudeManagedAccountId' | 'activeClaudeManagedAccountIdsByRuntime'>
+  settings: Pick<
+    GlobalSettings,
+    'activeClaudeManagedAccountId' | 'activeClaudeManagedAccountIdsByRuntime'
   >
 ): ClaudeManagedAccountRuntimeSelection {
   return {
@@ -41,8 +42,9 @@ export function normalizeClaudeRuntimeSelection(
 }
 
 export function getSelectedClaudeAccountIdForTarget(
-  settings: Partial<
-    Pick<GlobalSettings, 'activeClaudeManagedAccountId' | 'activeClaudeManagedAccountIdsByRuntime'>
+  settings: Pick<
+    GlobalSettings,
+    'activeClaudeManagedAccountId' | 'activeClaudeManagedAccountIdsByRuntime'
   >,
   target?: ClaudeAccountSelectionTarget | null
 ): string | null {
@@ -142,11 +144,4 @@ export function getClaudeWslSelectionKey(wslDistro: string | null | undefined): 
 function normalizeWslDistro(wslDistro: string | null | undefined): string | null {
   const trimmed = wslDistro?.trim()
   return trimmed ? trimmed : null
-}
-
-export function findClaudeAccount(
-  settings: Pick<GlobalSettings, 'claudeManagedAccounts'>,
-  accountId: string
-): ClaudeManagedAccount | undefined {
-  return settings.claudeManagedAccounts.find((account) => account.id === accountId)
 }

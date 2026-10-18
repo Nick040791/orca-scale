@@ -44,8 +44,7 @@ beforeEach(() => {
   readRepoLocationMock.mockResolvedValue({
     topLevel: worktreePath,
     // Deliberately not the repo's store, so every case below reaches the disk witness.
-    commonDir: join(scratchDir, 'elsewhere', '.git'),
-    gitDir: join(scratchDir, 'elsewhere', '.git', 'worktrees', 'feature')
+    commonDir: join(scratchDir, 'elsewhere', '.git')
   })
   // Git's own reading disagrees; only the witness can break the tie.
   readRepoCommonDirFromGitMock.mockResolvedValue(join(scratchDir, 'other-repo', '.git'))
@@ -109,11 +108,7 @@ describe('describeCreatedWorktree when Git and the repo disagree', () => {
     mkdirSync(linkedGitDir, { recursive: true })
     writeFileSync(join(repoPath, '.git'), `gitdir: ${linkedGitDir}\n`)
     writeFileSync(join(linkedGitDir, 'commondir'), '../..\n')
-    readRepoLocationMock.mockResolvedValue({
-      topLevel: worktreePath,
-      commonDir,
-      gitDir: join(commonDir, 'worktrees', 'feature')
-    })
+    readRepoLocationMock.mockResolvedValue({ topLevel: worktreePath, commonDir })
 
     await expect(describeCreatedWorktree(repoPath, worktreePath, 'feature')).resolves.toMatchObject(
       {
@@ -140,11 +135,7 @@ describe('describeCreatedWorktree when Git and the repo disagree', () => {
     const commonDir = join(repoPath, '.git')
     mkdirSync(commonDir, { recursive: true })
     writeFileSync(join(commonDir, 'HEAD'), 'ref: refs/heads/main\n')
-    readRepoLocationMock.mockResolvedValue({
-      topLevel: worktreePath,
-      commonDir,
-      gitDir: join(commonDir, 'worktrees', 'feature')
-    })
+    readRepoLocationMock.mockResolvedValue({ topLevel: worktreePath, commonDir })
     await expect(describeCreatedWorktree(repoPath, worktreePath, 'feature')).resolves.toEqual({
       path: worktreePath,
       head: 'a'.repeat(40),
@@ -159,11 +150,7 @@ describe('describeCreatedWorktree before the witness is reached', () => {
   it('never pays for the disk read when Git already agreed', async () => {
     const commonDir = join(repoPath, '.git')
     mkdirSync(commonDir, { recursive: true })
-    readRepoLocationMock.mockResolvedValue({
-      topLevel: worktreePath,
-      commonDir,
-      gitDir: join(commonDir, 'worktrees', 'feature')
-    })
+    readRepoLocationMock.mockResolvedValue({ topLevel: worktreePath, commonDir })
     readRepoCommonDirFromGitMock.mockResolvedValue(commonDir)
     // chmod 000 would make the witness unverifiable; agreement means it is never opened.
     if (CAN_DENY_READ) {

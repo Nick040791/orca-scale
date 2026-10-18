@@ -126,7 +126,7 @@ describe('Task/Dispatch concurrency', () => {
       taskId: task.id,
       startOptions: {}
     })
-    first.db.prepareStartingWorkerAuthority({
+    const capability = first.db.prepareStartingWorkerAuthority({
       dispatchId: started.dispatch.id,
       handle: 'term_worker',
       paneKey: 'tab_worker:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -171,6 +171,14 @@ describe('Task/Dispatch concurrency', () => {
       status: 'completed',
       last_failure: null
     })
+    expect(
+      first.db.verifyDispatchCapability({
+        dispatchId: started.dispatch.id,
+        capability,
+        paneKey: 'tab_worker:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        processIncarnation: 'worker:1'
+      })
+    ).toMatchObject({ valid: false })
   })
 
   it('keeps nested dispatch failure atomic with its caller transaction', () => {
@@ -221,11 +229,10 @@ describe('Task/Dispatch concurrency', () => {
     })
     const sqlite = sqliteFor(first.db)
     const exec = sqlite.exec.bind(sqlite)
-    let winnerClaimed = false
+    let winningCapability: string | undefined
     vi.spyOn(sqlite, 'exec').mockImplementation((sql) => {
-      if (!winnerClaimed && sql === 'BEGIN IMMEDIATE') {
-        winnerClaimed = true
-        concurrent.db.prepareStartingWorkerAuthority({
+      if (!winningCapability && sql === 'BEGIN IMMEDIATE') {
+        winningCapability = concurrent.db.prepareStartingWorkerAuthority({
           dispatchId: winner.dispatch.id,
           handle: 'term_reminted',
           paneKey: 'tab_new:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -251,9 +258,10 @@ describe('Task/Dispatch concurrency', () => {
         terminalOwnership: 'created'
       })
     ).toThrow(`already has an active dispatch (${winner.dispatch.id} for task ${winningTask.id})`)
+    expect(winningCapability).toBeDefined()
     expect(first.db.getDispatchContextById(loser.dispatch.id)).toMatchObject({
       assignee_handle: null,
-      process_incarnation: null
+      capability_hash: null
     })
     expect(first.db.getWorkerDispatch(loser.dispatch.id)).toMatchObject({
       stage: 'accepted',
@@ -262,7 +270,7 @@ describe('Task/Dispatch concurrency', () => {
     expect(first.db.getWorkerTerminalResourceByOwner(loser.dispatch.id)).toBeUndefined()
     expect(first.db.getDispatchContextById(winner.dispatch.id)).toMatchObject({
       assignee_handle: 'term_reminted',
-      process_incarnation: 'winner:1'
+      capability_hash: expect.any(String)
     })
     expect(first.db.getWorkerTerminalResourceByOwner(winner.dispatch.id)).toMatchObject({
       terminal_handle: 'term_reminted',
@@ -272,7 +280,7 @@ describe('Task/Dispatch concurrency', () => {
       sqlite
         .prepare(
           `SELECT COUNT(*) AS count FROM dispatch_contexts
-           WHERE status IN ('pending', 'dispatched') AND process_incarnation IS NOT NULL`
+           WHERE status IN ('pending', 'dispatched') AND capability_hash IS NOT NULL`
         )
         .get()
     ).toEqual({ count: 1 })

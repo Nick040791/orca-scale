@@ -4,17 +4,13 @@ import { matchesSettingsSearch } from './settings-search'
 import { GitHubRateLimitPanel } from '../github/github-rate-limit-display'
 import { GitLabRateLimitPanel } from '../gitlab/gitlab-rate-limit-display'
 import { translate } from '@/i18n/i18n'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 
 type GitProviderApiBudgetPaneProps = {
   settingsSearchQuery?: string
-  /** The host chosen at the top of Settings; budgets come from that host's CLI. */
-  target: RuntimeClientTarget
 }
 
 export function GitProviderApiBudgetPane({
-  settingsSearchQuery,
-  target
+  settingsSearchQuery
 }: GitProviderApiBudgetPaneProps): React.JSX.Element | null {
   const storeSearchQuery = useAppStore((s) => s.settingsSearchQuery)
   const searchQuery = settingsSearchQuery ?? storeSearchQuery
@@ -44,7 +40,7 @@ export function GitProviderApiBudgetPane({
         keywords={['github', 'gh', 'graphql', 'rate limit', 'api budget']}
         className="space-y-3"
       >
-        <GitHubRateLimitPanel target={target} />
+        <GitHubRateLimitPanel />
       </SearchableSetting>
     ) : null,
     matchesSettingsSearch(searchQuery, {
@@ -70,7 +66,7 @@ export function GitProviderApiBudgetPane({
         keywords={['gitlab', 'glab', 'rate limit', 'api budget']}
         className="space-y-3"
       >
-        <GitLabRateLimitPanel target={target} />
+        <GitLabRateLimitPanel />
       </SearchableSetting>
     ) : null
   ].filter(Boolean)

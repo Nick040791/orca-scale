@@ -3,7 +3,8 @@ export type MarkdownInlineMatch = { 0: string; index: number; end: number }
 /** Merge a global non-link regex with links; search starts must advance between calls. */
 export function createMarkdownInlineMatcher(
   text: string,
-  nonLinkPattern: RegExp
+  nonLinkPattern: RegExp,
+  images = false
 ): { lastIndex: number; exec: () => MarkdownInlineMatch | null } {
   let nextOther: MarkdownInlineMatch | null | undefined
   let nextLink: MarkdownInlineMatch | null | undefined
@@ -25,7 +26,8 @@ export function createMarkdownInlineMatcher(
         noMoreLabels = true
         return null
       }
-      if (labelEnd > open + 1 && text[labelEnd + 1] === '(') {
+      const image = images && open > from && text[open - 1] === '!'
+      if ((image || labelEnd > open + 1) && text[labelEnd + 1] === '(') {
         if (destinationEnd < labelEnd + 2) {
           destinationEnd = text.indexOf(')', labelEnd + 2)
         }
@@ -34,7 +36,8 @@ export function createMarkdownInlineMatcher(
           return null
         }
         if (destinationEnd > labelEnd + 2) {
-          return { 0: text.slice(open, destinationEnd + 1), index: open, end: destinationEnd + 1 }
+          const index = image ? open - 1 : open
+          return { 0: text.slice(index, destinationEnd + 1), index, end: destinationEnd + 1 }
         }
       }
       // Every opener before this closing bracket shares the same invalid suffix.

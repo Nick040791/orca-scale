@@ -50,16 +50,6 @@ export function buildRestoredRemoteBrowserPageHandles(
   return handles
 }
 
-/** Whether this desktop hosts the remote page itself rather than streaming it from the host. Staged
- *  and restored rows count before the host confirms a placement, so they never mount as streams. */
-export function isClientHostedBrowserPageHandle(handle: RemoteBrowserPageHandle): boolean {
-  return (
-    handle.placement?.kind === 'client' ||
-    (handle.staged === true && handle.stagedClientHosted === true) ||
-    handle.restoredClientHosted === true
-  )
-}
-
 export function retainCookieImportExecutionHost(
   result: BrowserCookieImportResult,
   executionHostId: ExecutionHostId,

@@ -1,10 +1,10 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import React from 'react'
 import { ChevronDown, Code2, ExternalLink, FileText, FolderOpen, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { useAppStore } from '../../store'
-import { revealFloatingWorkspacePanel } from '../../lib/floating-workspace-panel-reveal'
+import { TOGGLE_FLOATING_TERMINAL_EVENT } from '../../lib/floating-terminal'
+import { isFloatingWorkspacePanelVisible } from '../../lib/floating-workspace-terminal-actions'
 import { detectLanguage } from '../../lib/language-detect'
 import { Button } from '../ui/button'
 import {
@@ -83,8 +83,8 @@ export function KeybindingsFileActions(): React.JSX.Element {
         (file) => file.filePath === filePath && file.worktreeId === FLOATING_TERMINAL_WORKTREE_ID
       )
       if (existingFile && !existingFile.isDirty) {
-        // Why: a prior failed read can leave a focused error tab. Reopen a
-        // clean tab so the editor retries the file load.
+        // Why: a prior denied read can leave a focused error tab. Reopen a
+        // clean tab after authorization so the editor retries the file load.
         closeFile(existingFile.id)
       }
       openFile(
@@ -104,7 +104,9 @@ export function KeybindingsFileActions(): React.JSX.Element {
       cancelFloatingTerminalToggleFrame()
       floatingTerminalToggleFrameRef.current = requestAnimationFrame(() => {
         floatingTerminalToggleFrameRef.current = null
-        revealFloatingWorkspacePanel(useAppStore.getState())
+        if (!isFloatingWorkspacePanelVisible()) {
+          window.dispatchEvent(new CustomEvent(TOGGLE_FLOATING_TERMINAL_EVENT))
+        }
       })
     } catch (error) {
       toast.error(
@@ -130,11 +132,7 @@ export function KeybindingsFileActions(): React.JSX.Element {
         )
         return
       }
-      const result = await window.api.shell.openInExternalEditor({
-        path: filePath,
-        command,
-        ownerHostId: LOCAL_EXECUTION_HOST_ID
-      })
+      const result = await window.api.shell.openInExternalEditor({ path: filePath, command })
       if (!result.ok) {
         toast.error(openFailureMessage(result.reason))
       }

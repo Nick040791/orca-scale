@@ -17,7 +17,6 @@ import {
 export const ORCHESTRATION_CHECK_METHODS = [
   defineMethod({
     name: 'orchestration.check',
-    permission: 'workspace',
     params: CheckParams,
     handler: async (
       params,
@@ -90,8 +89,7 @@ export const ORCHESTRATION_CHECK_METHODS = [
           typeFilter,
           signal,
           activeDispatch,
-          remoteAttachment,
-          recordMutationReceipt
+          remoteAttachment
         })
       }
       const consumingCheck = params.peek !== true && params.all !== true && params.unread !== false

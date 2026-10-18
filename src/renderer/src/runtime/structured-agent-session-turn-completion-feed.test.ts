@@ -10,7 +10,6 @@ import type {
   AgentSessionTurnCompletion,
   AgentSessionTurnCompletionEvent
 } from '../../../shared/agent-session-wire'
-import type { AgentSessionAttentionEdge } from '../../../shared/agent-session-attention'
 
 const mocks = vi.hoisted(() => ({ subscribe: vi.fn(), supportsCapability: vi.fn() }))
 vi.mock('./structured-agent-session-client', () => ({
@@ -24,10 +23,6 @@ import {
   getStructuredAgentSessionTurnCompletionFeed,
   resetStructuredAgentSessionTurnCompletionFeedsForTests
 } from './structured-agent-session-turn-completion-feed'
-
-function label(edge: AgentSessionAttentionEdge): string {
-  return edge.type === 'completion' ? edge.completion.turnId : `prompt:${edge.prompt.promptId}`
-}
 
 type Subscription = {
   emit: (event: AgentSessionTurnCompletionEvent) => void
@@ -93,37 +88,14 @@ describe('structured turn completion feed (renderer)', () => {
     feed.activate()
     const first: string[] = []
     const second: string[] = []
-    feed.subscribe((edge) => first.push(label(edge)))
-    feed.subscribe((edge) => second.push(label(edge)))
+    feed.subscribe((event) => first.push(event.turnId))
+    feed.subscribe((event) => second.push(event.turnId))
     await vi.advanceTimersByTimeAsync(0)
 
     subscription().emit({ type: 'completion', completion: completion('turn-1') })
 
     expect(first).toEqual(['turn-1'])
     expect(second).toEqual(['turn-1'])
-  })
-
-  it('delivers prompt edges beside completions, and drops an arm it cannot name', async () => {
-    const feed = getStructuredAgentSessionTurnCompletionFeed({ kind: 'local' })
-    feed.activate()
-    const seen: string[] = []
-    feed.subscribe((edge) => seen.push(label(edge)))
-    await vi.advanceTimersByTimeAsync(0)
-
-    subscription().emit({
-      type: 'prompt',
-      prompt: {
-        scope: completion('unused').scope,
-        sessionId: 'session-1',
-        promptId: 'approval-1',
-        raisedAt: 1
-      }
-    })
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: simulates a newer host's arm this build cannot type.
-    subscription().emit({ type: 'future-edge' } as unknown as AgentSessionTurnCompletionEvent)
-    subscription().emit({ type: 'completion', completion: completion('turn-1') })
-
-    expect(seen).toEqual(['prompt:approval-1', 'turn-1'])
   })
 
   it('replays nothing to a listener that subscribes after a completion landed', async () => {
@@ -133,7 +105,7 @@ describe('structured turn completion feed (renderer)', () => {
     subscription().emit({ type: 'completion', completion: completion('turn-1') })
 
     const late: string[] = []
-    feed.subscribe((edge) => late.push(label(edge)))
+    feed.subscribe((event) => late.push(event.turnId))
 
     // There is no buffer to hand over. The edge already passed.
     expect(late).toEqual([])
@@ -143,7 +115,7 @@ describe('structured turn completion feed (renderer)', () => {
     const feed = getStructuredAgentSessionTurnCompletionFeed({ kind: 'local' })
     feed.activate()
     const seen: string[] = []
-    feed.subscribe((edge) => seen.push(label(edge)))
+    feed.subscribe((event) => seen.push(event.turnId))
     await vi.advanceTimersByTimeAsync(0)
     subscription().emit({ type: 'completion', completion: completion('before-drop') })
 
@@ -221,7 +193,7 @@ describe('structured turn completion feed (renderer)', () => {
 
     // A late frame from the torn-down stream reaches nobody.
     const seen: string[] = []
-    feed.subscribe((edge) => seen.push(label(edge)))
+    feed.subscribe((event) => seen.push(event.turnId))
     opened.emit({ type: 'completion', completion: completion('after-stop') })
     expect(seen).toEqual([])
 
@@ -237,7 +209,7 @@ describe('structured turn completion feed (renderer)', () => {
     feed.subscribe(() => {
       throw new Error('listener exploded')
     })
-    feed.subscribe((edge) => seen.push(label(edge)))
+    feed.subscribe((event) => seen.push(event.turnId))
     await vi.advanceTimersByTimeAsync(0)
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

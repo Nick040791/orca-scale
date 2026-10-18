@@ -1,16 +1,11 @@
-import { claudeProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 import {
   AgentSessionAcquisitionExitUnprovenError,
   AgentSessionPreSpawnError,
+  stopAgentSessionProviderRoot,
   type StructuredAgentSessionAcquireInput
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import { stopAgentSessionProviderRoot } from '../native-chat/agent-session-wire/structured-agent-session-provider-exit-proof'
 import { withAgentSessionCreatePhase } from '../observability/agent-session-instrumentation'
 import type { ClaudeStructuredLaunch } from './claude-structured-launch-resolution'
-import {
-  claudeStructuredSpawnOptions,
-  type ClaudeStructuredSpawnOptions
-} from './claude-structured-spawn-options'
 import {
   cancelClaudeAcquisitionAttempt,
   type ClaudeAcquisitionAttempt,
@@ -25,11 +20,6 @@ import {
   closeClaudePublishedSessionForDeps
 } from './claude-structured-session-close'
 
-/** The launch with the chat's saved options in its spawn options. */
-export type ClaudeAcquisitionLaunch = ClaudeStructuredLaunch & {
-  savedOptions: Omit<ClaudeStructuredSpawnOptions, 'sdkOptions'>
-}
-
 export async function resolveClaudeAcquisitionLaunch(args: {
   input: StructuredAgentSessionAcquireInput
   deps: ClaudeStructuredSessionAdapterDeps
@@ -39,7 +29,7 @@ export async function resolveClaudeAcquisitionLaunch(args: {
   callbacks: ClaudeAcquireCallbacks
   previous: ClaudeAcquisitionAttempt | undefined
   attempt: ClaudeAcquisitionAttempt
-}): Promise<ClaudeAcquisitionLaunch> {
+}): Promise<ClaudeStructuredLaunch> {
   const { input, deps, sessions, acquisitions, exits, callbacks, previous, attempt } = args
   const sessionId = input.identity.sessionId
   return withAgentSessionCreatePhase('auth_settle', input.recordPhase, async () => {
@@ -82,33 +72,21 @@ export async function resolveClaudeAcquisitionLaunch(args: {
     const launchIdentity = resumeSession
       ? {
           ...input.identity,
-          providerHandle: claudeProviderHandle(
-            resumeSession.providerSessionId,
-            resumeSession.turnEndLeafUuid
-          )
+          providerHandle: {
+            kind: 'claude' as const,
+            sessionId: resumeSession.providerSessionId,
+            leafUuid: resumeSession.turnEndLeafUuid
+          }
         }
       : input.identity
     const launch = await deps
-      .resolveLaunch({
-        identity: launchIdentity,
-        spawnToken: input.spawnToken,
-        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {})
-      })
+      .resolveLaunch({ identity: launchIdentity })
       .catch((error: unknown) => {
         throw error instanceof AgentSessionPreSpawnError
           ? error
           : new AgentSessionPreSpawnError(error)
       })
     acquisitions.assertCurrent(sessionId, attempt)
-    const spawn = claudeStructuredSpawnOptions({ launch, saved: input.options })
-    return {
-      ...launch,
-      options: spawn.sdkOptions,
-      savedOptions: {
-        options: spawn.options,
-        skipped: spawn.skipped,
-        fastModeAtStart: spawn.fastModeAtStart
-      }
-    }
+    return launch
   })
 }

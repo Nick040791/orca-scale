@@ -1,19 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-
-const { runProcessMock, runProcessSyncMock } = vi.hoisted(() => ({
-  runProcessMock: vi.fn(),
-  runProcessSyncMock: vi.fn()
-}))
-
-// The repair must never start a child process; any icacls left behind would land here.
-vi.mock('@orca/process-host', () => ({
-  runProcess: runProcessMock,
-  runProcessSync: runProcessSyncMock
-}))
-
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProcessResult, ProcessSpec } from '../../shared/child-process/run-process'
 import type { CrashReportBreadcrumbData } from '../../shared/crash-reporting'
 import {
   buildInstallDirAclRepairCommands,
@@ -25,20 +14,38 @@ import {
   WINDOWS_INSTALL_DIR_ACL_REPAIR_SCHEME_VERSION,
   type WindowsInstallDirAclRepairResult
 } from './windows-install-dir-package-acl-repair'
-import { fakePackageGrant, grantsFrom } from './windows-install-dir-acl.test-fixture'
-import type { InstallDirPackageGrants } from './windows-install-dir-package-acl-grant'
 
 const INSTALL_DIR = 'C:\\Users\\neil\\AppData\\Local\\Programs\\orca'
 const APP_VERSION = '1.4.184'
 
-function deniedGrant(): ReturnType<typeof fakePackageGrant> {
-  return fakePackageGrant(() => ({ ok: false, failedFileCount: 1, reason: 'Access is denied.' }))
+/** icacls' real success summary; the /T pass prints one per tree. */
+function icaclsOutput(processed: number, failed: number): string {
+  return `Successfully processed ${processed} files; Failed processing ${failed} files`
+}
+
+type Runner = (spec: ProcessSpec) => Promise<ProcessResult>
+
+function fakeRunner(reply: (spec: ProcessSpec) => Partial<ProcessResult> = () => ({})): {
+  run: Runner
+  specs: ProcessSpec[]
+} {
+  const specs: ProcessSpec[] = []
+  const run: Runner = async (spec) => {
+    specs.push(spec)
+    return {
+      code: 0,
+      signal: null,
+      stdout: icaclsOutput(81, 0),
+      stderr: '',
+      timedOut: false,
+      ...reply(spec)
+    }
+  }
+  return { run, specs }
 }
 
 function userDataDir(): string {
-  const path = mkdtempSync(join(tmpdir(), 'orca-acl-repair-'))
-  onTestFinished(() => rmSync(path, { recursive: true, force: true }))
-  return path
+  return mkdtempSync(join(tmpdir(), 'orca-acl-repair-'))
 }
 
 function repair(
@@ -48,13 +55,13 @@ function repair(
     installDir?: string
     platform?: NodeJS.Platform
     isServeMode?: boolean
-    grants?: InstallDirPackageGrants
+    run?: Runner
   } = {}
 ): Promise<{
   result: WindowsInstallDirAclRepairResult
   data: CrashReportBreadcrumbData
 }> {
-  const { grants, ...rest } = overrides
+  const { run, ...rest } = overrides
   return new Promise((resolve, reject) => {
     let data: CrashReportBreadcrumbData = {}
     repairWindowsInstallDirPackageAcl({
@@ -63,7 +70,7 @@ function repair(
       appVersion: APP_VERSION,
       ...rest,
       userDataPath: rest.userDataPath ?? userDataDir(),
-      grants: grants ?? fakePackageGrant().grants,
+      runProcessFn: (run ?? fakeRunner().run) as never,
       recordBreadcrumb: (name, breadcrumb) => {
         expect(name).toBe(WINDOWS_INSTALL_DIR_ACL_REPAIR_BREADCRUMB)
         data = breadcrumb ?? {}
@@ -78,23 +85,37 @@ function repair(
 describe('repairWindowsInstallDirPackageAcl', () => {
   beforeEach(() => {
     resetWindowsInstallDirAclRepairForTest()
-    runProcessMock.mockClear()
-    runProcessSyncMock.mockClear()
   })
 
-  it('runs the inheritable root pass, then the per-entry tree pass, on the install dir', async () => {
-    const { grants, passes } = fakePackageGrant()
-    await repair({ grants })
-    expect(passes).toEqual([
-      { installDir: INSTALL_DIR, pass: 'root' },
-      { installDir: INSTALL_DIR, pass: 'tree' }
-    ])
+  it('grants the flagless (RX) on the recursive pass, never (OI)(CI)(RX)', async () => {
+    // The whole fix: icacls silently no-ops an inheritance-flagged grant against a
+    // FILE — it exits 0 and reports zero failures while writing no ACE, so the
+    // shipped modules stay unreadable and every renderer still dies at init.
+    const { run, specs } = fakeRunner()
+    await repair({ run })
+
+    const treePass = specs.find((spec) => spec.args?.includes('/T'))
+    expect(treePass?.args).toEqual([INSTALL_DIR, '/grant', '*S-1-15-2-2:(RX)', '/T', '/C'])
+    expect(treePass?.args).not.toContain('*S-1-15-2-2:(OI)(CI)(RX)')
   })
 
-  it('never starts a child process', async () => {
-    await repair()
-    expect(runProcessMock).not.toHaveBeenCalled()
-    expect(runProcessSyncMock).not.toHaveBeenCalled()
+  it('grants the inheritable (OI)(CI)(RX) on the root, without /T', async () => {
+    const { run, specs } = fakeRunner()
+    await repair({ run })
+
+    const rootPass = specs.find((spec) => !spec.args?.includes('/T'))
+    expect(rootPass?.args).toEqual([INSTALL_DIR, '/grant', '*S-1-15-2-2:(OI)(CI)(RX)'])
+    expect(specs).toHaveLength(2)
+  })
+
+  it('is additive on every pass so SYSTEM, Administrators and the orphan survive', async () => {
+    const { run, specs } = fakeRunner()
+    await repair({ run })
+
+    for (const spec of specs) {
+      expect(spec.args).toContain('/grant')
+      expect(spec.args).not.toContain('/grant:r')
+    }
   })
 
   it('reports the repair and records an ok breadcrumb', async () => {
@@ -104,16 +125,16 @@ describe('repairWindowsInstallDirPackageAcl', () => {
     expect(data.failedFileCount).toBe(0)
   })
 
-  it('runs once and then never grants again for the same install and version', async () => {
+  it('runs once and then never spawns again for the same install and version', async () => {
     const userDataPath = userDataDir()
-    const first = fakePackageGrant()
-    await repair({ userDataPath, grants: first.grants })
-    expect(first.passes).toHaveLength(2)
+    const first = fakeRunner()
+    await repair({ userDataPath, run: first.run })
+    expect(first.specs).toHaveLength(2)
 
     resetWindowsInstallDirAclRepairForTest()
-    const second = fakePackageGrant()
-    const { result, data } = await repair({ userDataPath, grants: second.grants })
-    expect(second.passes).toHaveLength(0)
+    const second = fakeRunner()
+    const { result, data } = await repair({ userDataPath, run: second.run })
+    expect(second.specs).toHaveLength(0)
     expect(result).toEqual({ mode: 'marker-hit', alreadyRepaired: true })
     expect(data.reason).toBe('marker-hit')
   })
@@ -123,24 +144,24 @@ describe('repairWindowsInstallDirPackageAcl', () => {
     await repair({ userDataPath })
 
     resetWindowsInstallDirAclRepairForTest()
-    const updated = fakePackageGrant()
+    const updated = fakeRunner()
     expect(
-      (await repair({ userDataPath, appVersion: '1.4.185', grants: updated.grants })).result
+      (await repair({ userDataPath, appVersion: '1.4.185', run: updated.run })).result
     ).toEqual({ mode: 'repaired' })
-    expect(updated.passes).toHaveLength(2)
+    expect(updated.specs).toHaveLength(2)
 
     resetWindowsInstallDirAclRepairForTest()
-    const moved = fakePackageGrant()
+    const moved = fakeRunner()
     expect(
       (
         await repair({
           userDataPath,
           installDir: 'D:\\Program Files\\Orca',
-          grants: moved.grants
+          run: moved.run
         })
       ).result
     ).toEqual({ mode: 'repaired' })
-    expect(moved.passes).toHaveLength(2)
+    expect(moved.specs).toHaveLength(2)
   })
 
   it('re-runs when the marker is from an older scheme or is corrupt', async () => {
@@ -154,54 +175,57 @@ describe('repairWindowsInstallDirPackageAcl', () => {
         appVersion: APP_VERSION
       })
     )
-    const stale = fakePackageGrant()
-    await repair({ userDataPath, grants: stale.grants })
-    expect(stale.passes).toHaveLength(2)
+    const stale = fakeRunner()
+    await repair({ userDataPath, run: stale.run })
+    expect(stale.specs).toHaveLength(2)
 
     resetWindowsInstallDirAclRepairForTest()
     writeFileSync(markerFile, '{ not json')
-    const corrupt = fakePackageGrant()
-    await repair({ userDataPath, grants: corrupt.grants })
-    expect(corrupt.passes).toHaveLength(2)
+    const corrupt = fakeRunner()
+    await repair({ userDataPath, run: corrupt.run })
+    expect(corrupt.specs).toHaveLength(2)
   })
 
-  it('records the summed failed-entry count when a standard user cannot write the ACL', async () => {
-    const { grants, passes } = fakePackageGrant((pass) =>
-      pass === 'tree'
-        ? { ok: false, failedFileCount: 81, reason: 'failed-files: Access is denied.' }
-        : { ok: false, failedFileCount: 1, reason: 'Access is denied.' }
+  it('records the failed-file count when a standard user cannot write the ACL', async () => {
+    // Program Files: /C keeps going, icacls reports the losses and exits non-zero.
+    const { run, specs } = fakeRunner((spec) =>
+      spec.args?.includes('/T')
+        ? {
+            code: 1332,
+            stdout: icaclsOutput(0, 81),
+            stderr: 'Access is denied.'
+          }
+        : { code: 5, stdout: '', stderr: 'Access is denied.' }
     )
-    const { result, data } = await repair({ grants })
+    const { result, data } = await repair({ run })
 
-    expect(result).toMatchObject({ mode: 'failed', failedFileCount: 82 })
+    expect(result.mode).toBe('failed')
     expect(data.status).toBe('failed')
-    expect(data.failedFileCount).toBe(82)
-    expect(String(data.reason)).toContain('root: Access is denied.')
-    expect(String(data.reason)).toContain('tree: failed-files')
+    expect(data.failedFileCount).toBe(81)
     // No retry loop: exactly the two passes, then it gives up for this version.
-    expect(passes).toHaveLength(2)
+    expect(specs).toHaveLength(2)
   })
 
   it('still runs the per-file pass when the root grant fails', async () => {
-    const { grants, passes } = fakePackageGrant((pass) =>
-      pass === 'root' ? { ok: false, failedFileCount: 1, reason: 'Access is denied.' } : {}
+    const { run, specs } = fakeRunner((spec) =>
+      spec.args?.includes('/T') ? {} : { code: 5, stderr: 'Access is denied.' }
     )
-    const { result } = await repair({ grants })
-    expect(passes.map((entry) => entry.pass)).toEqual(['root', 'tree'])
+    const { result } = await repair({ run })
+    expect(specs).toHaveLength(2)
     expect(result.mode).toBe('failed')
   })
 
-  it('does not throw when a grant rejects, and still records a breadcrumb', async () => {
-    const grants = grantsFrom(() => Promise.reject(new Error('Win32 error 5')))
-    const { result, data } = await repair({ grants })
+  it('does not throw when the runner rejects, and still records a breadcrumb', async () => {
+    const run: Runner = () => Promise.reject(new Error('spawn EPERM'))
+    const { result, data } = await repair({ run })
     expect(result.mode).toBe('failed')
     expect(data.status).toBe('failed')
-    expect(String(data.reason)).toContain('Win32 error 5')
+    expect(String(data.reason)).toContain('spawn EPERM')
   })
 
-  it('marks the attempt so a hopeless install does not re-walk the tree every launch', async () => {
+  it('marks the attempt so a hopeless install does not re-spawn icacls every launch', async () => {
     const userDataPath = userDataDir()
-    await repair({ userDataPath, grants: deniedGrant().grants })
+    await repair({ userDataPath, run: fakeRunner(() => ({ code: 5 })).run })
 
     const marker = JSON.parse(
       readFileSync(join(userDataPath, WINDOWS_INSTALL_DIR_ACL_REPAIR_MARKER_FILE), 'utf-8')
@@ -214,50 +238,50 @@ describe('repairWindowsInstallDirPackageAcl', () => {
   // 'marker-hit' — repair permanently skipped — for the life of that version.
   it('retries a failed repair on later launches, then stops once the budget is spent', async () => {
     const userDataPath = userDataDir()
-    const failing = deniedGrant()
+    const failing = fakeRunner(() => ({ code: 5, stderr: 'Access is denied.' }))
     for (let attempt = 0; attempt < 3; attempt++) {
       resetWindowsInstallDirAclRepairForTest()
-      expect((await repair({ userDataPath, grants: failing.grants })).result.mode).toBe('failed')
+      expect((await repair({ userDataPath, run: failing.run })).result.mode).toBe('failed')
     }
-    expect(failing.passes).toHaveLength(6)
+    expect(failing.specs).toHaveLength(6)
 
     resetWindowsInstallDirAclRepairForTest()
-    const spent = fakePackageGrant()
-    const { result } = await repair({ userDataPath, grants: spent.grants })
+    const spent = fakeRunner()
+    const { result } = await repair({ userDataPath, run: spent.run })
     // Not alreadyRepaired: the budget ran out, so the tree is still poisoned.
     expect(result).toEqual({ mode: 'marker-hit', alreadyRepaired: false })
-    expect(spent.passes).toHaveLength(0)
+    expect(spent.specs).toHaveLength(0)
   })
 
   it('stops retrying immediately once a repair has succeeded', async () => {
     const userDataPath = userDataDir()
     resetWindowsInstallDirAclRepairForTest()
-    await repair({ userDataPath, grants: deniedGrant().grants })
+    await repair({ userDataPath, run: fakeRunner(() => ({ code: 5 })).run })
     resetWindowsInstallDirAclRepairForTest()
     expect((await repair({ userDataPath })).result).toEqual({ mode: 'repaired' })
 
     resetWindowsInstallDirAclRepairForTest()
-    const after = fakePackageGrant()
-    expect((await repair({ userDataPath, grants: after.grants })).result).toEqual({
+    const after = fakeRunner()
+    expect((await repair({ userDataPath, run: after.run })).result).toEqual({
       mode: 'marker-hit',
       alreadyRepaired: true
     })
-    expect(after.passes).toHaveLength(0)
+    expect(after.specs).toHaveLength(0)
   })
 
   it('is a no-op off win32 and in serve mode', async () => {
-    const off = fakePackageGrant()
+    const off = fakeRunner()
     repairWindowsInstallDirPackageAcl({
       platform: 'darwin',
       installDir: INSTALL_DIR,
       appVersion: APP_VERSION,
       userDataPath: userDataDir(),
-      grants: off.grants,
+      runProcessFn: off.run as never,
       recordBreadcrumb: vi.fn(),
       onDone: () => expect.unreachable('no-op must not settle')
     })
     resetWindowsInstallDirAclRepairForTest()
-    const serve = fakePackageGrant()
+    const serve = fakeRunner()
     const recordServe = vi.fn()
     repairWindowsInstallDirPackageAcl({
       platform: 'win32',
@@ -265,23 +289,21 @@ describe('repairWindowsInstallDirPackageAcl', () => {
       installDir: INSTALL_DIR,
       appVersion: APP_VERSION,
       userDataPath: userDataDir(),
-      grants: serve.grants,
+      runProcessFn: serve.run as never,
       recordBreadcrumb: recordServe,
       onDone: () => expect.unreachable('no-op must not settle')
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(off.passes).toHaveLength(0)
-    expect(serve.passes).toHaveLength(0)
+    expect(off.specs).toHaveLength(0)
+    expect(serve.specs).toHaveLength(0)
     expect(recordServe).not.toHaveBeenCalled()
   })
 
-  it('offers text-only commands that mirror the two in-process grants', () => {
+  it('offers commands that match what the repair itself runs', () => {
     expect(buildInstallDirAclRepairCommands(INSTALL_DIR)).toEqual([
       `icacls "${INSTALL_DIR}" /grant "*S-1-15-2-2:(OI)(CI)(RX)"`,
       `icacls "${INSTALL_DIR}" /grant "*S-1-15-2-2:(RX)" /T /C`
     ])
-    expect(runProcessMock).not.toHaveBeenCalled()
-    expect(runProcessSyncMock).not.toHaveBeenCalled()
   })
 })
 

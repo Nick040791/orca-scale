@@ -1,6 +1,5 @@
 import type { ConnectionState, RpcResponse } from '../../transport/types'
 import type { RpcClient } from '../../transport/rpc-client'
-import { buildDirectRpcWireRequest } from '../../transport/rpc-envelope-fields'
 import { RpcClientRequestTracker } from '../../transport/rpc-client-request-tracker'
 import { RpcClientStreamRegistry } from '../../transport/rpc-client-stream-registry'
 import { createStableLogicalRpcClient } from '../../transport/stable-logical-rpc-client'
@@ -26,9 +25,10 @@ type SendRequestArgs = Parameters<RpcClient['sendRequest']>
  * substitute for this one: `requests`, `payloads` and the scripted replies are all still observed
  * here, and a golden recorded through a wrapper is comparable to the one recorded without it.
  *
- * Declared as a function rather than as an import of the thing that uses it: the page bridge in
- * `mobile/src/mobile-web-shell/` is product code the native recording never runs, so the engine
- * does not load it; `rpc-recording-through-bridge.test.ts` builds the pair and hands it in instead.
+ * Declared as a function rather than as an import of the thing that uses it. The page bridge lives
+ * in `mobile/src/mobile-web-shell/`, which is inside the recorder's own fence, so the engine naming
+ * it would put a product module in `recorderSha256`; `rpc-recording-through-bridge.test.ts` builds
+ * the pair and hands it in instead.
  */
 export type ScriptedClientWrapper = (client: RpcClient) => RpcClient
 
@@ -82,14 +82,16 @@ export class ScriptedRpcTransport {
         throw new Error('Scripted transport disconnected')
       }
     },
-    sendFrame: (frame) => {
-      const payload = buildDirectRpcWireRequest(frame, DEVICE_TOKEN)
+    deviceToken: DEVICE_TOKEN,
+    sendEncrypted: (value) => {
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the physical client publishes the frame this transport just serialized.
+      const payload = value as { id: string; method: string; params: unknown }
       const name = this.wireNames.shift()
       if (!name) {
         throw new Error('Unbound physical request')
       }
       this.bindings.set(name, { id: payload.id, params: payload.params, completed: false })
-      this.publish(name, payload)
+      this.publish(name, value)
       return true
     }
   })
@@ -158,9 +160,11 @@ export class ScriptedRpcTransport {
     // routed through the session that published its subscribe.
     const streams: RpcClientStreamRegistry = new RpcClientStreamRegistry({
       nextId: () => this.nextFrameId(),
+      deviceToken: DEVICE_TOKEN,
       getState: () => this.state,
-      sendFrame: (frame) => {
-        const payload = buildDirectRpcWireRequest(frame, DEVICE_TOKEN)
+      sendEncrypted: (value) => {
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the stream registry publishes the frame it just built.
+        const payload = value as { id: string; method: string; params: unknown }
         const name = this.occurrence(payload.method)
         // Only a subscribe opens a stream. The registry sends its unsubscribes through this same
         // hook, and filing one under `openStreams` made a frame aimed at an unsubscribe name route
@@ -176,7 +180,7 @@ export class ScriptedRpcTransport {
         // already-registered id under a fresh occurrence, so the latest payload is the one a
         // teardown observation should name.
         this.streamPayloads.set(payload.id, name)
-        this.publish(name, payload)
+        this.publish(name, value)
         return true
       }
     })

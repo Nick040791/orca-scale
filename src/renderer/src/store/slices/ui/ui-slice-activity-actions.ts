@@ -1,5 +1,4 @@
 import type { StoredAgentAttentionUnread } from '@/attention/agent-attention-contract'
-import { emitAgentSubjectReads } from '@/attention/agent-subject-read-actions'
 import type { UISlice, UISliceGet, UISliceSet } from './ui-slice-contract'
 import {
   collectAcknowledgedAgentNotificationId,
@@ -22,8 +21,7 @@ type ActivityActions = Pick<
 export function createUiActivityActions(set: UISliceSet, _get: UISliceGet): ActivityActions {
   return {
     acknowledgedAgentsByPaneKey: {},
-    acknowledgeAgents: (paneKeys, reads, intent) => {
-      emitAgentSubjectReads(paneKeys, reads, intent)
+    acknowledgeAgents: (paneKeys) => {
       const notificationIdsToDismiss = new Set<string>()
       set((s) => {
         if (paneKeys.length === 0) {

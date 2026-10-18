@@ -159,7 +159,7 @@ describe('deleting one host copy of a same-named project', () => {
   it('removes only the remote row when the same name exists locally', async () => {
     const store = seed([localTwin, remoteATwin], 'env-a')
 
-    await store.getState().removeProject('env-a-uuid', { hostId: 'runtime:env-a' })
+    await store.getState().removeProject('env-a-uuid')
 
     expect(repoRmCalls()).toEqual([
       expect.objectContaining({
@@ -168,11 +168,7 @@ describe('deleting one host copy of a same-named project', () => {
       })
     ])
     expect(reposRemove).not.toHaveBeenCalled()
-    // Only this desktop's persisted rows for the remote host, never the local row.
-    expect(reposRemoveForHost).toHaveBeenCalledWith({
-      repoId: 'env-a-uuid',
-      hostId: 'runtime:env-a'
-    })
+    expect(reposRemoveForHost).not.toHaveBeenCalled()
     expect(remainingRepoIds(store)).toEqual(['local-uuid'])
   })
 
@@ -181,8 +177,7 @@ describe('deleting one host copy of a same-named project', () => {
 
     await store.getState().removeProject('local-uuid', { hostId: 'local' })
 
-    expect(reposRemoveForHost).toHaveBeenCalledWith({ repoId: 'local-uuid', hostId: 'local' })
-    expect(reposRemove).not.toHaveBeenCalled()
+    expect(reposRemove).toHaveBeenCalledWith({ repoId: 'local-uuid' })
     expect(repoRmCalls()).toEqual([])
     expect(remainingRepoIds(store)).toEqual(['env-a-uuid'])
   })
@@ -190,7 +185,7 @@ describe('deleting one host copy of a same-named project', () => {
   it('removes only remote A when the same name exists on remote B', async () => {
     const store = seed([remoteATwin, remoteBTwin], 'env-b')
 
-    await store.getState().removeProject('env-a-uuid', { hostId: 'runtime:env-a' })
+    await store.getState().removeProject('env-a-uuid')
 
     expect(repoRmCalls()).toEqual([
       expect.objectContaining({

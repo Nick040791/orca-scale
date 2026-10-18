@@ -72,9 +72,14 @@ export function AutomationRunDetailsPage({
                 {translate('auto.components.automations.AutomationsPage.295698292f', 'Rerun')}
               </Button>
             ) : null}
-            {/* Why: a disabled button with nothing to open reads as broken; status and content explain the run. */}
-            {viewState?.canOpen ? (
-              <Button type="button" variant="outline" size="sm" onClick={onOpenWorkspace}>
+            {viewState ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!viewState.canOpen}
+                onClick={onOpenWorkspace}
+              >
                 <Eye className="size-3.5" />
                 {viewState.actionLabel}
               </Button>

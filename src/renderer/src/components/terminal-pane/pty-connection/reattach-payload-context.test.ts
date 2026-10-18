@@ -10,14 +10,11 @@ import type { ReattachPayloadContext } from './reattach-payload-context'
 import type { ReattachPayloadSession } from './reattach-payload-session'
 
 function createSession(overrides: Record<string, unknown> = {}): ReattachPayloadSession {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handlers under test read only these session members.
   return {
     pane: createPane(1),
     rememberReattachPayloadAgentSignal: vi.fn(),
     writeReplayData: vi.fn(),
-    writeInputModeGround: vi.fn(),
-    chooseReattachReplayReset: vi.fn(() => '<reset>'),
-    writeReplayEpilogue: vi.fn(),
+    reattachReplayResetSequence: vi.fn(() => '<reset>'),
     sendFocusedReattachFocusInAfterReplay: vi.fn(),
     kittyKeyboardModes: {
       hasProvenBaseline: true,
@@ -37,6 +34,8 @@ function createContext(replay: string, attemptGeneration: number): ReattachPaylo
     attemptGeneration,
     prefetchedParkModelSnapshot: null,
     revealFollowsTerminalPark: false,
+    reconnectMayUseModel: false,
+    fetchSshMainModelReattachSnapshot: async () => null,
     shouldApplyStructuralPayload: true,
     coldRestoreStartup: undefined,
     reattachPayloadApplied: false,
@@ -45,9 +44,7 @@ function createContext(replay: string, attemptGeneration: number): ReattachPaylo
 }
 
 describe('reattach payload context', () => {
-  beforeEach(async () => {
-    await installTerminalTestGlobals()
-  })
+  beforeEach(() => installTerminalTestGlobals())
 
   afterEach(async () => restoreTerminalTestGlobals())
 

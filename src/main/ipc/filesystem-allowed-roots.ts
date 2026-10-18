@@ -1,5 +1,5 @@
-import { isAbsolute, resolve } from 'node:path'
-import type { RuntimeStore } from '../runtime/runtime-store-contract'
+import { resolve } from 'node:path'
+import type { Store } from '../persistence'
 import { computeWorkspaceRoot, getWorktreePathSettings } from './worktree-logic'
 import {
   getWorktreeMirrorDistroForRuntime,
@@ -14,27 +14,27 @@ import {
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../shared/project-group-types'
 import type { Repo } from '../../shared/repo-types'
-import { hasRemoteFilesystemOwner } from './remote-filesystem-owner'
 
-type FolderScopeStore = Pick<RuntimeStore, 'getRepos'> &
-  Partial<Pick<RuntimeStore, 'getProjectGroups' | 'getFolderWorkspaces'>>
+type FolderScopeStore = Pick<Store, 'getRepos'> &
+  Partial<Pick<Store, 'getProjectGroups' | 'getFolderWorkspaces'>>
 
+// Why: SSH repo paths are remote-host paths; treating them as local roots could authorize unrelated local folders or probe SSH-only paths.
 function filterLocalRepos(repos: readonly Repo[]): Repo[] {
-  return repos.filter((repo) => !hasRemoteFilesystemOwner(repo))
+  return repos.filter((repo) => !repo.connectionId)
 }
 
-export function getLocalRepos(store: RuntimeStore) {
+export function getLocalRepos(store: Store) {
   return filterLocalRepos(store.getRepos())
 }
 
 function isRemoteOnlyFolderScope(
   folderPath: string,
   projectGroupId: string,
-  hasRemoteOwner: boolean,
+  connectionId: string | null | undefined,
   childGroupIndex: ProjectGroupChildIndex,
   repos: readonly Repo[]
 ): boolean {
-  if (hasRemoteOwner) {
+  if (connectionId) {
     return true
   }
   const groupIds = collectProjectGroupSubtreeIds(childGroupIndex, projectGroupId)
@@ -45,7 +45,7 @@ function isRemoteOnlyFolderScope(
       isPathInsideOrEqual(folderPath, repo.path)
     ) {
       // One local candidate settles the scope without scanning the remaining repositories.
-      if (!hasRemoteFilesystemOwner(repo)) {
+      if (!repo.connectionId) {
         return false
       }
       hasRemoteCandidate = true
@@ -54,26 +54,20 @@ function isRemoteOnlyFolderScope(
   return hasRemoteCandidate
 }
 
-/**
- * Deliberately stricter than `resolveFolderWorkspaceHost`, which lets the workspace's own
- * `executionHostId` pin win: a workspace pinned `local` under a group carrying only a legacy
- * `connectionId` dispatches locally but is denied here. Letting the pin win would hand out a root
- * the store refuses today, so authorization keeps the fail-closed read of either field.
- */
-function hasRemoteFolderWorkspaceOwner(
+function getFolderWorkspaceConnectionId(
   workspace: FolderWorkspace,
   projectGroups: readonly ProjectGroup[]
-): boolean {
-  const group = projectGroups.find((group) => group.id === workspace.projectGroupId)
-  return hasRemoteFilesystemOwner({
-    connectionId: workspace.connectionId ?? group?.connectionId,
-    executionHostId: workspace.executionHostId ?? group?.executionHostId
-  })
+): string | null {
+  return (
+    workspace.connectionId ??
+    projectGroups.find((group) => group.id === workspace.projectGroupId)?.connectionId ??
+    null
+  )
 }
 
-function getLocalFolderScopeRoots(store: RuntimeStore, repos: readonly Repo[]): string[] {
+function getLocalFolderScopeRoots(store: Store, repos: readonly Repo[]): string[] {
   const scopeStore = store as FolderScopeStore
-  // Why: many filesystem tests use narrow RuntimeStore doubles; folder scopes are additive.
+  // Why: many filesystem tests use narrow Store doubles; folder scopes are additive.
   const projectGroups = scopeStore.getProjectGroups?.() ?? []
   const childGroupIndex = buildProjectGroupChildIndex(projectGroups)
   const roots: string[] = []
@@ -83,7 +77,7 @@ function getLocalFolderScopeRoots(store: RuntimeStore, repos: readonly Repo[]): 
       !isRemoteOnlyFolderScope(
         group.parentPath,
         group.id,
-        hasRemoteFilesystemOwner(group),
+        group.connectionId,
         childGroupIndex,
         repos
       )
@@ -96,7 +90,7 @@ function getLocalFolderScopeRoots(store: RuntimeStore, repos: readonly Repo[]): 
       !isRemoteOnlyFolderScope(
         workspace.folderPath,
         workspace.projectGroupId,
-        hasRemoteFolderWorkspaceOwner(workspace, projectGroups),
+        getFolderWorkspaceConnectionId(workspace, projectGroups),
         childGroupIndex,
         repos
       )
@@ -107,29 +101,7 @@ function getLocalFolderScopeRoots(store: RuntimeStore, repos: readonly Repo[]): 
   return roots
 }
 
-/** The single path implementation that both judges and resolves a local root. */
-type HostPathResolver = {
-  isAbsolute: (value: string) => boolean
-  resolve: (value: string) => string
-}
-
-/**
- * The allowed root a `workspaceDir` with no local repo to anchor it may contribute, or `null`.
- *
- * The predicate has to be the host's own, not `isRuntimePathAbsolute`: that helper accepts either
- * flavour, so on POSIX it calls `C:\ws` absolute while this `resolve` reads the same string as a
- * relative name and anchors the root under the main-process cwd — authorizing an unrelated local
- * tree. Pairing both here keeps them from diverging again; `hostPath` is injectable so the
- * flavour matrix can run POSIX and Windows without the test choosing on `process.platform`.
- */
-export function resolveUnanchoredWorkspaceRoot(
-  workspaceDir: string,
-  hostPath: HostPathResolver = { isAbsolute, resolve }
-): string | null {
-  return hostPath.isAbsolute(workspaceDir) ? hostPath.resolve(workspaceDir) : null
-}
-
-export function getAllowedRoots(store: RuntimeStore): string[] {
+export function getAllowedRoots(store: Store): string[] {
   // Why one read: `getRepos` rehydrates every repo, and this runs twice per filesystem IPC.
   const repos = store.getRepos()
   const localRepos = filterLocalRepos(repos)
@@ -140,10 +112,7 @@ export function getAllowedRoots(store: RuntimeStore): string[] {
   ]
   if (settings.workspaceDir) {
     if (localRepos.length === 0) {
-      const unanchoredRoot = resolveUnanchoredWorkspaceRoot(settings.workspaceDir)
-      if (unanchoredRoot) {
-        roots.push(unanchoredRoot)
-      }
+      roots.push(resolve(settings.workspaceDir))
     } else {
       const projectRuntimeByRepoId = resolveLocalProjectRuntimesForRepos(store, localRepos)
       for (const repo of localRepos) {

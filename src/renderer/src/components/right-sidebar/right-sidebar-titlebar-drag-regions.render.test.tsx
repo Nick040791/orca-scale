@@ -75,7 +75,6 @@ vi.mock('@/store', async () => {
       rightSidebarRouteRequestId: mockAppState.rightSidebarRouteRequestId,
       setRightSidebarTab: mockAppState.setRightSidebarTab,
       showRightSidebarFiles: mockAppState.showRightSidebarFiles,
-      setRightSidebarEffectiveTab: vi.fn(),
       toggleRightSidebar: vi.fn(),
       activeWorktreeId: mockAppState.activeWorktreeId,
       getKnownWorktreeById: getMockKnownWorktree,

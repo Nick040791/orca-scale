@@ -1,8 +1,7 @@
 import {
   buildWindowsAgentHookPostCommand,
   wrapPosixHookCommand,
-  buildWindowsHookPowerShellCommand,
-  wrapWindowsPowerShellEncodedCommand
+  wrapWindowsHookCommand
 } from '../agent-hooks/installer-utils'
 import {
   buildPosixHookPayloadCapture,
@@ -14,7 +13,6 @@ import {
   buildPosixGrokReplayGuardLines,
   buildWindowsGrokReplayGuardLines
 } from '../agent-hooks/grok-replay-guard'
-import { quoteStartupArg } from '../../shared/tui-agent-startup-shell'
 import { getCursorHookResponse, type CursorEvent } from './hook-events'
 
 const CURSOR_HOOK_RESPONSE_ENV = 'ORCA_CURSOR_HOOK_RESPONSE'
@@ -29,20 +27,14 @@ export function getPosixManagedCommand(scriptPath: string, eventName: CursorEven
 }
 
 export function getManagedCommand(scriptPath: string, eventName: CursorEvent): string {
-  if (process.platform !== 'win32') {
-    // Cursor uses the login shell; keep the POSIX guard inside sh with portable argument quoting.
-    return `/bin/sh -c ${quoteStartupArg(getPosixManagedCommand(scriptPath, eventName), 'posix')}`
-  }
   const response = getCursorHookResponse(eventName)
-  const command = buildWindowsHookPowerShellCommand(
-    scriptPath,
-    { [CURSOR_HOOK_RESPONSE_ENV]: response },
-    { fallbackStdout: response }
-  )
-  // PowerShell 5.1 defaults to the ANSI code page when translating hook stdin.
-  return wrapWindowsPowerShellEncodedCommand(
-    `[Console]::InputEncoding = New-Object System.Text.UTF8Encoding; $OutputEncoding = [Console]::InputEncoding; ${command}`
-  )
+  return process.platform === 'win32'
+    ? wrapWindowsHookCommand(
+        scriptPath,
+        { [CURSOR_HOOK_RESPONSE_ENV]: response },
+        { fallbackStdout: response }
+      )
+    : getPosixManagedCommand(scriptPath, eventName)
 }
 
 export function getManagedScript(target: 'local' | 'posix' = 'local'): string {

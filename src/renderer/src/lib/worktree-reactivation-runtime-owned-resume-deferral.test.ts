@@ -1,9 +1,8 @@
-import { getDefaultSettings } from '../../../shared/constants'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore, type AppState } from '@/store'
 import { activateAndRevealWorktree } from './worktree-activation'
-import { makeCreatedAgentWorktree } from '@/lib/worktree-activation-created-agent.test-fixture'
+import { makeCreatedAgentWorktree } from '@/lib/worktree-activation-created-agent-test-state'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { waitForWorktreeAgentActivationGateForTests } from './worktree-agent-activation-gate'
 
@@ -93,9 +92,9 @@ function baseState(worktree: ReturnType<typeof makeCreatedAgentWorktree>): Parti
       } as never
     },
     settings: {
-      ...getDefaultSettings(''),
-      agentCmdOverrides: {}
-    },
+      agentCmdOverrides: {},
+      setupScriptLaunchMode: 'new-tab'
+    } as unknown as ReturnType<typeof useAppStore.getState>['settings'],
     markWorktreeVisited: vi.fn(),
     recordWorktreeVisit: vi.fn(),
     refreshGitHubForWorktreeIfStale: vi.fn(),

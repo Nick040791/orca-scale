@@ -6,15 +6,9 @@ import type { MarkdownPreviewFoundation } from './use-markdown-preview-foundatio
 import type { MarkdownPreviewViewport } from './use-markdown-preview-viewport'
 
 export function MarkdownPreviewSearchBar({
-  searchFailed = false,
-  searchPending = false,
-  searchTruncated = false,
   foundation,
   viewport
 }: {
-  searchFailed?: boolean
-  searchPending?: boolean
-  searchTruncated?: boolean
   foundation: MarkdownPreviewFoundation
   viewport: MarkdownPreviewViewport
 }): React.JSX.Element {
@@ -58,13 +52,9 @@ export function MarkdownPreviewSearchBar({
         />
       </div>
       <div className="markdown-preview-search-status">
-        {searchFailed
-          ? translate('editor.markdownPreview.searchFailed', 'Search could not finish. Try again.')
-          : searchPending
-            ? translate('editor.markdownPreview.searching', 'Searching…')
-            : query && matchCount === 0
-              ? translate('auto.components.editor.MarkdownPreview.c5dc92cfe3', 'No results')
-              : `${matchCount === 0 ? 0 : activeMatchIndex + 1}/${matchCount}${searchTruncated ? ' +' : ''}`}
+        {query && matchCount === 0
+          ? translate('auto.components.editor.MarkdownPreview.c5dc92cfe3', 'No results')
+          : `${matchCount === 0 ? 0 : activeMatchIndex + 1}/${matchCount}`}
       </div>
       <Button
         type="button"

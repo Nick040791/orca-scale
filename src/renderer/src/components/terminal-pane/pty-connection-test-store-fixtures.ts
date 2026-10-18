@@ -59,6 +59,7 @@ export function createInitialStoreState(getState: () => StoreState): StoreState 
     }),
     registerAgentLaunchConfig: vi.fn(),
     clearAgentLaunchConfig: vi.fn(),
+    markWorktreeUnread: vi.fn(),
     observeTerminalGitHubPullRequestLink: vi.fn(),
     recordTerminalInput: vi.fn(),
     setAgentStatus: vi.fn(
@@ -90,8 +91,9 @@ export function createInitialStoreState(getState: () => StoreState): StoreState 
     clearPaneForegroundAgent: vi.fn((paneKey: string) => {
       delete getState().paneForegroundAgentByPaneKey[paneKey]
     }),
-    markTerminalBell: vi.fn(),
-    markAgentAttentionUnread: vi.fn()
+    markTerminalTabUnread: vi.fn(),
+    markTerminalPaneUnread: vi.fn(),
+    markAgentCompletionPaneUnread: vi.fn()
   } as StoreState
 }
 

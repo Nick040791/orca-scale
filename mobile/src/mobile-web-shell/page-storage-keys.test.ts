@@ -22,10 +22,11 @@ describe('the keys a page may read and write', () => {
     expect(isPageStorageKey('orca:nativeChatTabs:host-1:wt-1')).toBe(true)
   })
 
-  it('refuses the rest of the namespace', () => {
+  it('refuses the rest of the namespace, including the flag that turns this on', () => {
     // Everything the app stores lives under `orca:`, so a page that could write any of it could
-    // rewrite the app's pairings and push registrations.
+    // turn the hybrid shell on for a build that never offered it.
     for (const key of [
+      'orca:mobileWebShellEnabled',
       'orca:remotePushHostRegistrations',
       'orca:pushServiceNotificationsEnabled',
       'orca:home-snapshot:v1',

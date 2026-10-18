@@ -1,22 +1,28 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import {
   TOGGLE_FLOATING_TERMINAL_EVENT,
   requestFloatingTerminalOpenMaximized
 } from '@/lib/floating-terminal'
 import { createFloatingWorkspaceTourInteractionSnapshot } from '@/lib/floating-workspace-tour-interaction-snapshot'
-import { persistFloatingTerminalPanelOpen } from '../components/floating-terminal/floating-terminal-panel-view-state'
+import {
+  persistFloatingTerminalPanelOpen,
+  readPersistedFloatingTerminalPanelViewState
+} from '../components/floating-terminal/floating-terminal-panel-view-state'
 import { useAppStore } from '../store'
 import { selectFloatingVisibleTabCount } from '../store/selectors'
 
 export type FloatingWorkspacePanelState = ReturnType<typeof useFloatingWorkspacePanel>
 
 /**
- * Drives the floating workspace overlay's open state (held in the store): persistence, the focus
- * it hands back on close, and the toggle/disable paths that can flip it from outside React.
+ * Owns the floating workspace overlay's open state: persistence, the focus it hands back on
+ * close, and the toggle/disable paths that can flip it from outside React.
  */
 export function useFloatingWorkspacePanel() {
-  const open = useAppStore((s) => s.floatingWorkspacePanelOpen)
-  const setOpen = useAppStore((s) => s.setFloatingWorkspacePanelOpen)
+  // Why restored: leaving the panel closed forces the user to reopen and re-maximize it,
+  // and that size jump reflows a live TUI's buffer (see floating-terminal-panel-view-state).
+  const [open, setOpen] = useState(
+    () => readPersistedFloatingTerminalPanelViewState()?.open === true
+  )
   const tourInteractionSnapshotRef = useRef<{
     wasPreviouslyInteracted?: boolean
     persisted?: Promise<void>
@@ -97,7 +103,7 @@ export function useFloatingWorkspacePanel() {
         persistFloatingTerminalPanelOpen(resolvedOpen)
       }
     },
-    [enabled, open, setOpen, rememberReturnFocus, restoreReturnFocus]
+    [enabled, open, rememberReturnFocus, restoreReturnFocus]
   )
 
   const openMaximized = useCallback((): void => {
@@ -105,8 +111,7 @@ export function useFloatingWorkspacePanel() {
     setOpenWithFocus(true)
   }, [setOpenWithFocus])
 
-  // Why layout: enable-then-toggle callers dispatch a frame later, which a passive rebind can miss.
-  useLayoutEffect(() => {
+  useEffect(() => {
     const toggleFloatingTerminal = (): void => {
       if (enabled) {
         setOpenWithFocus((current) => !current)

@@ -181,7 +181,8 @@ export function BrowserPagePane({
     trackingScroller: pageViewport?.scroller ?? null,
     webviewRef,
     setBrowserOverlayViewport,
-    browserAnnotationsLength: annotationSend.browserAnnotations.length
+    browserAnnotationsLength: annotationSend.browserAnnotations.length,
+    setBrowserAnnotationTrayOpen: annotationSend.setBrowserAnnotationTrayOpen
   })
   const nav = useBrowserPageNavigationDownloads({
     browserTabId: browserTab.id,
@@ -223,7 +224,7 @@ export function BrowserPagePane({
     onUpdatePageState,
     onSetUrl,
     setAddressBarValue: nav.setAddressBarValue,
-    cancelPendingBrowserCapture: grabAnnotations.cancelPendingBrowserCapture,
+    setPendingAnnotationPayload: grabAnnotations.setPendingAnnotationPayload,
     setBrowserOverlayViewport,
     setFindOpen,
     focusAddressBarNow,
@@ -231,6 +232,7 @@ export function BrowserPagePane({
     paneZoomLevelRef: zoom.paneZoomLevelRef,
     setBrowserZoomPercent: zoom.setBrowserZoomPercent,
     pendingAnnotationPayload: grabAnnotations.pendingAnnotationPayload,
+    browserAnnotationsLength: annotationSend.browserAnnotations.length,
     inputLocked,
     faviconUrl: browserTab.faviconUrl,
     webviewRef,

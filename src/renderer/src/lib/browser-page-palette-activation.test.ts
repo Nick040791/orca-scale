@@ -10,10 +10,10 @@ import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 
-const mocks = vi.hoisted(() => ({ activateAndRevealWorkspace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ activateAndRevealWorktree: vi.fn() }))
 
 vi.mock('./worktree-activation', () => ({
-  activateAndRevealWorkspace: mocks.activateAndRevealWorkspace
+  activateAndRevealWorktree: mocks.activateAndRevealWorktree
 }))
 
 import { activateBrowserPagePaletteResult } from './browser-page-palette-activation'
@@ -145,7 +145,7 @@ const target = { pageId: 'page-1', workspaceId: 'ws-1', worktreeId: 'wt-1' }
 describe('activateBrowserPagePaletteResult', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.activateAndRevealWorkspace.mockReturnValue(true)
+    mocks.activateAndRevealWorktree.mockReturnValue(true)
     seedStore()
   })
 
@@ -157,7 +157,7 @@ describe('activateBrowserPagePaletteResult', () => {
     })
 
     const state = useAppStore.getState()
-    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith('wt-1', {})
+    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-1', {})
     expect(state.activeBrowserTabId).toBe('ws-1')
     expect(state.activeTabType).toBe('browser')
     expect(state.browserTabsByWorktree['wt-1'][0].activePageId).toBe('page-1')
@@ -170,7 +170,7 @@ describe('activateBrowserPagePaletteResult', () => {
 
     activateBrowserPagePaletteResult(target)
 
-    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith('wt-1', {
+    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-1', {
       executionHostId: 'ssh:host-1'
     })
   })
@@ -190,7 +190,7 @@ describe('activateBrowserPagePaletteResult', () => {
     expect(
       activateBrowserPagePaletteResult({ ...target, executionHostId: 'runtime:paired-host' }).status
     ).toBe('activated')
-    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith('wt-1', {
+    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-1', {
       executionHostId: 'runtime:paired-host'
     })
   })
@@ -218,7 +218,7 @@ describe('activateBrowserPagePaletteResult', () => {
       reason: 'missing-tab'
     })
     expect(useAppStore.getState()).toBe(before)
-    expect(mocks.activateAndRevealWorkspace).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
   it('keeps browser workspaces with distinct unified tabs in multiple groups activatable', () => {
@@ -251,7 +251,7 @@ describe('activateBrowserPagePaletteResult', () => {
     expect(
       activateBrowserPagePaletteResult({ pageId: 'page-1', workspaceId: 'ws-1', worktreeId })
     ).toMatchObject({ status: 'activated' })
-    expect(mocks.activateAndRevealWorkspace).toHaveBeenCalledWith(worktreeId, {
+    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(worktreeId, {
       executionHostId: 'ssh:host-1'
     })
   })
@@ -264,7 +264,7 @@ describe('activateBrowserPagePaletteResult', () => {
     })
     // Why: the real activation drops the page, so a post-activation lookup would
     // resolve the wrong target — the pre-capture is what keeps this correct.
-    mocks.activateAndRevealWorkspace.mockImplementation(() => {
+    mocks.activateAndRevealWorktree.mockImplementation(() => {
       useAppStore.setState({ browserPagesByWorkspace: {} })
       return true
     })
@@ -288,7 +288,7 @@ describe('activateBrowserPagePaletteResult', () => {
       reason: 'missing-page'
     })
 
-    expect(mocks.activateAndRevealWorkspace).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
   // A live page in a dead workspace is a different story than a dead page.
@@ -299,7 +299,7 @@ describe('activateBrowserPagePaletteResult', () => {
       status: 'failed',
       reason: 'missing-worktree'
     })
-    expect(mocks.activateAndRevealWorkspace).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
   // Deleting a worktree purges its browser workspaces and pages too, so the
@@ -315,13 +315,16 @@ describe('activateBrowserPagePaletteResult', () => {
       status: 'failed',
       reason: 'missing-worktree'
     })
-    expect(mocks.activateAndRevealWorkspace).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
-  it('reports blocked activation without claiming the workspace disappeared', () => {
-    mocks.activateAndRevealWorkspace.mockReturnValue(false)
+  it('reports a failed worktree activation distinguishably from a stale page', () => {
+    mocks.activateAndRevealWorktree.mockReturnValue(false)
 
-    expect(activateBrowserPagePaletteResult(target)).toEqual({ status: 'blocked' })
+    expect(activateBrowserPagePaletteResult(target)).toEqual({
+      status: 'failed',
+      reason: 'missing-worktree'
+    })
     expect(useAppStore.getState().activeBrowserTabId).toBeNull()
   })
 })
@@ -331,7 +334,7 @@ describe('activateBrowserPagePaletteResult', () => {
 describe('activateBrowserPagePaletteResult group focus', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.activateAndRevealWorkspace.mockReturnValue(true)
+    mocks.activateAndRevealWorktree.mockReturnValue(true)
     seedStore()
   })
 

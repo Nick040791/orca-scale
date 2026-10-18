@@ -7,15 +7,11 @@ import { detectAgentSendTitleStatus } from './agent-send-title-status'
 import {
   resolveRuntimePaneTitleLeafResolution,
   type RuntimePaneTitleLeafResolution
-} from '../../../shared/runtime-pane-title-leaf-id'
+} from './runtime-pane-title-leaf-id'
 import {
   deriveRunningAgentSendTargets,
-  deriveStatuslessStructuredAgentSendTargets,
-  runningAgentMessageTarget,
-  type RunningAgentSendTarget,
   type RunningAgentTargetState
 } from './running-agent-targets'
-import type { AgentMessageTarget } from './agent-message-target'
 
 export type NotesSendAgentTargetState = RunningAgentTargetState &
   Pick<AppState, 'runtimePaneTitlesByTabId'>
@@ -23,7 +19,7 @@ export type NotesSendAgentTargetState = RunningAgentTargetState &
 export type NotesSendAgentTarget = {
   paneKey: string
   tabId: string
-  messageTarget: AgentMessageTarget
+  leafId: string
   agentType: AgentType | null | undefined
   tabTitle: string
   status: 'eligible' | 'disabled'
@@ -65,19 +61,23 @@ function detectTitleHintPaneEvidence(
  *
  * The title hint gates discoverability only. The runtime independently checks
  * current hook/process evidence before any guarded write.
- *
- * A chat before its first turn has no status either; it is added here too, since
- * its composer already takes messages.
  */
 export function deriveNotesSendAgentTargets(
   state: NotesSendAgentTargetState,
   worktreeId: string,
   now = Date.now()
 ): NotesSendAgentTarget[] {
-  const targets: NotesSendAgentTarget[] = [
-    ...deriveRunningAgentSendTargets(state, worktreeId, now),
-    ...deriveStatuslessStructuredAgentSendTargets(state, worktreeId)
-  ].map(toNotesSendAgentTarget)
+  const targets: NotesSendAgentTarget[] = deriveRunningAgentSendTargets(state, worktreeId, now).map(
+    (target) => ({
+      paneKey: target.paneKey,
+      tabId: target.tabId,
+      leafId: target.leafId,
+      agentType: resolveNotesTargetAgentType(target.entry.agentType, target.tab.launchAgent),
+      tabTitle: target.tab.title,
+      status: target.status,
+      ...(target.disabledReason ? { disabledReason: target.disabledReason } : {})
+    })
+  )
 
   for (const tab of state.tabsByWorktree[worktreeId] ?? []) {
     const titleHintTarget = deriveTitleHintAgentTarget(state, tab)
@@ -96,21 +96,6 @@ export function deriveNotesSendAgentTargets(
   }
 
   return targets
-}
-
-function toNotesSendAgentTarget(target: RunningAgentSendTarget): NotesSendAgentTarget {
-  return {
-    paneKey: target.paneKey,
-    tabId: target.tabId,
-    messageTarget: runningAgentMessageTarget(target),
-    agentType:
-      target.kind === 'terminal'
-        ? resolveNotesTargetAgentType(target.entry.agentType, target.tab.launchAgent)
-        : target.agentType,
-    tabTitle: target.kind === 'terminal' ? target.tab.title : target.title,
-    status: target.status,
-    ...(target.disabledReason ? { disabledReason: target.disabledReason } : {})
-  }
 }
 
 function resolveNotesTargetAgentType(
@@ -152,7 +137,7 @@ function deriveTitleHintAgentTarget(
   return {
     paneKey: makePaneKey(tab.id, leafId),
     tabId: tab.id,
-    messageTarget: { kind: 'terminal', tabId: tab.id, leafId },
+    leafId,
     agentType: tab.launchAgent ?? resolveTerminalTitleAgentType(titleEvidence.title),
     tabTitle: tab.title,
     status: disabledReason ? 'disabled' : 'eligible',

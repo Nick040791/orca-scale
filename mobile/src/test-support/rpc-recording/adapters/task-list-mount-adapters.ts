@@ -3,7 +3,6 @@ import { observableModel, projectObservable } from '../observable-model'
 import type { MountAdapter, MountContext, MountedOperation } from '../recording-scenario'
 import type { operationModuleLoader } from '../operation-module-loader'
 import { mountFixture } from '../recorder-fixture-shape'
-import type { RuntimeHydrationModel } from '../../../tasks/use-mobile-tasks-runtime-hydration'
 
 const REPO_ID = 'repo-1'
 
@@ -12,7 +11,9 @@ const HOSTED_REPO = { id: REPO_ID, displayName: 'Repo', path: '/repo', provider:
 
 /**
  * One model in, an actions object out, every setter recorded as an effect: the shape this domain's
- * hooks share.
+ * hooks share. Copied per module rather than shared, because an adapter may not import another file
+ * in this directory: a golden pins the one module it was recorded through, so plumbing reaching
+ * across the seam would drive recordings its header does not cover.
  */
 type ModelHookSpec<Actions> = {
   /** Called inside the render body, so a hook that throws is recorded as a mount failure. */
@@ -76,13 +77,11 @@ export function taskListMountAdapters(
       'use-mobile-tasks-provider-load-actions.tsx'
     ).useMobileTasksProviderLoadActions
     return mountModelHook(context, {
-      useHook: (model) => useActions<RuntimeHydrationModel>(model),
+      useHook: (model) => useActions(model),
       fixture: {
         appliedQuery: 'bug',
-        clientRef: { current: context.client },
         connState: 'connected',
         defaultLinearTeamSelectionRef: { current: null },
-        jiraStatusRequestIdRef: { current: 0 },
         githubKind: 'issues',
         taskUiReady: true,
         tasksSupported: true,
@@ -138,8 +137,6 @@ export function taskListMountAdapters(
           githubMode: 'items',
           gitlabFilter: 'opened',
           gitlabView: 'project',
-          jiraConnection: { connected: false, sites: [], selection: null, credentialError: null },
-          jiraFilter: 'assigned',
           linearConnected: true,
           linearFilter: 'all',
           linearOrderBy: 'priority',
@@ -149,8 +146,7 @@ export function taskListMountAdapters(
           resetGitHubItemsState: () => {},
           selectedLinearTeamIds: new Set<string>(),
           selectedLinearWorkspaceId: 'linear-workspace',
-          effectiveRepoIds: new Set<string>(),
-          serverRepoList: [],
+          selectedRepoIds: new Set<string>(),
           taskStateHydrated: true,
           tasksSupported: true,
           items: [],

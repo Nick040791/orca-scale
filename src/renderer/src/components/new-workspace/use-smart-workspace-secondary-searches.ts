@@ -1,17 +1,14 @@
-import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { useEffect, useMemo, useRef } from 'react'
 import { searchRuntimeRepoBaseRefDetails } from '@/runtime/runtime-repo-client'
 import { lookupLinearIssueUrl } from '@/lib/linear-issue-url-lookup'
-import { searchJiraIssuesByKeyOrText } from '@/components/jira-key-or-text-search'
 import { linearWorkspaceScopeSignature } from '../../../../shared/linear/workspace-types'
 import { getSmartWorkspaceLinearSearchQuery } from '../../../../shared/new-workspace/smart-workspace-linear-intent'
 import type { parseBoundedSmartWorkspaceLinearIssueUrlIntent } from '../../../../shared/new-workspace/smart-workspace-linear-intent'
 import { RESULT_LIMIT } from './smart-workspace-name-field-model'
-import { restrictJiraQueryToProject } from '../../../../shared/jira-project-reference'
-import { getBranchSearchRequest } from '../../../../shared/new-workspace/smart-workspace-source-results'
-import type { useWorkItemSourceFoundation } from './use-work-item-source-foundation'
+import { getBranchSearchRequest } from './smart-workspace-source-results'
+import type { useSmartWorkspaceNameFieldFoundation } from './use-smart-workspace-name-field-foundation'
 
-type Foundation = ReturnType<typeof useWorkItemSourceFoundation>
+type Foundation = ReturnType<typeof useSmartWorkspaceNameFieldFoundation>
 
 export function useSmartWorkspaceSecondarySearches({
   foundation,
@@ -20,7 +17,7 @@ export function useSmartWorkspaceSecondarySearches({
   linearUrlIntent,
   linearUrlIntentOwnsInput,
   shouldQueryJira,
-  jiraSearchQuery
+  jiraSearchJql
 }: {
   foundation: Foundation
   shouldQueryLinear: boolean
@@ -28,7 +25,7 @@ export function useSmartWorkspaceSecondarySearches({
   linearUrlIntent: ReturnType<typeof parseBoundedSmartWorkspaceLinearIssueUrlIntent>
   linearUrlIntentOwnsInput: boolean
   shouldQueryJira: boolean
-  jiraSearchQuery: string | null
+  jiraSearchJql: string | null
 }): void {
   const {
     disabled,
@@ -39,6 +36,7 @@ export function useSmartWorkspaceSecondarySearches({
     mode,
     selectedRepo,
     debouncedQuery,
+    selectedRepoOwnerSettings,
     setBranches,
     setBranchResultsSource,
     setBranchesLoading,
@@ -47,13 +45,11 @@ export function useSmartWorkspaceSecondarySearches({
     searchLinearIssues,
     listLinearIssues,
     linearSourceContext,
-    linearWorkspaceIdOverride,
     setLinearIssues,
     setLinearLoading,
     setSettledLinearUrlQuery,
     jiraSourceContext,
     jiraConnectionStatus,
-    jiraProject,
     searchJiraIssues,
     setJiraIssues,
     setJiraLoading
@@ -100,10 +96,8 @@ export function useSmartWorkspaceSecondarySearches({
     ]
   )
 
-  // Why: branches are searched on the selected repo's own host.
-  const selectedRepoHostId = selectedRepo ? getRepoExecutionHostId(selectedRepo) : null
   useEffect(() => {
-    if (!branchSearchRequest || !selectedRepoHostId) {
+    if (!branchSearchRequest) {
       setBranches([])
       setBranchResultsSource(null)
       setBranchesLoading(false)
@@ -113,7 +107,7 @@ export function useSmartWorkspaceSecondarySearches({
     // Why: visibility retains prior rows while typing ahead of the debounced query.
     setBranchesLoading(true)
     void searchRuntimeRepoBaseRefDetails(
-      selectedRepoHostId,
+      selectedRepoOwnerSettings,
       branchSearchRequest.repoId,
       branchSearchRequest.query,
       branchSearchRequest.limit
@@ -143,7 +137,7 @@ export function useSmartWorkspaceSecondarySearches({
     }
   }, [
     branchSearchRequest,
-    selectedRepoHostId,
+    selectedRepoOwnerSettings,
     setBranches,
     setBranchResultsSource,
     setBranchesLoading
@@ -176,21 +170,13 @@ export function useSmartWorkspaceSecondarySearches({
             getSmartWorkspaceLinearSearchQuery(trimmed),
             RESULT_LIMIT,
             {
-              sourceContext: linearSourceContext,
-              ...(linearWorkspaceIdOverride !== undefined
-                ? { workspaceId: linearWorkspaceIdOverride }
-                : {})
+              sourceContext: linearSourceContext
             }
           )
         : linearReadMethodsRef.current
             .listLinearIssues(
               { kind: 'list', filter: 'assigned', limit: RESULT_LIMIT },
-              {
-                sourceContext: linearSourceContext,
-                ...(linearWorkspaceIdOverride !== undefined
-                  ? { workspaceId: linearWorkspaceIdOverride }
-                  : {})
-              }
+              { sourceContext: linearSourceContext }
             )
             .then((result) => result.items)
     void request
@@ -221,14 +207,13 @@ export function useSmartWorkspaceSecondarySearches({
     linearQuery,
     linearScopeSignature,
     linearSourceContext,
-    linearWorkspaceIdOverride,
     linearUrlIntent,
     setSettledLinearUrlQuery,
     shouldQueryLinear
   ])
 
   useEffect(() => {
-    if (!shouldQueryJira || !jiraSourceContext || !jiraSearchQuery) {
+    if (!shouldQueryJira || !jiraSourceContext || !jiraSearchJql) {
       setJiraIssues([])
       setJiraLoading(false)
       return
@@ -238,21 +223,12 @@ export function useSmartWorkspaceSecondarySearches({
     const controller = new AbortController()
     setJiraLoading(true)
     const siteId =
-      jiraProject?.siteId ??
-      jiraConnectionStatus?.selectedSiteId ??
-      jiraConnectionStatus?.activeSiteId ??
-      null
-    void searchJiraIssuesByKeyOrText(jiraSearchQuery, (jql) =>
-      searchJiraIssues(
-        jiraProject ? restrictJiraQueryToProject(jql, jiraProject) : jql,
-        RESULT_LIMIT,
-        {
-          sourceContext: jiraSourceContext,
-          siteId,
-          signal: controller.signal
-        }
-      )
-    )
+      jiraConnectionStatus?.selectedSiteId ?? jiraConnectionStatus?.activeSiteId ?? null
+    void searchJiraIssues(jiraSearchJql, RESULT_LIMIT, {
+      sourceContext: jiraSourceContext,
+      siteId,
+      signal: controller.signal
+    })
       .then((issues) => {
         if (!stale) {
           setJiraIssues(issues)
@@ -275,8 +251,7 @@ export function useSmartWorkspaceSecondarySearches({
   }, [
     jiraConnectionStatus?.activeSiteId,
     jiraConnectionStatus?.selectedSiteId,
-    jiraSearchQuery,
-    jiraProject,
+    jiraSearchJql,
     jiraSourceContext,
     searchJiraIssues,
     setJiraIssues,

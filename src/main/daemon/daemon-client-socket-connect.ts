@@ -1,11 +1,8 @@
 import { connect, type Socket } from 'node:net'
 import { DaemonProtocolError } from './types'
-import { ensureDaemonSocketDir } from './daemon-socket-endpoint-path'
 
 export function connectDaemonSocket(socketPath: string, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    // Throws inside the executor, so an untrusted relocated dir rejects before the hello token is sent.
-    ensureDaemonSocketDir(socketPath)
     const socket = connect(socketPath)
     const cleanup = (): void => {
       clearTimeout(timer)
@@ -36,19 +33,15 @@ export function connectDaemonSocket(socketPath: string, timeoutMs: number): Prom
 export function armDaemonSocketCloseHandlers(
   controlSocket: Socket,
   streamSocket: Socket,
-  handleClose: () => void,
-  drainStream: (done: () => void) => void
+  handleClose: () => void
 ): () => void {
-  // Why drain first: handling the close destroys the stream socket, and a daemon's last output
-  // (often a session's exit) can still sit unread behind the ingest bound.
-  const handleControlClose = (): void => drainStream(handleClose)
-  controlSocket.on('close', handleControlClose)
-  controlSocket.on('error', handleControlClose)
+  controlSocket.on('close', handleClose)
+  controlSocket.on('error', handleClose)
   streamSocket.on('close', handleClose)
   streamSocket.on('error', handleClose)
   return () => {
-    controlSocket.off('close', handleControlClose)
-    controlSocket.off('error', handleControlClose)
+    controlSocket.off('close', handleClose)
+    controlSocket.off('error', handleClose)
     streamSocket.off('close', handleClose)
     streamSocket.off('error', handleClose)
   }

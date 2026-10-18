@@ -31,7 +31,6 @@ vi.mock('../worktree/host-workspace-list-states', () => ({
 
 import { colors } from '../theme/mobile-theme'
 import { HostWorkspaceList } from './host-workspace-list'
-import { INITIAL_MOBILE_VIEW } from '../worktree/workspace-view-settings'
 
 /**
  * The banner the list paints for an action that did not happen, rendered rather than described.
@@ -61,7 +60,7 @@ function listWith(fields: { actionError: string; setActionError: (value: string)
     relayRecovery: { pairingRejected: false },
     routeNotice: '',
     router: { push: () => {} },
-    sectionsResult: { rawSections: [], sections: [], repoById: new Map() },
+    sectionsResult: { rawSections: [], sections: [], uniqueRepoColors: new Map() },
     setDismissedNotice: () => {},
     settings: { activeFilterCount: 0 },
     state: {
@@ -69,7 +68,8 @@ function listWith(fields: { actionError: string; setActionError: (value: string)
       setActionError: fields.setActionError,
       catalogError: null,
       collapsedGroups: new Set(),
-      view: { ...INITIAL_MOBILE_VIEW, groupBy: 'none' },
+      groupMode: 'none',
+      repoIconsByName: new Map(),
       search: '',
       showSearch: false,
       worktreesLoaded: true

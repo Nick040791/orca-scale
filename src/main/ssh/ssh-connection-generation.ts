@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { getConnectionExecutionHostId } from '../../shared/execution-host'
+import { toSshExecutionHostId } from '../../shared/execution-host'
 
 const SESSION_COUNTER_BITS = 13
 const SESSION_COUNTER_STRIDE = 2 ** SESSION_COUNTER_BITS
@@ -105,7 +105,7 @@ export function assertSshMutationExpectation(
   expectedGeneration: number | undefined,
   expectedExecutionHostId?: string
 ): void {
-  const actualExecutionHostId = getConnectionExecutionHostId(connectionId)
+  const actualExecutionHostId = connectionId ? toSshExecutionHostId(connectionId) : 'local'
   if (expectedExecutionHostId !== undefined && expectedExecutionHostId !== actualExecutionHostId) {
     throw new Error('Workspace host changed; refresh and try again')
   }

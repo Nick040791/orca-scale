@@ -1,10 +1,5 @@
 import type { ParsedAgentStatusPayload } from '../../agent-status-types'
 import {
-  markClaudeBackgroundAgentRunning,
-  oweClaudeAgentTaskNotification,
-  recordClaudeUnconfirmedAgentEnd
-} from '../../claude-owed-task-notifications'
-import {
   claudeRosterHasRestoredSnapshotSubagent,
   claudeRosterHasRuntimeWorkingSubagent,
   claudeTeammateIdMatchesName,
@@ -13,7 +8,6 @@ import {
   upsertWorkingClaudeSubagent
 } from '../../claude-subagent-roster'
 import type { HookListenerState } from '../listener-state'
-import { claudeRowHasUnlistedLiveWork } from './claude-pane-hold-evidence'
 import { readString } from '../tool-input-preview'
 import {
   clearClaudePendingWaitForAgent,
@@ -34,10 +28,6 @@ export function normalizeClaudeSubagentLifecycleEvent(
   if (!lifecycleId) {
     return null
   }
-  const sessionOwner = state.claudeSessionOwnerByPaneKey.get(paneKey)
-  const currentSession =
-    sessionOwner !== undefined && sessionOwner === readString(hookPayload, 'session_id')
-  const compatibleSession = sessionOwner === undefined || currentSession
   const cachedLead = state.claudeLeadStateByPaneKey.get(paneKey)
   const ownsUnbackedWait =
     cachedLead?.state === 'waiting' &&
@@ -70,12 +60,6 @@ export function normalizeClaudeSubagentLifecycleEvent(
   } else {
     const agentId = lifecycleId
     if (eventName === 'SubagentStart') {
-      if (compatibleSession) {
-        markClaudeBackgroundAgentRunning(
-          state.claudeLaunchedBackgroundTasksByPaneKey.get(paneKey),
-          agentId
-        )
-      }
       roster = getOrCreateClaudeSubagentRoster(state, paneKey)
       upsertWorkingClaudeSubagent(
         roster,
@@ -92,25 +76,18 @@ export function normalizeClaudeSubagentLifecycleEvent(
         stopClaudeSubagent(roster, agentId)
         endedChildWork = wasWorking && roster.get(agentId)?.state !== 'working'
       }
-      // Why the roster's verdict: it already tells a finish from a teammate's turn end (parked idle).
-      if (compatibleSession && roster?.get(agentId)?.state !== 'idle') {
-        const tasks = state.claudeLaunchedBackgroundTasksByPaneKey.get(paneKey) ?? new Map()
-        if (currentSession && endedRuntimeChildWork) {
-          recordClaudeUnconfirmedAgentEnd(tasks, agentId, Date.now())
-          state.claudeLaunchedBackgroundTasksByPaneKey.set(paneKey, tasks)
-        }
-        oweClaudeAgentTaskNotification(tasks, agentId, Date.now())
-      }
       // Why: a blocked child that dies without another tool event would pin its permission/question wait on the pane forever — nothing else references that agent again.
       clearClaudePendingWaitForAgent(state, paneKey, (waitingAgentId) => waitingAgentId === agentId)
     }
   }
   const workingChildEvidence = claudeRosterHasRuntimeWorkingSubagent(roster)
   const hasUnconfirmedChild = claudeRosterHasRestoredSnapshotSubagent(roster)
-  // Why: a shell or cron the inventory positively reported, or a notification this runtime saw
-  // become owed, is live evidence whatever verdict ended the main agent's turn.
+  // Why: a shell or cron the inventory positively reported is live evidence whatever verdict
+  // ended the main agent's turn; a cancel never discounts it.
   const hasConfirmedDoneGate =
-    cachedLead?.state === 'done' && claudeRowHasUnlistedLiveWork(state, paneKey)
+    cachedLead?.state === 'done' &&
+    (state.claudeRunningNonAgentTaskPaneKeys.has(paneKey) ||
+      state.claudeActiveSessionCronPaneKeys.has(paneKey))
   const restoredOnlyDoneGate =
     cachedLead?.state === 'done' && !hasConfirmedDoneGate && hasUnconfirmedChild
   if (roster?.size === 0) {
@@ -158,7 +135,7 @@ export function buildClaudeCachedLeadStatusPayload(
   // Why: draining the last background child is this turn's all-clear; the builder repeats the
   // record's turn stamp so a consumer can pair it with the announcement already sent.
   return buildClaudeStatusPayload(state, eventName, '', paneKey, hookPayload, {
-    ...resolveClaudePaneStatus(state, paneKey, { ...lead, state: leadState }),
+    ...resolveClaudePaneStatus(state, paneKey, { state: leadState }),
     updateToolSnapshot: false
   })
 }

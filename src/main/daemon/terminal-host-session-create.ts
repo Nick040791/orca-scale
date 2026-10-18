@@ -1,10 +1,4 @@
 import { buildStartupCommandSubmission } from '../../shared/startup-command-submission'
-import {
-  discardStagedStartupCommand,
-  stageStartupCommand,
-  startupStagingFailureNotice,
-  type StartupCommandStaging
-} from '../../shared/startup-command-staging'
 import { resolvePtyOwnerBackend } from '../../shared/pty-owner-backend'
 import { getDaemonSessionResultMetadata } from './daemon-create-or-attach-result'
 import { enumerateDirectoryOnce } from './directory-enumeration-probe'
@@ -16,8 +10,6 @@ import type { CreateOrAttachResult } from './terminal-host-create-contract'
 import type { TerminalHostOptions } from './terminal-host-options'
 import type { TerminalHostTombstones } from './terminal-host-tombstones'
 import type { TerminalSessionTeardown } from './terminal-session-teardown'
-import type { TerminalSpawnGate } from './terminal-spawn-gate'
-import type { LegacyRestoreDetails } from './legacy-restore-records'
 import { resolveDaemonSessionScrollbackRows } from './daemon-session-scrollback-window'
 import { TerminalAttachCanceledError } from './daemon-errors'
 import { waitForTerminalAttachOperation } from './terminal-attach-cancellation'
@@ -31,7 +23,6 @@ type TerminalHostSessionCreateDependencies = {
   sessionTeardown: TerminalSessionTeardown
   killedTombstones: TerminalHostTombstones
   spawnSubprocess: TerminalHostOptions['spawnSubprocess']
-  spawnGate: TerminalSpawnGate | undefined
   onDeadSessionRemoved: (sessionId: string) => void
   onSessionCreated: (sessionId: string, generation: string | undefined, isAlive: boolean) => void
   onSessionExit: (sessionId: string, generation: string | undefined) => void
@@ -110,42 +101,13 @@ export async function createOrAttachTerminalSession(
   deps.killedTombstones.clearForCreate(opts.sessionId)
   const size = normalizePtySize(opts.cols, opts.rows)
   const wslDistro = resolveWslSessionContext(opts)?.distro
-  const sessionId = opts.sessionId
-  let lease = deps.spawnGate?.admit(
-    {
-      clientId: opts.spawnAdmission?.clientId ?? 'in-process',
-      declaredIntent: opts.spawnAdmission?.declaredIntent ?? null,
-      hasAgentSessionClaim: opts.agentSessionEnsure !== undefined,
-      hasHistorySeed: (opts.historySeedChunks?.length ?? 0) > 0,
-      deadlineAt: opts.spawnAdmission?.deadlineAt ?? Number.POSITIVE_INFINITY
-    },
-    opts.cancelSignal
-      ? { signal: opts.cancelSignal, error: () => new TerminalAttachCanceledError(sessionId) }
-      : undefined,
-    describeAgentRestore(opts)
-  )
-  const paced = lease instanceof Promise
-  if (lease instanceof Promise) {
-    lease = await lease
-  }
-  try {
-    if (paced) {
-      // Why: a paced wait can outlast the host's shutdown fence or the caller's cancellation.
-      deps.assertCreateAllowed()
-    }
-    return await spawnAndPublishSession(opts, deps, { size, wslDistro }, (publishedId, isAlive) =>
-      lease?.commit(publishedId, isAlive)
-    )
-  } finally {
-    lease?.abandon()
-  }
+  return await spawnAndPublishSession(opts, deps, { size, wslDistro })
 }
 
 async function spawnAndPublishSession(
   opts: InternalCreateOrAttachOptions,
   deps: TerminalHostSessionCreateDependencies,
-  ctx: { size: { cols: number; rows: number }; wslDistro: string | undefined },
-  onPublished: (sessionId: string, isAlive: boolean) => void
+  ctx: { size: { cols: number; rows: number }; wslDistro: string | undefined }
 ): Promise<CreateOrAttachResult> {
   const { size, wslDistro } = ctx
   // Why before the fork: the shell's own cwd may already have fallen back, so probe the requested path.
@@ -169,7 +131,6 @@ async function spawnAndPublishSession(
     ...(opts.cancelSignal ? { cancelSignal: opts.cancelSignal } : {})
   })
 
-  let staging: StartupCommandStaging | undefined
   // Why: a fallback shell does not emit the preferred shell's ready marker;
   // retaining the stale capability would indefinitely queue its first command.
   const shellReadySupported =
@@ -195,9 +156,7 @@ async function spawnAndPublishSession(
     onExit: createSessionExitHandler(
       deps.onSessionExit,
       opts.sessionId,
-      opts.agentSessionGeneration,
-      () => discardStagedStartupCommand(staging),
-      deps.spawnGate
+      opts.agentSessionGeneration
     ),
     ...(deps.reportReadinessEvent ? { reportReadinessEvent: deps.reportReadinessEvent } : {}),
     ...(opts.shellReadyTimeoutMs !== undefined
@@ -208,21 +167,17 @@ async function spawnAndPublishSession(
   if (opts.isCanceled?.()) {
     // Retain cleanup ownership if the native child refuses to exit.
     deps.sessions.set(opts.sessionId, session)
-    // Why: a child that refuses to die stays charged against the live cap until it is reaped.
-    onPublished(opts.sessionId, session.isAlive)
     await session.forceKillAndDisposeSubprocess()
     if (deps.sessions.get(opts.sessionId) === session) {
       session.dispose()
       deps.sessions.delete(opts.sessionId)
       deps.onDeadSessionRemoved(opts.sessionId)
-      deps.spawnGate?.onSessionExit(opts.sessionId)
     }
     throw new TerminalAttachCanceledError(opts.sessionId)
   }
 
   deps.sessions.set(opts.sessionId, session)
   deps.onSessionCreated(opts.sessionId, opts.agentSessionGeneration, session.isAlive)
-  onPublished(opts.sessionId, session.isAlive)
   const token = session.attachClient(opts.streamClient)
 
   const startupCommandWritten =
@@ -242,26 +197,11 @@ async function spawnAndPublishSession(
     // Diagnostics must never turn a live PTY into a failed create.
   }
   if (startupCommandWritten && opts.command) {
-    staging = stageStartupCommand({
-      command: opts.command,
-      shellPath: subprocess.shellPath,
-      orcaBuiltLine: opts.launchAgent !== undefined
-    })
-    const notice = startupStagingFailureNotice(staging)
-    if (notice) {
-      session.startupIngress.accept(notice)
-      try {
-        deps.reportReadinessEvent?.('startup-command-stage-failed', {
-          sessionId: opts.sessionId,
-          reason: staging.failure
-        })
-      } catch {
-        // Diagnostics must never turn a live PTY into a failed create.
-      }
-    }
+    const submit = process.platform === 'win32' ? '\r' : '\n'
     // Why: only Orca-wrapped shells advertise the paste-safe startup barrier.
     session.write(
-      buildStartupCommandSubmission(staging.command, {
+      buildStartupCommandSubmission(opts.command, {
+        submit,
         bracketedPasteSafe: shellReadySupported
       })
     )
@@ -282,32 +222,9 @@ async function spawnAndPublishSession(
 function createSessionExitHandler(
   onSessionExit: TerminalHostSessionCreateDependencies['onSessionExit'],
   sessionId: string,
-  generation: string | undefined,
-  discardStagedCommand: () => void,
-  spawnGate: TerminalSpawnGate | undefined
+  generation: string | undefined
 ): () => void {
-  return () => {
-    discardStagedCommand()
-    spawnGate?.onSessionExit(sessionId)
-    onSessionExit(sessionId, generation)
-  }
-}
-
-/** What an agent launch resumes, never its environment, which can carry credentials. */
-function describeAgentRestore(
-  opts: InternalCreateOrAttachOptions
-): LegacyRestoreDetails | undefined {
-  if (!opts.command || (!opts.launchAgent && !opts.agentSessionEnsure)) {
-    return undefined
-  }
-  return {
-    sessionId: opts.sessionId,
-    agent: opts.launchAgent ?? opts.agentSessionEnsure?.claim.agent ?? null,
-    cwd: opts.cwd ?? null,
-    worktreeId: opts.agentSessionEnsure?.surface.worktreeId ?? null,
-    command: opts.command,
-    identityDigest: opts.agentSessionEnsure?.claim.identityDigest ?? null
-  }
+  return () => onSessionExit(sessionId, generation)
 }
 
 // Why enumeration: a shell's cwd listing is what TCC withholds, and it can withhold it while

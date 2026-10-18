@@ -53,7 +53,8 @@ describe('uploadMobileNativeChatImages', () => {
     expect(result).toEqual([
       {
         path: '/tmp/orca-attach.png',
-        previewUri: 'file:///photo.jpg'
+        previewUri: 'file:///photo.jpg',
+        contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
       }
     ])
     // Native chat defers the paste to submit — nothing is sent to the terminal here.
@@ -93,15 +94,18 @@ describe('uploadMobileNativeChatImages', () => {
     expect(result).toEqual([
       {
         path: '/tmp/a.png',
-        previewUri: 'file:///a.jpg'
+        previewUri: 'file:///a.jpg',
+        contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
       },
       {
         path: '/tmp/b.png',
-        previewUri: 'file:///b.jpg'
+        previewUri: 'file:///b.jpg',
+        contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
       },
       {
         path: '/tmp/c.png',
-        previewUri: 'file:///c.jpg'
+        previewUri: 'file:///c.jpg',
+        contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
       }
     ])
     expect(order).toEqual([
@@ -150,7 +154,8 @@ describe('uploadMobileNativeChatImages', () => {
     expect(onImageUploaded).toHaveBeenCalledOnce()
     expect(onImageUploaded).toHaveBeenCalledWith({
       path: '/tmp/a.png',
-      previewUri: 'file:///a.jpg'
+      previewUri: 'file:///a.jpg',
+      contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
     })
   })
 
@@ -166,7 +171,8 @@ describe('uploadMobileNativeChatImages', () => {
     expect(result).toEqual([
       {
         path: '/tmp/x.png',
-        previewUri: 'data:image/png;base64,BBBB'
+        previewUri: 'data:image/png;base64,BBBB',
+        contentFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
       }
     ])
   })

@@ -1,20 +1,14 @@
 // Fold one structured session's child-work evidence into the host's records.
 //
 // The store holds the only current record per child; evidence patches it. A child settles on its
-// own ending, or `unknown` when its session ends while it is still live; work with nothing to
-// report once it stops is removed instead. Settled children stay until the user's next turn (the
-// next send the provider accepts) or the host drops the parent's row. It owns only the records its
-// own producer admitted, and never claims an outcome the evidence did not report.
+// own ending, or `unknown` when its session ends while it is still live. It owns only the records
+// its own producer admitted, and never claims an outcome the evidence did not report.
 
 import type { AgentChildWorkAdmission } from './agent-status-child-work-admission'
-import { agentChildWorkFencesEqual } from './agent-status-child-work'
-import { settledOwnersOfLiveWork } from './agent-status-child-work-liveness'
 import type {
   AgentChildWorkEndedEvidence,
   AgentChildWorkEvidence,
-  AgentChildWorkOperationEvidence,
-  AgentChildWorkRemovedEvidence,
-  AgentChildWorkStopAcknowledgedEvidence
+  AgentChildWorkOperationEvidence
 } from './agent-status-child-work-evidence'
 import {
   applyAgentChildWorkLive,
@@ -31,6 +25,9 @@ import {
 } from './agent-status-child-work-evidence-resolution'
 
 export type { AgentChildWorkReconcileOutcome } from './agent-status-child-work-evidence-admission'
+
+/** Settled children kept per session. The oldest go first, never one that owns live work. */
+export const STRUCTURED_CHILD_WORK_MAX_SETTLED = 32
 
 export type AgentChildWorkReconcileInput = AgentChildWorkEvidenceScope & {
   admission: AgentChildWorkAdmission
@@ -60,25 +57,6 @@ function applyEnded(ctx: ReconcileContext, edge: AgentChildWorkEndedEvidence): v
     ...(edge.lastMessage !== undefined ? { lastMessage: edge.lastMessage } : {}),
     ...(edge.totalTokens !== undefined ? { totalTokens: edge.totalTokens } : {})
   })
-}
-
-/** The one rule for an accepted Stop: it settles only the run captured when it was sent, keeps an
- *  ending that run already reported, and takes the provider's own verdict when the answer had one. */
-function applyStopAcknowledged(
-  ctx: ReconcileContext,
-  edge: AgentChildWorkStopAcknowledgedEvidence
-): void {
-  const record = ownedStructuredChildWork(ctx).find(
-    (candidate) => candidate.childWorkId === edge.childWorkId
-  )
-  if (!record || !agentChildWorkFencesEqual(record.invocation, edge.invocation)) {
-    return
-  }
-  if (edge.outcome !== undefined) {
-    settleAgentChildWork(ctx, record, edge.outcome, edge.observedAt)
-  } else if (record.membership === 'live') {
-    settleAgentChildWork(ctx, record, 'cancelled', edge.observedAt, { basis: 'stop-acknowledged' })
-  }
 }
 
 /** A live child's current operation, and nothing else about it. */
@@ -126,34 +104,26 @@ function removeChildren(ctx: ReconcileContext, childWorkIds: string[]): void {
   }
 }
 
-/** The work is gone and has no ending to keep: its record, and the handles it answered to, go. */
-function applyRemoved(ctx: ReconcileContext, edge: AgentChildWorkRemovedEvidence): void {
-  const resolution = resolveAgentChildWorkHandle(ctx, [edge.handle.idKind], edge.handle.id)
-  if (resolution?.ambiguous) {
-    ctx.outcome.rejected.push({ handleId: edge.handle.id, reason: 'ambiguous' })
-    return
-  }
-  const existing = resolution?.child
-  if (!existing || agentChildWorkRunVerdict(ctx, existing, edge.handle.runId) === 'previous') {
-    return
-  }
-  removeChildren(ctx, [existing.childWorkId])
-}
-
-/** Settled children, less any that still owns live work at any depth: those stay so that work
- *  keeps every owner, by the same rule the surfaces list them by. */
-function removableSettled(ctx: ReconcileContext): string[] {
+/** Oldest-settled first; a settled child that still owns live work stays so its work keeps an owner. */
+function trimSettled(ctx: ReconcileContext): void {
   const owned = ownedStructuredChildWork(ctx)
-  const owners = settledOwnersOfLiveWork(
-    owned.map((record) => ({
-      id: record.childWorkId,
-      membership: record.membership,
-      ...(record.parentChildWorkId ? { ownerId: record.parentChildWorkId } : {})
-    }))
+  const settled = owned.filter((record) => record.membership === 'settled')
+  const excess = settled.length - STRUCTURED_CHILD_WORK_MAX_SETTLED
+  if (excess <= 0) {
+    return
+  }
+  const owners = new Set(
+    owned.flatMap((record) =>
+      record.membership === 'live' && record.parentChildWorkId ? [record.parentChildWorkId] : []
+    )
   )
-  return owned
-    .filter((record) => record.membership === 'settled' && !owners.has(record.childWorkId))
-    .map((record) => record.childWorkId)
+  const removable = settled
+    .filter((record) => !owners.has(record.childWorkId))
+    .sort((a, b) => (a.settledAt ?? a.observedAt) - (b.settledAt ?? b.observedAt))
+  removeChildren(
+    ctx,
+    removable.slice(0, excess).map((record) => record.childWorkId)
+  )
 }
 
 /** Apply one batch of evidence. The parent must already be held: the store refuses a child whose
@@ -175,15 +145,13 @@ export function reconcileAgentChildWorkEvidence(
       applyOperation(ctx, edge)
     } else if (edge.type === 'ended') {
       applyEnded(ctx, edge)
-    } else if (edge.type === 'removed') {
-      applyRemoved(ctx, edge)
-    } else if (edge.type === 'stop-acknowledged') {
-      applyStopAcknowledged(ctx, edge)
-    } else if (edge.type === 'turn-started') {
-      removeChildren(ctx, removableSettled(ctx))
     } else {
       settleLive(ctx, edge.observedAt)
     }
+  }
+  // Only a settle adds settled history; skipping the scan otherwise keeps progress edges cheap.
+  if (ctx.outcome.settled > 0) {
+    trimSettled(ctx)
   }
   return ctx.outcome
 }

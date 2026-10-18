@@ -8,21 +8,19 @@ import {
 } from './terminal-bracketed-paste'
 import { createRedactedPasteExecutionDiagnostic } from './terminal-paste-diagnostics'
 import { formatTerminalPasteExecutionError } from './terminal-paste-errors'
-import { chunkTerminalPastePlan, iterateTerminalPastePlanChunks } from './terminal-paste-chunks'
 import {
+  chunkTerminalPastePlan,
   createTerminalPastePayload,
-  planTerminalPaste,
-  planTerminalPasteWithYield
-} from './terminal-paste-coordinator'
-import {
   executeTerminalPastePlan,
-  getTerminalPasteOperationTimeoutMs
-} from './terminal-paste-executor'
-import {
+  getTerminalPasteOperationTimeoutMs,
+  iterateTerminalPastePlanChunks,
+  planTerminalPaste,
+  planTerminalPasteWithYield,
   TERMINAL_PASTE_OPERATION_TIMEOUT_MS,
-  TERMINAL_REMOTE_PASTE_OPERATION_TIMEOUT_MS
-} from './terminal-paste-limits'
-import type { TerminalPasteRuntime, TerminalPasteTarget } from './terminal-paste-model'
+  TERMINAL_REMOTE_PASTE_OPERATION_TIMEOUT_MS,
+  type TerminalPasteRuntime,
+  type TerminalPasteTarget
+} from './terminal-paste-coordinator'
 
 const textEncoder = new TextEncoder()
 
@@ -80,11 +78,19 @@ const RUNTIME_MATRIX: { name: string; runtime: TerminalPasteRuntime }[] = [
     }
   },
   {
-    name: 'Windows remote runtime',
+    name: 'SSH Linux',
+    runtime: {
+      platform: 'linux',
+      runtimeKey: 'ssh:linux-prod',
+      kind: 'ssh'
+    }
+  },
+  {
+    name: 'SSH Windows',
     runtime: {
       platform: 'win32',
-      runtimeKey: 'remote-runtime:win32',
-      kind: 'remote-runtime'
+      runtimeKey: 'ssh:windows-prod',
+      kind: 'ssh'
     }
   },
   {
@@ -172,7 +178,7 @@ describe('terminal paste coordinator', () => {
       text,
       source: 'context-menu',
       target: terminalTarget({
-        runtime: { platform: 'linux', runtimeKey: 'remote:prod', kind: 'remote-runtime' }
+        runtime: { platform: 'linux', runtimeKey: 'ssh:prod', kind: 'ssh' }
       }),
       maxDirectBytes: 32,
       maxChunkBytes: 24
@@ -188,7 +194,7 @@ describe('terminal paste coordinator', () => {
 
     expect(result.status).toBe('pasted')
     expect(plan.mode).toBe('chunked')
-    expect(plan.runtimeKey).toBe('remote:prod')
+    expect(plan.runtimeKey).toBe('ssh:prod')
     expect(pasteText).not.toHaveBeenCalled()
     expect(writePty.mock.calls.map((call) => call[0]).join('')).toBe(
       normalizeTerminalPasteLineEndings(text)
@@ -431,7 +437,7 @@ describe('terminal paste coordinator', () => {
       })
 
       expect(getTerminalPasteOperationTimeoutMs(plan), name).toBe(
-        runtime.kind === 'remote-runtime'
+        runtime.kind === 'ssh' || runtime.kind === 'remote-runtime'
           ? TERMINAL_REMOTE_PASTE_OPERATION_TIMEOUT_MS
           : TERMINAL_PASTE_OPERATION_TIMEOUT_MS
       )
@@ -490,7 +496,7 @@ describe('terminal paste coordinator', () => {
 
     expect(result).toMatchObject({ status: 'cancelled', reason: 'target-disconnected' })
     expect(writePty).toHaveBeenCalledTimes(1)
-    expect(writePty).toHaveBeenCalledWith('x'.repeat(8), expect.any(AbortSignal))
+    expect(writePty).toHaveBeenCalledWith('x'.repeat(8))
     expect(codePointAt.mock.calls.length).toBeLessThan(text.length)
   })
 

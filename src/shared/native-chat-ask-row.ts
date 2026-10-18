@@ -9,17 +9,16 @@ import { pairToolBlocks } from './native-chat-tool-fold'
 
 export const NATIVE_CHAT_ASK_ROW_COPY = {
   awaiting: 'Awaiting user input:',
-  awaitingUnnamed: 'Awaiting user input',
   asked: 'Asked:',
   questionCount: '{{value0}} questions'
 } as const
 
-/** What was asked: the one question, or every question of a grouped prompt. One
- *  row stands for the whole prompt, so a grouped prompt names its count on the
- *  line rather than quoting its first question as though it were the only one. */
+/** What the row names after its label: the question itself, or how many were
+ *  asked. One row stands for the whole prompt, so a grouped prompt may not quote
+ *  just its first question as though it were the only one. */
 export type NativeChatAskRowSubject =
   | { kind: 'question'; text: string }
-  | { kind: 'questions'; questions: string[] }
+  | { kind: 'count'; count: number }
 
 /** Whether this block is a question tool call, and so is drawn as the awaiting
  *  row rather than as an ordinary tool line. */
@@ -94,7 +93,7 @@ export function nativeChatAskRunSubject(
     return null
   }
   if (questions.length > 1) {
-    return { kind: 'questions', questions }
+    return { kind: 'count', count: questions.length }
   }
   const text = questions[0]
   return text ? { kind: 'question', text } : null

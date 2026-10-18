@@ -28,9 +28,6 @@ function installLoginShellRunner(): { argv: string[][] } {
   const argv: string[][] = []
   gitExecFileAsyncMock.mockImplementation(async (args: string[], options: GitExecOptions = {}) => {
     argv.push(args)
-    if (args[0] === 'for-each-ref') {
-      return { stdout: '', stderr: '' }
-    }
     if (args[0] === 'rev-parse') {
       throw new Error('local branch is absent')
     }
@@ -85,9 +82,6 @@ describe('getBranchConflictKind batched remote probe', () => {
 
   it('still falls back to per-ref probes when the batch itself fails', async () => {
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
-      if (args[0] === 'for-each-ref') {
-        return { stdout: '', stderr: '' }
-      }
       if (args[0] === 'rev-parse') {
         throw new Error('local branch is absent')
       }

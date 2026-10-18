@@ -11,8 +11,7 @@ import {
   clearWebSessionTerminalOrphanRecoveryForTests,
   recoverWebSessionTerminalOrphansBeforeApply
 } from './web-session-terminal-orphan-recovery'
-import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+import { applyWebSessionTabsSnapshot, type WebSessionTabsSyncState } from './web-session-tabs-sync'
 import {
   makeState as makeTabsSyncState,
   resetWebSessionTabsSyncTestState
@@ -117,14 +116,8 @@ describe('web session terminal orphan inventory retries', () => {
       { call: call as never }
     )
 
-    // An unlisted pending row stays pending; the live binding survives the apply either way.
-    const unlistedPending = incoming === 'pending' && firstInventory.length === 0
     expect(first?.tabs).toEqual([
-      expect.objectContaining(
-        unlistedPending
-          ? { leafId: LEAF_ID, status: 'pending-handle', terminal: null }
-          : { leafId: LEAF_ID, status: 'ready', terminal: HANDLE }
-      )
+      expect.objectContaining({ leafId: LEAF_ID, status: 'ready', terminal: HANDLE })
     ])
     expect(appliedState.ptyIdsByTabId[localTabId]).toEqual(state.ptyIdsByTabId[localTabId])
     expect(appliedState.terminalLayoutsByTabId[localTabId]?.ptyIdsByLeafId).toEqual(
@@ -254,7 +247,7 @@ describe('web session terminal orphan inventory retries', () => {
     )
 
     expect(recovered?.tabs).toEqual([
-      expect.objectContaining({ leafId: LEAF_ID, status: 'pending-handle', terminal: null })
+      expect.objectContaining({ leafId: LEAF_ID, status: 'ready', terminal: HANDLE })
     ])
     expect(call).toHaveBeenCalledOnce()
   })

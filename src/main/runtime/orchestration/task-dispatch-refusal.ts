@@ -22,16 +22,14 @@ export function taskNotStartableError(
   db: OrchestrationDb,
   message: string,
   task: TaskRow,
-  retryOf?: string,
-  failureCount?: number
+  retryOf?: string
 ): OrchestrationError {
   return toError(
     taskNotStartableRefusal(message, {
       taskId: task.id,
       status: task.status,
       unmetDependencies: unmetTaskDependencies(db, task),
-      ...(retryOf ? { retryOf } : {}),
-      ...(failureCount !== undefined ? { failureCount } : {})
+      ...(retryOf ? { retryOf } : {})
     })
   )
 }

@@ -3,12 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { zstdCompressSync } from 'node:zlib'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS } from '../codex-cli/codex-read-only-app-server-args'
 import SyncDatabase from '../sqlite/sync-database'
 import { runCodexAppServerSession, type CodexAppServerRpc } from './codex-app-server-session'
-import { findNewestCodexStateDbPath, readCodexStateDbBackfillStatus } from './codex-state-db'
+import { findNewestCodexStateDbPath } from './codex-state-db'
 
 // Why this file exists: every other index-heal test drives a stub app-server and
 // asserts "healed" as "the `thread/read` call did not error". That pins Orca's half
@@ -19,7 +17,7 @@ import { findNewestCodexStateDbPath, readCodexStateDbBackfillStatus } from './co
 // real-binary backstop, built to the same shape as the Git binary compatibility
 // contract in src/shared/git-binary-compatibility.test.ts.
 //
-// Keep it narrow. It pins the arms that ablation established Orca relies on,
+// Keep it narrow. It pins the four arms that ablation established Orca relies on,
 // and deliberately asserts nothing else about the app-server, so an unrelated Codex
 // release does not redden it into being disabled.
 
@@ -85,18 +83,11 @@ describeCodexContract(
       mkdirSync(join(home, 'sessions'), { recursive: true })
       // An app-server session over an empty sessions tree is what stamps the backfill complete.
       await runAppServerSession(home, async () => undefined)
-      // Why: the account bridge links history only after this no-request session stamps it.
-      expect(readCodexStateDbBackfillStatus(home).kind).toBe('complete')
       expect(readThreadRows(home)).toEqual([])
       return home
     }
 
-    function writeRollout(
-      home: string,
-      threadId: string,
-      stamp: string,
-      options: { compressed?: boolean } = {}
-    ): void {
+    function writeRollout(home: string, threadId: string, stamp: string): void {
       const dayDir = join(home, 'sessions', '2026', '08', '29')
       mkdirSync(dayDir, { recursive: true })
       const meta = {
@@ -121,13 +112,10 @@ describeCodexContract(
         type: 'event_msg',
         payload: { type: 'user_message', message: 'index-heal contract fixture' }
       }
-      const contents = `${JSON.stringify(meta)}\n${JSON.stringify(userMessage)}\n`
-      const fileName = `rollout-${stamp}-${threadId}.jsonl`
-      if (options.compressed) {
-        writeFileSync(join(dayDir, `${fileName}.zst`), zstdCompressSync(contents))
-      } else {
-        writeFileSync(join(dayDir, fileName), contents)
-      }
+      writeFileSync(
+        join(dayDir, `rollout-${stamp}-${threadId}.jsonl`),
+        `${JSON.stringify(meta)}\n${JSON.stringify(userMessage)}\n`
+      )
     }
 
     // Why reuse runCodexAppServerSession rather than a local JSON-RPC client: it is the
@@ -140,8 +128,7 @@ describeCodexContract(
       return runCodexAppServerSession(
         {
           command: binary!,
-          // Why: the heal and account state-DB creation launch with these exact args.
-          args: [...CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS],
+          args: ['app-server'],
           cliPath: binary!,
           env: { CODEX_HOME: home },
           timeoutMs: SESSION_TIMEOUT_MS
@@ -176,19 +163,6 @@ describeCodexContract(
       // Control: a complete app-server session that issues no `thread/read`.
       await runAppServerSession(home, async () => undefined)
       expect(readThreadRows(home)).toEqual([])
-
-      await runAppServerSession(home, async (rpc) => {
-        await rpc.request('thread/read', { threadId })
-      })
-
-      expect(readThreadRows(home)).toEqual([{ id: threadId, archived: 0 }])
-    })
-
-    // Why: the account bridge links `.jsonl.zst` history and heals it with the same read.
-    it('indexes a compressed-only rollout on read', async () => {
-      const home = await createBackfilledCodexHome()
-      const threadId = '01a04f62-715e-7830-9371-50db585caa74'
-      writeRollout(home, threadId, '2026-08-29T17-00-00', { compressed: true })
 
       await runAppServerSession(home, async (rpc) => {
         await rpc.request('thread/read', { threadId })

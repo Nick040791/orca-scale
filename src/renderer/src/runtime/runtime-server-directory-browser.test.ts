@@ -5,7 +5,6 @@ import {
   MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
   RUNTIME_PROTOCOL_VERSION
 } from '../../../shared/protocol-version'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 
 const runtimeEnvironmentCall = vi.fn()
 
@@ -40,7 +39,13 @@ beforeEach(() => {
       _meta: { runtimeId: 'remote-runtime' }
     })
   })
-  stubRuntimeEnvironmentBridge({ call: runtimeEnvironmentCall })
+  vi.stubGlobal('window', {
+    api: {
+      runtimeEnvironments: {
+        call: runtimeEnvironmentCall
+      }
+    }
+  })
 })
 
 describe('runtime server directory browser', () => {

@@ -1,10 +1,4 @@
-import {
-  closeTestStores,
-  createSqliteTestStore,
-  createStore as createFreshStore,
-  testState
-} from '../persistence-test-harness'
-import { resetRetirementCollisionKeyCacheForTests } from '../worktree-name-retirement'
+import { closeTestStores, createSqliteTestStore } from '../persistence-test-harness'
 /**
  * A folder workspace can pin its execution host while its repo stays local.
  * The desktop authority used to project only the repo, so those records listed
@@ -25,7 +19,7 @@ import { AUTOMATION_ORPHAN_ISSUES } from '../../shared/automation-list-scope'
 import { AutomationService } from './service'
 import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 
-let hasCreatedStoreInCase = false
+const testState = { dir: '' }
 
 vi.mock('electron', () => ({
   app: { getPath: () => testState.dir },
@@ -122,10 +116,6 @@ async function createStore(
     }),
     'utf-8'
   )
-  if (!hasCreatedStoreInCase) {
-    hasCreatedStoreInCase = true
-    return createFreshStore()
-  }
   vi.resetModules()
   installFakeAppEnvironment({ getPath: () => testState.dir })
   const { Store, initDataPath } = await import('../persistence')
@@ -134,8 +124,6 @@ async function createStore(
 }
 
 beforeEach(() => {
-  hasCreatedStoreInCase = false
-  resetRetirementCollisionKeyCacheForTests()
   testState.dir = mkdtempSync(join(tmpdir(), 'automation-workspace-host-'))
 })
 

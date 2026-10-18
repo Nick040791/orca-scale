@@ -1,7 +1,5 @@
-import { continueMainAgentStatus } from '../../agent-lead-status-fold'
 import {
   normalizeAgentStatusPayload,
-  type AgentMainAgentStatus,
   type ParsedAgentStatusPayload
 } from '../../agent-status-types'
 import type { HookListenerState } from '../listener-state'
@@ -14,8 +12,7 @@ export function normalizeOpenCodeFamilyEvent(
   eventName: unknown,
   promptText: string,
   paneKey: string,
-  hookPayload: Record<string, unknown>,
-  previousMainAgent?: AgentMainAgentStatus
+  hookPayload: Record<string, unknown>
 ): ParsedAgentStatusPayload | null {
   const resetsTurn =
     isNewTurnEvent(source, eventName) ||
@@ -44,28 +41,6 @@ export function normalizeOpenCodeFamilyEvent(
     }
   )
 
-  const rootState = hookPayload.root_state
-  const errorName = hookPayload.root_turn_error_name
-  const mainAgent =
-    (source === 'opencode' || source === 'opencode2') &&
-    (rootState === 'working' || rootState === 'waiting' || rootState === 'done')
-      ? continueMainAgentStatus(
-          eventName === 'SessionStart'
-            ? undefined
-            : (previousMainAgent ?? state.lastStatusByPaneKey.get(paneKey)?.payload.mainAgent),
-          {
-            state: rootState,
-            outcome:
-              rootState === 'done' && typeof errorName === 'string' && errorName
-                ? errorName === 'MessageAbortedError'
-                  ? 'cancellation'
-                  : 'failure'
-                : undefined
-          },
-          Date.now()
-        )
-      : undefined
-
   return normalizeAgentStatusPayload({
     state: stateName,
     prompt: resolvePrompt(state, paneKey, promptText, {
@@ -80,8 +55,6 @@ export function normalizeOpenCodeFamilyEvent(
     sessionBoundary:
       (source === 'opencode' || source === 'opencode2') && eventName === 'SessionStart'
         ? true
-        : undefined,
-    ...(mainAgent ? { mainAgent } : {}),
-    ...(stateName === 'done' && mainAgent?.outcome === 'cancellation' ? { interrupted: true } : {})
+        : undefined
   })
 }

@@ -4,7 +4,6 @@ type GitHubSourceApplicationInput = Pick<
   ComposerModel,
   | 'branchAutoNameRef'
   | 'lastAutoNameRef'
-  | 'linkedWorkItem'
   | 'name'
   | 'selectedRepoGitHubSourceContext'
   | 'setBranchNameOverride'
@@ -28,7 +27,6 @@ export function useGitHubSourceApplication(input: GitHubSourceApplicationInput) 
   const {
     branchAutoNameRef,
     lastAutoNameRef,
-    linkedWorkItem,
     name,
     selectedRepoGitHubSourceContext,
     setBranchNameOverride,
@@ -75,8 +73,7 @@ export function useGitHubSourceApplication(input: GitHubSourceApplicationInput) 
         suggestedName &&
         shouldApplyWorkspaceSourceAutoName({
           currentName: name,
-          lastAutoName: lastAutoNameRef.current,
-          lookupTextIsQuery: !linkedWorkItem
+          lastAutoName: lastAutoNameRef.current
         })
       ) {
         setName(suggestedName)
@@ -90,7 +87,6 @@ export function useGitHubSourceApplication(input: GitHubSourceApplicationInput) 
     },
     [
       name,
-      linkedWorkItem,
       selectedRepoGitHubSourceContext,
       branchAutoNameRef,
       lastAutoNameRef,

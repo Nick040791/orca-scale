@@ -2,9 +2,9 @@
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 import { useExpandCollapseActions } from './expand-collapse'
-import { useTerminalKeyboardShortcuts } from './terminal-keyboard-hook'
+import { useTerminalKeyboardShortcuts } from './keyboard-handlers'
 
 type ExpandCollapseHookState = Parameters<typeof useExpandCollapseActions>[0]
 type KeyboardHandlersDeps = Parameters<typeof useTerminalKeyboardShortcuts>[0]

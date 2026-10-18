@@ -1,61 +1,55 @@
-import { classifyFilesystemDirectoryEntries } from '../filesystem-symlink-directory-entries'
-import { markdownDocumentsFromRelativePaths } from '../../../shared/markdown-document-paths'
 import {
   capturePathExistence,
   validatePathExistenceBatch,
   type PathExistenceResult
 } from '../../../shared/path-existence-batch'
 import { ipcMain } from 'electron'
-import { readdir, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { extname } from 'node:path'
 import type { DirEntry, MarkdownDocument } from '../../../shared/filesystem-entry-types'
 import { sortDirEntries } from '../../../shared/file-name-sort'
-import { SshHostNotServedError } from '../../providers/ssh-host-not-served-error'
+import { requireSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 import { resolveRegisteredWorktreePath } from '../registered-worktree-roots-cache'
-import type { LocalFileAccess } from '../../../shared/local-file-access'
-import {
-  resolveDesktopAuthorizedPath,
-  resolveLocalFileRequestPath
-} from '../local-file-access-resolution'
+import { resolveAuthorizedPath } from '../filesystem-auth'
 import { isENOENT } from '../filesystem-path-containment'
-import { listMarkdownDocuments } from '../markdown-documents'
-import { getLocalGitOptionsForRegisteredWorktree } from '../local-worktree-runtime-options'
+import { listMarkdownDocuments, markdownDocumentsFromRelativePaths } from '../markdown-documents'
 import { recordCrashBreadcrumb } from '../../crash-reporting/crash-breadcrumb-store'
 import { buildReadDirErrorBreadcrumb, type ReadDirThrowSite } from '../readdir-error-diagnostics'
 import type { FilesystemHandlerContext } from './filesystem-handler-context'
-import { registerFilesystemChunkReadHandler } from './filesystem-chunk-read-handler'
-import { readMediaPreview } from '../../media/media-preview-protocol'
 import {
-  readLocalFileContent,
-  readLocalLogSnapshot,
-  type LocalFileContent
+  BINARY_PROBE_BYTES,
+  isBinaryBuffer,
+  isBinaryFilePrefix,
+  isDirectoryEntry,
+  MAX_PREVIEWABLE_BINARY_SIZE,
+  MAX_TEXT_FILE_SIZE,
+  PREVIEWABLE_BINARY_MIME_TYPES,
+  readLocalLogSnapshot
 } from './filesystem-file-content-inspection'
 
 export function registerFilesystemReadHandlers(context: FilesystemHandlerContext): void {
-  registerFilesystemChunkReadHandler(context)
   const { store } = context
 
   ipcMain.handle(
     'fs:readDir',
-    async (
-      _event,
-      args: { dirPath: string; connectionId?: string; followSymlinks?: boolean }
-    ): Promise<DirEntry[]> => {
+    async (_event, args: { dirPath: string; connectionId?: string }): Promise<DirEntry[]> => {
       // Why: fs:readDir throws surface as opaque IPC errors; record the throw site + redacted path shape to keep them diagnosable.
       let throwSite: ReadDirThrowSite = 'authorize'
       try {
         if (args.connectionId) {
           throwSite = 'ssh-provider'
-          throw new SshHostNotServedError(args.connectionId)
+          const provider = requireSshFilesystemProvider(args.connectionId)
+          // Why: re-sort locally — the remote relay may be an older build with lexicographic ordering.
+          return sortDirEntries(await provider.readDir(args.dirPath))
         }
-        const dirPath = await resolveDesktopAuthorizedPath(args.dirPath, store)
+        const dirPath = await resolveAuthorizedPath(args.dirPath, store)
         throwSite = 'readdir'
         const entries = await readdir(dirPath, { withFileTypes: true })
-        const mapped = await classifyFilesystemDirectoryEntries(
-          args.dirPath,
-          entries,
-          args.followSymlinks ?? store.getSettings().followSymlinkedDirectories ?? false,
-          (path) => resolveDesktopAuthorizedPath(path, store)
-        )
+        const mapped = entries.map((entry) => ({
+          name: entry.name,
+          isDirectory: isDirectoryEntry(entry),
+          isSymlink: entry.isSymbolicLink()
+        }))
         return sortDirEntries(mapped)
       } catch (error: unknown) {
         recordCrashBreadcrumb(
@@ -75,25 +69,53 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
   ipcMain.handle(
     'fs:readFile',
     async (
-      event,
-      args: {
-        filePath: string
-        connectionId?: string
-        includeLocalLogMetadata?: boolean
-        access?: LocalFileAccess
-      }
-    ): Promise<LocalFileContent> => {
+      _event,
+      args: { filePath: string; connectionId?: string; includeLocalLogMetadata?: boolean }
+    ): Promise<{
+      content: string
+      isBinary: boolean
+      isImage?: boolean
+      mimeType?: string
+      fileIdentity?: string
+    }> => {
       if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+        const provider = requireSshFilesystemProvider(args.connectionId)
+        return provider.readFile(args.filePath)
       }
-      const filePath = await resolveLocalFileRequestPath(args.filePath, args.access, store)
-      const media = readMediaPreview(event, args, store)
-      if (media) {
-        return media
+      const filePath = await resolveAuthorizedPath(args.filePath, store)
+      if (args.includeLocalLogMetadata === true) {
+        return readLocalLogSnapshot(filePath)
       }
-      return args.includeLocalLogMetadata === true
-        ? readLocalLogSnapshot(filePath)
-        : readLocalFileContent(filePath)
+      const stats = await stat(filePath)
+      const mimeType = PREVIEWABLE_BINARY_MIME_TYPES[extname(filePath).toLowerCase()]
+      const sizeLimit = mimeType ? MAX_PREVIEWABLE_BINARY_SIZE : MAX_TEXT_FILE_SIZE
+      if (stats.size > sizeLimit) {
+        throw new Error(
+          `File too large: ${(stats.size / 1024 / 1024).toFixed(1)}MB exceeds ${sizeLimit / 1024 / 1024}MB limit`
+        )
+      }
+
+      if (mimeType) {
+        const buffer = await readFile(filePath)
+        return {
+          content: buffer.toString('base64'),
+          isBinary: true,
+          // Why: the renderer keys previewable-binary rendering off `isImage`, so set it for PDFs too to stay compatible.
+          isImage: true,
+          mimeType
+        }
+      }
+
+      // Why: probe large unknown files first so archives aren't fully buffered only to discover they aren't editable text.
+      if (stats.size > BINARY_PROBE_BYTES && (await isBinaryFilePrefix(filePath))) {
+        return { content: '', isBinary: true }
+      }
+
+      const buffer = await readFile(filePath)
+      if (isBinaryBuffer(buffer)) {
+        return { content: '', isBinary: true }
+      }
+      return { content: buffer.toString('utf-8'), isBinary: false }
     }
   )
 
@@ -104,24 +126,12 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
       args: { rootPath: string; connectionId?: string }
     ): Promise<MarkdownDocument[]> => {
       if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+        const provider = requireSshFilesystemProvider(args.connectionId)
+        const relativePaths = await provider.listFiles(args.rootPath)
+        return markdownDocumentsFromRelativePaths(args.rootPath, relativePaths)
       }
-      const isFolderRoot = store
-        .getFolderWorkspaces?.()
-        .some((workspace) => workspace.folderPath === args.rootPath)
-      const rootPath = isFolderRoot
-        ? await resolveDesktopAuthorizedPath(args.rootPath, store)
-        : await resolveRegisteredWorktreePath(args.rootPath, store)
-      const documents = await listMarkdownDocuments(
-        rootPath,
-        getLocalGitOptionsForRegisteredWorktree(store, args.rootPath, rootPath)
-      )
-      return rootPath === args.rootPath
-        ? documents
-        : markdownDocumentsFromRelativePaths(
-            args.rootPath,
-            documents.map((document) => document.relativePath)
-          )
+      const rootPath = await resolveRegisteredWorktreePath(args.rootPath, store)
+      return listMarkdownDocuments(rootPath)
     }
   )
 
@@ -129,12 +139,14 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
     'fs:stat',
     async (
       _event,
-      args: { filePath: string; connectionId?: string; access?: LocalFileAccess }
+      args: { filePath: string; connectionId?: string }
     ): Promise<{ size: number; isDirectory: boolean; mtime: number }> => {
       if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+        const provider = requireSshFilesystemProvider(args.connectionId)
+        const result = await provider.stat(args.filePath)
+        return { size: result.size, isDirectory: result.type === 'directory', mtime: result.mtime }
       }
-      const filePath = await resolveLocalFileRequestPath(args.filePath, args.access, store)
+      const filePath = await resolveAuthorizedPath(args.filePath, store)
       const stats = await stat(filePath)
       return { size: stats.size, isDirectory: stats.isDirectory(), mtime: stats.mtimeMs }
     }
@@ -147,14 +159,17 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
       args: { filePaths: string[]; connectionId?: string }
     ): Promise<PathExistenceResult[]> => {
       validatePathExistenceBatch(args.filePaths)
-      if (args.connectionId) {
-        throw new SshHostNotServedError(args.connectionId)
+      const provider = args.connectionId ? requireSshFilesystemProvider(args.connectionId) : null
+      if (provider?.pathsExist) {
+        return provider.pathsExist(args.filePaths)
       }
       return Promise.all(
         args.filePaths.map((filePath) =>
           capturePathExistence(async () => {
             try {
-              await stat(await resolveDesktopAuthorizedPath(filePath, store))
+              await (provider
+                ? provider.stat(filePath)
+                : stat(await resolveAuthorizedPath(filePath, store)))
               return true
             } catch (error) {
               if (isENOENT(error)) {
@@ -170,15 +185,14 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
 
   ipcMain.handle(
     'fs:pathExists',
-    async (
-      _event,
-      args: { filePath: string; connectionId?: string; access?: LocalFileAccess }
-    ): Promise<boolean> => {
+    async (_event, args: { filePath: string; connectionId?: string }): Promise<boolean> => {
       try {
         if (args.connectionId) {
-          throw new SshHostNotServedError(args.connectionId)
+          const provider = requireSshFilesystemProvider(args.connectionId)
+          await provider.stat(args.filePath)
+          return true
         }
-        const filePath = await resolveLocalFileRequestPath(args.filePath, args.access, store)
+        const filePath = await resolveAuthorizedPath(args.filePath, store)
         await stat(filePath)
         return true
       } catch (error) {

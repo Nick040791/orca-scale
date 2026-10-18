@@ -2,20 +2,13 @@ import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { HostLiveTerminalProbeVerdict } from '@/runtime/host-live-terminal-probe'
-import type { SshConnectionState } from '../../../shared/ssh-types'
-import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session-environment'
-import { resolveExplicitWorktreeOperationRouteResult } from '@/lib/worktree-operation-catalog-route'
-import { resolveStrictWorktreeOperationRouteResultForHost } from '@/lib/worktree-operation-route'
-import { getPairedWebClientEnvironmentId } from '@/lib/paired-web-client-host'
+import type { RemoteWorkspaceSyncStatus } from '@/store/slices/ssh'
+import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 import {
-  findFolderWorkspaceOwner,
-  getExplicitRuntimeEnvironmentIdForFolderWorkspace
-} from '@/lib/folder-workspace-runtime-owner'
-import {
-  findIndexedProjectGroupOwner,
-  hasIndexedDetectedWorktree
-} from '@/lib/worktree-runtime-owner-index'
-import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner-state'
+  getExecutionHostIdForWorktree,
+  getRuntimeEnvironmentIdForWorktree,
+  type WorktreeRuntimeOwnerState
+} from '@/lib/worktree-runtime-owner'
 
 /**
  * Who holds a workspace's terminals right now, in the same three-verdict vocabulary the renderer
@@ -23,11 +16,12 @@ import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner-sta
  * than restated so the two cannot drift:
  *
  * - `live` — a remote execution host owns terminal creation here. It supplies the surface itself.
- * - `unverifiable` — the workspace has a remote execution host that has not answered for it: a
- *   runtime owner that cannot be named yet, or an SSH target that is not connected.
+ * - `unverifiable` — the workspace has a remote execution host with a sync still in flight or not
+ *   yet attempted. It is bounded: a sync that terminates without an answer resolves `none` rather
+ *   than refusing forever (see resolveDirectSshAuthority).
  * - `none` — no remote host holds terminals here: either the workspace is local (this client *is*
- *   the execution host, and its own tab rows are the whole truth) or its SSH target is connected
- *   and serves no host-side workspace for this row to wait on.
+ *   the execution host, and its own tab rows are the whole truth) or the host answered and holds
+ *   nothing.
  *
  * `unverifiable` is a verdict, never a synonym for `none`. Two client behaviours read local rows as
  * the verdict on what the host is running, and both are wrong before it answers:
@@ -42,18 +36,45 @@ import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner-sta
 export type WorkspaceTerminalHostAuthority = HostLiveTerminalProbeVerdict
 
 export type WorkspaceTerminalHostAuthorityState = WorktreeRuntimeOwnerState & {
-  sshConnectionStates?: ReadonlyMap<string, SshConnectionState>
+  remoteWorkspaceHydratedTargetIds?: ReadonlySet<string>
+  remoteWorkspaceSyncStatusByTargetId?: Record<string, RemoteWorkspaceSyncStatus>
 }
 
-/** Why connection, not a host snapshot: managed hosts publish their tabs through runtime
- *  session tabs, and nothing answers a host workspace snapshot for an `ssh:` row since the relay
- *  was removed (#27214). Waiting for one would refuse forever. */
+/** A sync attempt that has stopped without an answer. `unverifiable` is the honest verdict about the
+ *  host, but holding it forever is not a verdict — it is a refusal to act, so nothing would ever
+ *  lift it. Four paths reach here: local-hydration timeout, a null `remoteWorkspace.get`, a falsy
+ *  apply token, and never connecting at all.
+ *
+ *  Known gap: this floor was reasoned about when hydration was add-only, so "un-hydrated" implied
+ *  "the host never answered". A snapshot whose rows could not be placed now revokes hydration
+ *  (remote-workspace-snapshot-apply.ts), so a target that later lands on `offline`/`error` reaches
+ *  this floor having *demonstrably* answered with tabs. Seeding is then authorised over live host
+ *  terminals. That is not a regression — before the revocation existed the same target was marked
+ *  hydrated and `synced`, which reached `none` sooner — but the floor should learn to tell a
+ *  revoked target from one that never answered. Tracked for the SSH-v3 consolidation, where a
+ *  single authoritative liveness source replaces this pair. */
+const TERMINATED_WITHOUT_ANSWER_PHASES = new Set(['offline', 'error'])
+
 function resolveDirectSshAuthority(
   state: WorkspaceTerminalHostAuthorityState,
   targetId: string
 ): WorkspaceTerminalHostAuthority {
-  // Not connected is "we could not ask", never "nothing there".
-  return state.sshConnectionStates?.get(targetId)?.status === 'connected' ? 'none' : 'unverifiable'
+  const phase = state.remoteWorkspaceSyncStatusByTargetId?.[targetId]?.phase
+  if (state.remoteWorkspaceHydratedTargetIds?.has(targetId)) {
+    // Why: the same pair use-app-session-persistence.ts gates uploads on. A conflicting snapshot
+    // means the client's picture is not the host's, so it is no basis for deciding the host holds
+    // nothing.
+    return phase === 'conflict' ? 'unverifiable' : 'none'
+  }
+  if (phase !== undefined && TERMINATED_WITHOUT_ANSWER_PHASES.has(phase)) {
+    // The bounded floor. Without it a single failed sync leaves every git worktree on this target
+    // terminal-less and its sleeping agents unresumable for the rest of the app session — strictly
+    // worse than the pre-gate behaviour, and only escapable by creating a tab by hand. Declining to
+    // seed is meant to be a wait, not a permanent refusal.
+    return 'none'
+  }
+  // Not connected, still pulling, or not yet attempted — "we could not ask", never "nothing there".
+  return 'unverifiable'
 }
 
 /**
@@ -71,54 +92,18 @@ export function resolveWorkspaceTerminalHostAuthority(
   if (!worktreeId || worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
     return 'none'
   }
-  const selectedHost =
-    state.activeWorktreeId === worktreeId
-      ? parseExecutionHostId(state.activeWorkspaceExecutionHostId)
-      : null
-  const scope = parseWorkspaceKey(worktreeId)
-  if (!selectedHost && scope?.type === 'folder') {
-    const folderId = scope.folderWorkspaceId
-    const owner = findFolderWorkspaceOwner(state, folderId)
-    if (!owner && state.folderWorkspaces?.some((folder) => folder.id === folderId)) {
-      return 'unverifiable'
-    }
-    if (
-      owner &&
-      !owner.executionHostId &&
-      !owner.connectionId &&
-      state.projectGroups?.some((group) => group.id === owner.projectGroupId) &&
-      !findIndexedProjectGroupOwner(state.projectGroups, owner.projectGroupId)
-    ) {
-      return 'unverifiable'
-    }
-    const environmentId =
-      getExplicitRuntimeEnvironmentIdForFolderWorkspace(state, folderId) ??
-      getPairedWebClientEnvironmentId(state)
-    // Folder workspaces were never host-replaced, so direct SSH keeps `none`.
-    return isWebRuntimeSessionActive(environmentId) ? 'live' : 'none'
-  }
-  const resolution = selectedHost
-    ? resolveStrictWorktreeOperationRouteResultForHost(state, worktreeId, selectedHost.id)
-    : resolveExplicitWorktreeOperationRouteResult(state, worktreeId)
-  if (
-    resolution.kind === 'ambiguous' ||
-    (resolution.kind === 'missing' &&
-      hasIndexedDetectedWorktree(state.detectedWorktreesByRepo, worktreeId))
-  ) {
-    return 'unverifiable'
-  }
-  const route = resolution.kind === 'resolved' ? resolution.route : null
-  // A focused runtime routes legacy operations; only owner evidence grants terminal authority.
-  if (
-    isWebRuntimeSessionActive(route?.runtimeEnvironmentId ?? getPairedWebClientEnvironmentId(state))
-  ) {
+  if (isWebRuntimeSessionActive(getRuntimeEnvironmentIdForWorktree(state, worktreeId))) {
     return 'live'
   }
-  const host = parseExecutionHostId(route?.executionHostId)
+  const host = parseExecutionHostId(getExecutionHostIdForWorktree(state, worktreeId))
   if (host?.kind === 'runtime') {
+    // A runtime host we could not name (rival detected publications, unhydrated catalog) is unasked.
     return 'unverifiable'
   }
-  if (host?.kind === 'ssh' && scope?.type !== 'folder') {
+  if (host?.kind === 'ssh' && parseWorkspaceKey(worktreeId)?.type !== 'folder') {
+    // Why the git-worktree narrowing: the snapshot replaces exactly DirectSshTargetScope.gitWorktreeIds
+    // (remote-workspace-snapshot-apply.ts). A folder workspace's rows are never replaced by the host,
+    // so waiting on an answer that will never name them would leave it terminal-less for good.
     return resolveDirectSshAuthority(state, host.targetId)
   }
   // Local, or outside the host's replace scope: this client is the execution host and its own rows are
@@ -139,13 +124,14 @@ const AUTHORITY_INPUT_KEYS = [
   'detectedWorktreesByRepo',
   'folderWorkspaces',
   'projectGroups',
+  'remoteWorkspaceHydratedTargetIds',
+  'remoteWorkspaceSyncStatusByTargetId',
   'removedRuntimeEnvironmentIds',
   'repos',
   'restoredRuntimeHostIdByWorkspaceSessionKey',
   'runtimeEnvironmentCatalogHydrated',
   'runtimeEnvironments',
   'settings',
-  'sshConnectionStates',
   'worktreesByRepo'
 ] as const satisfies readonly (keyof WorkspaceTerminalHostAuthorityState)[]
 

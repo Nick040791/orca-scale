@@ -1,7 +1,6 @@
-import { useCallback, useEffect, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { normalizedUserText } from './mobile-native-chat-draft-reconcile'
-import { mobileNativeChatLaunchDraftSeeds } from './mobile-native-chat-draft-store'
 
 export type MobileNativeChatLaunchDraftSeed = {
   text: string
@@ -21,7 +20,7 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
   launchDraftCreatedAt?: number | null
   chatActive: boolean
   transcriptLoading?: boolean
-  setDraftText: (draftKey: string, update: SetStateAction<string>) => void
+  setDrafts: Dispatch<SetStateAction<Record<string, string>>>
 }): {
   /** Text still believed to be parked on the agent's TUI input line, or null
    *  once declined or retired. Send paths size their pre-clear from it, since
@@ -36,8 +35,14 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
     launchDraftCreatedAt,
     chatActive,
     transcriptLoading,
-    setDraftText
+    setDrafts
   } = args
+
+  // Seeded launch-context text per tab; null marks a permanent decline so a
+  // cleared composer never resurrects the prefill.
+  const seededLaunchDraftByKeyRef = useRef(
+    new Map<string, MobileNativeChatLaunchDraftSeed | null>()
+  )
 
   // Why: launch context delivered as a TUI-input prefill is invisible in chat;
   // adopt it once as the composer draft so mobile shows the same context.
@@ -46,7 +51,7 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
       !draftKey ||
       !chatActive ||
       !launchDraft?.trim() ||
-      mobileNativeChatLaunchDraftSeeds.has(draftKey)
+      seededLaunchDraftByKeyRef.current.has(draftKey)
     ) {
       return
     }
@@ -59,21 +64,23 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
     // A user turn already in the transcript means the TUI prefill was submitted
     // or deliberately cleared; decline instead of resurrecting it.
     if (messages.some((message) => normalizedUserText(message) !== null)) {
-      mobileNativeChatLaunchDraftSeeds.set(draftKey, null)
+      seededLaunchDraftByKeyRef.current.set(draftKey, null)
       return
     }
-    mobileNativeChatLaunchDraftSeeds.set(draftKey, {
+    seededLaunchDraftByKeyRef.current.set(draftKey, {
       text: launchDraft,
       createdAt: launchDraftCreatedAt ?? null
     })
-    setDraftText(draftKey, (current) => (current === '' ? launchDraft : current))
+    setDrafts((previous) =>
+      (previous[draftKey] ?? '') === '' ? { ...previous, [draftKey]: launchDraft } : previous
+    )
   }, [
     chatActive,
     draftKey,
     launchDraft,
     launchDraftCreatedAt,
     messages,
-    setDraftText,
+    setDrafts,
     transcriptLoading
   ])
 
@@ -87,7 +94,7 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
     if (!draftKey || !chatActive || transcriptLoading) {
       return
     }
-    const seeded = mobileNativeChatLaunchDraftSeeds.get(draftKey)
+    const seeded = seededLaunchDraftByKeyRef.current.get(draftKey)
     if (!seeded) {
       return
     }
@@ -95,17 +102,19 @@ export function useMobileNativeChatLaunchDraftSeed(args: {
     if (!hasUserTurn && launchDraft?.trim()) {
       return
     }
-    mobileNativeChatLaunchDraftSeeds.set(draftKey, null)
-    setDraftText(draftKey, (current) => (current === seeded.text ? '' : current))
-  }, [chatActive, draftKey, launchDraft, messages, setDraftText, transcriptLoading])
+    seededLaunchDraftByKeyRef.current.set(draftKey, null)
+    setDrafts((previous) =>
+      (previous[draftKey] ?? '') === seeded.text ? { ...previous, [draftKey]: '' } : previous
+    )
+  }, [chatActive, draftKey, launchDraft, messages, setDrafts, transcriptLoading])
 
   // A missing or declined entry means there is nothing of ours on the TUI line.
   const readSeededLaunchDraft = useCallback(
-    () => (draftKey ? (mobileNativeChatLaunchDraftSeeds.get(draftKey)?.text ?? null) : null),
+    () => (draftKey ? (seededLaunchDraftByKeyRef.current.get(draftKey)?.text ?? null) : null),
     [draftKey]
   )
   const readSeededLaunchDraftSeed = useCallback(
-    () => (draftKey ? (mobileNativeChatLaunchDraftSeeds.get(draftKey) ?? null) : null),
+    () => (draftKey ? (seededLaunchDraftByKeyRef.current.get(draftKey) ?? null) : null),
     [draftKey]
   )
 

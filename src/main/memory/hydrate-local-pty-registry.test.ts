@@ -29,20 +29,9 @@ const LARGE_SESSION_COUNT = 150_000
 // getter. Stubbing it lets us drive the offline / throwing / live paths
 // without spinning up real sockets.
 const getDaemonProviderMock = vi.fn()
-vi.mock('../daemon/daemon-provider-state', () => ({
+vi.mock('../daemon/daemon-init', () => ({
   getDaemonProvider: () => getDaemonProviderMock()
 }))
-
-// Why hoisted: routing recognizes adapter groups by class, and the class must survive resetModules.
-const { FakeDaemonPtyRouter } = vi.hoisted(() => ({
-  FakeDaemonPtyRouter: class {
-    constructor(private readonly adapters: unknown[]) {}
-    getAllAdapters(): unknown[] {
-      return this.adapters
-    }
-  }
-}))
-vi.mock('../daemon/daemon-pty-router', () => ({ DaemonPtyRouter: FakeDaemonPtyRouter }))
 
 const getLocalProjectWorktreeGitOptionsMock = vi.fn()
 vi.mock('../project-runtime-git-options', () => ({
@@ -71,8 +60,7 @@ function makeStore(
     kind?: Repo['kind']
     path?: string
   }[] = [],
-  worktreeMeta: Record<string, WorktreeMeta> = {},
-  folderWorkspaces: FolderWorkspace[] = []
+  worktreeMeta: Record<string, WorktreeMeta> = {}
 ): Store {
   const built: Repo[] = repos.map((r) => ({
     id: r.id,
@@ -84,18 +72,15 @@ function makeStore(
     executionHostId: r.executionHostId ?? null,
     kind: r.kind
   }))
-  const store: Partial<Store> = {
+  return {
     getRepos: () => built,
-    getFolderWorkspaces: () => folderWorkspaces,
-    getProjectGroups: () => [],
+    getFolderWorkspaces: (): FolderWorkspace[] => [],
     getAllWorktreeMeta: () => worktreeMeta,
     getAllWorktreeMetaForHost: (hostId) =>
       Object.fromEntries(
         Object.entries(worktreeMeta).filter(([, meta]) => !meta.hostId || meta.hostId === hostId)
       )
-  }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: hydration reads only the store members stubbed above.
-  return store as Store
+  } as Store
 }
 
 function makeProvider(sessions: SessionInfo[]): Pick<DaemonPtyAdapter, 'listSessions'> {
@@ -104,8 +89,10 @@ function makeProvider(sessions: SessionInfo[]): Pick<DaemonPtyAdapter, 'listSess
   }
 }
 
-function makeProviderGroup(adapters: Pick<DaemonPtyAdapter, 'listSessions'>[]): unknown {
-  return new FakeDaemonPtyRouter(adapters)
+function makeProviderGroup(adapters: Pick<DaemonPtyAdapter, 'listSessions'>[]): {
+  getAllAdapters: () => Pick<DaemonPtyAdapter, 'listSessions'>[]
+} {
+  return { getAllAdapters: () => adapters }
 }
 
 function makeLocalSessions(repoId: string, worktreePath: string, count: number): SessionInfo[] {

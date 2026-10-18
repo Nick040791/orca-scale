@@ -5,13 +5,10 @@ import type { IssueInfo } from '../../../../shared/github/pull-request-types'
 import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
 import { sourceScopedRepoCacheKey } from './cache-identity'
 import { isFresh, withBoundedCacheEntry } from './cache-policy'
+import { debouncedSaveCache } from './cache-persistence'
 import { inflightIssueRequests } from './request-coordination'
 import { findRepoForGitHubOwner } from './repository-routing'
-import {
-  getGitHubRepoSourceSettings,
-  getGitHubSourceTarget,
-  getGitHubWorkItemRequestContext
-} from './work-item-routing'
+import { getGitHubRepoSourceSettings, getGitHubWorkItemRequestContext } from './work-item-routing'
 
 export const createIssueActions = (
   set: Parameters<StateCreator<AppState>>[0],
@@ -20,7 +17,11 @@ export const createIssueActions = (
   fetchIssue: async (repoPath, number, options) => {
     const repo = findRepoForGitHubOwner(get(), options?.repoId, repoPath)
     const repoId = options?.repoId ?? repo?.id
-    const requestSettings = getGitHubRepoSourceSettings(get(), repo, options?.sourceContext)
+    const requestSettings = getGitHubRepoSourceSettings(
+      get().settings,
+      repo,
+      options?.sourceContext
+    )
     const cacheKey = sourceScopedRepoCacheKey(
       repoPath,
       repoId,
@@ -45,7 +46,7 @@ export const createIssueActions = (
       try {
         const requestContext = getGitHubWorkItemRequestContext(
           get(),
-          getGitHubSourceTarget(get(), repo, options?.sourceContext),
+          requestSettings,
           repoId ?? repoPath,
           repoPath,
           options?.sourceContext
@@ -70,6 +71,7 @@ export const createIssueActions = (
             fetchedAt: Date.now()
           })
         }))
+        debouncedSaveCache(get())
         return issue
       } catch (err) {
         console.error('Failed to fetch issue:', err)
@@ -79,6 +81,7 @@ export const createIssueActions = (
             fetchedAt: Date.now()
           })
         }))
+        debouncedSaveCache(get())
         return null
       } finally {
         inflightIssueRequests.delete(cacheKey)

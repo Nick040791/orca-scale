@@ -38,8 +38,7 @@ describe('gh-capability-state', () => {
     await expect(getGhMultiAccountCapability()).resolves.toBe('supported')
     expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
       ['auth', 'token', '--help'],
-      expect.objectContaining({ timeout: 10_000 }),
-      expect.objectContaining({ onTerminationPending: expect.any(Function) })
+      expect.objectContaining({ timeout: 10_000 })
     )
   })
 

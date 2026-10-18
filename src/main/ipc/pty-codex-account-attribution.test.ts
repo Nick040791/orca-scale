@@ -7,8 +7,7 @@ import {
 } from './pty-ipc-mock-registry'
 import { TEST_CODEX_HOME, TEST_CODEX_AUTH_JSON, TEST_MANAGED_ROOT } from './pty-ipc-test-constants'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
-import { registerPtyHandlers } from './pty/register-handlers'
-import { setLocalPtyProvider } from './pty/provider/registry'
+import { registerPtyHandlers, setLocalPtyProvider } from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -63,7 +62,7 @@ const SHARED_ROLLOUT = join(MANAGED_SHARED_HOME, 'sessions', '2026', '07', '20',
 describe('registerPtyHandlers', () => {
   const { handlers, mainWindow } = setupPtyIpcSuite()
 
-  it('records a launch env CODEX_HOME pane under the shared home', async () => {
+  it('records route provenance for a process-wide CODEX_HOME', async () => {
     const previousCodexHome = process.env.CODEX_HOME
     process.env.CODEX_HOME = '/process/custom-codex-home'
     try {
@@ -95,7 +94,8 @@ describe('registerPtyHandlers', () => {
       expect(recordCodexPaneAccountMock).toHaveBeenCalledWith('pty-process-home', {
         selectionKey: 'host',
         accountId: null,
-        homeRoute: 'shared-home'
+        homeRoute: 'shared-home',
+        environmentHomeOverride: { codexHome: '/process/custom-codex-home' }
       })
     } finally {
       if (previousCodexHome === undefined) {
@@ -104,6 +104,33 @@ describe('registerPtyHandlers', () => {
         process.env.CODEX_HOME = previousCodexHome
       }
     }
+  })
+  it('does not guess route provenance for a pane-local environment CODEX_HOME', async () => {
+    setLocalPtyProvider({
+      spawn: vi.fn(async () => ({ id: 'pty-pane-env-home' })),
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+      shutdown: vi.fn(),
+      onData: vi.fn(() => vi.fn()),
+      onExit: vi.fn(() => vi.fn()),
+      listProcesses: vi.fn(async () => []),
+      getForegroundProcess: vi.fn(async () => null)
+    } as never)
+    const getSettings = vi.fn().mockReturnValue({ activeCodexManagedAccountId: null })
+    registerPtyHandlers(mainWindow as never, undefined, () => TEST_CODEX_HOME, getSettings as never)
+
+    await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      env: { CODEX_HOME: '/pane/custom-codex-home' }
+    })
+
+    expect(recordCodexPaneAccountMock).toHaveBeenCalledWith('pty-pane-env-home', {
+      selectionKey: 'host',
+      accountId: null,
+      homeRoute: 'custom-home'
+    })
   })
   it('does not resume under another account when the origin auth stays unavailable', async () => {
     vi.useFakeTimers()

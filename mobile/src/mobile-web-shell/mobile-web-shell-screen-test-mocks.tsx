@@ -50,8 +50,7 @@ export function screenModuleMocks(dependencies: ScreenDependencies) {
         absoluteFillObject: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }
       },
       Text: 'Text',
-      View: 'View',
-      useWindowDimensions: () => ({ width: 390, height: 844 })
+      View: 'View'
     }),
     // Reaching the real one imports the Expo runtime this test does not have. The screen only passes
     // the handler through; what it does with a verb is `native-clipboard.test.ts`.
@@ -107,8 +106,7 @@ export function screenModuleMocks(dependencies: ScreenDependencies) {
       // Read by the pop latch, which clears on the route this shell is mounted at changing.
       usePathname: () => dependencies.pathname,
       // The screen's own place on the stack, which is where the iOS swipe-back is taken away.
-      useNavigation: () => ({ setOptions: dependencies.setScreenOptions }),
-      useFocusEffect: (effect: () => undefined | (() => void)) => React.useEffect(effect, [effect])
+      useNavigation: () => ({ setOptions: dependencies.setScreenOptions })
     }),
     // A component rather than a host string: the React key is what makes a retry a rebuilt WebView,
     // and a mount/unmount log is the only thing that can tell a remount from a prop update.
@@ -146,11 +144,9 @@ export function screenModuleMocks(dependencies: ScreenDependencies) {
         parseMobileWebShellLoadState: parseMobileWebShellLoadState
       }
     },
-    // The wall's release offer: the native hook imports the update checker module.
-    '../app-update/use-wall-app-update': () => ({ useWallAppUpdate: () => null }),
     // The real bridge hook runs, so the props it owns are the ones the view is handed here; only the
     // client lookup is stubbed, because reaching it imports the Expo runtime this test does not have.
-    '../transport/host-client-hooks': () => ({
+    '../transport/client-context': () => ({
       useHostClient: () => ({ client: dependencies.client })
     }),
     // Reaching the real one imports the host store and expo-secure-store, whose module touches an Expo
@@ -184,7 +180,8 @@ export function screenModuleMocks(dependencies: ScreenDependencies) {
         reportPageBackClaim: dependencies.reportPageBackClaim,
         pageReady: dependencies.pageReady,
         pageFrame: dependencies.pageFrame,
-        backClaimed: dependencies.backClaimed
+        backClaimed: dependencies.backClaimed,
+        pageOwnsSafeArea: dependencies.pageOwnsSafeArea
       })
     })
   }

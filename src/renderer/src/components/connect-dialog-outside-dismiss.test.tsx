@@ -28,6 +28,10 @@ vi.mock('@/store', () => ({
   }
 }))
 
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  getActiveRuntimeTarget: () => ({ kind: 'local' })
+}))
+
 let root: Root | null = null
 
 beforeEach(() => {

@@ -3,16 +3,16 @@ import type {
   AgentJournalRenderItem,
   AgentJournalSubmission
 } from '../../../../shared/agent-session-journal-types'
-import type { StructuredAgentSessionOptimisticMessage } from '../../../../shared/structured-agent-session-message-projection'
+import type { StructuredAgentSessionOutboxEntry } from '../../../../shared/structured-agent-session-outbox'
 import { projectStructuredAgentSessionMessages } from './structured-agent-session-message-projection'
 
 export function useStructuredAgentSessionMessages(
   items: readonly AgentJournalRenderItem[],
-  optimistic: readonly StructuredAgentSessionOptimisticMessage[],
+  outbox: readonly StructuredAgentSessionOutboxEntry[],
   submissions: readonly AgentJournalSubmission[]
 ) {
   return useMemo(
-    () => projectStructuredAgentSessionMessages(items, optimistic, submissions),
-    [items, optimistic, submissions]
+    () => projectStructuredAgentSessionMessages(items, outbox, submissions),
+    [items, outbox, submissions]
   )
 }

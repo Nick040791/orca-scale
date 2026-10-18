@@ -34,10 +34,10 @@ export function HostWorkspaceListStates(
       <View style={styles.centered}>
         <Text style={styles.emptyText}>
           {props.search
-            ? 'No matching workspaces'
+            ? 'No matching worktrees'
             : props.activeFilterCount > 0
-              ? 'No workspaces match filters'
-              : 'No workspaces'}
+              ? 'No worktrees match filters'
+              : 'No worktrees'}
         </Text>
       </View>
     )

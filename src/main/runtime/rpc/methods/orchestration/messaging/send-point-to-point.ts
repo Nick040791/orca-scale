@@ -8,10 +8,6 @@ import { legacyWorkerDeliveryContract } from '../routing'
 import { exposeMessage } from './mailbox-message-receipt'
 import { recordReceiptForPostCommitNudge } from './mutation-replay-nudge'
 import type { SendRecipientWarning } from './recipient-routing'
-import {
-  workerReportRefusal,
-  type WorkerReportRefusal
-} from '../../../../orchestration/worker-report-admission'
 import type { z } from 'zod'
 
 type SendParamsInput = z.infer<typeof SendParams>
@@ -27,6 +23,7 @@ export function sendPointToPointMessage(args: {
   messageRunId: string | undefined
   senderPaneKey: string | undefined
   legacyCoordinatorRunId: string | undefined
+  orchestrationCapability: string | undefined
   resolveProcessIncarnation: () => string | undefined
   revalidateLegacyCoordinator: (() => string) | undefined
   recordMutationReceipt: ((receipt: unknown) => void) | undefined
@@ -43,6 +40,7 @@ export function sendPointToPointMessage(args: {
     messageRunId,
     senderPaneKey,
     legacyCoordinatorRunId,
+    orchestrationCapability,
     resolveProcessIncarnation,
     revalidateLegacyCoordinator,
     recordMutationReceipt,
@@ -78,25 +76,28 @@ export function sendPointToPointMessage(args: {
     })
     if (isDispatchMutationMessageType(msg.type)) {
       const taskId = parseMessageTaskId(params.payload)
+      const capabilityBacked = Boolean(dispatch?.capability_hash)
       const coordinatorMutation = msg.type === 'escalation' || msg.type === 'decision_gate'
-      const refusal = lifecycleRefusal({
+      const authority = resolveLifecycleAuthority({
         db,
         dispatch,
         from,
         paneKey: senderPaneKey,
         processIncarnation,
+        capability: orchestrationCapability,
         taskId,
+        capabilityBacked,
         coordinatorMutation
       })
-      if (refusal) {
+      if (!authority.valid) {
         const rejection =
-          db.convertLifecycleMessageToRejection(msg.id, refusal.code, refusal.reason) ?? msg
+          db.convertLifecycleMessageToRejection(msg.id, authority.code, authority.reason) ?? msg
         const receipt = withSendWarnings({
           message: exposeMessage(rejection),
           lifecycle: {
             action: 'rejected',
-            code: refusal.code,
-            reason: refusal.reason
+            code: authority.code,
+            reason: authority.reason
           }
         })
         return recordReceiptForPostCommitNudge(recordMutationReceipt, receipt, () =>
@@ -151,55 +152,81 @@ export function sendPointToPointMessage(args: {
   return committed.receipt
 }
 
-type LifecycleRefusal = {
-  code: 'sender_not_assignee' | 'task_dispatch_mismatch' | WorkerReportRefusal['code']
+type LifecycleAuthority = {
+  valid: boolean
+  code: 'sender_not_assignee' | 'task_dispatch_mismatch' | 'dispatch_capability_invalid'
   reason: string
 }
 
-function lifecycleRefusal(args: {
+function resolveLifecycleAuthority(args: {
   db: OrchestrationDb
   dispatch: ReturnType<OrchestrationDb['getDispatchContextById']>
   from: string
   paneKey: string | undefined
   processIncarnation: string | undefined
+  capability: string | undefined
   taskId: string | undefined
+  capabilityBacked: boolean
   coordinatorMutation: boolean
-}): LifecycleRefusal | null {
-  const { db, dispatch, from, paneKey, processIncarnation, taskId, coordinatorMutation } = args
+}): LifecycleAuthority {
+  const {
+    db,
+    dispatch,
+    from,
+    paneKey,
+    processIncarnation,
+    capability,
+    taskId,
+    capabilityBacked,
+    coordinatorMutation
+  } = args
   if (!dispatch) {
-    return coordinatorMutation
-      ? {
-          code: 'sender_not_assignee',
-          reason: 'No active Dispatch belongs to this message sender.'
-        }
-      : null
+    return {
+      valid: !coordinatorMutation,
+      code: 'sender_not_assignee',
+      reason: 'No active Dispatch belongs to this message sender.'
+    }
   }
   if (coordinatorMutation && taskId && taskId !== dispatch.task_id) {
     return {
+      valid: false,
       code: 'task_dispatch_mismatch',
       reason: `Task ${taskId} does not belong to Dispatch ${dispatch.id}.`
     }
   }
-  const refusal = workerReportRefusal({
-    dispatchId: dispatch.id,
-    from,
-    workerState: db.getWorkerDispatch(dispatch.id)?.state,
-    processCurrent:
-      !dispatch.process_incarnation ||
-      db.isDispatchProcessCurrent({
+  if (capabilityBacked) {
+    const authority = db.verifyDispatchCapability({
+      dispatchId: dispatch.id,
+      capability,
+      paneKey,
+      processIncarnation
+    })
+    return {
+      valid: authority.valid,
+      code: 'dispatch_capability_invalid',
+      reason: authority.valid ? '' : authority.reason
+    }
+  }
+  if (dispatch.process_incarnation) {
+    return {
+      valid: db.isDispatchProcessCurrent({
         dispatchId: dispatch.id,
         paneKey: paneKey ?? null,
         processIncarnation: processIncarnation ?? null
-      })
-  })
-  if (refusal || dispatch.process_incarnation) {
-    return refusal
+      }),
+      code: 'sender_not_assignee',
+      reason: `Dispatch ${dispatch.id} process incarnation is no longer current for its pane.`
+    }
   }
-  return !coordinatorMutation ||
-    db.isDispatchMessageSender({ dispatchId: dispatch.id, handle: from, paneKey })
-    ? null
-    : {
-        code: 'sender_not_assignee',
-        reason: `Terminal ${from} does not own Dispatch ${dispatch.id}.`
-      }
+  return {
+    valid:
+      !coordinatorMutation ||
+      db.isDispatchMessageSender({
+        dispatchId: dispatch.id,
+        handle: from,
+        paneKey
+      }),
+    code: 'sender_not_assignee',
+    reason: `Terminal ${from} does not own Dispatch ${dispatch.id}.`
+  }
 }

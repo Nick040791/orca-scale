@@ -3,10 +3,8 @@ import { copyMarkdownReviewNotesForAgent } from '@/lib/markdown-review-note-copy
 import type { MarkdownReviewNote } from '@/lib/markdown-review-notes'
 import type { DiffComment } from '../../../../shared/diff-comment-types'
 import type { MarkdownPreviewBlockRange } from './markdown-preview-types'
-import { requestMarkdownPreviewEditorRevealFrame } from './markdown-preview-editor-reveal'
 import type { MarkdownPreviewFoundation } from './use-markdown-preview-foundation'
 import type { MarkdownPreviewViewport } from './use-markdown-preview-viewport'
-import { motionSafeScrollBehavior } from '@/hooks/usePrefersReducedMotion'
 
 function isMarkdownAnnotationNavigationClick(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -34,16 +32,12 @@ export function useMarkdownPreviewReviewActions({
     setCopiedReviewNoteId,
     copiedReviewNoteResetTimerRef,
     attentionReviewCommentTimeoutRef,
-    pendingReviewActionFrameIdsRef,
-    pendingReviewActionTimeoutIdsRef,
-    reviewActionFrameGenerationRef,
     setAttentionReviewCommentId,
     setActiveReviewCommentId,
     markdownComments,
     activeReviewCommentId
   } = foundation
-  const { clearReviewNotesCopiedResetTimer, clearCopiedReviewNoteResetTimer, scrollToSourceLine } =
-    viewport
+  const { clearReviewNotesCopiedResetTimer, clearCopiedReviewNoteResetTimer } = viewport
 
   const handleCopyMarkdownReviewNotes = useCallback(async (): Promise<void> => {
     if (markdownReviewNotes.length === 0) {
@@ -107,52 +101,20 @@ export function useMarkdownPreviewReviewActions({
   )
 
   const pulseRenderedMarkdownReviewNote = useCallback(
-    (commentId: string, isCurrent: () => boolean): void => {
+    (commentId: string): void => {
       if (attentionReviewCommentTimeoutRef.current !== null) {
-        const timeout = attentionReviewCommentTimeoutRef.current
-        window.clearTimeout(timeout)
-        pendingReviewActionTimeoutIdsRef.current = pendingReviewActionTimeoutIdsRef.current.filter(
-          (pending) => pending !== timeout
-        )
+        window.clearTimeout(attentionReviewCommentTimeoutRef.current)
       }
       setAttentionReviewCommentId(null)
-      if (!isCurrent()) {
-        return
-      }
-      requestMarkdownPreviewEditorRevealFrame(pendingReviewActionFrameIdsRef, () => {
-        if (!isCurrent()) {
-          return
-        }
+      window.requestAnimationFrame(() => {
         setAttentionReviewCommentId(commentId)
-        if (!isCurrent()) {
-          return
-        }
-        let completed = false
-        let timeout: number | undefined
-        timeout = window.setTimeout(() => {
-          completed = true
-          if (!isCurrent()) {
-            return
-          }
-          pendingReviewActionTimeoutIdsRef.current =
-            pendingReviewActionTimeoutIdsRef.current.filter((pending) => pending !== timeout)
+        attentionReviewCommentTimeoutRef.current = window.setTimeout(() => {
           setAttentionReviewCommentId(null)
-          if (isCurrent()) {
-            attentionReviewCommentTimeoutRef.current = null
-          }
+          attentionReviewCommentTimeoutRef.current = null
         }, 900)
-        if (!completed) {
-          attentionReviewCommentTimeoutRef.current = timeout
-          pendingReviewActionTimeoutIdsRef.current.push(timeout)
-        }
       })
     },
-    [
-      attentionReviewCommentTimeoutRef,
-      pendingReviewActionFrameIdsRef,
-      pendingReviewActionTimeoutIdsRef,
-      setAttentionReviewCommentId
-    ]
+    [attentionReviewCommentTimeoutRef, setAttentionReviewCommentId]
   )
 
   const findRenderedMarkdownReviewNoteCard = useCallback(
@@ -172,47 +134,22 @@ export function useMarkdownPreviewReviewActions({
 
   const scrollRenderedMarkdownReviewNoteIntoView = useCallback(
     (comment: DiffComment): void => {
-      const generation = reviewActionFrameGenerationRef.current
-      const isCurrent = (): boolean =>
-        reviewNotesCopyMountedRef.current && reviewActionFrameGenerationRef.current === generation
-      if (!isCurrent()) {
-        return
-      }
       setActiveReviewCommentId(comment.id)
-      if (!isCurrent()) {
-        return
-      }
-      pulseRenderedMarkdownReviewNote(comment.id, isCurrent)
-      if (!isCurrent()) {
-        return
-      }
-      requestMarkdownPreviewEditorRevealFrame(pendingReviewActionFrameIdsRef, () => {
-        if (!isCurrent()) {
-          return
-        }
+      pulseRenderedMarkdownReviewNote(comment.id)
+      window.requestAnimationFrame(() => {
         findRenderedMarkdownReviewNoteCard(comment.id)?.scrollIntoView({
-          behavior: motionSafeScrollBehavior(),
+          behavior: 'smooth',
           block: 'center',
           inline: 'nearest'
         })
       })
     },
-    [
-      findRenderedMarkdownReviewNoteCard,
-      pendingReviewActionFrameIdsRef,
-      pulseRenderedMarkdownReviewNote,
-      reviewActionFrameGenerationRef,
-      reviewNotesCopyMountedRef,
-      setActiveReviewCommentId
-    ]
+    [findRenderedMarkdownReviewNoteCard, pulseRenderedMarkdownReviewNote, setActiveReviewCommentId]
   )
 
   const scrollToReviewNote = useCallback(
     (comment: DiffComment): void => {
       setActiveReviewCommentId(comment.id)
-      if (scrollToSourceLine(comment.lineNumber)) {
-        return
-      }
       const root = rootRef.current
       if (!root) {
         return
@@ -227,9 +164,9 @@ export function useMarkdownPreviewReviewActions({
           break
         }
       }
-      target?.scrollIntoView({ behavior: motionSafeScrollBehavior(), block: 'center' })
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     },
-    [rootRef, scrollToSourceLine, setActiveReviewCommentId]
+    [rootRef, setActiveReviewCommentId]
   )
 
   const getMarkdownCommentsForRange = useCallback(

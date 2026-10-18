@@ -1,23 +1,21 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
-import type { TerminalSlice, TerminalStoreGet } from '../terminals/terminal-state'
+import type { TerminalSlice } from '../terminals/terminal-state'
 
 export type { TerminalSlice } from '../terminals/terminal-state'
 import { createTerminalEphemeralActions } from '../terminals/terminal-ephemeral-state'
 import { createTerminalTabCreationActions } from '../terminals/terminal-tab-creation'
-import { createTerminalTabAgentLaunchPaneActions } from '../terminals/terminal-tab-agent-launch-pane'
 import { createActiveWorkspaceTerminalActions } from '../terminals/terminal-active-workspace-creation'
 import { createTerminalTabCloseActions } from '../terminals/terminal-tab-close'
 import { createTerminalTabNavigationActions } from '../terminals/terminal-tab-navigation'
 import { createTerminalTabPresentationActions } from '../terminals/terminal-tab-presentation'
-import { createTerminalTabAppearanceActions } from '../terminals/terminal-tab-appearance'
-import { routeTerminalTabChangesThroughLayoutOwner } from '../terminals/terminal-tab-layout-owner-actions'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
+import { createTerminalTabAttentionActions } from '../terminals/terminal-tab-attention'
 import { createTerminalPtyBindingActions } from '../terminals/terminal-pty-bindings'
 import { createTerminalPtyReleaseActions } from '../terminals/terminal-pty-release'
 import { createTerminalUnverifiedPtyLossActions } from '../terminals/terminal-unverified-pty-loss'
 import { createTerminalDisownedPtySourceActions } from '../terminals/terminal-disowned-pty-sources'
 import { createTerminalPaneHibernationActions } from '../terminals/terminal-pane-hibernation'
+import { createDirectSshTerminalBindingActions } from '../terminals/direct-ssh-terminal-bindings'
 import { createTerminalShutdownActions } from '../terminals/terminal-shutdown'
 import { createTerminalRestartActions } from '../terminals/terminal-restart-state'
 import { createTerminalLayoutActions } from '../terminals/terminal-layout-state'
@@ -31,16 +29,24 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   activeTabIdByWorktree: {},
   ptyIdsByTabId: {},
   runtimePaneTitlesByTabId: {},
+  unreadTerminalTabs: {},
+  unreadTerminalPanes: {},
+  unreadAgentCompletionPanes: {},
   suppressedPtyExitIds: {},
   pendingPtyShutdownIds: {},
-  pendingPaneAccountRestarts: {},
+  pendingCodexPaneRestartIds: {},
   codexRestartNoticeByPtyId: {},
+  directSshPaneRetryByTabId: {},
+  directSshLivePtyBindingByTabId: {},
+  directSshPaneRetryHistoryByTabId: {},
   expandedPaneByTabId: {},
   canExpandPaneByTabId: {},
   terminalLayoutsByTabId: {},
+  pendingDirectSshLayoutEditsByTabId: {},
   localOnlyScrollbackByTabId: {},
   pendingStartupByTabId: {},
   pendingInitialCwdByTabId: {},
+  pendingSetupSplitByTabId: {},
   pendingIssueCommandSplitByTabId: {},
   automaticAgentResumeClaimsByTabId: {},
   nativeChatLaunchPromptByTabId: {},
@@ -72,22 +78,17 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   recentQuickCommandIdByGroup: {},
   ...createTerminalEphemeralActions(set, get),
   ...createTerminalTabCreationActions(set, get),
-  ...createTerminalTabAgentLaunchPaneActions(set),
   ...createActiveWorkspaceTerminalActions(set, get),
   ...createTerminalTabCloseActions(set, get),
   ...createTerminalTabNavigationActions(set, get),
-  ...withLayoutOwnerTerminalTabChanges(
-    {
-      ...createTerminalTabPresentationActions(set, get),
-      ...createTerminalTabAppearanceActions(set, get)
-    },
-    get
-  ),
+  ...createTerminalTabPresentationActions(set, get),
+  ...createTerminalTabAttentionActions(set, get),
   ...createTerminalPtyBindingActions(set, get),
   ...createTerminalPtyReleaseActions(set, get),
   ...createTerminalUnverifiedPtyLossActions(set),
   ...createTerminalDisownedPtySourceActions(set),
   ...createTerminalPaneHibernationActions(set, get),
+  ...createDirectSshTerminalBindingActions(set, get),
   ...createTerminalShutdownActions(set, get),
   ...createTerminalRestartActions(set, get),
   ...createTerminalLayoutActions(set, get),
@@ -95,12 +96,3 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   ...createWorkspaceTerminalHydrationActions(set, get),
   ...createWorkspaceTerminalReconnectActions(set, get)
 })
-
-/** Switch point: a terminal tab's own changes go to main first, from every caller. */
-function withLayoutOwnerTerminalTabChanges<
-  T extends Parameters<typeof routeTerminalTabChangesThroughLayoutOwner>[0]
->(actions: T, get: TerminalStoreGet): T {
-  return ORCA_LAYOUT_OWNER_IS_MAIN
-    ? { ...actions, ...routeTerminalTabChangesThroughLayoutOwner(actions, get) }
-    : actions
-}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { join } from 'node:path'
-import { BaseAgent, utils, type AuthenticationType, type ParsedKey } from 'ssh2'
+import { BaseAgent, utils, type ParsedKey } from 'ssh2'
 
 vi.mock('os', () => ({
   homedir: () => '/home/testuser'
@@ -25,14 +25,39 @@ import {
   isGssapiSystemSshFallbackCandidate,
   isAuthError,
   isAgentFallbackError,
+  sleep,
   shellEscape,
-  buildConnectConfig
+  findDefaultKeyFile,
+  buildConnectConfig,
+  resolveAgentSocket,
+  CONNECT_TIMEOUT_MS,
+  INITIAL_RETRY_ATTEMPTS,
+  INITIAL_RETRY_DELAY_MS,
+  RECONNECT_BACKOFF_MS
 } from './ssh-connection-utils'
-import { findDefaultKeyFile, resolveAgentSocket } from './ssh-auth-resolution'
 import { resolveEffectiveProxy } from './ssh-proxy-command'
-import { walkInitialAuthLadder } from './ssh-connection-test-fixtures'
 import type { SshTarget } from '../../shared/ssh-types'
-import type { SshResolvedConfig } from './config/ssh-g-config-resolution'
+import type { SshResolvedConfig } from './ssh-config-parser'
+
+// ── Constants ────────────────────────────────────────────────────────
+
+describe('SSH connection constants', () => {
+  it('CONNECT_TIMEOUT_MS is 30 seconds (matches VS Code)', () => {
+    expect(CONNECT_TIMEOUT_MS).toBe(30_000)
+  })
+
+  it('INITIAL_RETRY_ATTEMPTS is 5', () => {
+    expect(INITIAL_RETRY_ATTEMPTS).toBe(5)
+  })
+
+  it('INITIAL_RETRY_DELAY_MS is 2 seconds', () => {
+    expect(INITIAL_RETRY_DELAY_MS).toBe(2000)
+  })
+
+  it('RECONNECT_BACKOFF_MS has 9 entries', () => {
+    expect(RECONNECT_BACKOFF_MS).toHaveLength(9)
+  })
+})
 
 // ── isTransientError ─────────────────────────────────────────────────
 
@@ -228,6 +253,16 @@ describe('isAgentFallbackError', () => {
   })
 })
 
+// ── sleep ────────────────────────────────────────────────────────────
+
+describe('sleep', () => {
+  it('resolves after the given delay', async () => {
+    const start = Date.now()
+    await sleep(50)
+    expect(Date.now() - start).toBeGreaterThanOrEqual(40)
+  })
+})
+
 // ── shellEscape ──────────────────────────────────────────────────────
 
 describe('shellEscape', () => {
@@ -337,10 +372,6 @@ describe('findDefaultKeyFile', () => {
 })
 
 // ── buildConnectConfig ──────────────────────────────────────────────
-
-// What an OpenSSH host that collects its password through keyboard-interactive lists after 'none'.
-const PASSWORD_HOST_METHODS: AuthenticationType[] = ['publickey', 'keyboard-interactive']
-const UNENCRYPTED_KEY = Buffer.from(utils.generateKeyPairSync('ecdsa', { bits: 256 }).private)
 
 function makeTarget(overrides?: Partial<SshTarget>): SshTarget {
   return {
@@ -481,11 +512,6 @@ describe('buildConnectConfig', () => {
   it('sets keepaliveInterval to 15s', () => {
     const config = buildConnectConfig(makeTarget(), null)
     expect(config.keepaliveInterval).toBe(15_000)
-  })
-
-  it('enables keyboard-interactive auth so MFA challenges can be answered', () => {
-    const config = buildConnectConfig(makeTarget(), null)
-    expect(config.tryKeyboard).toBe(true)
   })
 
   it('uses agent auth when no explicit key and SSH_AUTH_SOCK is set', () => {
@@ -660,106 +686,24 @@ describe('buildConnectConfig', () => {
     expect(config.privateKey).toEqual(Buffer.from('custom-key'))
   })
 
-  it('defers a default-path resolved identityFile to the no-agent retry', () => {
-    mockReadFileSync.mockReturnValue(UNENCRYPTED_KEY)
+  it('uses agent auth without probing when resolved identityFile is a default path (expanded)', () => {
     const config = buildConnectConfig(
       makeTarget(),
       makeResolved({ identityFile: [testHomePath('.ssh', 'id_ed25519')] })
     )
     expect(config.agent).toBe('/tmp/agent.sock')
-    // No privateKey, so ssh2 cannot parse (and demand a passphrase for) the key before the agent
-    // has been tried, and no password challenge, so the deferred key is reached before any dialog.
     expect(config.privateKey).toBeUndefined()
-    expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual(['none', 'agent'])
+    expect(mockReadFileSync).not.toHaveBeenCalled()
   })
 
-  it('defers an existing default key file to the no-agent retry', () => {
+  it('does not probe default key files before agent auth', () => {
     mockExistsSync.mockImplementation(
       (p: unknown) => String(p) === testHomePath('.ssh', 'id_ed25519')
     )
-    mockReadFileSync.mockReturnValue(UNENCRYPTED_KEY)
     const config = buildConnectConfig(makeTarget(), null)
     expect(config.agent).toBe('/tmp/agent.sock')
     expect(config.privateKey).toBeUndefined()
-    expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual(['none', 'agent'])
-    // A host that does not list it can only demand it as a second factor, after the agent key
-    // partially succeeds; ssh2 reports that with the stale pre-agent list, so it stays offered.
-    expect(walkInitialAuthLadder(config, ['publickey'])).toEqual([
-      'none',
-      'agent',
-      'keyboard-interactive'
-    ])
-  })
-
-  it('reads a deferred default key only once the agent-first attempt reaches the challenge', () => {
-    const defaultKeyPath = testHomePath('.ssh', 'id_ed25519')
-    mockExistsSync.mockImplementation((p: unknown) => String(p) === defaultKeyPath)
-    mockReadFileSync.mockReturnValue(UNENCRYPTED_KEY)
-    const config = buildConnectConfig(makeTarget(), null)
-    // A FIFO or slow mount there must not block an agent login that never needs the file.
-    expect(mockReadFileSync).not.toHaveBeenCalledWith(defaultKeyPath)
-    expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual(['none', 'agent'])
-    expect(mockReadFileSync).toHaveBeenCalledWith(defaultKeyPath)
-  })
-
-  it('keeps the challenge when several keys wait, which could spend the retry auth budget', () => {
-    mockReadFileSync.mockReturnValue(UNENCRYPTED_KEY)
-    const config = buildConnectConfig(
-      makeTarget(),
-      makeResolved({
-        identityFile: [testHomePath('.ssh', 'id_ed25519'), testHomePath('.ssh', 'id_ecdsa')]
-      })
-    )
-    expect(config.privateKey).toBeUndefined()
-    expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual([
-      'none',
-      'agent',
-      'keyboard-interactive'
-    ])
-  })
-
-  it('keeps the challenge on a keyboard-interactive-only host, where the deferred key cannot help', () => {
-    mockExistsSync.mockImplementation(
-      (p: unknown) => String(p) === testHomePath('.ssh', 'id_ed25519')
-    )
-    mockReadFileSync.mockReturnValue(UNENCRYPTED_KEY)
-    const config = buildConnectConfig(makeTarget(), null)
-    expect(walkInitialAuthLadder(config, ['keyboard-interactive'])).toEqual([
-      'none',
-      'agent',
-      'keyboard-interactive'
-    ])
-  })
-
-  it('keeps the challenge when a deferred key file does not parse as a private key', () => {
-    mockExistsSync.mockImplementation(
-      (p: unknown) => String(p) === testHomePath('.ssh', 'id_ed25519')
-    )
-    // ssh2 connect() throws on either before any auth, so the retry could never log in.
-    const unusableKeys = [
-      Buffer.from('not a private key'),
-      Buffer.from(utils.generateKeyPairSync('ecdsa', { bits: 256 }).public)
-    ]
-    for (const contents of unusableKeys) {
-      mockReadFileSync.mockReturnValue(contents)
-      const config = buildConnectConfig(makeTarget(), null)
-      expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual([
-        'none',
-        'agent',
-        'keyboard-interactive'
-      ])
-    }
-  })
-
-  it('offers the keyboard-interactive challenge when the agent defers no key', () => {
-    const config = buildConnectConfig(makeTarget(), null)
-    expect(config.agent).toBe('/tmp/agent.sock')
-    expect(config.privateKey).toBeUndefined()
-    expect(walkInitialAuthLadder(config, PASSWORD_HOST_METHODS)).toEqual([
-      'none',
-      'agent',
-      'keyboard-interactive'
-    ])
+    expect(mockExistsSync).not.toHaveBeenCalled()
   })
 
   it('provides fallback key when no agent is available', () => {

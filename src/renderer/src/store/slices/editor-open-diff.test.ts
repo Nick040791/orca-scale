@@ -88,7 +88,7 @@ describe('createEditorSlice openDiff', () => {
     const store = createEditorStore()
     // A remote runtime is globally focused, but wt-1's repo names no explicit
     // owner. The diff must stamp null (not undefined): null forces a LOCAL read
-    // (local), while undefined used to inherit 'focused-env'.
+    // in settingsForRuntimeOwner, while undefined would inherit 'focused-env'.
     store.setState({
       settings: { activeRuntimeEnvironmentId: 'focused-env' } as AppState['settings']
     })

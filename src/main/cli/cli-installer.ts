@@ -9,8 +9,7 @@ import { withAppImageRegistrationLock } from './appimage-registration-lock'
 import {
   isAppImageInstalledLauncherCurrent,
   isAppImageInstalledLauncherOwnedBySibling,
-  resolveAppImageNamespacePath,
-  resolveLegacyAppImageNamespacePath
+  resolveAppImageNamespacePath
 } from './appimage-extracted-root'
 import { isAppImageStableLauncherReady } from './appimage-stable-launcher'
 import { CliPathRegistration } from './cli-path-registration'
@@ -151,10 +150,7 @@ export class CliInstaller extends CliPathRegistration {
       await this.ensureWindowsPathEntry(dirname(status.commandPath))
     }
     if (extractedRoot) {
-      await pruneAppImageExtractedRoots(
-        extractedRoot.rootPath,
-        this.legacyAppImageNamespacePath() ?? undefined
-      )
+      await pruneAppImageExtractedRoots(extractedRoot.rootPath)
     }
 
     return extractedRoot
@@ -211,20 +207,12 @@ export class CliInstaller extends CliPathRegistration {
     const extractionOptions = this.appImageExtractionOptions()
     if (this.isLinuxAppImage() && extractionOptions) {
       await removeAppImageInstalledPayloads(resolveAppImageNamespacePath(extractionOptions))
-      await removeAppImageInstalledPayloads(resolveLegacyAppImageNamespacePath(extractionOptions))
     }
-  }
-
-  private legacyAppImageNamespacePath(): string | null {
-    const extractionOptions = this.appImageExtractionOptions()
-    return extractionOptions ? resolveLegacyAppImageNamespacePath(extractionOptions) : null
   }
 
   private runAppImageRegistrationOperation<T>(operation: () => Promise<T>): Promise<T> {
     return this.isLinuxAppImage()
-      ? withAppImageRegistrationLock(this.appImageCacheRootPath, operation, {
-          deadlineAt: this.appImageDeadlineAt
-        })
+      ? withAppImageRegistrationLock(this.appImageCacheRootPath, operation)
       : operation()
   }
 }

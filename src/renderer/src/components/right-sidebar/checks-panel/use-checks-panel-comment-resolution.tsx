@@ -1,4 +1,3 @@
-import { forgeOwnerHostIdForWorkspace } from '@/runtime/forge-credential-target'
 import { useCallback, useEffect } from 'react'
 import { toast } from 'sonner'
 import { pickDefaultSourceControlAgent } from '../SourceControl'
@@ -18,7 +17,7 @@ import { translate } from '@/i18n/i18n'
 
 type ChecksPanelCommentResolutionInput = Pick<
   ChecksPanelControllerState,
-  | 'activeWorktree'
+  | 'activeConnectionId'
   | 'activeWorktreeId'
   | 'branch'
   | 'claimedCommentResolutionRef'
@@ -26,6 +25,7 @@ type ChecksPanelCommentResolutionInput = Pick<
   | 'commentsLoading'
   | 'detectedAgentIds'
   | 'pendingCommentResolutionRef'
+  | 'remoteDetectedAgentIds'
   | 'repo'
   | 'resolveReviewThread'
   | 'setAgentComposerState'
@@ -42,9 +42,9 @@ type ChecksPanelCommentResolutionInput = Pick<
 
 export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolutionInput) {
   const {
+    activeConnectionId,
     activeGitLabReview,
     activeReview,
-    activeWorktree,
     activeWorktreeId,
     branch,
     claimedCommentResolutionRef,
@@ -56,6 +56,7 @@ export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolut
     pr,
     prCacheKey,
     prNumber,
+    remoteDetectedAgentIds,
     repo,
     resolveReviewThread,
     setAgentComposerState,
@@ -83,10 +84,10 @@ export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolut
         const result = await resolveGitLabMRDiscussionForChecks({
           repoPath: repo.path,
           repoId: repo.id,
+          settings,
           iid: activeGitLabReview.number,
           discussionId: threadId,
-          resolved: resolve,
-          repoOwnerExecutionHostId: forgeOwnerHostIdForWorkspace(repo, activeWorktree)
+          resolved: resolve
         })
         if (!result.ok) {
           rollbackThread(previousThreadComments)
@@ -142,7 +143,7 @@ export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolut
       prNumber,
       repo,
       resolveReviewThread,
-      activeWorktree,
+      settings,
       setComments
     ]
   )
@@ -151,11 +152,13 @@ export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolut
   const commentsDisabledReason = canTargetPRComments
     ? undefined
     : 'Commenting requires a GitHub PR repository target.'
+  const detectedAgentsForAI =
+    typeof activeConnectionId === 'string' ? remoteDetectedAgentIds : detectedAgentIds
   const noEnabledAgentKnown =
-    detectedAgentIds != null &&
+    detectedAgentsForAI != null &&
     pickDefaultSourceControlAgent(
       settings?.defaultTuiAgent,
-      detectedAgentIds,
+      detectedAgentsForAI,
       settings?.disabledTuiAgents
     ) == null
   const aiActionDisabledReason = !activeWorktreeId
@@ -197,7 +200,7 @@ export function useChecksPanelCommentResolution(model: ChecksPanelCommentResolut
     handleResolve,
     canTargetPRComments,
     commentsDisabledReason,
-    detectedAgentsForAI: detectedAgentIds,
+    detectedAgentsForAI,
     noEnabledAgentKnown,
     aiActionDisabledReason,
     resolveCommentsWithAIDisabledReason

@@ -1,9 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  focusRuntimeTerminalSurface,
-  registerRuntimeTerminalTab
-} from './mounted-terminal-tab-registry'
+import { focusRuntimeTerminalSurface, registerRuntimeTerminalTab } from './sync-runtime-graph'
 
 const TAB_ID = 'chat-view-tab'
 const WORKTREE_ID = 'chat-view-worktree'
@@ -69,15 +66,13 @@ function registerChatViewTab(covered: boolean): {
   focus: ReturnType<typeof vi.fn>
   setActivePane: ReturnType<typeof vi.fn>
 } {
-  const textarea = document.createElement('textarea')
-  document.body.append(textarea)
-  const focus = vi.fn(() => textarea.focus())
+  const focus = vi.fn()
   const setActivePane = vi.fn()
   const pane = {
     id: PANE_ID,
     leafId: LEAF_ID,
     container: makePaneContainer(covered),
-    terminal: { focus, textarea }
+    terminal: { focus }
   }
   const manager = {
     getPanes: () => [pane],
@@ -104,7 +99,6 @@ function registerChatViewTab(covered: boolean): {
 // under the chat portal, so focusing it drags the caret out of the composer (#9939 twin).
 describe('focusRuntimeTerminalSurface on a chat-view pane', () => {
   afterEach(() => {
-    document.body.replaceChildren()
     while (unregisterCallbacks.length > 0) {
       unregisterCallbacks.pop()?.()
     }

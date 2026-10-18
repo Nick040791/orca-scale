@@ -1,4 +1,3 @@
-import { getAiVaultResumeWorkspaceWslDistro } from '@/lib/ai-vault-resume-shell'
 import {
   canResumeAiVaultSessionOnTarget,
   getAiVaultResumeWorkspaceExecutionHostId,
@@ -61,8 +60,7 @@ export function resolveAiVaultSessionLaunchTarget(args: {
       sessionFilePath: args.sessionFilePath,
       sessionExecutionHostId: args.sessionExecutionHostId,
       targetStatus,
-      targetExecutionHostId,
-      targetWslDistro: getAiVaultResumeWorkspaceWslDistro(args.targetState, targetWorktreeId)
+      targetExecutionHostId
     })
   ) {
     return { status: 'unsupported', targetStatus }

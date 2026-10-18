@@ -1,12 +1,8 @@
-import { callRuntimeRpc } from '../../../../runtime/runtime-rpc-client'
-import { ipcOrRuntimeTargetForHostId } from '../../../../runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import { getEnvironmentSshStateGeneration } from '../../runtime-environment-ssh'
 import { getRuntimeEnvironmentConnectionGeneration } from '../../runtime-status'
-import {
-  LOCAL_EXECUTION_HOST_ID,
-  type ExecutionHostId
-} from '../../../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../../../shared/execution-host'
+import type { AppState } from '../../../types'
 import type { DetectedWorktreeListResult } from '../../../../../../shared/worktree/types'
 import type { RuntimeWorktreeListResult } from '../../../../../../shared/runtime-types'
 import type {
@@ -22,20 +18,15 @@ import { isRuntimeMethodNotFoundError } from './runtime-worktree-rpc-errors'
 import { toLegacyDetectedWorktreeResult } from './worktree-host-ownership'
 import { isWorktreeScanFailureKind } from '../../../../../../shared/worktree-scan-failure'
 
-/** The listing host is the one the caller asked about, never the focused one. */
-export function detectedWorktreeTarget(executionHostId: ExecutionHostId): RuntimeClientTarget {
-  const target = ipcOrRuntimeTargetForHostId(executionHostId)
-  if (!target) {
-    throw new Error('The workspace host is unresolved.')
-  }
-  return target
-}
-
 export async function listDetectedWorktreesForRepo(
-  target: Extract<RuntimeClientTarget, { kind: 'environment' }>,
+  settings: AppState['settings'],
   repoId: string,
   options: BackgroundRuntimeRefreshOptions = {}
 ): Promise<DetectedWorktreeListResult> {
+  const target = getActiveRuntimeTarget(settings)
+  if (target.kind === 'local') {
+    throw new Error('Local detected-worktree reads require a provider lease')
+  }
   try {
     return await callRuntimeRpc<DetectedWorktreeListResult>(
       target,
@@ -64,10 +55,11 @@ export async function listDetectedWorktreesForRepo(
 }
 
 export function detectedWorktreeRefreshKey(
+  settings: AppState['settings'],
   repoId: string,
   options: DetectedWorktreeRefreshOptions
 ): string {
-  const target = detectedWorktreeTarget(options.executionHostId)
+  const target = getActiveRuntimeTarget(settings)
   const targetKey = target.kind === 'local' ? 'local' : `runtime:${target.environmentId}`
   const parts = [
     repoId,

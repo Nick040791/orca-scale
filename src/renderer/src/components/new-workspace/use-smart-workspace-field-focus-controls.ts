@@ -1,31 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SmartWorkspaceNameFieldProps } from './smart-workspace-name-field-model'
-import type { SmartNameMode } from '../../../../shared/new-workspace/smart-workspace-source-results'
+import { useCallback } from 'react'
+import type { NormalizedSmartWorkspaceNameFieldProps } from './smart-workspace-name-field-model'
+import type { useSmartWorkspaceNameFieldState } from './use-smart-workspace-name-field-state'
 
-type FieldState = { mode: SmartNameMode; crossRepoPrompt?: unknown }
+type FieldState = ReturnType<typeof useSmartWorkspaceNameFieldState>
 
 export function useSmartWorkspaceFieldFocusControls({
   props,
   state
 }: {
-  props: Pick<SmartWorkspaceNameFieldProps, 'selectedSource' | 'inputRef'> & { disabled: boolean }
+  props: NormalizedSmartWorkspaceNameFieldProps
   state: FieldState
 }) {
   const { disabled, selectedSource, inputRef } = props
-  const { mode, crossRepoPrompt } = state
-  const [open, setOpen] = useState(false)
-  const [emojiCommandValue, setEmojiCommandValue] = useState('')
-  const [emojiCursor, setEmojiCursor] = useState<number | null>(null)
-  const localInputRef = useRef<HTMLInputElement | null>(null)
-  const focusedSelectedSourceKeyRef = useRef<string | null>(null)
-  const tabsListRef = useRef<HTMLDivElement | null>(null)
-  const localInputFocusFrameRef = useRef<number | null>(null)
-  const deferSourcePopoverUntilInteractionRef = useRef(true)
-  useEffect(() => {
-    if (disabled || mode === 'text' || crossRepoPrompt) {
-      setOpen(false)
-    }
-  }, [disabled, mode, crossRepoPrompt])
+  const {
+    mode,
+    setOpen,
+    focusedSelectedSourceKeyRef,
+    localInputFocusFrameRef,
+    deferSourcePopoverUntilInteractionRef,
+    localInputRef
+  } = state
   const selectedSourceFocusKey = selectedSource
     ? `${selectedSource.kind}:${selectedSource.label}:${selectedSource.url ?? ''}`
     : null
@@ -90,15 +84,6 @@ export function useSmartWorkspaceFieldFocusControls({
   )
 
   return {
-    open,
-    setOpen,
-    emojiCommandValue,
-    setEmojiCommandValue,
-    emojiCursor,
-    setEmojiCursor,
-    localInputRef,
-    tabsListRef,
-    localInputFocusFrameRef,
     setSelectedSourceNode,
     cancelLocalInputFocusFrame,
     markSourcePopoverUserEngaged,

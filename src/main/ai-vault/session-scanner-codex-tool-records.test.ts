@@ -67,6 +67,7 @@ it.each([false, true])(
 
 it.each([
   { type: 'add', content: '+ addedneedle' },
+  { type: 'delete', content: '+ addedneedle' },
   { type: 'update', unified_diff: '+ addedneedle', move_path: null }
 ])('publishes paginated $type file changes', (change) => {
   const messages: TranscriptMessage[] = []

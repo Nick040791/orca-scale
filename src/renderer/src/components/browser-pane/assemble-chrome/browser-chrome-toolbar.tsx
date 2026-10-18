@@ -162,7 +162,6 @@ export function BrowserChromeToolbar({
       icon: MessageSquarePlus,
       onSelect: () => elementTools.onStartIntent('annotate'),
       disabled: elementTools.disabled,
-      shortcut: elementTools.annotateShortcutLabel,
       count: elementTools.annotationCount,
       active: elementTools.activeIntent === 'annotate'
     })

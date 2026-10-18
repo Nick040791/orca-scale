@@ -2,19 +2,12 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
-  ORCAD_MOBILE_WEB_MANIFEST,
-  ORCAD_NODE_RUNTIME_MARKER_FILENAME,
-  ORCAD_SERVER_TARGET_FILENAME,
+  ORCAD_BUILD_TARGET_FILENAME,
   ORCAD_TEMPLATE_MANIFEST_FILENAME,
   ORCAD_TEMPLATE_TARGETS_DIR,
-  orcadTemplateCommonFilenames,
-  orcadTemplateTargetFilenames
+  orcadTemplateCommonFilenames
 } from '../../src/shared/orcad-artifacts.ts'
-import {
-  COMPAT_SERVER_TARGETS,
-  ORCAD_TEMPLATE_TARGETS,
-  pinnedNodeRuntimeAsset
-} from '../../src/shared/node-runtime-pin.ts'
+import { ORCAD_TEMPLATE_TARGETS } from '../../src/shared/orcad-bun-runtime.ts'
 
 async function write(path, contents) {
   await mkdir(dirname(path), { recursive: true })
@@ -22,40 +15,23 @@ async function write(path, contents) {
   return createHash('sha256').update(contents).digest('hex')
 }
 
-function targetFileContents(target, filename) {
-  if (filename === ORCAD_SERVER_TARGET_FILENAME) {
-    return `${target}\n`
-  }
-  if (filename === ORCAD_NODE_RUNTIME_MARKER_FILENAME) {
-    return `${pinnedNodeRuntimeAsset(target).executableSha256}\n`
-  }
-  return `${target}:${filename}`
-}
-
-export async function writeOrcadTemplateTestFixture(resourcesDir, { compat = false } = {}) {
+export async function writeOrcadTemplateTestFixture(resourcesDir) {
   const templateDir = join(resourcesDir, 'orcad-template')
+  const commonFilenames = orcadTemplateCommonFilenames()
   const commonSha256 = {}
-  for (const filename of orcadTemplateCommonFilenames(['out/mobile-web/index.html'])) {
+  for (const filename of commonFilenames) {
     commonSha256[filename] = await write(
       join(templateDir, ...filename.split('/')),
-      Buffer.from(
-        filename === ORCAD_MOBILE_WEB_MANIFEST
-          ? JSON.stringify({ assets: [{ path: 'index.html' }] })
-          : `common:${filename}`
-      )
+      Buffer.from(`common:${filename}`)
     )
   }
   const targets = {}
-  for (const target of [...ORCAD_TEMPLATE_TARGETS, ...(compat ? COMPAT_SERVER_TARGETS : [])]) {
+  for (const target of ORCAD_TEMPLATE_TARGETS) {
     const targetDir = join(templateDir, ORCAD_TEMPLATE_TARGETS_DIR, target)
-    const files = {}
-    for (const filename of orcadTemplateTargetFilenames(target)) {
-      files[filename] = await write(
-        join(targetDir, ...filename.split('/')),
-        targetFileContents(target, filename)
-      )
+    targets[target] = {
+      targetSha256: await write(join(targetDir, ORCAD_BUILD_TARGET_FILENAME), `${target}\n`),
+      watcherSha256: await write(join(targetDir, 'watcher.node'), `watcher:${target}`)
     }
-    targets[target] = { files }
   }
   const browserName = 'agent-browser-linux-x64'
   targets['linux-x64-glibc'] = {
@@ -68,7 +44,7 @@ export async function writeOrcadTemplateTestFixture(resourcesDir, { compat = fal
   }
   await writeFile(
     join(templateDir, ORCAD_TEMPLATE_MANIFEST_FILENAME),
-    JSON.stringify({ schemaVersion: 3, commonSha256, targets })
+    JSON.stringify({ schemaVersion: 2, commonSha256, targets })
   )
   return templateDir
 }

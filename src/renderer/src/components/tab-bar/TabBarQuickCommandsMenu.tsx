@@ -34,7 +34,6 @@ import type {
   TerminalQuickCommandHost
 } from '@/hooks/use-terminal-quick-command-hosts'
 type TabBarQuickCommandsMenuProps = {
-  isFocused: boolean
   repoCommands: readonly HostedTerminalQuickCommand[]
   globalCommands: readonly HostedTerminalQuickCommand[]
   mostRecent: HostedTerminalQuickCommand | null
@@ -49,7 +48,6 @@ type TabBarQuickCommandsMenuProps = {
 }
 
 export function TabBarQuickCommandsMenu({
-  isFocused,
   repoCommands,
   globalCommands,
   mostRecent,
@@ -155,7 +153,7 @@ export function TabBarQuickCommandsMenu({
   const closeMenu = useCallback((): void => {
     handleOpenChange(false)
   }, [handleOpenChange])
-  useTabBarQuickCommandsShortcut({ isFocused, menuOpen, onOpenChange: handleOpenChange })
+  useTabBarQuickCommandsShortcut({ menuOpen, onOpenChange: handleOpenChange })
   useEffect(() => {
     if (!menuOpen || !showSearch) {
       return
@@ -181,22 +179,6 @@ export function TabBarQuickCommandsMenu({
     onRun: runAndClose,
     selectedCommand
   })
-  const renderCommand = (entry: HostedTerminalQuickCommand): React.JSX.Element => (
-    <TabBarQuickCommandItem
-      key={entry.key}
-      entry={entry}
-      showHostLabel={addHosts.length > 1}
-      onRun={() => runAndClose(entry)}
-      onEdit={() => {
-        closeMenu()
-        onEditCommand(entry)
-      }}
-      onDelete={() => {
-        closeMenu()
-        onDeleteCommand(entry)
-      }}
-    />
-  )
   const moreCommandsLabel = translate(
     'auto.components.tab.bar.TabBarQuickCommandsButton.b82e237a4b',
     'More quick commands'
@@ -228,8 +210,7 @@ export function TabBarQuickCommandsMenu({
             }
           >
             <Play className="size-3 shrink-0" fill="currentColor" strokeWidth={0} />
-            {/* Why: keyed to the strip's width, not focus, so narrow split groups stay icon-only without reflowing. */}
-            <span className="max-w-[160px] truncate text-[12px] font-medium @max-[480px]/tab-strip:hidden">
+            <span className="max-w-[160px] truncate text-[12px] font-medium">
               {mostRecent?.command.label ??
                 translate('auto.components.tab.bar.TabBarQuickCommandsButton.7b1c9d6ae1', 'Run')}
             </span>
@@ -296,11 +277,6 @@ export function TabBarQuickCommandsMenu({
           side="bottom"
           sideOffset={6}
           className="w-80 p-0"
-          onCloseAutoFocus={(event) => {
-            if (!isFocused) {
-              event.preventDefault()
-            }
-          }}
           onCompositionStart={() => {
             if (!showSearch) {
               menuImeEnter.setComposing(true)
@@ -350,7 +326,11 @@ export function TabBarQuickCommandsMenu({
                   setCommandValueOverride(null)
                   setQuery(nextQuery)
                 }}
+                onCompositionStart={searchInput.onCompositionStart}
+                onCompositionEnd={searchInput.onCompositionEnd}
                 onKeyDown={searchInput.onKeyDown}
+                onKeyUp={searchInput.onKeyUp}
+                onBlur={searchInput.onBlur}
                 className="h-9 py-2 text-[12px]"
                 wrapperClassName="border-b border-border/50 px-2"
                 iconClassName="h-3.5 w-3.5"
@@ -370,11 +350,41 @@ export function TabBarQuickCommandsMenu({
                       )}
                 </CommandEmpty>
               ) : null}
-              {filteredRepoCommands.map(renderCommand)}
+              {filteredRepoCommands.map((entry) => (
+                <TabBarQuickCommandItem
+                  key={entry.key}
+                  entry={entry}
+                  showHostLabel={addHosts.length > 1}
+                  onRun={() => runAndClose(entry)}
+                  onEdit={() => {
+                    closeMenu()
+                    onEditCommand(entry)
+                  }}
+                  onDelete={() => {
+                    closeMenu()
+                    onDeleteCommand(entry)
+                  }}
+                />
+              ))}
               {filteredRepoCommands.length > 0 && filteredGlobalCommands.length > 0 ? (
                 <CommandSeparator className="my-1" />
               ) : null}
-              {filteredGlobalCommands.map(renderCommand)}
+              {filteredGlobalCommands.map((entry) => (
+                <TabBarQuickCommandItem
+                  key={entry.key}
+                  entry={entry}
+                  showHostLabel={addHosts.length > 1}
+                  onRun={() => runAndClose(entry)}
+                  onEdit={() => {
+                    closeMenu()
+                    onEditCommand(entry)
+                  }}
+                  onDelete={() => {
+                    closeMenu()
+                    onDeleteCommand(entry)
+                  }}
+                />
+              ))}
             </CommandList>
             {hostOwnershipPending ? (
               <TabBarQuickCommandHostLoadStatus failed={hostLoadFailed} />

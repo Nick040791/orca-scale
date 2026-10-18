@@ -1,5 +1,4 @@
-import { runProcess, runProcessSync } from '@orca/process-host'
-import { buildWslExecArgs } from '../shared/wsl-login-shell-command'
+import { execFile, execFileSync } from 'node:child_process'
 import { parseWslUncPath, toWindowsWslPath } from '../shared/wsl-paths'
 import { filterUserWslDistros, parseWslDistros } from './wsl-distro-list-output'
 import { wslDistroListRetryDelayMs } from './wsl-distro-retry'
@@ -8,7 +7,7 @@ import {
   _setWslAvailabilityCacheForTests,
   dropStaleWslAvailabilityFailure
 } from './wsl-availability'
-import { wslExeProcessSpec, wslExeStdout } from './wsl-exe-process'
+import { resolveWslInteropSpawnCwd } from './wsl-interop-spawn-directory'
 import {
   _resetRunningWslDistroCacheForTests,
   resolveRunningWslDistros
@@ -25,19 +24,13 @@ export { toLinuxPath, toWindowsWslPath } from '../shared/wsl-paths'
 export {
   getCachedWslAvailability,
   hasCachedWslAvailability,
+  isWslAvailable,
   isWslAvailableAsync
 } from './wsl-availability'
 export type WslPathInfo = {
   distro: string
   linuxPath: string
 }
-
-const WSL_PROBE_TIMEOUT_MS = 5000
-
-function wslHomeProbeArgs(distro: string): string[] {
-  return buildWslExecArgs(distro, ['bash', '-c', 'echo $HOME'])
-}
-
 /** Detect and parse a WSL UNC path on Windows. */
 export function parseWslPath(windowsPath: string): WslPathInfo | null {
   if (process.platform !== 'win32') {
@@ -55,7 +48,7 @@ export function isWslPath(path: string): boolean {
  * Check whether a WSL UNC working directory exists by testing it inside the
  * distro itself, returning null when the answer can't be determined.
  *
- * Why: Win32 fs.stat against the WSL 9P filesystem (\\wsl.localhost\...)
+ * Why: Win32 fs.statSync against the WSL 9P filesystem (\\wsl.localhost\...)
  * is unreliable for repos that live on the WSL side — it can report ENOENT for
  * directories that exist, which made opening a WSL worktree fail with
  * "Working directory ... does not exist". The guest marker probe asks the
@@ -63,6 +56,27 @@ export function isWslPath(path: string): boolean {
  * than false) when wsl.exe is unavailable or errors so callers can fall back to
  * the fs check instead of falsely rejecting a valid directory.
  */
+export function wslUncDirectoryExists(uncPath: string): boolean | null {
+  if (process.platform !== 'win32') {
+    return null
+  }
+  const info = parseWslUncPath(uncPath)
+  if (!info) {
+    return null
+  }
+  try {
+    const stdout = execFileSync('wsl.exe', getWslDirectoryProbeArgs(info), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      encoding: 'utf8',
+      cwd: resolveWslInteropSpawnCwd()
+    })
+    return parseWslDirectoryProbeOutput(stdout)
+  } catch {
+    return null
+  }
+}
+
 export function wslUncDirectoryExistsAsync(uncPath: string): Promise<boolean | null> {
   if (process.platform !== 'win32') {
     return Promise.resolve(null)
@@ -71,12 +85,13 @@ export function wslUncDirectoryExistsAsync(uncPath: string): Promise<boolean | n
   if (!info) {
     return Promise.resolve(null)
   }
-  return (
-    runProcess(wslExeProcessSpec(getWslDirectoryProbeArgs(info), WSL_PROBE_TIMEOUT_MS))
+  return new Promise((resolve) => {
+    const probeOpts = { timeout: 5000, cwd: resolveWslInteropSpawnCwd() }
+    execFile('wsl.exe', getWslDirectoryProbeArgs(info), probeOpts, (_error, stdout) => {
       // Why: wsl.exe uses numeric exits for both guest results and host failures; only the guest marker is authoritative.
-      .then((result) => parseWslDirectoryProbeOutput(result.stdout))
-      .catch(() => null)
-  )
+      resolve(parseWslDirectoryProbeOutput(stdout))
+    })
+  })
 }
 
 const wslHomeProbeCache = new Map<string, Promise<string | null>>()
@@ -155,9 +170,12 @@ export function listWslDistros(): string[] {
 
   try {
     const probeSequence = ++wslDistroProbeSequence
-    const output = wslExeStdout(
-      runProcessSync(wslExeProcessSpec(['--list', '--quiet'], WSL_PROBE_TIMEOUT_MS))
-    )
+    const output = execFileSync('wsl.exe', ['--list', '--quiet'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      cwd: resolveWslInteropSpawnCwd()
+    })
     return cacheWslDistroList(parseWslDistros(output), probeSequence)
   } catch {
     armWslDistroListRetry()
@@ -194,7 +212,7 @@ export async function listWslDistrosAsync(): Promise<string[]> {
   // lands; one host-wide answer must cost one wsl.exe spawn. `catch` sits ahead of the
   // stored promise, so joiners get the same fail-safe [] a per-caller catch returned.
   const probeSequence = ++wslDistroProbeSequence
-  const probe = runWslExe(['--list', '--quiet'])
+  const probe = execFileUtf8('wsl.exe', ['--list', '--quiet'])
     .then((output) => cacheWslDistroList(parseWslDistros(output), probeSequence))
     .catch(() => {
       armWslDistroListRetry()
@@ -220,7 +238,7 @@ export async function listRunningWslDistrosAsync(
   }
   return resolveRunningWslDistros(
     () =>
-      runWslExe(['--list', '--running', '--quiet'], {
+      execFileUtf8('wsl.exe', ['--list', '--running', '--quiet'], {
         ...process.env,
         WSL_UTF8: '1'
       }).then((output) => filterUserWslDistros(parseWslDistros(output))),
@@ -260,9 +278,12 @@ export function getWslHome(distro: string): string | null {
   }
 
   try {
-    const home = wslExeStdout(
-      runProcessSync(wslExeProcessSpec(wslHomeProbeArgs(distro), WSL_PROBE_TIMEOUT_MS))
-    ).trim()
+    const home = execFileSync('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      cwd: resolveWslInteropSpawnCwd()
+    }).trim()
 
     if (!home || !home.startsWith('/')) {
       return null
@@ -286,7 +307,7 @@ export async function getWslHomeAsync(distro: string): Promise<string | null> {
     return inflight
   }
 
-  const probe = runWslExe(wslHomeProbeArgs(distro))
+  const probe = execFileUtf8('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'])
     .then((output) => {
       const home = output.trim()
       if (!home || !home.startsWith('/')) {
@@ -334,7 +355,7 @@ export function _resetWslCachesForTests(): void {
 
 // Why: seeded state expires like real state — an `available: false` seed is re-probed
 // once its window lapses, and a `distros` seed is filtered and arms the retry window.
-// Tests that advance timers past either window must mock @orca/process-host.
+// Tests that advance timers past either window must mock child_process.
 export function _setWslCachesForTests(args: {
   available?: boolean | null
   distros?: string[] | null
@@ -349,6 +370,25 @@ export function _setWslCachesForTests(args: {
   }
 }
 
-async function runWslExe(args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
-  return wslExeStdout(await runProcess(wslExeProcessSpec(args, WSL_PROBE_TIMEOUT_MS, env)))
+function execFileUtf8(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      {
+        encoding: 'utf-8',
+        env,
+        timeout: 5000,
+        windowsHide: true,
+        cwd: resolveWslInteropSpawnCwd()
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(stdout)
+      }
+    )
+  })
 }

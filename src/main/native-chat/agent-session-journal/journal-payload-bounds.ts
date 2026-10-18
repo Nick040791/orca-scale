@@ -34,25 +34,14 @@ export function boundPayload(
   payload: string,
   limits: JournalPayloadLimits
 ): AgentJournalBoundedPayload {
-  const byteLength = Buffer.byteLength(payload, 'utf8')
+  const buffer = Buffer.from(payload, 'utf8')
   const digest = digestPayload(payload)
-  if (byteLength <= limits.inlineHeadBytes) {
-    return { head: payload, byteLength, digest, truncated: false }
+  if (buffer.byteLength <= limits.inlineHeadBytes) {
+    return { head: payload, byteLength: buffer.byteLength, digest, truncated: false }
   }
-  const boundedBuffer =
-    Number.isSafeInteger(limits.inlineHeadBytes) && limits.inlineHeadBytes >= 0
-      ? Buffer.allocUnsafe(limits.inlineHeadBytes)
-      : null
-  const head = boundedBuffer
-    ? boundedBuffer.toString(
-        'utf8',
-        0,
-        boundedBuffer.write(payload, 0, boundedBuffer.length, 'utf8')
-      )
-    : clipUtf8(Buffer.from(payload, 'utf8'), limits.inlineHeadBytes)
   return {
-    head,
-    byteLength,
+    head: clipUtf8(buffer, limits.inlineHeadBytes),
+    byteLength: buffer.byteLength,
     digest,
     truncated: true
   }

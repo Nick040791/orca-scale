@@ -7,9 +7,9 @@ export type LineageScenario = {
 
 export async function seedLineageScenario(
   page: Page,
-  options: { inlineOnly?: boolean; preserveGrouping?: boolean } = {}
+  options: { inlineOnly?: boolean } = {}
 ): Promise<LineageScenario> {
-  return page.evaluate(({ inlineOnly, preserveGrouping }) => {
+  return page.evaluate(({ inlineOnly }) => {
     const store = window.__store
     if (!store) {
       throw new Error('window.__store is not available')
@@ -18,9 +18,7 @@ export async function seedLineageScenario(
     const state = store.getState()
     state.setActiveView('terminal')
     state.setSidebarOpen(true)
-    if (!preserveGrouping) {
-      state.setGroupBy('none')
-    }
+    state.setGroupBy('none')
     state.setSortBy('recent')
     // Why: these specs assert lineage structure, not the user's persisted
     // sidebar filters. Make the seeded child render even when it has no live PTY.
@@ -100,7 +98,7 @@ export async function seedWorkspaceAgentStatus(
 
       const state = store.getState()
       if (!state.worktreeCardProperties.includes('inline-agents')) {
-        state.setWorktreeCardProperties([...state.worktreeCardProperties, 'inline-agents'])
+        state.toggleWorktreeCardProperty('inline-agents')
       }
       if ((state.tabsByWorktree[worktreeId] ?? []).length === 0) {
         state.createTab(worktreeId)

@@ -1,4 +1,3 @@
-import type { AgentJournalTurnScope } from '../../shared/agent-session-journal-types'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -20,7 +19,6 @@ export class ClaudeBackgroundTaskRowWriter {
 
   constructor(
     private readonly sink: StructuredAgentSessionEventSink,
-    private readonly turnScope: () => AgentJournalTurnScope,
     private readonly onPersistenceFailure?: (error: Error) => void
   ) {}
 
@@ -35,7 +33,6 @@ export class ClaudeBackgroundTaskRowWriter {
       this.identities,
       id,
       row,
-      this.turnScope,
       beforeAppend,
       lifecycle
     )
@@ -64,7 +61,6 @@ export class ClaudeBackgroundTaskRowWriter {
         this.identities,
         pending.id,
         pending.row,
-        this.turnScope,
         undefined,
         pending.lifecycle
       )

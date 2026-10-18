@@ -61,9 +61,6 @@ export function buildMouseWheelSequence(
   clientX: number,
   clientY: number
 ) {
-  if (!scope.mouseEncodingKnown) {
-    return ''
-  }
   const cell = viewportToMouseReportCell(scope, clientX, clientY)
   if (!cell) {
     return ''
@@ -108,7 +105,7 @@ export function buildMouseClickInput(
   clientY: number
 ) {
   const mouseTrackingMode = getMouseTrackingMode(scope)
-  if (!isClickMouseTrackingMode(mouseTrackingMode) || !scope.mouseEncodingKnown) {
+  if (!isClickMouseTrackingMode(mouseTrackingMode)) {
     return ''
   }
   const cell = viewportToMouseReportCell(scope, clientX, clientY)
@@ -171,18 +168,8 @@ export function isWheelMouseTrackingMode(mode: string) {
   return mode !== 'none' && mode !== 'x10'
 }
 
-// Why: a replay can carry tracking without its encoding (?1006h/?1016h); a guessed
-// legacy report would type `ESC[M` bytes into the program, so scroll locally instead.
-export function isWheelEncodingUnproven(scope: TerminalDocumentScope, mode: string) {
-  return isWheelMouseTrackingMode(mode) && !scope.mouseEncodingKnown
-}
-
 export function shouldRouteScrollToTerminalInput(scope: TerminalDocumentScope) {
-  const mode = getMouseTrackingMode(scope)
-  if (isWheelEncodingUnproven(scope, mode)) {
-    return false
-  }
-  return isWheelMouseTrackingMode(mode) || isAlternateBufferActive(scope)
+  return isWheelMouseTrackingMode(getMouseTrackingMode(scope)) || isAlternateBufferActive(scope)
 }
 
 export function buildMouseWheelScrollInput(
@@ -234,10 +221,6 @@ export function routeScrollLines(
   }
   const mouseTrackingMode = getMouseTrackingMode(scope)
   const alternateBufferActive = isAlternateBufferActive(scope)
-  if (isWheelEncodingUnproven(scope, mouseTrackingMode)) {
-    scope.term.scrollLines(lines)
-    return
-  }
   if (isWheelMouseTrackingMode(mouseTrackingMode)) {
     // Why: xterm sends wheel events to mouse-aware TUIs before considering
     // scrollback, even if the app stays on the normal buffer.

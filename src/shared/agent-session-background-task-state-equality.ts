@@ -2,7 +2,6 @@ import {
   agentSessionBackgroundTasksEqual,
   type AgentSessionBackgroundTaskState
 } from './agent-session-wire'
-import { agentChildWorkViewsEqual } from './agent-status-child-work-view-wire'
 
 /** Structural equality so a republished roster never churns transcript identity. */
 export function backgroundTaskStatesEqual(
@@ -17,14 +16,12 @@ export function backgroundTaskStatesEqual(
     !right ||
     left.state !== right.state ||
     left.supportsTaskStop !== right.supportsTaskStop ||
-    left.supportsStopAll !== right.supportsStopAll ||
-    left.incomplete !== right.incomplete
+    left.supportsStopAll !== right.supportsStopAll
   ) {
     return false
   }
   return (
     agentSessionBackgroundTasksEqual(left.tasks, right.tasks) &&
-    agentSessionBackgroundTasksEqual(left.settledTasks, right.settledTasks) &&
-    agentChildWorkViewsEqual(left.children, right.children)
+    agentSessionBackgroundTasksEqual(left.settledTasks, right.settledTasks)
   )
 }

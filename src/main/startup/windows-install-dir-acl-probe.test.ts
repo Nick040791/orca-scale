@@ -1,10 +1,8 @@
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CrashReportBreadcrumbData } from '../../shared/crash-reporting'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  resetWindowsSecurityLoadForTests,
-  setWindowsSecurityForTests
-} from '../../shared/windows-security-addon'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   probeWindowsInstallDirAcl,
   resetWindowsInstallDirAclProbeForTest,
@@ -14,7 +12,7 @@ import {
 import { isInstallDirAclPoisonVerdict } from './windows-install-dir-package-acl-repair'
 import {
   ALL_PACKAGES_ACE,
-  installFakeDacls,
+  fakeIcaclsSpawn,
   ORPHAN_PACKAGE_ACE,
   RESTRICTED_PACKAGES_ACE
 } from './windows-install-dir-acl.test-fixture'
@@ -23,7 +21,9 @@ const INSTALL_DIR = 'C:\\Users\\neil\\AppData\\Local\\Programs\\orca'
 const ORPHAN = ORPHAN_PACKAGE_ACE
 const RESTRICTED_GRANT = RESTRICTED_PACKAGES_ACE
 
-function probe(options: WindowsInstallDirAclProbeOptions = {}): Promise<Record<string, unknown>> {
+const fakeSpawn = fakeIcaclsSpawn
+
+function probe(options: WindowsInstallDirAclProbeOptions): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     probeWindowsInstallDirAcl({
       platform: 'win32',
@@ -40,8 +40,7 @@ function probe(options: WindowsInstallDirAclProbeOptions = {}): Promise<Record<s
 
 /** Every target returns the same ACE set on top of the system baseline. */
 function probeWith(...aces: string[]): Promise<Record<string, unknown>> {
-  installFakeDacls(() => aces)
-  return probe()
+  return probe({ spawnFn: fakeSpawn(() => aces).spawnFn })
 }
 
 describe('probeWindowsInstallDirAcl', () => {
@@ -49,13 +48,10 @@ describe('probeWindowsInstallDirAcl', () => {
     resetWindowsInstallDirAclProbeForTest()
   })
 
-  afterEach(() => {
-    resetWindowsSecurityLoadForTests()
-  })
-
   it('reports a clean DACL as unpoisoned', async () => {
-    installFakeDacls(() => [])
-    const data = await probe()
+    const data = await probe({
+      spawnFn: fakeSpawn(() => []).spawnFn
+    })
     expect(data.name).toBe(WINDOWS_INSTALL_DIR_ACL_BREADCRUMB)
     expect(data.status).toBe('ok')
     expect(data.orphanPackageSidCount).toBe(0)
@@ -106,20 +102,31 @@ describe('probeWindowsInstallDirAcl', () => {
   })
 
   it('does not let a grant on one target mask its absence on another', async () => {
-    installFakeDacls((target) =>
-      target.endsWith('ffmpeg.dll') ? [ORPHAN] : [RESTRICTED_GRANT, ORPHAN]
-    )
-    const data = await probe()
+    const data = await probe({
+      spawnFn: fakeSpawn((target) =>
+        target.endsWith('ffmpeg.dll') ? [ORPHAN] : [RESTRICTED_GRANT, ORPHAN]
+      ).spawnFn
+    })
     expect(data.hasWellKnownPackageGrant).toBe(true)
     expect(data.matchesPoisonSignature).toBe(true)
   })
 
-  // Display listings localize package names (zh/ja/ko); SDDL never does, so a repaired
-  // tree must read clean whatever the UI language.
-  it('reads a repaired tree as clean from SIDs alone', async () => {
+  // zh-CN/ja-JP/ko-KR icacls keeps "NT AUTHORITY" English but translates the package
+  // names and summary. A tree the repair just fixed read as poisoned AND reliable there,
+  // re-arming the pre-window repair and blaming the install on every launch.
+  it('reads a repaired tree as clean when icacls translates package names', async () => {
+    const zhDisplay = (target: string): string =>
+      [
+        `${target} S-1-15-2-999-999-999:(OI)(CI)(RX)`,
+        '    APPLICATION PACKAGE AUTHORITY\\所有受限制的应用程序包:(OI)(CI)(RX)',
+        '    NT AUTHORITY\\SYSTEM:(I)(OI)(CI)(F)',
+        '    BUILTIN\\Administrators:(I)(OI)(CI)(F)',
+        '',
+        '已成功处理 1 个文件; 处理 0 个文件时失败'
+      ].join('\r\n')
     let verdict: CrashReportBreadcrumbData = {}
-    installFakeDacls(() => [ORPHAN, RESTRICTED_GRANT])
     const data = await probe({
+      spawnFn: fakeSpawn(() => [ORPHAN, RESTRICTED_GRANT], zhDisplay).spawnFn,
       onDone: (done) => (verdict = done)
     })
     expect(isInstallDirAclPoisonVerdict(verdict)).toBe(false)
@@ -142,31 +149,43 @@ describe('probeWindowsInstallDirAcl', () => {
   })
 
   it('probes a content file, not just the directory object', async () => {
-    const fake = installFakeDacls(() => [ORPHAN])
-    await probe()
-    expect(fake.calls).toEqual([INSTALL_DIR, join(INSTALL_DIR, 'ffmpeg.dll')])
+    const fake = fakeSpawn(() => [ORPHAN])
+    await probe({ spawnFn: fake.spawnFn })
+    expect(fake.calls.map((c) => c.args[0])).toEqual([INSTALL_DIR, join(INSTALL_DIR, 'ffmpeg.dll')])
   })
 
-  // Real DACLs captured on win32 10.0.26200, as the addon reads them (DACL-only SDDL).
+  it('only saves the DACL to a temp file: no recursive or ACL-writing flag', async () => {
+    const fake = fakeSpawn(() => [ORPHAN])
+    await probe({ spawnFn: fake.spawnFn })
+    for (const call of fake.calls) {
+      expect(call.args).toHaveLength(3)
+      expect(call.args[0]).not.toMatch(/^\//)
+      expect(call.args[1]).toBe('/save')
+      expect(call.args[2].startsWith(tmpdir())).toBe(true)
+      expect(existsSync(call.args[2])).toBe(false)
+    }
+  })
+
+  // Verbatim `icacls <dir> /save` / `icacls <file> /save` output from win32 10.0.26200.
   it.each([
     [
       'a repaired module file',
-      'D:AI(A;;0x1200a9;;;S-1-15-2-2)(A;;0x1200a9;;;S-1-15-2-999-999-999)' +
+      'ffmpeg.dll\r\nD:AI(A;;0x1200a9;;;S-1-15-2-2)(A;;0x1200a9;;;S-1-15-2-999-999-999)' +
         '(A;ID;0x1200a9;;;S-1-15-2-999-999-999)(A;ID;FA;;;SY)(A;ID;FA;;;BA)' +
-        '(A;ID;FA;;;S-1-5-21-432636774-4279371817-3971399515-1001)',
+        '(A;ID;FA;;;S-1-5-21-432636774-4279371817-3971399515-1001)\r\n',
       false
     ],
     [
       'a poisoned dir whose AC ACE denies',
-      'D:AI(D;;0x100116;;;AC)(A;OICI;0x1200a9;;;S-1-15-2-999-999-999)' +
+      'scan21acl\r\nD:AI(D;;0x100116;;;AC)(A;OICI;0x1200a9;;;S-1-15-2-999-999-999)' +
         '(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)' +
-        '(A;OICIID;FA;;;S-1-5-21-432636774-4279371817-3971399515-1001)',
+        '(A;OICIID;FA;;;S-1-5-21-432636774-4279371817-3971399515-1001)\r\n',
       true
     ]
-  ])('reads a real captured DACL: %s', async (_label, saved, poisoned) => {
-    installFakeDacls(() => saved)
+  ])('reads a real icacls /save capture: %s', async (_label, saved, poisoned) => {
     const data = await probe({
-      fileExists: () => false
+      fileExists: () => false,
+      spawnFn: fakeSpawn(() => Buffer.from(saved, 'utf16le')).spawnFn
     })
     expect(data.orphanPackageSids).toBe('S-1-15-2-999-999-999')
     expect(data.matchesPoisonSignature).toBe(poisoned)
@@ -174,13 +193,13 @@ describe('probeWindowsInstallDirAcl', () => {
 
   it('keeps a conditional DACL unreadable instead of hiding a later package grant', async () => {
     const saved =
-      'D:AI(A;OICI;0x1200a9;;;S-1-15-2-999-999-999)' +
+      'orca\r\nD:AI(A;OICI;0x1200a9;;;S-1-15-2-999-999-999)' +
       '(XA;OICI;FA;;;WD;(@User.Department == "Finance"))' +
-      '(A;OICIID;0x1200a9;;;S-1-15-2-2)'
+      '(A;OICIID;0x1200a9;;;S-1-15-2-2)\r\n'
     let verdict: CrashReportBreadcrumbData = {}
-    installFakeDacls(() => saved)
     const data = await probe({
       fileExists: () => false,
+      spawnFn: fakeSpawn(() => Buffer.from(saved, 'utf16le')).spawnFn,
       onDone: (done) => (verdict = done)
     })
     expect(data).toMatchObject({ status: 'failed', reason: 'all-targets-unreadable' })
@@ -188,60 +207,45 @@ describe('probeWindowsInstallDirAcl', () => {
     expect(isInstallDirAclPoisonVerdict(verdict)).toBe(false)
   })
 
-  // A NULL DACL grants everyone everything, so it says nothing about which package grant applies.
-  it('keeps a NULL DACL unreadable rather than reading it as clean', async () => {
-    installFakeDacls(() => 'D:NO_ACCESS_CONTROL')
-    const data = await probe({ fileExists: () => false })
-    expect(data).toMatchObject({ status: 'failed', reason: 'all-targets-unreadable' })
-  })
-
-  it('treats a read that fails as unreadable, never as a clean DACL', async () => {
+  it.each([1, null])('ignores a saved DACL when icacls exits with %s', async (exitCode) => {
+    const fake = fakeSpawn(() => [ORPHAN], undefined, exitCode)
     let verdict: CrashReportBreadcrumbData = {}
-    installFakeDacls(() => null)
     const data = await probe({
       fileExists: () => false,
+      spawnFn: fake.spawnFn,
       onDone: (done) => (verdict = done)
     })
     expect(data).toMatchObject({ status: 'failed', reason: 'all-targets-unreadable' })
     expect(isInstallDirAclPoisonVerdict(verdict)).toBe(false)
+    expect(fake.calls.every((call) => !existsSync(call.args[2]))).toBe(true)
   })
 
   it('does not report malformed saved output as a clean DACL', async () => {
-    installFakeDacls(() => 'orca')
     const data = await probe({
-      fileExists: () => false
+      fileExists: () => false,
+      spawnFn: fakeSpawn(() => Buffer.from('orca\r\n', 'utf16le')).spawnFn
     })
     expect(data).toMatchObject({ status: 'failed', reason: 'all-targets-unreadable' })
     expect(data.matchesPoisonSignature).toBeUndefined()
   })
 
-  it('records a failure instead of throwing when no DACL can be read', async () => {
-    installFakeDacls(() => null)
-    const data = await probe()
+  it('records a failure instead of throwing when icacls cannot be read', async () => {
+    const data = await probe({ spawnFn: fakeSpawn(() => null).spawnFn })
     expect(data.status).toBe('failed')
     expect(data.reason).toBe('all-targets-unreadable')
     expect(data.matchesPoisonSignature).toBeUndefined()
-  })
-
-  // A missing addon is a packaging fault, not a clean tree: the probe records it and moves on.
-  it('records a failure, not a verdict, when the addon cannot load', async () => {
-    setWindowsSecurityForTests(null)
-    let verdict: CrashReportBreadcrumbData = {}
-    const data = await probe({ onDone: (done) => (verdict = done) })
-    expect(data.status).toBe('failed')
-    expect(String(data.reason)).toContain('windows-security addon unavailable')
-    expect(isInstallDirAclPoisonVerdict(verdict)).toBe(false)
   })
 
   it.each([
     ['darwin', { platform: 'darwin' as NodeJS.Platform }],
     ['serve mode', { platform: 'win32' as NodeJS.Platform, isServeMode: true }]
   ])('does no work on %s', async (_label, options) => {
-    const fake = installFakeDacls(() => [ORPHAN])
+    const fake = fakeSpawn(() => [ORPHAN])
     const record = vi.fn()
     const fileExists = vi.fn(() => true)
     probeWindowsInstallDirAcl({
       installDir: INSTALL_DIR,
+      spawnFn: fake.spawnFn,
       fileExists,
       recordBreadcrumb: record,
       ...options
@@ -253,10 +257,10 @@ describe('probeWindowsInstallDirAcl', () => {
   })
 
   it('runs once per process', async () => {
-    const fake = installFakeDacls(() => [ORPHAN])
-    await probe()
+    const fake = fakeSpawn(() => [ORPHAN])
+    await probe({ spawnFn: fake.spawnFn })
     const before = fake.calls.length
-    probeWindowsInstallDirAcl({ platform: 'win32', installDir: INSTALL_DIR })
+    probeWindowsInstallDirAcl({ platform: 'win32', installDir: INSTALL_DIR, spawnFn: fake.spawnFn })
     await new Promise((resolve) => setImmediate(resolve))
     expect(fake.calls).toHaveLength(before)
   })

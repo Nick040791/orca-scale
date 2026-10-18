@@ -11,7 +11,7 @@ import {
   inspectSetupScriptPromptState,
   isSetupScriptPromptDismissed
 } from './setup-script-prompt'
-import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
+import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-client'
 
 function makeRepo(overrides: Partial<Repo> = {}): Repo {
   return {

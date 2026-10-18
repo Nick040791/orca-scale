@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction
+} from 'react'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import type {
@@ -7,11 +16,6 @@ import type {
 } from '../../../../../shared/browser-grab-types'
 import { formatBrowserAnnotationsAsMarkdown } from './browser-annotation-output'
 import { EMPTY_BROWSER_ANNOTATIONS } from '../describe-page/browser-annotation-geometry'
-import {
-  holdNotesForSend,
-  isNoteInFlight,
-  useNotesInFlightVersion
-} from '@/lib/notes-send-in-flight'
 
 export function useBrowserPageAnnotationSend({
   browserTabId,
@@ -22,6 +26,8 @@ export function useBrowserPageAnnotationSend({
 }): {
   browserAnnotations: BrowserPageAnnotation[]
   browserAnnotationsPrompt: string
+  browserAnnotationTrayOpen: boolean
+  setBrowserAnnotationTrayOpen: Dispatch<SetStateAction<boolean>>
   browserAnnotationsCopied: boolean
   annotationBannerSendOpen: boolean
   annotationTraySendOpen: boolean
@@ -36,7 +42,6 @@ export function useBrowserPageAnnotationSend({
     intent: BrowserAnnotationIntent
   ) => void
   handleBrowserAnnotationsSentToAgent: () => void
-  handleBrowserAnnotationsHandedOff: (delivered: Promise<unknown>) => void
   activeGroupId: string | undefined
 } {
   const browserAnnotations = useAppStore(
@@ -44,21 +49,12 @@ export function useBrowserPageAnnotationSend({
   )
   const activeGroupId = useAppStore((s) => s.activeGroupIdByWorktree[worktreeId])
   const browserAnnotationsRef = useRef(browserAnnotations)
+  const [browserAnnotationTrayOpen, setBrowserAnnotationTrayOpen] = useState(true)
   const [browserAnnotationsCopied, setBrowserAnnotationsCopied] = useState(false)
   const annotationCopyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const copyPrompt = useMemo(
+  const browserAnnotationsPrompt = useMemo(
     () => formatBrowserAnnotationsAsMarkdown(browserAnnotations),
     [browserAnnotations]
-  )
-  // Annotations another send holds are left out of the next one.
-  const inFlightVersion = useNotesInFlightVersion()
-  const sendableAnnotations = useMemo(() => {
-    void inFlightVersion
-    return browserAnnotations.filter((annotation) => !isNoteInFlight(annotation))
-  }, [browserAnnotations, inFlightVersion])
-  const browserAnnotationsPrompt = useMemo(
-    () => formatBrowserAnnotationsAsMarkdown(sendableAnnotations),
-    [sendableAnnotations]
   )
   const openAgentSendPopoverTargetMode = useAppStore((s) => s.openAgentSendPopoverTargetMode)
   const closeAgentSendPopoverTargetMode = useAppStore((s) => s.closeAgentSendPopoverTargetMode)
@@ -86,31 +82,25 @@ export function useBrowserPageAnnotationSend({
   }, [])
 
   const handleCopyBrowserAnnotations = useCallback((): void => {
-    if (!copyPrompt) {
+    if (!browserAnnotationsPrompt) {
       return
     }
-    void window.api.ui.writeClipboardText(copyPrompt)
+    void window.api.ui.writeClipboardText(browserAnnotationsPrompt)
     recordFeatureInteraction('browser-annotations')
     clearTimeout(annotationCopyTimerRef.current)
     setBrowserAnnotationsCopied(true)
     annotationCopyTimerRef.current = setTimeout(() => setBrowserAnnotationsCopied(false), 1400)
-  }, [copyPrompt, recordFeatureInteraction])
+  }, [browserAnnotationsPrompt, recordFeatureInteraction])
 
   const handleBrowserAnnotationsSentToAgent = useCallback((): void => {
     recordFeatureInteraction('browser-annotations-sent-to-agent')
-    removeDeliveredBrowserPageAnnotations(browserTabId, sendableAnnotations)
+    removeDeliveredBrowserPageAnnotations(browserTabId, browserAnnotations)
   }, [
-    sendableAnnotations,
+    browserAnnotations,
     browserTabId,
     recordFeatureInteraction,
     removeDeliveredBrowserPageAnnotations
   ])
-
-  const handleBrowserAnnotationsHandedOff = useCallback(
-    (delivered: Promise<unknown>): void =>
-      holdNotesForSend(sendableAnnotations, delivered, handleBrowserAnnotationsSentToAgent),
-    [handleBrowserAnnotationsSentToAgent, sendableAnnotations]
-  )
 
   const handleClearBrowserAnnotations = useCallback((): void => {
     if (browserAnnotationsRef.current.length === 0) {
@@ -125,10 +115,6 @@ export function useBrowserPageAnnotationSend({
   const handleAnnotationSendOpenChange = useCallback(
     (modeId: string, open: boolean): void => {
       if (open) {
-        // Every annotation may already be on its way: there is nothing to send.
-        if (!browserAnnotationsPrompt) {
-          return
-        }
         openAgentSendPopoverTargetMode({
           id: modeId,
           worktreeId,
@@ -139,8 +125,7 @@ export function useBrowserPageAnnotationSend({
             'Browser annotations'
           ),
           launchSource: 'notes_send',
-          onPromptDelivered: handleBrowserAnnotationsSentToAgent,
-          onPromptHandedOff: handleBrowserAnnotationsHandedOff
+          onPromptDelivered: handleBrowserAnnotationsSentToAgent
         })
       } else {
         closeAgentSendPopoverTargetMode(modeId)
@@ -149,7 +134,6 @@ export function useBrowserPageAnnotationSend({
     [
       browserAnnotationsPrompt,
       handleBrowserAnnotationsSentToAgent,
-      handleBrowserAnnotationsHandedOff,
       closeAgentSendPopoverTargetMode,
       openAgentSendPopoverTargetMode,
       worktreeId
@@ -179,11 +163,17 @@ export function useBrowserPageAnnotationSend({
       if (browserAnnotationsRef.current.length === 1) {
         clearTimeout(annotationCopyTimerRef.current)
         setBrowserAnnotationsCopied(false)
+        setBrowserAnnotationTrayOpen(true)
       }
       deleteBrowserPageAnnotation(browserTabId, annotationId)
       recordFeatureInteraction('browser-annotations')
     },
-    [browserTabId, deleteBrowserPageAnnotation, recordFeatureInteraction]
+    [
+      browserTabId,
+      deleteBrowserPageAnnotation,
+      recordFeatureInteraction,
+      setBrowserAnnotationTrayOpen
+    ]
   )
 
   const handleUpdateBrowserAnnotation = useCallback(
@@ -197,6 +187,8 @@ export function useBrowserPageAnnotationSend({
   return {
     browserAnnotations,
     browserAnnotationsPrompt,
+    browserAnnotationTrayOpen,
+    setBrowserAnnotationTrayOpen,
     browserAnnotationsCopied,
     annotationBannerSendOpen,
     annotationTraySendOpen,
@@ -207,7 +199,6 @@ export function useBrowserPageAnnotationSend({
     handleDeleteBrowserAnnotation,
     handleUpdateBrowserAnnotation,
     handleBrowserAnnotationsSentToAgent,
-    handleBrowserAnnotationsHandedOff,
     activeGroupId
   }
 }

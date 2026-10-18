@@ -1,16 +1,20 @@
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
+import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
 import { buildByIdIndex, buildWorktreeByIdIndex } from '../slices/worktree-by-id-index'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree/id'
 import type { TerminalSlice, TerminalStoreGet, TerminalStoreSet } from './terminal-state'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
+import { isCurrentDirectSshAuthority } from './terminal-pty-identities'
 
 export function createWorkspaceTerminalReconnectActions(
   set: TerminalStoreSet,
   get: TerminalStoreGet
 ): Pick<TerminalSlice, 'reconnectPersistedTerminals'> {
   return {
-    reconnectPersistedTerminals: async (signal) => {
-      if (signal?.aborted) {
+    reconnectPersistedTerminals: async (signal, options) => {
+      if (
+        signal?.aborted ||
+        (options && !isCurrentDirectSshAuthority(get(), options.directSshAuthority))
+      ) {
         return
       }
       const {
@@ -21,8 +25,14 @@ export function createWorkspaceTerminalReconnectActions(
         tabsByWorktree,
         ptyIdsByTabId
       } = get()
-      const ids = pendingReconnectWorktreeIds ?? []
+      const scopedWorkspaceKeys = options ? new Set(options.workspaceKeys) : null
+      const ids = (pendingReconnectWorktreeIds ?? []).filter(
+        (id) => !scopedWorkspaceKeys || scopedWorkspaceKeys.has(id)
+      )
       if (ids.length === 0) {
+        if (options) {
+          return
+        }
         set({
           workspaceSessionReady: true,
           pendingReconnectWorktreeIds: [],
@@ -55,7 +65,13 @@ export function createWorkspaceTerminalReconnectActions(
           const tabId = tab.id
           const layout = terminalLayoutsByTabId[tabId]
           const leafPtyMap = layout?.ptyIdsByLeafId ?? {}
-          const tabLevelPtyId = pendingReconnectPtyIdByTabId[tabId]
+          const pendingPtyId = pendingReconnectPtyIdByTabId[tabId]
+          const tabLevelPtyId =
+            options &&
+            parseAppSshPtyId(pendingPtyId ?? '')?.connectionId !==
+              options.directSshAuthority.targetId
+              ? undefined
+              : pendingPtyId
           const hasLeafMappings = Object.keys(leafPtyMap).length > 0
           // Why: publish live PTY hints before mount (pty-connection reattaches later) so the
           // sessions status segment maps daemon IDs to tabs; otherwise all sessions look like orphans until the pane mounts.
@@ -83,13 +99,24 @@ export function createWorkspaceTerminalReconnectActions(
         }
       }
       // Why: keep deferred SSH session IDs for post-cleanup reconnect.
-      const deferredSshSessionIdsByTabId: Record<string, string> = {}
+      const scopedTabIds = new Set(
+        [...(scopedWorkspaceKeys ?? ids)].flatMap((workspaceKey) =>
+          (tabsByWorktree[workspaceKey] ?? []).map((tab) => tab.id)
+        )
+      )
+      const deferredSshSessionIdsByTabId: Record<string, string> = options
+        ? Object.fromEntries(
+            Object.entries(get().deferredSshSessionIdsByTabId).filter(
+              ([tabId]) => !scopedTabIds.has(tabId)
+            )
+          )
+        : {}
       for (const worktreeId of ids) {
         const worktree = worktreeById.get(worktreeId)
         // Why: SSH worktrees aren't in worktreesByRepo at cold start; fall back to the repo id in the composite worktree id so sessions still reach the deferred map.
         const repoId = worktree?.repoId ?? getRepoIdFromWorktreeId(worktreeId)
         const repo = repoId ? (repoById.get(repoId) ?? null) : null
-        const connectionId = repo?.connectionId
+        const connectionId = options?.directSshAuthority.targetId ?? repo?.connectionId
         if (!connectionId) {
           continue
         }
@@ -109,24 +136,44 @@ export function createWorkspaceTerminalReconnectActions(
         const tabs = tabsByWorktree[worktreeId] ?? []
         for (const tab of tabs) {
           const sessionId = pendingReconnectPtyIdByTabId[tab.id]
-          if (sessionId) {
+          if (
+            sessionId &&
+            (!options || parseAppSshPtyId(sessionId)?.connectionId === connectionId)
+          ) {
             deferredSshSessionIdsByTabId[tab.id] = sessionId
           }
         }
       }
-      if (signal?.aborted) {
+      if (
+        signal?.aborted ||
+        (options && !isCurrentDirectSshAuthority(get(), options.directSshAuthority))
+      ) {
         return
       }
+      const remainingReconnectWorktreeIds = options
+        ? pendingReconnectWorktreeIds.filter((id) => !scopedWorkspaceKeys?.has(id))
+        : []
+      const remainingReconnectTabByWorktree = options
+        ? Object.fromEntries(
+            Object.entries(pendingReconnectTabByWorktree).filter(
+              ([workspaceKey]) => !scopedWorkspaceKeys?.has(workspaceKey)
+            )
+          )
+        : {}
+      const remainingReconnectPtyIdByTabId = options
+        ? Object.fromEntries(
+            Object.entries(pendingReconnectPtyIdByTabId).filter(
+              ([tabId]) => !scopedTabIds.has(tabId)
+            )
+          )
+        : {}
       set({
-        // Switch point: main's frames draw the rows, with main's own bindings.
-        ...(reconnectedTabsByWorktree && !ORCA_LAYOUT_OWNER_IS_MAIN
-          ? { tabsByWorktree: reconnectedTabsByWorktree }
-          : {}),
+        ...(reconnectedTabsByWorktree ? { tabsByWorktree: reconnectedTabsByWorktree } : {}),
         ...(reconnectedPtyIdsByTabId ? { ptyIdsByTabId: reconnectedPtyIdsByTabId } : {}),
-        workspaceSessionReady: true,
-        pendingReconnectWorktreeIds: [],
-        pendingReconnectTabByWorktree: {},
-        pendingReconnectPtyIdByTabId: {},
+        ...(options ? {} : { workspaceSessionReady: true }),
+        pendingReconnectWorktreeIds: remainingReconnectWorktreeIds,
+        pendingReconnectTabByWorktree: remainingReconnectTabByWorktree,
+        pendingReconnectPtyIdByTabId: remainingReconnectPtyIdByTabId,
         deferredSshSessionIdsByTabId
       })
     }

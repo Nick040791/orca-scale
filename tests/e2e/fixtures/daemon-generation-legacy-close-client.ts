@@ -1,13 +1,11 @@
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import type { Store } from '../../../src/main/persistence'
 import { OrcaRuntimeService } from '../../../src/main/runtime/orca-runtime'
 import { RpcDispatcher } from '../../../src/main/runtime/rpc/dispatcher'
 import { SESSION_TAB_METHODS } from '../../../src/main/runtime/rpc/methods/session-tabs'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import type { RuntimeMobileSessionTabsSnapshot } from '../../../src/shared/runtime-types'
 import { createDesktopDiscoveredDaemonRouter } from './daemon-generation-desktop-discovery'
-import { createDaemonGenerationProfileStore } from './daemon-generation-profile-store'
 
 type FixtureSession = {
   protocolVersion: number
@@ -128,7 +126,6 @@ async function waitForFinish(): Promise<void> {
 async function main(): Promise<void> {
   const config = readConfig()
   const { router } = await createDesktopDiscoveredDaemonRouter(config)
-  let store: Store | null = null
   try {
     const outputBySessionId = new Map<string, string>()
     router.onData((event) => {
@@ -152,8 +149,7 @@ async function main(): Promise<void> {
       }
     }
 
-    store = createDaemonGenerationProfileStore(config.cwd)
-    const runtime = new OrcaRuntimeService(store)
+    const runtime = new OrcaRuntimeService()
     const calls: Record<string, unknown>[] = []
     const sessionByTabId = new Map(config.sessions.map((session) => [session.tabId, session]))
     runtime.setPtyController({
@@ -300,7 +296,6 @@ async function main(): Promise<void> {
   } finally {
     await router.disconnectOnly().catch(() => {})
     router.dispose()
-    await store?.freezeWritesAsync()
   }
 }
 

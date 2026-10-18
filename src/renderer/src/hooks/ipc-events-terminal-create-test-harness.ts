@@ -65,7 +65,6 @@ export async function setupTerminalCreateSurfacing(
     setTabLayout,
     tabsByWorktree: {} as Record<string, { id: string; ptyId?: string | null; title?: string }[]>,
     folderWorkspaces: [],
-    sleepingAgentSessionsByPaneKey: {},
     projectGroups: [],
     repos: [{ id: 'repo-1', connectionId: null, executionHostId: 'local' }],
     worktreesByRepo: {
@@ -105,6 +104,7 @@ export async function setupTerminalCreateSurfacing(
     settings: {
       terminalFontSize: 13,
       experimentalNativeChat: false,
+      openAgentTabsInChatByDefault: false,
       activeRuntimeEnvironmentId: undefined as string | undefined
     }
   }
@@ -177,23 +177,20 @@ export async function setupTerminalCreateSurfacing(
   }))
   vi.doMock('@/lib/floating-workspace-terminal-actions', () => ({
     createFloatingWorkspaceTerminalTab,
+    isEmptyFloatingWorkspacePanelVisible: () => false,
     isFloatingWorkspacePanelFocused: () => isFloatingPanelFocused()
   }))
-  vi.doMock('@/runtime/web-runtime-session-tab-lifecycle', () => ({
+  vi.doMock('@/runtime/web-runtime-session', () => ({
     activateWebRuntimeSessionTab: vi.fn(),
-    closeWebRuntimeSessionTab: vi.fn()
-  }))
-  vi.doMock('@/runtime/web-runtime-browser-creation', () => ({
-    createWebRuntimeSessionBrowserTab: vi.fn().mockResolvedValue(false)
-  }))
-  vi.doMock('@/runtime/web-runtime-terminal-creation', () => ({ createWebRuntimeSessionTerminal }))
-  vi.doMock('@/runtime/web-runtime-session-environment', () => ({
+    closeWebRuntimeSessionTab: vi.fn(),
+    createWebRuntimeSessionBrowserTab: vi.fn().mockResolvedValue(false),
+    createWebRuntimeSessionTerminal,
     isWebRuntimeSessionActive: vi.fn(() => false)
   }))
   vi.doMock('@/lib/focus-terminal-tab-surface', () => ({
     focusTerminalTabSurface
   }))
-  vi.doMock('@/runtime/mounted-terminal-tab-registry', () => ({
+  vi.doMock('@/runtime/sync-runtime-graph', () => ({
     focusRuntimeTerminalSurface
   }))
   vi.doMock('@/lib/activate-tab-and-focus-pane', () => ({

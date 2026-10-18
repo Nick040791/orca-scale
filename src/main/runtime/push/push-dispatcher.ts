@@ -120,8 +120,7 @@ export class PushDispatcher {
     event: MobileNotificationEvent
   ): { targets: PushTarget[]; notification: PushSendNotification } | null {
     if (event.type === 'dismiss') {
-      const target = event.dismissedDelivery ?? event
-      if (target.notificationSeq === undefined || !target.notificationEpoch) {
+      if (event.notificationSeq === undefined || !event.notificationEpoch) {
         return null
       }
       const targets = this.registry
@@ -134,9 +133,9 @@ export class PushDispatcher {
         notification: {
           kind: 'dismiss',
           expiresAt: Date.now() + 300_000,
-          notificationId: target.notificationId,
-          notificationSeq: target.notificationSeq,
-          notificationEpoch: target.notificationEpoch,
+          notificationId: event.notificationId,
+          notificationSeq: event.notificationSeq,
+          notificationEpoch: event.notificationEpoch,
           source: 'agent-task-complete',
           agentState: null,
           title: 'Orca',
@@ -166,8 +165,7 @@ export class PushDispatcher {
         event.emittedAt !== undefined &&
         !reserveNotificationCooldown(
           this.recentNotifications,
-          // Keyed news is announced once by its producer, so only its own repeat may collapse it.
-          JSON.stringify([device.deviceId, event.attentionKey ?? event.worktreeId ?? 'global']),
+          JSON.stringify([device.deviceId, event.worktreeId ?? 'global']),
           event.emittedAt
         )
       ) {
@@ -189,8 +187,7 @@ export class PushDispatcher {
         agentState,
         title: clip(event.title, PUSH_TITLE_MAX_LENGTH),
         body: clip(event.body, PUSH_BODY_MAX_LENGTH),
-        ...(event.worktreeId ? { worktreeId: event.worktreeId } : {}),
-        ...(event.executionHost ? { executionHost: event.executionHost } : {})
+        ...(event.worktreeId ? { worktreeId: event.worktreeId } : {})
       }
     }
   }

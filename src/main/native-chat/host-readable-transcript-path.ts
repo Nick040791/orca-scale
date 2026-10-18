@@ -1,12 +1,8 @@
 import { existsSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { isWslUncPath, parseWslUncPath, toWindowsWslPath } from '../../shared/wsl-paths'
-import {
-  uniqueDirs,
-  wslHomeSessionDirs,
-  type SessionHomeAgent
-} from '../ai-vault/session-scanner-roots'
-import { getWslHomeAsync, listRunningWslHomeDirsAsync } from '../wsl'
+import { WSL_CODEX_RUNTIME_HOME_SEGMENTS } from '../pty/codex-home-wsl-env'
+import { getWslHomeAsync, listRunningWslDistrosAsync, listRunningWslHomeDirsAsync } from '../wsl'
 import {
   filterPathsToRunningWslDistrosAsync,
   filterPathsToWslDistros
@@ -48,6 +44,20 @@ export function needsWslHostResolution(
 export type WslTranscriptResolutionSnapshot = {
   runningDistros: string[]
   homeDirs?: string[]
+}
+
+/** One running-distro view shared by every WSL lookup in a resolve attempt. */
+export async function createWslTranscriptResolutionSnapshot(
+  options: {
+    includeHomes?: boolean
+  } = {}
+): Promise<WslTranscriptResolutionSnapshot> {
+  const runningDistros = await listRunningWslDistrosAsync()
+  if (options.includeHomes === false) {
+    return { runningDistros }
+  }
+  const homes = await Promise.all(runningDistros.map((distro) => getWslHomeAsync(distro)))
+  return { runningDistros, homeDirs: homes.filter((home): home is string => home !== null) }
 }
 
 async function snapshotHomeDirs(snapshot: WslTranscriptResolutionSnapshot): Promise<string[]> {
@@ -108,11 +118,6 @@ export function configureHostReadableTranscriptPathSources(options: {
   getAdditionalCodexHomePaths?: () => readonly string[]
 }): void {
   getAdditionalCodexHomePaths = options.getAdditionalCodexHomePaths
-}
-
-/** The extra Codex homes this host reads directly; WSL shares are the separate distro tier. */
-export function hostAdditionalCodexHomePaths(): string[] {
-  return (getAdditionalCodexHomePaths?.() ?? []).filter((home) => !isWslUncPath(home))
 }
 
 async function defaultListWslHomeDirs(): Promise<string[]> {
@@ -255,19 +260,18 @@ function rankDistrosForGuestPath(wslHomeUncDirs: readonly string[], guestPath: s
 }
 
 /**
- * Each running distro's session roots for one agent: they live under the guest
- * home, not the Windows profile, so lookup by id needs them when there is no
- * hook path. Same roots AI Vault discovery lists.
+ * WSL Codex sessions live under the guest home, not Windows AppData. Mirror AI
+ * Vault's dual-root discovery so the id-based resolve still finds them when the
+ * hook path is absent.
  */
-export async function wslAgentSessionsDirs(
-  agent: SessionHomeAgent,
+export async function wslCodexSessionsDirs(
   deps: Pick<HostReadableTranscriptPathDeps, 'platform' | 'listWslHomeDirs' | 'wslSnapshot'> = {}
 ): Promise<string[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'win32') {
     return []
   }
-  const additionalHomes = agent === 'codex' ? (getAdditionalCodexHomePaths?.() ?? []) : []
+  const additionalHomes = getAdditionalCodexHomePaths?.() ?? []
   const [homeDirs, runningAdditionalHomes] = await Promise.all([
     deps.wslSnapshot
       ? snapshotHomeDirs(deps.wslSnapshot)
@@ -276,13 +280,16 @@ export async function wslAgentSessionsDirs(
       ? filterPathsToWslDistros(additionalHomes, deps.wslSnapshot.runningDistros)
       : filterPathsToRunningWslDistrosAsync(additionalHomes)
   ])
-  const dirs = wslHomeSessionDirs(agent, homeDirs, joinUnderWslHome)
+  const dirs = homeDirs.flatMap((home) => [
+    joinUnderWslHome(home, ...WSL_CODEX_RUNTIME_HOME_SEGMENTS, 'sessions'),
+    joinUnderWslHome(home, '.codex', 'sessions')
+  ])
   for (const home of runningAdditionalHomes) {
     if (parseWslUncPath(home)) {
       dirs.push(joinUnderWslHome(home, 'sessions'))
     }
   }
-  return uniqueDirs(dirs)
+  return dirs.filter((dir, index) => dirs.indexOf(dir) === index)
 }
 
 // Why: node:path.join is posix-flavoured off Windows and would mangle the

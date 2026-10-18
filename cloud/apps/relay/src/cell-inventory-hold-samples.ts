@@ -3,8 +3,7 @@
 // hold distribution, and no runtime metric carried it before this change.
 // Which lock a hold sample came from. Every site feeds the same max, so one
 // alert on cellInventoryHoldMsMax covers them all; the label names the holder.
-// 'isolated-replacement' is a drain return's regional target rows.
-export type CellLockHoldSite = 'inventory' | 'rehome-target-row' | 'isolated-replacement'
+export type CellLockHoldSite = 'inventory' | 'rehome-target-row'
 
 export type CellInventoryHoldCounts = {
   cellInventoryHoldMsMax: number
@@ -15,11 +14,6 @@ export type CellInventoryHoldCounts = {
   // reads its bound and its presence here.
   rehomeTargetRowHoldMsMax: number
   rehomeTargetRowHolds: number
-  // Per-site p99: the shared max and p95 cannot say which lock a drain waits on.
-  inventoryHoldMsP99: number
-  rehomeTargetRowHoldMsP99: number
-  isolatedReplacementHoldMsP99: number
-  isolatedReplacementHolds: number
   // Why: a failed acquisition produces no hold sample, so the hold fields alone
   // read healthy while the lock is saturated. Split by wait policy, not by
   // caller: fail-fast covers background sweeps that step aside by design AND
@@ -42,10 +36,6 @@ export function emptyCellInventoryHoldCounts(): CellInventoryHoldCounts {
     cellInventoryHoldMaxSite: 'none',
     rehomeTargetRowHoldMsMax: 0,
     rehomeTargetRowHolds: 0,
-    inventoryHoldMsP99: 0,
-    rehomeTargetRowHoldMsP99: 0,
-    isolatedReplacementHoldMsP99: 0,
-    isolatedReplacementHolds: 0,
     cellInventoryLockUnavailable: 0,
     cellInventoryLockTimeouts: 0
   }
@@ -89,27 +79,17 @@ export class CellInventoryHoldSamples {
     if (this.samples.length === 0) return { ...emptyCellInventoryHoldCounts(), ...failures }
     const sorted = [...this.samples].sort((left, right) => left.holdMs - right.holdMs)
     const max = sorted[sorted.length - 1]!
-    const site = (name: CellLockHoldSite) => sorted.filter((sample) => sample.site === name)
-    const rehome = site('rehome-target-row')
-    const isolated = site('isolated-replacement')
+    const rehome = sorted.filter((sample) => sample.site === 'rehome-target-row')
     return {
       cellInventoryHoldMsMax: round(max.holdMs),
-      cellInventoryHoldMsP95: nearestRank(sorted, 0.95),
+      cellInventoryHoldMsP95: round(sorted[Math.ceil(0.95 * sorted.length) - 1]?.holdMs ?? 0),
       cellInventoryHolds: sorted.length,
       cellInventoryHoldMaxSite: max.site,
       rehomeTargetRowHoldMsMax: round(rehome[rehome.length - 1]?.holdMs ?? 0),
       rehomeTargetRowHolds: rehome.length,
-      inventoryHoldMsP99: nearestRank(site('inventory'), 0.99),
-      rehomeTargetRowHoldMsP99: nearestRank(rehome, 0.99),
-      isolatedReplacementHoldMsP99: nearestRank(isolated, 0.99),
-      isolatedReplacementHolds: isolated.length,
       ...failures
     }
   }
-}
-
-function nearestRank(sorted: { holdMs: number }[], rank: number): number {
-  return round(sorted[Math.ceil(rank * sorted.length) - 1]?.holdMs ?? 0)
 }
 
 function round(value: number): number {

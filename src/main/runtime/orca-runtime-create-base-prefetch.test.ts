@@ -118,8 +118,7 @@ describe('prefetchManagedWorktreeCreateBase (orca-runtime-get-worktree-terminal-
     expect(mocks.prepareWorktreeCreateForRepo).toHaveBeenCalledWith(
       expect.anything(),
       repo,
-      'origin/main',
-      undefined
+      'origin/main'
     )
   })
 })

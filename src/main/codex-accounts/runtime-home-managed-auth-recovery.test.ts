@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSettings } from './runtime-home-settings-test-fixtures'
@@ -25,7 +24,6 @@ vi.mock('electron', () => ({
     getPath: () => testState.userDataDir
   }
 }))
-beforeEach(() => installFakeAppEnvironment({ getPath: () => testState.userDataDir }))
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
@@ -57,7 +55,7 @@ describe('CodexRuntimeHomeService', () => {
       createCodexAuthJson('wsl@example.com', 'acct-wsl', 'wsl')
     )
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',
@@ -108,7 +106,7 @@ describe('CodexRuntimeHomeService', () => {
     expect(store.updateSettings).not.toHaveBeenCalled()
     expect(warnSpy).not.toHaveBeenCalled()
 
-    expect(service.isHostSystemDefaultRealHomeSelected()).toBe(false)
+    expect(service.isHostSystemDefaultRealHome()).toBe(false)
     expect(service.prepareForRateLimitFetch()).toEqual({
       kind: 'ready',
       codexHomePath: managedHomePath1
@@ -167,7 +165,7 @@ describe('CodexRuntimeHomeService', () => {
     const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', accountAuth)
     const store = createStore(
       createSettings({
-        realHomeRoutable: true,
+        shellStartupEnvProbeSupported: true,
         codexManagedAccounts: [
           {
             id: 'account-1',
@@ -228,7 +226,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(getSystemCodexAuthPath(), systemAuth, 'utf-8')
     const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', managedAuth)
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',
@@ -274,7 +272,7 @@ describe('CodexRuntimeHomeService', () => {
     writeFileSync(getSystemCodexAuthPath(), systemAuth, 'utf-8')
     const managedHomePath = createManagedAuth(testState.userDataDir, 'account-1', managedAuth)
     const settings = createSettings({
-      realHomeRoutable: true,
+      shellStartupEnvProbeSupported: true,
       codexManagedAccounts: [
         {
           id: 'account-1',

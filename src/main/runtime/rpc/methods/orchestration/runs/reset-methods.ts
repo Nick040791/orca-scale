@@ -4,7 +4,6 @@ import { ResetParams } from '../schemas'
 export const ORCHESTRATION_RESET_METHODS = [
   defineMethod({
     name: 'orchestration.reset',
-    permission: 'workspace',
     params: ResetParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()

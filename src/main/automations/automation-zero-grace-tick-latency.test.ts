@@ -1,10 +1,13 @@
-import { closeTestStores, createStore, testState } from '../persistence-test-harness'
+import { closeTestStores, createSqliteTestStore } from '../persistence-test-harness'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Repo } from '../../shared/repo-types'
 import { AutomationService } from './service'
+import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
+
+const testState = { dir: '' }
 
 vi.mock('electron', () => ({
   app: {
@@ -16,6 +19,14 @@ vi.mock('electron', () => ({
     decryptString: (ciphertext: Buffer) => ciphertext.toString('utf-8').slice('encrypted:'.length)
   }
 }))
+
+async function createStore() {
+  vi.resetModules()
+  installFakeAppEnvironment({ getPath: () => testState.dir })
+  const { Store, initDataPath } = await import('../persistence')
+  initDataPath()
+  return createSqliteTestStore(Store, { dataFile: join(testState.dir, 'orca-data.json') })
+}
 
 const makeRepo = (overrides: Partial<Repo> = {}): Repo => ({
   id: 'r1',

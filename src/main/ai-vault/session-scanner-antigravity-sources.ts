@@ -1,5 +1,3 @@
-import { completeAntigravityTranscriptPairs } from './antigravity-transcript-candidates'
-import { ANTIGRAVITY_HISTORY_ROOTS } from '../../shared/antigravity-session-origin'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
@@ -9,7 +7,8 @@ import {
 } from './session-scanner-antigravity-paths'
 import { discoverFiles } from './session-scanner-discovery'
 import type { AiVaultScanOptions, SessionFileDiscovery } from './session-scanner-types'
-import { scopeWalksAgentFiles } from './session-scope-cwd'
+
+const ANTIGRAVITY_BRAIN_DIR = join(homedir(), '.gemini', 'antigravity-cli', 'brain')
 
 export function antigravityDiscoveries(
   options: AiVaultScanOptions,
@@ -17,22 +16,9 @@ export function antigravityDiscoveries(
   limit: number,
   issues: AiVaultScanIssue[]
 ): Promise<SessionFileDiscovery>[] {
-  const origins =
-    options.includeAntigravityIdeSessions === true
-      ? ANTIGRAVITY_HISTORY_ROOTS
-      : (['antigravity-cli'] as const)
-  const home = options.antigravityAppHome ?? homedir()
   const rootDirs = [
-    options.antigravityBrainDir ?? join(home, '.gemini', 'antigravity-cli', 'brain'),
-    ...(options.includeAntigravityIdeSessions === true &&
-    (!options.antigravityBrainDir || options.antigravityAppHome)
-      ? origins
-          .filter((origin) => origin !== 'antigravity-cli')
-          .map((origin) => join(home, '.gemini', origin, 'brain'))
-      : []),
-    ...wslHomeDirs.flatMap((homeDir) =>
-      origins.map((origin) => join(homeDir, '.gemini', origin, 'brain'))
-    )
+    options.antigravityBrainDir ?? ANTIGRAVITY_BRAIN_DIR,
+    ...wslHomeDirs.map((homeDir) => join(homeDir, '.gemini', 'antigravity-cli', 'brain'))
   ]
   return rootDirs.map((rootDir) =>
     discoverFiles({
@@ -42,9 +28,7 @@ export function antigravityDiscoveries(
       issues,
       extensions: ['.jsonl'],
       filePredicate: isAntigravityTranscriptPath,
-      directoryPredicate: shouldDescendAntigravityBrainDirectory,
-      keepScopeFiles: scopeWalksAgentFiles('antigravity', options.scopePaths),
-      signal: options.signal
-    }).then((discovery) => completeAntigravityTranscriptPairs(discovery, issues))
+      directoryPredicate: shouldDescendAntigravityBrainDirectory
+    })
   )
 }

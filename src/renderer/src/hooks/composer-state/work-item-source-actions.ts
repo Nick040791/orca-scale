@@ -18,7 +18,7 @@ type WorkItemSourceActionsInput = Pick<
   | 'setReuseEligibleBranch'
   | 'setReuseSelectedBranch'
   | 'setStartFromResetHint'
-  | 'smartSourceSelectionRef'
+  | 'smartGitHubPrStartPointSelectionRef'
   | 'worktreesByRepo'
 >
 
@@ -46,13 +46,13 @@ export function useWorkItemSourceActions(input: WorkItemSourceActionsInput) {
     setReuseEligibleBranch,
     setReuseSelectedBranch,
     setStartFromResetHint,
-    smartSourceSelectionRef,
+    smartGitHubPrStartPointSelectionRef,
     worktreesByRepo
   } = input
 
   const handleSmartBranchSelect = useCallback(
     (refName: string, localBranchName: string): void => {
-      smartSourceSelectionRef.current = null
+      smartGitHubPrStartPointSelectionRef.current = null
       const selection = resolveComposerBranchPick({
         refName,
         localBranchName,
@@ -99,7 +99,7 @@ export function useWorkItemSourceActions(input: WorkItemSourceActionsInput) {
       setReuseEligibleBranch,
       setReuseSelectedBranch,
       setStartFromResetHint,
-      smartSourceSelectionRef
+      smartGitHubPrStartPointSelectionRef
     ]
   )
 

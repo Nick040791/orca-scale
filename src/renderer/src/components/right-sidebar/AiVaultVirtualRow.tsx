@@ -1,5 +1,4 @@
 import type { AgentStatusState } from '../../../../shared/agent-status-types'
-import { isAntigravityReferenceSession } from '../../../../shared/antigravity-session-origin'
 import type { AiVaultScope, AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { AiVaultResumeStartup } from '@/lib/ai-vault-resume-command'
 import { cn } from '@/lib/utils'
@@ -23,7 +22,6 @@ import {
   canUseLocalAiVaultSessionPathActions
 } from './ai-vault-session-path-actions'
 import { canContinueAiVaultSessionInNewSession } from './ai-vault-session-continuation'
-import { resolveAiVaultSessionRowChatActions } from './ai-vault-session-chat-action'
 import type { AiVaultResumeInChatEligibility } from './ai-vault-session-resume-in-chat'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault-search-types'
 import { canResumeAiVaultSearchHit, hasAiVaultSearchHitPath } from './ai-vault-search-session'
@@ -56,7 +54,6 @@ export function AiVaultVirtualRow({
   onResume,
   onContinueInNewSession,
   onResumeInNewChat,
-  onResumeInNewCli,
   onCopyResume,
   onCopyId,
   onCopyPath,
@@ -89,7 +86,6 @@ export function AiVaultVirtualRow({
   onResume: (session: AiVaultSession, worktreeId: string) => void
   onContinueInNewSession: (session: AiVaultSession, worktreeId: string) => void
   onResumeInNewChat: (session: AiVaultSession, worktreeId: string) => void
-  onResumeInNewCli: (session: AiVaultSession, worktreeId: string) => void
   onCopyResume: (session: AiVaultSession, worktreeId?: string | null) => void
   onCopyId: (session: AiVaultSession) => void
   onCopyPath: (session: AiVaultSession) => void
@@ -129,47 +125,20 @@ export function AiVaultVirtualRow({
       ? aiVaultSessionRowResumeGating(row.session, resumeState)
       : { resumeDisabled: true, canCopyResumeCommand: false }
   const resumeLabel = resumeState ? aiVaultSessionResumeLabel(resumeState) : ''
-  const searchHit = row.type === 'session' ? searchHits?.get(row.session.id) : undefined
-  const {
-    canJumpToOriginalPane,
-    resumeDisabled,
-    resumeWorktreeId,
-    resumeInNewChatWorkspaceId,
-    resumeInNewCliWorktreeId
-  } =
-    row.type === 'session'
-      ? resolveAiVaultSessionRowChatActions({
-          session: row.session,
-          originalPaneTarget,
-          structuredSessionOpen,
-          resumeState,
-          resumeInChat,
-          searchHit
-        })
-      : {
-          canJumpToOriginalPane: false,
-          resumeDisabled: true,
-          resumeWorktreeId: null,
-          resumeInNewChatWorkspaceId: null,
-          resumeInNewCliWorktreeId: null
-        }
   const canOpenLocalSessionPaths =
     row.type === 'session' && canUseLocalAiVaultSessionPathActions(row.session.executionHostId)
   // Why: in-Orca View Log additionally withholds synthetic (SQLite/OpenCode)
   // identities that have no single file to open, while Reveal/CWD stay on the
   // existing local-path gate.
   const canOpenLogInOrca = row.type === 'session' && canOpenAiVaultSessionLogInOrca(row.session)
+  const searchHit = row.type === 'session' ? searchHits?.get(row.session.id) : undefined
   const searchResumeAllowed = searchHit ? canResumeAiVaultSearchHit(searchHit) : true
   const searchPathAllowed = searchHit ? hasAiVaultSearchHitPath(searchHit) : true
   const usesLegacyResumeCommand = row.type === 'session' && !row.session.structuredSession
-  const canBuildResumeStartup =
-    row.type === 'session' &&
-    searchResumeAllowed &&
-    usesLegacyResumeCommand &&
-    (!isAntigravityReferenceSession(row.session) || !resumeGating.resumeDisabled)
-  const resumeStartup = canBuildResumeStartup
-    ? buildResumeStartup(row.session, resumeState?.worktreeId)
-    : { command: '' }
+  const resumeStartup =
+    row.type === 'session' && searchResumeAllowed && usesLegacyResumeCommand
+      ? buildResumeStartup(row.session, resumeState?.worktreeId)
+      : { command: '' }
   const visibleResumeActions =
     searchResumeAllowed && resumeActions
       ? resumeActions
@@ -201,27 +170,29 @@ export function AiVaultVirtualRow({
           liveState={getSessionLiveState(row.session)}
           resumeStartup={resumeStartup}
           realHomeResumeStartup={
-            canBuildResumeStartup
+            searchResumeAllowed && usesLegacyResumeCommand
               ? buildResumeStartup({ ...row.session, codexHome: null }, resumeState?.worktreeId)
               : resumeStartup
           }
           worktreeInfo={worktreeInfo}
           vaultScope={vaultScope}
           detailsExpanded={expandedSessionIds.has(row.session.id)}
-          resumeDisabled={resumeDisabled}
+          resumeDisabled={!searchResumeAllowed || resumeGating.resumeDisabled}
           resumeLabel={resumeLabel}
           resumeActions={visibleResumeActions}
           onToggleDetails={() => onToggleSessionDetails(row.session.id)}
           onJumpToOriginalPane={
-            canJumpToOriginalPane ? () => onJumpToOriginalPane(row.session) : undefined
+            originalPaneTarget || structuredSessionOpen
+              ? () => onJumpToOriginalPane(row.session)
+              : undefined
           }
           resumeHidden={structuredSessionOpen}
           showJumpToWorktree={showJumpToWorktree}
           onJumpToWorktree={worktreeJumpId ? () => onJumpToWorktree(worktreeJumpId) : undefined}
           subagentResume={{ getState: getSessionResumeState, onResume }}
           onResume={() => {
-            if (resumeWorktreeId) {
-              onResume(row.session, resumeWorktreeId)
+            if (resumeState?.worktreeId) {
+              onResume(row.session, resumeState.worktreeId)
             }
           }}
           onContinueInNewSession={
@@ -230,13 +201,8 @@ export function AiVaultVirtualRow({
               : undefined
           }
           onResumeInNewChat={
-            resumeInNewChatWorkspaceId
-              ? () => onResumeInNewChat(row.session, resumeInNewChatWorkspaceId)
-              : undefined
-          }
-          onResumeInNewCli={
-            resumeInNewCliWorktreeId
-              ? () => onResumeInNewCli(row.session, resumeInNewCliWorktreeId)
+            searchResumeAllowed && resumeInChat?.available
+              ? () => onResumeInNewChat(row.session, resumeInChat.workspaceId)
               : undefined
           }
           onResumeInWorktree={() => {

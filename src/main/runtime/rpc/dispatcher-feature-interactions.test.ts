@@ -1,4 +1,3 @@
-import './unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { PersistedUIState } from '../../../shared/persisted-ui-state-types'
@@ -58,37 +57,31 @@ function makeRuntime(ui: PersistedUIState = getDefaultUIState()): OrcaRuntimeSer
 const METHODS = [
   defineMethod({
     name: 'browser.click',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ clicked: true })
   }),
   defineMethod({
     name: 'browser.tabCreate',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ browserPageId: 'page-1' })
   }),
   defineMethod({
     name: 'browser.tabShow',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ tab: { id: 'page-1' } })
   }),
   defineMethod({
     name: 'browser.viewport',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ ok: true })
   }),
   defineMethod({
     name: 'browser.eval',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ value: 'ok' })
   }),
   defineStreamingMethod({
     name: 'browser.screencast',
-    permission: 'workspace',
     params: z.object({}),
     handler: async (_params, _options, emit) => {
       emit({ type: 'frame' })
@@ -97,61 +90,51 @@ const METHODS = [
   }),
   defineStreamingMethod({
     name: 'browser.screencast.binaryOnly',
-    permission: 'workspace',
     params: z.object({}),
     handler: async () => {}
   }),
   defineMethod({
     name: 'browser.screencast.unsubscribe',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ ok: true })
   }),
   defineMethod({
     name: 'browser.profileImportFromBrowser',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ ok: true })
   }),
   defineMethod({
     name: 'browser.profileList',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ profiles: [] })
   }),
   defineMethod({
     name: 'browser.profileClearDefaultCookies',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ cleared: false })
   }),
   defineMethod({
     name: 'computer.permissions',
-    permission: 'desktop-control',
     params: z.object({}),
     handler: () => ({ opened: true })
   }),
   defineMethod({
     name: 'computer.permissionsStatus',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ permissions: [] })
   }),
   defineMethod({
     name: 'computer.click',
-    permission: 'desktop-control',
     params: z.object({}),
     handler: () => ({ clicked: true })
   }),
   defineMethod({
     name: 'orchestration.send',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => ({ id: 'msg-1' })
   }),
   defineMethod({
     name: 'browser.fail',
-    permission: 'workspace',
     params: z.object({}),
     handler: () => {
       throw new Error('nope')

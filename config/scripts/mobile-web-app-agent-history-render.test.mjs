@@ -9,7 +9,6 @@ import {
   createBundleServer,
   installShellDouble,
   readBridgeFaultGrant,
-  readBridgePagePainted,
   readBridgeProtocolVersion,
   readShellCsp
 } from './mobile-web-app-render-harness.mjs'
@@ -111,7 +110,6 @@ let routeChunks = {}
 let cspHeader = null
 let bridgeVersion = null
 let faultGrant = null
-let paintName = null
 
 beforeAll(async () => {
   if (!bundles) {
@@ -120,7 +118,6 @@ beforeAll(async () => {
   cspHeader = await readShellCsp()
   bridgeVersion = await readBridgeProtocolVersion()
   faultGrant = await readBridgeFaultGrant()
-  paintName = await readBridgePagePainted()
   scratch = await mkdtemp(join(tmpdir(), 'orca-mobile-web-app-agent-history-'))
   const built = await buildMobileWebAppBundle({ outDir: join(scratch, 'bundle') })
   routeChunks = built.routeChunks
@@ -230,11 +227,9 @@ async function openRoute(route, awaitText, options = {}) {
   return opened
 }
 
-/** Every grant-gated notify the page posted, whole and in order, as the shell received them. The
- *  paint report is not one: every page posts it once its route screen has a frame. */
-async function readNotifies(page) {
-  const notifies = await page.evaluate(() => globalThis.__orcaRenderCheckNotifies ?? [])
-  return notifies.filter((frame) => frame.name !== paintName)
+/** Every grant-gated notify the page posted, whole and in order, as the shell received them. */
+function readNotifies(page) {
+  return page.evaluate(() => globalThis.__orcaRenderCheckNotifies ?? [])
 }
 
 describeRender('the agent-history route in a real browser', () => {

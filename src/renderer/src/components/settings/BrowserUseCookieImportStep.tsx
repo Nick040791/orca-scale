@@ -25,7 +25,7 @@ import { translate } from '@/i18n/i18n'
 type BrowserUseCookieImportStepProps = {
   cookiesImported: boolean
   isImportingDefault: boolean
-  disabled: boolean
+  step3Blocked: boolean
   sourceLabel: string | null
   onConfigureMoreBrowsers?: () => void
 }
@@ -33,7 +33,7 @@ type BrowserUseCookieImportStepProps = {
 export function BrowserUseCookieImportStep({
   cookiesImported,
   isImportingDefault,
-  disabled,
+  step3Blocked,
   sourceLabel,
   onConfigureMoreBrowsers
 }: BrowserUseCookieImportStepProps): React.JSX.Element {
@@ -95,12 +95,15 @@ export function BrowserUseCookieImportStep({
         'auto.components.settings.BrowserUsePane.af8c83ed61',
         'Import cookies from Chrome, Edge, or other browsers so agents can reuse your logins.'
       )}
-      keywords={getBrowserUsePaneSearchEntries()[1].keywords}
-      className={cn('rounded-xl border border-border/60 bg-card/50 p-4', disabled && 'opacity-60')}
+      keywords={getBrowserUsePaneSearchEntries()[2].keywords}
+      className={cn(
+        'rounded-xl border border-border/60 bg-card/50 p-4',
+        step3Blocked && 'opacity-60'
+      )}
     >
       <div className="flex items-start gap-3">
         <StepBadge
-          index={2}
+          index={3}
           state={cookiesImported ? 'done' : isImportingDefault ? 'in-progress' : 'pending'}
         />
         <div className="min-w-0 flex-1 space-y-1">

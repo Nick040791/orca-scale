@@ -1,32 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { blitMarkupScene, renderCommittedLayer } from './markup-canvas-render'
 import { useMarkupKeyboardShortcuts, type PendingText } from './useMarkupKeyboardShortcuts'
 import { useMarkupPointerHandlers } from './useMarkupPointerHandlers'
 import {
-  applyDocumentCommand,
-  canUndoMarkup,
-  redoMarkup,
-  undoMarkup,
-  type MarkupEditorState
-} from './markup-gesture'
-import type { TextInkBoxMeasurer } from './markup-shape-hit-test'
-import { textInkBox } from './markup-shape-render'
-import {
   canRedo,
+  canUndo,
   clearShapes,
   commitShape,
   createMarkupDocument,
   DEFAULT_MARKUP_COLOR,
   DEFAULT_MARKUP_FONT_SIZE,
   DEFAULT_MARKUP_WIDTH,
+  redoShape,
+  undoShape,
+  type MarkupDocument,
+  type MarkupShape,
   type MarkupTool
 } from './markup-drawing-model'
 
 type Size = { width: number; height: number; dpr: number }
 
 // Owns the markup surface: document, active tool/style, the pending text box, and
-// the canvas paint effect. Committed shapes can be erased but not re-edited.
+// the canvas paint effect. Draw-only — committed shapes are not re-editable.
 export function useMarkupEditor(busy: boolean, onCancel: () => void) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -39,21 +35,8 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
   }
 
   const [size, setSize] = useState<Size>({ width: 0, height: 0, dpr: 1 })
-  const [{ doc, gesture }, setState] = useState<MarkupEditorState>(() => ({
-    doc: createMarkupDocument(),
-    gesture: null
-  }))
-  const drawing = gesture?.kind === 'draw' ? gesture.shape : null
-  const erasedIds = gesture?.kind === 'erase' ? gesture.erasedIds : null
-  // Why: one list drives both the canvas and the export, so marks hidden by an
-  // in-flight erase can never end up in the copied PNG.
-  const shapes = useMemo(
-    () =>
-      erasedIds && erasedIds.size > 0
-        ? doc.shapes.filter((shape) => !erasedIds.has(shape.id))
-        : doc.shapes,
-    [doc.shapes, erasedIds]
-  )
+  const [doc, setDoc] = useState<MarkupDocument>(() => createMarkupDocument())
+  const [inProgress, setInProgress] = useState<MarkupShape | null>(null)
   const [tool, setTool] = useState<MarkupTool>('pen')
   const [color, setColor] = useState<string>(DEFAULT_MARKUP_COLOR)
   const [width, setWidth] = useState<number>(DEFAULT_MARKUP_WIDTH)
@@ -97,8 +80,8 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
     if (!layer) {
       return
     }
-    renderCommittedLayer(layer, shapes, size.width, size.height, size.dpr)
-  }, [shapes, size])
+    renderCommittedLayer(layer, doc.shapes, size.width, size.height, size.dpr)
+  }, [doc.shapes, size])
 
   // Blit the cached layer + the in-progress shape, coalesced to one paint per
   // frame so a burst of pointermove events can't queue redundant full repaints.
@@ -109,10 +92,10 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
       return undefined
     }
     const handle = requestAnimationFrame(() => {
-      blitMarkupScene(canvas, layer, drawing, size.width, size.height, size.dpr)
+      blitMarkupScene(canvas, layer, inProgress, size.width, size.height, size.dpr)
     })
     return () => cancelAnimationFrame(handle)
-  }, [shapes, drawing, size])
+  }, [doc.shapes, inProgress, size])
 
   // Why: focus the text input on mount — a placement click can beat autoFocus.
   useEffect(() => {
@@ -123,18 +106,14 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
     return () => cancelAnimationFrame(handle)
   }, [pendingText])
 
-  const undo = useCallback(() => setState(undoMarkup), [])
-  const redo = useCallback(() => setState(redoMarkup), [])
+  const undo = useCallback(() => setDoc((current) => undoShape(current)), [])
+  const redo = useCallback(() => setDoc((current) => redoShape(current)), [])
   const clear = useCallback(() => {
-    // Why: also drop any open text input so a clear leaves a truly clean slate —
-    // otherwise a pending input blur can re-add text.
+    // Why: also drop any open text input / in-progress stroke so a clear leaves a
+    // truly clean slate — otherwise a pending input blur can re-add text.
     setPendingText(null)
-    setState((state) => applyDocumentCommand(state, clearShapes))
-  }, [])
-
-  const measureTextInkBox = useCallback<TextInkBoxMeasurer>((shape) => {
-    const ctx = committedLayerRef.current?.getContext('2d')
-    return ctx ? textInkBox(ctx, shape) : null
+    setInProgress(null)
+    setDoc((current) => clearShapes(current))
   }, [])
 
   useMarkupKeyboardShortcuts({ pendingText, setPendingText, undo, redo, onCancel })
@@ -145,10 +124,11 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
     color,
     width,
     pendingText,
+    inProgress,
     canvasRef,
-    measureTextInkBox,
+    setInProgress,
     setPendingText,
-    setState
+    setDoc
   })
 
   const commitPendingText = useCallback(
@@ -159,9 +139,8 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
       if (!at || trimmed.length === 0) {
         return
       }
-      setState((state) => ({
-        ...state,
-        doc: commitShape(state.doc, {
+      setDoc((document) =>
+        commitShape(document, {
           id: createBrowserUuid(),
           kind: 'text',
           color,
@@ -169,7 +148,7 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
           text: trimmed,
           fontSize
         })
-      }))
+      )
     },
     [color, fontSize, pendingText]
   )
@@ -185,8 +164,8 @@ export function useMarkupEditor(busy: boolean, onCancel: () => void) {
     width,
     fontSize,
     pendingText,
-    shapes,
-    canUndo: canUndoMarkup({ doc, gesture }),
+    shapes: doc.shapes,
+    canUndo: canUndo(doc),
     canRedo: canRedo(doc),
     setTool,
     setColor,

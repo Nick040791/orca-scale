@@ -3,6 +3,7 @@ import type { operationModuleLoader } from '../operation-module-loader'
 import type { MountAdapter } from '../recording-scenario'
 import type { AccountsSnapshot } from '../../../components/accounts-snapshot'
 
+const HOST = 'host-1'
 const ACCOUNT_REVISION = 1_700_000_000_000
 
 /**
@@ -33,7 +34,7 @@ const CODEX_ACCOUNTS = mountFixture<AccountsSnapshot>({
   }
 })
 
-/** Redeeming a Codex rate-limit reset credit; the host's ledger is what makes it idempotent. */
+/** Redeeming a Codex rate-limit reset credit, and the attempt journal that makes it idempotent. */
 export function codexResetCreditMountAdapters(
   modules: ReturnType<typeof operationModuleLoader>
 ): Record<string, MountAdapter> {
@@ -57,10 +58,17 @@ export function codexResetCreditMountAdapters(
           if (!expectedScope) {
             throw new Error('The recorded snapshot offers no reset credit to confirm')
           }
-          const pending = credit.requestCodexResetCredit(client, expectedScope)
+          const pending = credit.requestCodexResetCredit(client, {
+            hostId: HOST,
+            expectedScope,
+            createIdempotencyKey: () => globalThis.crypto.randomUUID()
+          })
           void pending.then(
             (result) => {
-              settled = { outcome: 'outcome' in result ? result.outcome : result.status }
+              settled = {
+                outcome: 'outcome' in result ? result.outcome : result.status,
+                attemptJournalRetained: result.attemptJournalRetained
+              }
             },
             () => undefined
           )

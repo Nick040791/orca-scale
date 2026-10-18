@@ -5,8 +5,6 @@ import { useWorktreeById } from '@/store/selectors'
 import { basename } from '@/lib/path'
 import { renameFileOnDisk } from '@/lib/rename-file'
 import { getUntitledFileRoot } from './untitled-file-rename-path'
-import { useAppStore } from '@/store'
-import { editorTabDocumentFolderAccess } from '@/lib/local-file-access'
 
 type EditorHeaderFileRenameState = {
   canRename: boolean
@@ -77,9 +75,7 @@ export function useEditorHeaderFileRename(activeFile: OpenFile): EditorHeaderFil
       oldPath: activeFile.filePath,
       newName,
       worktreeId: activeFile.worktreeId,
-      worktreePath,
-      documentScoped:
-        editorTabDocumentFolderAccess(useAppStore.getState(), activeFile) !== undefined
+      worktreePath
     })
   }
 

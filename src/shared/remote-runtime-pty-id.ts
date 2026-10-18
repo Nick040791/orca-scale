@@ -16,13 +16,8 @@ export function toRemoteRuntimePtyId(handle: string, environmentId?: string | nu
   return `${REMOTE_PTY_ID_PREFIX}${encodeURIComponent(owner)}${REMOTE_PTY_OWNER_SEPARATOR}${encodeURIComponent(handle)}`
 }
 
-// Why prefix-only: a `remote:` id that fails to parse still runs off this host, never locally.
-export function isRemoteRuntimePtyId(ptyId: string | null | undefined): boolean {
-  return typeof ptyId === 'string' && ptyId.startsWith(REMOTE_PTY_ID_PREFIX)
-}
-
 export function parseRemoteRuntimePtyId(ptyId: string): RemoteRuntimePtyIdParts | null {
-  if (!isRemoteRuntimePtyId(ptyId)) {
+  if (!ptyId.startsWith(REMOTE_PTY_ID_PREFIX)) {
     return null
   }
   const rest = ptyId.slice(REMOTE_PTY_ID_PREFIX.length)

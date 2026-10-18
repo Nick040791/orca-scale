@@ -1,6 +1,4 @@
-import { MobileFileMediaPreview } from './MobileFileMediaPreview'
-import type { MobileFilePreviewRpcSender } from './mobile-file-preview-operations'
-import { ActivityIndicator, Image, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native'
 import { colors } from '../theme/mobile-theme'
 import type { MobileFilePreviewResult } from './mobile-file-preview-request'
 import { MobileFileMarkdownPreview } from './MobileFileMarkdownPreview'
@@ -8,11 +6,9 @@ import { MobileFilePreviewEditableSource } from './MobileFilePreviewEditableSour
 import { MobileFilePreviewSourceText } from './MobileFilePreviewSourceText'
 import type { MobileFilePreviewLineColumn } from './mobile-file-preview-line-column'
 import { filePreviewStyles as styles } from './mobile-file-preview-styles'
-import { MobileLoadErrorState } from '../components/MobileLoadErrorState'
 
 type Props = {
   preview: MobileFilePreviewResult
-  client?: MobileFilePreviewRpcSender | null
   relativePath: string
   title: string
   editable: boolean
@@ -37,7 +33,16 @@ export function MobileFilePreviewBody({ preview, ...options }: Props) {
     )
   }
   if (preview.status === 'error' || preview.status === 'waiting') {
-    return <MobileLoadErrorState message={preview.message} onRetry={options.onRetry} />
+    return (
+      <View style={styles.state}>
+        <Text style={styles.errorText}>{preview.message}</Text>
+        {options.onRetry ? (
+          <Pressable style={styles.retryButton} onPress={options.onRetry}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    )
   }
   if (preview.status === 'empty') {
     return options.editable ? (
@@ -46,15 +51,6 @@ export function MobileFilePreviewBody({ preview, ...options }: Props) {
       <View style={styles.state}>
         <Text style={styles.stateText}>Empty file</Text>
       </View>
-    )
-  }
-  if (preview.kind === 'media') {
-    return (
-      <MobileFileMediaPreview
-        media={preview.media}
-        client={options.client ?? null}
-        title={options.title}
-      />
     )
   }
   if (preview.kind === 'image') {

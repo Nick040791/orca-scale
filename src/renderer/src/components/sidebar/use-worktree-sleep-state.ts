@@ -67,19 +67,17 @@ function selectWorktreeIdsWithLiveAgent(state: SleepStateInput): ReadonlySet<str
  * predicate, so the moon and the filter cannot disagree about which workspaces
  * are asleep.
  */
-export function selectIsSleepingWorktree(state: SleepStateInput, worktreeId: string): boolean {
-  return isInactiveWorkspace(
-    worktreeId,
-    state.tabsByWorktree,
-    state.ptyIdsByTabId,
-    state.browserTabsByWorktree,
-    selectWorktreeIdsWithLiveAgent(state),
-    getWorktreeIdsWithStructuredChat(state.unifiedTabsByWorktree)
-  )
-}
-
 export function useIsSleepingWorktree(worktreeId: string): boolean {
-  return useAppStore((state) => selectIsSleepingWorktree(state, worktreeId))
+  return useAppStore((state) =>
+    isInactiveWorkspace(
+      worktreeId,
+      state.tabsByWorktree,
+      state.ptyIdsByTabId,
+      state.browserTabsByWorktree,
+      selectWorktreeIdsWithLiveAgent(state),
+      getWorktreeIdsWithStructuredChat(state.unifiedTabsByWorktree)
+    )
+  )
 }
 
 export function resetWorktreeSleepStateCacheForTests(): void {

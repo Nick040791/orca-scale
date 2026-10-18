@@ -1,4 +1,4 @@
-import type { TerminalPaneProps } from './terminal-pane-types'
+import type { TerminalPaneHandle, TerminalPaneProps } from './terminal-pane-types'
 import { useTerminalPaneFoundation } from './use-terminal-pane-foundation'
 import { useTerminalPaneTitleState } from './use-terminal-pane-title-state'
 import { useTerminalPaneChatState } from './use-terminal-pane-chat-state'
@@ -15,11 +15,12 @@ import { useTerminalPaneTitleEffects } from './use-terminal-pane-title-effects'
 import { useTerminalPaneContextActions } from './use-terminal-pane-context-actions'
 import { useTerminalPaneMobileActions } from './use-terminal-pane-mobile-actions'
 import { useTerminalPaneProjection } from './use-terminal-pane-projection'
-import { useLayoutOwnerPaneTree } from './use-layout-owner-pane-tree'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
 
-export function useTerminalPaneController(props: TerminalPaneProps) {
-  const foundation = useTerminalPaneFoundation(props)
+export function useTerminalPaneController(
+  props: TerminalPaneProps,
+  ref: React.ForwardedRef<TerminalPaneHandle>
+) {
+  const foundation = useTerminalPaneFoundation(props, ref)
   const title = Object.assign(foundation, useTerminalPaneTitleState(foundation))
   const chat = Object.assign(title, useTerminalPaneChatState(title))
   const store = Object.assign(chat, useTerminalPaneStoreBindings(chat))
@@ -29,11 +30,6 @@ export function useTerminalPaneController(props: TerminalPaneProps) {
   const close = Object.assign(bindings, useTerminalPaneCloseActions(bindings))
   useTerminalPaneLifecycleStage(close)
   const reconciliation = Object.assign(close, useTerminalPaneReconciliation(close))
-  // Switch point: the mounted tab follows main's pane tree. A build constant, so the hook order is fixed.
-  if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-    // oxlint-disable-next-line react-hooks/rules-of-hooks -- SAFETY: the condition is a compile-time constant.
-    useLayoutOwnerPaneTree(close)
-  }
   useTerminalPaneGlobalListeners(reconciliation)
   useTerminalPanePasteListeners(reconciliation)
   useTerminalPaneTitleEffects(reconciliation)

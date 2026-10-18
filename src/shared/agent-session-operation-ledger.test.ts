@@ -25,6 +25,8 @@ function evaluate(
     operationId: string
     fingerprint: string
     now: number
+    perClientLimit: number
+    globalLimit: number
   }> = {}
 ) {
   return evaluateAgentSessionOperation({
@@ -62,8 +64,7 @@ describe('operation admission', () => {
     admit(rows)
     expect(evaluate(rows, { fingerprint: 'fp-2' })).toEqual({
       decision: 'refused',
-      code: 'agent_session_operation_conflict',
-      details: { reason: 'operationIdReused' }
+      code: 'agent_session_operation_conflict'
     })
   })
 
@@ -77,19 +78,14 @@ describe('operation admission', () => {
     const rows = new Map<string, AgentSessionOperationRow>()
     expect(evaluate(rows, { operationId: 'not-an-operation-id' })).toEqual({
       decision: 'refused',
-      code: 'agent_session_operation_invalid',
-      details: { reason: 'operationIdInvalid' }
+      code: 'agent_session_operation_invalid'
     })
     // Why: a future-dated id would look new again after its own tombstone is collected.
     expect(
       evaluate(rows, {
         operationId: operationId(NOW + AGENT_SESSION_OPERATION_FUTURE_SKEW_MS + 1)
       })
-    ).toEqual({
-      decision: 'refused',
-      code: 'agent_session_operation_invalid',
-      details: { reason: 'operationIdInvalid' }
-    })
+    ).toEqual({ decision: 'refused', code: 'agent_session_operation_invalid' })
     expect(
       evaluate(rows, { operationId: operationId(NOW + AGENT_SESSION_OPERATION_FUTURE_SKEW_MS) })
         .decision
@@ -101,8 +97,7 @@ describe('operation admission', () => {
     const stale = operationId(NOW - AGENT_SESSION_MAX_NEW_OPERATION_AGE_MS - 1)
     expect(evaluate(rows, { operationId: stale })).toEqual({
       decision: 'refused',
-      code: 'agent_session_operation_expired',
-      details: { reason: 'operationExpired' }
+      code: 'agent_session_operation_expired'
     })
     expect(
       evaluate(rows, { operationId: operationId(NOW - AGENT_SESSION_MAX_NEW_OPERATION_AGE_MS) })
@@ -110,33 +105,19 @@ describe('operation admission', () => {
     ).toBe('admit')
   })
 
-  it('admits a fresh id however many unexpired rows other callers hold', () => {
-    // Why: a count cap filled by background agent traffic used to refuse the user's own send.
+  it('refuses new ids at the per-client and global caps rather than evicting tombstones', () => {
     const rows = new Map<string, AgentSessionOperationRow>()
-    for (let index = 0; index < 5_000; index += 1) {
-      admit(rows, {
-        callerKey: `agent-${index % 10}`,
-        operationId: operationId(NOW - index, index.toString(16).padStart(32, '0'))
-      })
-    }
-    for (let index = 0; index < 600; index += 1) {
-      admit(rows, {
-        callerKey: 'desktop',
-        operationId: operationId(NOW - index, `d${index.toString(16).padStart(31, '0')}`)
-      })
-    }
-    const fresh = evaluate(rows, {
-      callerKey: 'desktop',
-      operationId: operationId(NOW, 'e'.repeat(32))
+    admit(rows, { operationId: operationId(NOW, 'b'.repeat(32)) })
+    expect(evaluate(rows, { perClientLimit: 1 })).toEqual({
+      decision: 'refused',
+      code: 'agent_session_operation_capacity'
     })
-    expect(fresh.decision).toBe('admit')
-    // Retries of earlier ids still replay rather than running again.
-    expect(
-      evaluate(rows, {
-        callerKey: 'agent-0',
-        operationId: operationId(NOW, '0'.repeat(32))
-      }).decision
-    ).toBe('replay')
+    // A different caller is still refused once the global cap is reached.
+    expect(evaluate(rows, { callerKey: 'client-2', globalLimit: 1 })).toEqual({
+      decision: 'refused',
+      code: 'agent_session_operation_capacity'
+    })
+    expect(evaluate(rows, { callerKey: 'client-2', perClientLimit: 1 }).decision).toBe('admit')
   })
 })
 

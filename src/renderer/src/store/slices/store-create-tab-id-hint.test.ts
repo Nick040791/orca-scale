@@ -47,7 +47,7 @@ describe('createTab tabId hint', () => {
     expect(tab.id).toBe(hintedId)
   })
 
-  it('rejects a taken id instead of minting a fresh one', () => {
+  it('falls back to a fresh id on collision and warns', () => {
     const store = createTestStore()
     const wt = 'repo1::/path/wt-collision'
     const existingId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -63,12 +63,14 @@ describe('createTab tabId hint', () => {
       unifiedTabsByWorktree: {}
     })
 
-    const before = store.getState().tabsByWorktree
-
-    expect(() => store.getState().createTab(wt, undefined, undefined, { id: existingId })).toThrow(
-      `Terminal tab ${existingId} already exists`
-    )
-    expect(store.getState().tabsByWorktree).toBe(before)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const tab = store.getState().createTab(wt, undefined, undefined, { id: existingId })
+      expect(tab.id).not.toBe(existingId)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(existingId))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('treats tab ids as global and rejects hints that collide in another worktree', () => {
@@ -91,10 +93,14 @@ describe('createTab tabId hint', () => {
       unifiedTabsByWorktree: {}
     })
 
-    expect(() => store.getState().createTab(wtA, undefined, undefined, { id: existingId })).toThrow(
-      `Terminal tab ${existingId} already exists`
-    )
-    expect(store.getState().tabsByWorktree[wtA]).toBeUndefined()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const tab = store.getState().createTab(wtA, undefined, undefined, { id: existingId })
+      expect(tab.id).not.toBe(existingId)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(existingId))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('ignores empty string hints instead of persisting an unusable tab id', () => {

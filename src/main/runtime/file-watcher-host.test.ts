@@ -4,7 +4,7 @@ import type {
   WatcherProcessCallback,
   WatcherProcessHooks,
   WatcherProcessSubscription
-} from '../ipc/parcel-watcher-process-subscription'
+} from '../ipc/parcel-watcher-process'
 import { WatcherProcessFailure } from '../ipc/parcel-watcher-process-failure'
 import {
   WATCHER_IGNORE_DIRS,
@@ -176,13 +176,7 @@ describe('watchFileExplorerInWatcherProcess', () => {
     expect(onEvents).toHaveBeenCalledWith([{ kind: 'overflow', absolutePath: '/repo' }])
   })
 
-  it.each([
-    ['native watcher failure', new Error('native subscription stopped')],
-    [
-      'watcher process failure',
-      new WatcherProcessFailure('crashed repeatedly', 'supervisor', 'supervisor_crash_fuse')
-    ]
-  ])('keeps same-root subscribers alive after a %s', async (_kind, error) => {
+  it('keeps same-root subscribers alive while a failed shard is replaced', async () => {
     const watch = installSuccessfulWatch()
     const replacement = installSuccessfulWatch()
     const firstEvents = vi.fn<(events: FsChangeEvent[]) => void>()
@@ -192,7 +186,9 @@ describe('watchFileExplorerInWatcherProcess', () => {
     await watchFileExplorerInWatcherProcess('/repo', firstEvents, firstError)
     await watchFileExplorerInWatcherProcess('/repo', secondEvents, secondError)
 
-    watch.hooks.onTerminalError?.(error)
+    watch.hooks.onTerminalError?.(
+      new WatcherProcessFailure('crashed repeatedly', 'supervisor', 'supervisor_crash_fuse')
+    )
     await vi.waitFor(() => expect(subscribeViaRuntimeWatcherProcessMock).toHaveBeenCalledTimes(2))
     watch.callback(null, [{ type: 'update', path: '/repo/late.txt' }])
     replacement.callback(null, [{ type: 'update', path: '/repo/recovered.txt' }])

@@ -1,31 +1,15 @@
-import type {
-  AgentSessionConversationCommand,
-  AgentSessionConversationCommandResult
-} from '../../../src/shared/agent-session-conversation-command'
+import type { AgentSessionConversationCommandResult } from '../../../src/shared/agent-session-conversation-command'
 import {
   dispatchStructuredAgentSessionComposerCommand,
   isStructuredAgentSessionComposerCommand,
   type StructuredAgentSessionComposerOptions
 } from '../../../src/shared/structured-agent-session-composer'
-import { structuredAgentSessionCommandHostRefusalCause } from '../../../src/shared/structured-agent-session-command-refusal-cause'
-import { agentSessionWriteNoticeEnglish } from '../../../src/shared/agent-session-refusal-notice'
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
-import { requestStructuredAgentSessionMutation } from './mobile-structured-agent-session-rpc'
-import type { MobileNativeChatSendErrorReporter } from './use-mobile-native-chat-send-error'
-
-/** What the person sees and can do, in the words the desktop uses. */
-function busyCommandText(
-  command: AgentSessionConversationCommand,
-  busy: 'working' | 'prompt'
-): string {
-  const clear = command === 'clear'
-  return agentSessionWriteNoticeEnglish(
-    busy === 'prompt'
-      ? [clear ? 'clearAfterAnswer' : 'compactAfterAnswer']
-      : ['agentStillWorking', clear ? 'runClearWhenDone' : 'runCompactWhenDone']
-  )
-}
+import {
+  requestStructuredAgentSessionMutation,
+  retainStructuredSessionOperationId
+} from './mobile-structured-agent-session-rpc'
 
 export async function dispatchMobileStructuredCommand(input: {
   text: string
@@ -33,14 +17,12 @@ export async function dispatchMobileStructuredCommand(input: {
   client: RpcClient
   sessionId: string
   fence: number
+  sessionKey: string
   pending: { current: boolean }
+  operationIds: Map<string, string>
   controller: StructuredAgentSessionComposerOptions
-  /** What the agent still has in flight that refuses a command now; null when nothing does. */
-  busy: () => 'working' | 'prompt' | null
-  /** The host holds this command as a card behind work in flight, so nothing here holds it. */
-  waitsInLine: (command: AgentSessionConversationCommand) => boolean
-  /** `refusedWhile`: what the phone showed the refused command waiting on. */
-  onError: MobileNativeChatSendErrorReporter
+  canRun: () => boolean
+  onError: (message: string) => void
   timeoutMs: number
 }): Promise<MobileNativeChatSendOutcome | null> {
   if (input.pending.current) {
@@ -57,13 +39,19 @@ export async function dispatchMobileStructuredCommand(input: {
   const outcome = await dispatchStructuredAgentSessionComposerCommand(input.text, {
     ...input.controller,
     runConversationCommand: async (command) => {
-      const shown = input.busy()
-      const waitsInLine = input.waitsInLine(command)
-      const busy = waitsInLine ? null : shown
-      if (busy) {
-        return { accepted: false, error: busyCommandText(command, busy), refusedWhile: busy }
+      if (!input.canRun()) {
+        return {
+          accepted: false,
+          error: 'Wait for pending work to finish before using this command.'
+        }
       }
       input.pending.current = true
+      const key = `${input.sessionKey}:agentSession.conversationCommand:${command}`
+      const clientOperationId = retainStructuredSessionOperationId(
+        input.operationIds,
+        key,
+        input.operationIds.get(key)
+      )
       try {
         const result =
           await requestStructuredAgentSessionMutation<AgentSessionConversationCommandResult>({
@@ -72,7 +60,8 @@ export async function dispatchMobileStructuredCommand(input: {
             expectedRuntimeFence: input.fence,
             method: 'agentSession.conversationCommand',
             fingerprintMethod: 'agentSession.conversationCommand',
-            fields: waitsInLine ? { command, delivery: 'queue-if-active' } : { command },
+            fields: { command },
+            clientOperationId,
             timeoutMs: Math.max(input.timeoutMs, 195_000)
           })
         if (
@@ -82,31 +71,20 @@ export async function dispatchMobileStructuredCommand(input: {
           unknown = true
           return {
             accepted: false,
-            error: 'Conversation operation was not confirmed.'
+            error: 'Conversation operation is unconfirmed; retry checks the same operation.'
           }
         }
-        if (result.status !== 'accepted') {
-          return { accepted: false, error: result.message }
-        }
-        // A refusal names its cause only when the phone showed it, as on desktop.
-        const cause = structuredAgentSessionCommandHostRefusalCause(result.value)
-        return {
-          accepted: !result.value.error,
-          error: result.value.error ?? null,
-          ...(result.value.error && cause !== undefined && cause === shown
-            ? { refusedWhile: cause }
-            : {})
-        }
+        input.operationIds.delete(key)
+        return result.status === 'accepted'
+          ? { accepted: !result.value.error, error: result.value.error ?? null }
+          : { accepted: false, error: result.message }
       } finally {
         input.pending.current = false
       }
     }
   })
   if (outcome.error) {
-    input.onError(
-      outcome.error,
-      outcome.refusedWhile ? { refusedWhile: outcome.refusedWhile } : undefined
-    )
+    input.onError(outcome.error)
   }
   return unknown ? 'unknown' : outcome.accepted ? 'accepted' : 'rejected'
 }

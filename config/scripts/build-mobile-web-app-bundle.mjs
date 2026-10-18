@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises'
-import { readRouteSnapshot } from './mobile-web-app-route-snapshot.mjs'
 import { realpathSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -139,17 +138,9 @@ export const MOBILE_WEB_APP_ROOT_RESET =
  * Inputs and textareas: Chromium rings a focused one (`:focus-visible` matches every focused
  * text field); no native TextInput paints one, and the caret and the IME already mark focus.
  * Those only: a button reached by a hardware keyboard keeps the browser's ring.
- *
- * Text: native `Text` is unselectable unless `selectable`; react-native-web's is selectable. On
- * iOS a hold on it raises WebKit's selection over the page's own long press; on Android the
- * selection's `selectionchange` and `touchcancel` end a held press. `body`, not `#root`: modals
- * portal to `document.body`. Fields opt back in, callout too, since WebKit inherits it.
  */
 export const MOBILE_WEB_APP_NATIVE_PARITY_STYLE =
-  '<style id="orca-native-parity">:where(input:focus,textarea:focus){outline:none}' +
-  ':where(body){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}' +
-  ':where(input,textarea,[contenteditable]){-webkit-user-select:text;user-select:text;' +
-  '-webkit-touch-callout:default}</style>'
+  '<style id="orca-native-parity">:where(input:focus,textarea:focus){outline:none}</style>'
 
 const PAGE_ASYNC_STORAGE_MODULE = join(
   mobileDir,
@@ -363,12 +354,15 @@ export function mobileWebAppBuildOptions(routes) {
  */
 export function entryStaticClosure(metafile, entryOutputPath) {
   const reached = new Set([entryOutputPath])
-  for (const current of reached) {
+  const queue = [entryOutputPath]
+  while (queue.length > 0) {
+    const current = queue.shift()
     for (const imported of metafile.outputs[current]?.imports ?? []) {
       if (imported.kind !== 'import-statement' || reached.has(imported.path)) {
         continue
       }
       reached.add(imported.path)
+      queue.push(imported.path)
     }
   }
   return reached
@@ -472,10 +466,7 @@ const isScriptOutput = (path) => path.endsWith('.js')
  * wrap every route, and their imports are part of the page as surely as the route module's.
  */
 export async function mobileWebAppRouteClosure(routeModule) {
-  return (
-    readRouteSnapshot(routeModule) ??
-    (await mobileWebAppModuleClosure(['app/_layout', 'app/h/_layout', routeModule]))
-  )
+  return await mobileWebAppModuleClosure(['app/_layout', 'app/h/_layout', routeModule])
 }
 
 /**
@@ -505,10 +496,8 @@ export async function mobileWebAppModuleClosure(entryModules, { absWorkingDir } 
     ...(absWorkingDir ? { absWorkingDir } : {}),
     // Extensionless, so `resolveExtensions` picks the same file the bundle ships: a route with a
     // `.web.tsx` sibling resolves to that one, and naming the `.tsx` path explicitly would measure
-    // the native route file no browser ever loads.
-    entryPoints: entryModules.map((entry) =>
-      resolve(absWorkingDir ?? base.absWorkingDir, entry.replace(/\.tsx?$/, ''))
-    ),
+    // the native switch no browser ever loads.
+    entryPoints: entryModules.map((entry) => entry.replace(/\.tsx?$/, '')),
     splitting: false,
     // `[dir]` too: `app/_layout` and `app/h/_layout` share a name.
     entryNames: '[dir]/[name]',
@@ -588,8 +577,7 @@ export function resolveMobileWebPageRoutes(routeKeys, declared = MOBILE_WEB_PAGE
     grants: [...route.grants],
     ...(route.optionalGrants === undefined || route.optionalGrants.length === 0
       ? {}
-      : { optionalGrants: [...route.optionalGrants] }),
-    ...(route.canOwnHostArea === true ? { canOwnHostArea: true } : {})
+      : { optionalGrants: [...route.optionalGrants] })
   }))
 }
 
@@ -605,16 +593,11 @@ export async function buildMobileWebAppBundle({
   const [
     desktopVersion,
     protocolWindow,
-    { script, chunks, images, entryStaticBytes, routeChunks, routeKeys },
-    scrollbarStyle
+    { script, chunks, images, entryStaticBytes, routeChunks, routeKeys }
   ] = await Promise.all([
     readDesktopVersion(),
     readProtocolWindow(),
-    bundleMobileWebApp({ appDir }),
-    readFile(join(projectDir, 'src/shared/styles/scrollbar-sleek.css'), 'utf8').then((style) =>
-      // The shared desktop stylesheet can be checked out as CRLF on Windows.
-      style.replace(/\r\n/g, '\n')
-    )
+    bundleMobileWebApp({ appDir })
   ])
   // Every output is already named by its own bytes, and a name is written inside whatever imports
   // it, so hashedAsset here reproduces the name rather than choosing one.
@@ -626,11 +609,11 @@ export async function buildMobileWebAppBundle({
 
   // Root-absolute, unlike the Phase A bootstrap's bare relative src: this document is served at
   // every route depth (/h/<hostId>/tasks), where a relative href resolves against the route and
-  // 404s. A <base> tag would be the other fix, but the shell's CSP admits only an about: base.
+  // 404s. A <base> tag would be the other fix, but the shell's CSP sets base-uri 'none'.
   // type="module", because the entry is esm and reaches its routes through import(). Same-origin
   // module and chunk both load under the shell's script-src 'self'; the policy is unchanged.
   const html =
-    '<!doctype html>\n<html lang="en" data-orca-scrollbars="sleek">\n<head>\n<meta charset="utf-8" />\n' +
+    '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n' +
     // No viewport-fit=cover: the page never asks to extend under the system bars. The shell owns
     // the safe area: it pads the WebView and, on Android, zeroes the insets the WebView would
     // report via env(); on iOS the padded WKWebView reports none.
@@ -639,7 +622,7 @@ export async function buildMobileWebAppBundle({
     // answers 403, the path being in no manifest. Empty rather than an asset: a WebView document
     // has no tab for an icon, and the bundle's images are route assets named by their own bytes.
     '<link rel="icon" href="data:," />\n' +
-    `<title>Orca</title>\n${MOBILE_WEB_APP_ROOT_RESET}\n${MOBILE_WEB_APP_NATIVE_PARITY_STYLE}\n<style id="orca-scrollbars">${scrollbarStyle}</style>\n</head>\n<body>\n<div id="root"></div>\n` +
+    `<title>Orca</title>\n${MOBILE_WEB_APP_ROOT_RESET}\n${MOBILE_WEB_APP_NATIVE_PARITY_STYLE}\n</head>\n<body>\n<div id="root"></div>\n` +
     `<script type="module" src="/${scriptAsset.path}"></script>\n</body>\n</html>\n`
   const indexBytes = Buffer.from(html, 'utf8')
   const indexAsset = {

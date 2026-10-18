@@ -1,7 +1,6 @@
 import { vi } from 'vitest'
 import type { TuiAgent } from '../../shared/tui-agent'
-import { registerPtyHandlers } from './pty/register-handlers'
-import { setLocalPtyProvider } from './pty/provider/registry'
+import { registerPtyHandlers, setLocalPtyProvider } from './pty'
 
 type IpcHandlerMap = Map<string, (_event: unknown, args: unknown) => unknown>
 
@@ -97,7 +96,7 @@ export function createDaemonActiveProviderFixtures(ctx: {
     getSelectedCodexHomePath?: (
       target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
       launchEnv?: NodeJS.ProcessEnv,
-      launchContext?: { unavailableManagedHomePath?: string }
+      launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
     ) => string | null,
     getSettings?: () => {
       httpProxyUrl?: string
@@ -158,7 +157,7 @@ export function createDaemonActiveProviderFixtures(ctx: {
     getSelectedCodexHomePath?: (
       target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
       launchEnv?: NodeJS.ProcessEnv,
-      launchContext?: { unavailableManagedHomePath?: string }
+      launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
     ) => string | null,
     getSettings?: () => {
       httpProxyUrl?: string

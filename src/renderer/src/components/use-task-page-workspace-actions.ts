@@ -54,16 +54,13 @@ export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
         useAppStore.getState().allWorktrees(),
         item.repoId,
         item.type,
-        item.number,
-        item.url
+        item.number
       )
       if (!currentAttached) {
         handleUseWorkItem(item)
         return
       }
-      const result = activateAndRevealWorktree(currentAttached.id, {
-        navigationIntent: 'user-open'
-      })
+      const result = activateAndRevealWorktree(currentAttached.id)
       if (result === false) {
         toast.error(
           item.type === 'pr'

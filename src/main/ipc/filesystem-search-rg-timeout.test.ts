@@ -24,7 +24,6 @@ const {
 const handlers = new Map<string, (event: unknown, args: unknown) => unknown>()
 
 vi.mock('electron', () => ({
-  app: { getPath: () => '/orca-test-user-data' },
   ipcMain: {
     handle: handleMock
   },
@@ -44,6 +43,7 @@ vi.mock('../wsl', () => ({
 }))
 
 vi.mock('./filesystem-auth', () => ({
+  authorizeExternalPath: vi.fn(async (value: string) => value),
   resolveAuthorizedPath: resolveAuthorizedPathMock
 }))
 
@@ -199,7 +199,7 @@ describe('filesystem rg search timeout', () => {
     }
   )
 
-  it('rejects post-spawn errors instead of returning an empty result', async () => {
+  it('keeps post-spawn errors on the existing empty-result path', async () => {
     const child = createMockProcess()
     Object.defineProperty(child, 'pid', { value: 1 })
     wslAwareSpawnMock.mockReturnValue(child)
@@ -212,7 +212,7 @@ describe('filesystem rg search timeout', () => {
     await flushMicrotasks()
     child.emit('error', new Error('post-spawn failure'))
 
-    await expect(promise).rejects.toThrow('post-spawn failure')
+    await expect(promise).resolves.toMatchObject({ files: [] })
   })
 
   // Why close(97): the WSL wrapper's "cd failed" code. It is above rg's own 0/1/2, so a handler
@@ -249,7 +249,7 @@ describe('filesystem rg search timeout', () => {
     await expect(promise).rejects.toThrow(BUNDLED_ERROR)
   })
 
-  it('keeps rg on the host for Windows-drive worktrees under a WSL project runtime', async () => {
+  it('routes rg through the registered WSL project runtime for Windows-path worktrees', async () => {
     const child = createMockProcess()
     Object.defineProperty(child, 'pid', { value: 1 })
     wslAwareSpawnMock.mockReturnValue(child)
@@ -267,61 +267,14 @@ describe('filesystem rg search timeout', () => {
 
     await promise
 
-    expect(bundledRipgrepCommandMock).not.toHaveBeenCalledWith({ wsl: true })
-    const spawnOptions = wslAwareSpawnMock.mock.calls[0]?.[2]
-    expect(spawnOptions).toMatchObject({ cwd: 'C:\\repo' })
-    expect(spawnOptions?.wslDistro).toBeUndefined()
-  })
-
-  it('does not fail a Windows host search over files only WSL can open', async () => {
-    const originalPlatform = process.platform
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    try {
-      const child = createMockProcess()
-      Object.defineProperty(child, 'pid', { value: 1 })
-      wslAwareSpawnMock.mockReturnValue(child)
-      getLocalGitOptionsForRegisteredWorktreeMock.mockReturnValue({ wslDistro: 'Ubuntu' })
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: all store access is mocked for this handler.
-      registerFilesystemHandlers({} as never)
-
-      const promise = Promise.resolve(
-        handlers.get('fs:search')!({ sender: { id: 7 } }, { rootPath: 'C:\\repo', query: 'absent' })
-      )
-      await flushMicrotasks()
-      child.stderr?.emit(
-        'data',
-        Buffer.from(
-          'rg: .\\nul: Incorrect function. (os error 1)\n' +
-            'rg: .\\link: The file cannot be accessed by the system. (os error 1920)\n'
-        )
-      )
-      child.emit('close', 2, null)
-
-      await expect(promise).resolves.toMatchObject({ files: [], truncated: false })
-    } finally {
-      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
-    }
-  })
-
-  it('routes rg through the registered WSL project runtime for non-drive roots', async () => {
-    const child = createMockProcess()
-    Object.defineProperty(child, 'pid', { value: 1 })
-    wslAwareSpawnMock.mockReturnValue(child)
-    getLocalGitOptionsForRegisteredWorktreeMock.mockReturnValue({ wslDistro: 'Ubuntu' })
-    registerFilesystemHandlers({} as never)
-
-    const promise = handlers.get('fs:search')!(
-      { sender: { id: 7 } },
-      { rootPath: '/repo', query: 'ok' }
-    ) as Promise<unknown>
-    await flushMicrotasks()
-    child.emit('close', 1, null)
-    await promise
-
+    expect(bundledRipgrepCommandMock).toHaveBeenCalledWith({ wsl: true })
     expect(wslAwareSpawnMock).toHaveBeenCalledWith(
       '/bundled/linux/rg',
       expect.any(Array),
-      expect.objectContaining({ cwd: '/repo', wslDistro: 'Ubuntu' })
+      expect.objectContaining({
+        cwd: 'C:\\repo',
+        wslDistro: 'Ubuntu'
+      })
     )
   })
 
@@ -345,47 +298,18 @@ describe('filesystem rg search timeout', () => {
     expect(wslAwareSpawnMock.mock.calls[0]?.[0]).toBe('/bundled/linux/rg')
   })
 
-  it('marks WSL filenames that UNC cannot represent as incomplete', async () => {
+  it('translates WSL rg output for Windows-path project search results', async () => {
     const child = createMockProcess()
     wslAwareSpawnMock.mockReturnValue(child)
     getLocalGitOptionsForRegisteredWorktreeMock.mockReturnValue({ wslDistro: 'Ubuntu' })
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: all store access is mocked for this handler.
-    registerFilesystemHandlers({} as never)
-    const promise = handlers.get('fs:search')!(
-      { sender: { id: 7 } },
-      { rootPath: '/repo', query: 'hello' }
-    )
-    await flushMicrotasks()
-    child.stdout?.emit(
-      'data',
-      `${JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: './a\\b.txt' },
-          lines: { text: 'hello\n' },
-          line_number: 1,
-          submatches: [{ start: 0, end: 5 }]
-        }
-      })}\n`
-    )
-    child.emit('close', 0, null)
-    await expect(promise).resolves.toMatchObject({ files: [], truncated: true })
-    expect(toWindowsWslPathMock).not.toHaveBeenCalled()
-  })
-
-  it('translates WSL rg output for WSL UNC project search results', async () => {
-    const child = createMockProcess()
-    wslAwareSpawnMock.mockReturnValue(child)
-    parseWslPathMock.mockReturnValue({ distro: 'Ubuntu' })
     toWindowsWslPathMock.mockImplementation((value: string) =>
-      value.replace('/home/repo', '\\\\wsl.localhost\\Ubuntu\\home\\repo').replace(/\//g, '\\')
+      value.replace('/mnt/c/repo', 'C:\\repo').replace(/\//g, '\\')
     )
     registerFilesystemHandlers({} as never)
 
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fs:search handlers return Promise<SearchResult>.
     const promise = handlers.get('fs:search')!(
       { sender: { id: 7 } },
-      { rootPath: '\\\\wsl.localhost\\Ubuntu\\home\\repo', query: 'hello' }
+      { rootPath: 'C:\\repo', query: 'hello' }
     ) as Promise<{
       files: { filePath: string; relativePath: string; matchCount: number }[]
     }>
@@ -399,7 +323,7 @@ describe('filesystem rg search timeout', () => {
         `${JSON.stringify({
           type: 'match',
           data: {
-            path: { text: '/home/repo/src/index.ts' },
+            path: { text: '/mnt/c/repo/src/index.ts' },
             lines: { text: 'hello world\n' },
             line_number: 3,
             submatches: [{ start: 0, end: 5 }]
@@ -413,11 +337,11 @@ describe('filesystem rg search timeout', () => {
 
     expect(result.files).toEqual([
       expect.objectContaining({
-        filePath: '\\\\wsl.localhost\\Ubuntu\\home\\repo\\src\\index.ts',
+        filePath: 'C:\\repo\\src\\index.ts',
         relativePath: 'src/index.ts',
         matchCount: 1
       })
     ])
-    expect(toWindowsWslPathMock).toHaveBeenCalledWith('/home/repo/src/index.ts', 'Ubuntu')
+    expect(toWindowsWslPathMock).toHaveBeenCalledWith('/mnt/c/repo/src/index.ts', 'Ubuntu')
   })
 })

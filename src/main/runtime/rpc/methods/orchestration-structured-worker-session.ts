@@ -1,35 +1,29 @@
 /**
- * Starting and retiring a worker that IS a structured agent session.
+ * Starting, holding and retiring a worker that IS a structured agent session.
  *
  * Three things make this different from the PTY worker path, and all three live here:
  *
- * - The session is created directly as structured. Its attach returns while the agent is still
- *   starting, so attachment is not readiness: the preamble goes through the host's hold
- *   (`sendAgentTurn` waits the start out), and the worker is ready once its agent took it. There
- *   is no `tui-idle` edge to read.
- * - Nothing here keeps its agent running. The idle sweep leaves it running while its dispatch is
- *   open, reading that from the orchestration database; once the dispatch settles the agent rests
- *   like any chat's, and the next mail starts it.
+ * - The session is created directly as structured, so readiness is the attach returning ok. There
+ *   is no boot-to-idle gap to wait on and no `tui-idle` edge to read.
+ * - A structured session's provider child is evicted 15s after its last HOLDER leaves, and holds
+ *   come only from bound surfaces. A dispatched worker parked on mail is exactly that state, so
+ *   the dispatch takes its own resume-capable hold and keeps it until the worker settles.
  * - The dispatch preamble is a turn, not keystrokes.
  */
 
 import { randomUUID } from 'node:crypto'
 import { isDefinitiveAgentSessionCreateRefusal } from '../../../../shared/agent-session-definitive-refusal'
-import type { AgentMessageSource } from '../../../../shared/agent-session-message-source'
-import type {
-  AgentJournalMessageItem,
-  AgentJournalSubmission
-} from '../../../../shared/agent-session-journal-types'
+import type { AgentJournalMessageItem } from '../../../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
-import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
-import { mintAgentSessionOperationId } from '../../orchestration/structured-pointer-operation-id'
+import {
+  mintAgentSessionOperationId,
+  structuredPointerPayloadFingerprint
+} from '../../orchestration/structured-pointer-operation-id'
 import { structuredPointerCallerKey } from '../../orchestration/structured-mailbox-pointer-host'
-import { sendAgentTurn, type StructuredAgentTurnHost } from '../../orchestration/send-agent-turn'
 import { retireSettledStructuredWorkerTab } from '../../structured-agent-session-tab-retirement'
-import { structuredWorkerSession } from '../../structured-worker-authority'
 import {
   mintStructuredWorkerHandle,
   structuredWorkerHostScope,
@@ -44,56 +38,53 @@ import { createStructuredAgentSessionForWorktree } from './structured-agent-sess
 type StructuredWorkerBinding = {
   sessionId: string
   handle: string
+  holderId: string
   disposeSubscription: () => void
 }
 
 const bindingsByDispatchId = new Map<string, StructuredWorkerBinding>()
 
+export function structuredWorkerHoldId(dispatchId: string): string {
+  return `orchestration:dispatch:${dispatchId}`
+}
+
 /**
- * Drops the dispatch's redrive subscription, its registry entry and its parked mail.
+ * Drops the dispatch's hold, its redrive subscription and its parked mail; the release clock takes
+ * it from here.
  *
- * EVERY settlement has to reach this — stop, release AND abandon. A surviving subscription keeps
- * nudging a session no dispatch owns.
- *
- * Parked mail is forgotten on every session of the worker's `/clear` lineage, derived from
- * `workerSessionId` when no binding survives (after a restart) — mail parks on whichever session
- * ran the worker when it arrived.
+ * EVERY settlement has to reach this — stop, release AND abandon. A surviving hold does not just
+ * leak: it keeps the provider child un-evictable for the life of the app, and makes host crash
+ * recovery respawn a child for a worker that was settled long ago.
  */
 export function releaseStructuredWorkerSession(
   dispatchId: string,
-  runtime?: Pick<OrcaRuntimeService, 'forgetStructuredSessionMail'>,
-  workerSessionId?: string | null
+  runtime?: Pick<OrcaRuntimeService, 'forgetStructuredSessionMail'>
 ): void {
   const binding = bindingsByDispatchId.get(dispatchId)
-  if (binding) {
-    bindingsByDispatchId.delete(dispatchId)
-    binding.disposeSubscription()
-    structuredWorkerIdentities.forget(binding.handle)
-  }
-  const rootSessionId = binding?.sessionId ?? workerSessionId
-  if (!rootSessionId || !runtime?.forgetStructuredSessionMail) {
+  if (!binding) {
     return
   }
-  for (const sessionId of structuredWorkerSession({ sessionId: rootSessionId }).lineage) {
-    runtime.forgetStructuredSessionMail(sessionId)
+  bindingsByDispatchId.delete(dispatchId)
+  binding.disposeSubscription()
+  structuredWorkerIdentities.forget(binding.handle)
+  runtime?.forgetStructuredSessionMail?.(binding.sessionId)
+  try {
+    getStructuredAgentSessionHost()?.release(binding.sessionId, binding.holderId)
+  } catch (error) {
+    console.warn('[orchestration] structured worker hold release failed', dispatchId, error)
   }
 }
 
 export async function createStructuredWorkerSession(args: {
   runtime: OrcaRuntimeService
   worktreeId: string
-  agent: TuiAgent
+  agent: 'claude' | 'codex'
   dispatchId: string
   /** The dispatch's own `--model`/`--effort`, already narrowed to the seedable string subset. */
   options?: Readonly<Record<string, string>>
   /** Retried whenever the session's journal moves, which is the structured idle edge. */
   onJournalActivity: (sessionId: string) => void
-}): Promise<{
-  identity: StructuredWorkerIdentity
-  host: StructuredAgentSessionHost
-  /** The lease the create was admitted at. */
-  fence: number
-}> {
+}): Promise<{ identity: StructuredWorkerIdentity; host: StructuredAgentSessionHost }> {
   const sessionId = randomUUID()
   // Registered BEFORE the session is created, because `attach` is what spawns the provider child
   // and the child's environment is read from this registry at spawn time. Registering afterwards
@@ -101,7 +92,7 @@ export async function createStructuredWorkerSession(args: {
   // resolves to whatever single leaf sits in the worktree — by default the COORDINATOR's pane.
   //
   // The scope is provisionally local; the record's own location is asserted local below, and a
-  // session that resolves anywhere else is discarded.
+  // session that resolves anywhere else never reaches a hold.
   const identity = structuredWorkerIdentities.register({
     handle: mintStructuredWorkerHandle(),
     sessionId,
@@ -150,13 +141,16 @@ export async function createStructuredWorkerSession(args: {
         'A structured worker must run on the local execution host outside WSL.'
       )
     }
-    const disposeSubscription = await subscribeForRedrive(host, sessionId, args.onJournalActivity)
+    const holderId = structuredWorkerHoldId(args.dispatchId)
+    await host.hold(sessionId, holderId)
+    const disposeSubscription = subscribeForRedrive(host, sessionId, args.onJournalActivity)
     bindingsByDispatchId.set(args.dispatchId, {
       sessionId,
       handle: identity.handle,
+      holderId,
       disposeSubscription
     })
-    return { identity, host, fence: created.value.fence }
+    return { identity, host }
   } catch (error) {
     // A start that fails after the session exists would otherwise strand a live provider child
     // that no dispatch owns and that nothing else in the runtime will ever retire.
@@ -173,8 +167,8 @@ export async function createStructuredWorkerSession(args: {
  *
  * `ok` is not the test. `commit` answers `agent_session_operation_unknown` when `attach` SUCCEEDED
  * and only the tab publish failed, and a throw out of the commit half is past `attach` too — the
- * pre-commit half never throws, it refuses. Both leave a session with a published tab and no
- * binding, so nothing else in the runtime will ever retire it. Only a DEFINITIVE refusal
+ * pre-commit half never throws, it refuses. Both leave a live provider child that took no hold and
+ * has no binding, so nothing else in the runtime will ever retire it. Only a DEFINITIVE refusal
  * proves there is nothing to discard; everything else gets the best-effort close.
  */
 function structuredCreateMayHaveCommitted(
@@ -207,7 +201,7 @@ export async function discardStructuredWorkerSession(
   }
   try {
     await host.setSessionTabVisibility?.(sessionId, false)
-    await host.close(sessionId, 'evict')
+    await host.close(sessionId)
   } catch (error) {
     console.warn(
       '[orchestration] failed to discard a half-started structured worker',
@@ -219,70 +213,42 @@ export async function discardStructuredWorkerSession(
   retireSettledStructuredWorkerTab(sessionId, runtime)
 }
 
-/** A submission reason as a clause: host sentences end in a period, legacy markers do not. */
-function reasonClause(reason: string | null | undefined): string {
-  return (reason ?? 'no reason given').replace(/[.\s]+$/, '')
-}
-
-/** What a preamble send reads of the host. */
-type StructuredWorkerPreambleHost = StructuredAgentTurnHost & {
-  deps: { store: { getRecord: (sessionId: string) => { lease: { runtimeFence: number } } | null } }
-}
-
-/** Delivers the dispatch preamble as the worker's first turn. `pending`: the worker's agent had
- *  not taken it within the wait; the host still holds it for that agent, and never re-sends it. */
+/** Delivers the dispatch preamble as the worker's first turn. */
 export async function sendStructuredWorkerPreamble(args: {
-  host: StructuredWorkerPreambleHost
+  host: StructuredAgentSessionHost
   sessionId: string
   dispatchId: string
   preamble: string
-  /** Who the task is from (`dispatchTaskSource`), shown on the worker's turn. */
-  from: AgentMessageSource
-  /** The worker start's readiness budget, which the agent's start counts against. */
-  budgetMs?: number
-}): Promise<'accepted' | 'pending'> {
+}): Promise<void> {
   const body: AgentJournalMessageItem = {
     kind: 'message',
     role: 'user',
-    blocks: [{ type: 'text', text: args.preamble }],
-    from: args.from
+    blocks: [{ type: 'text', text: args.preamble }]
   }
   const fence = args.host.deps.store.getRecord(args.sessionId)?.lease.runtimeFence
   if (fence === undefined) {
     throw new Error('The structured worker session has no durable record to dispatch into.')
   }
-  const outcome = await sendAgentTurn({
-    kind: 'structured-session',
-    host: args.host,
-    sessionId: args.sessionId,
-    callerKey: structuredPointerCallerKey(args.dispatchId),
-    ...(args.budgetMs === undefined ? {} : { budgetMs: args.budgetMs }),
-    turn: {
-      body,
-      delivery: 'now',
-      operationId: mintAgentSessionOperationId(Date.now()),
-      expectedRuntimeFence: fence
+  const result = await args.host.send(
+    { callerKey: structuredPointerCallerKey(args.dispatchId) },
+    {
+      envelope: {
+        sessionId: args.sessionId,
+        clientOperationId: mintAgentSessionOperationId(Date.now()),
+        expectedRuntimeFence: fence,
+        payloadFingerprint: structuredPointerPayloadFingerprint(args.sessionId, body)
+      },
+      body
     }
-  })
-  switch (outcome.kind) {
-    case 'refused':
-      throw new Error(`The dispatch preamble was refused: ${outcome.refusal.message}`)
-    case 'queued':
-      // Never for a `now` send; a held draft proves nothing about the worker taking it.
-      return preambleDispatchState(undefined)
-    case 'sent':
-      return preambleDispatchState(outcome.submission)
+  )
+  if (!result.ok) {
+    throw new Error(`The dispatch preamble was refused: ${result.refusal.message}`)
   }
-}
-
-/** A sent preamble's verdict: acknowledged, or held for its agent; anything else throws. */
-export function preambleDispatchState(
-  submission: AgentJournalSubmission | undefined
-): 'accepted' | 'pending' {
-  if (submission?.dispatchState === 'accepted' || submission?.dispatchState === 'pending') {
-    return submission.dispatchState
+  const submission = result.value.submission
+  if (submission.dispatchState === 'accepted') {
+    return
   }
-  if (submission?.dispatchState === 'rejected') {
+  if (submission.dispatchState === 'rejected') {
     // A rejection is a verdict, not a mystery: the preamble provably did not happen.
     // `dispatch_preamble_undelivered` says exactly that, and says it as a code rather
     // than as prose, so a coordinator can tell "we could not send it" apart from
@@ -290,9 +256,7 @@ export function preambleDispatchState(
     // pending receipt; only this one lets the caller retry knowing nothing landed.
     throw new OrchestrationError(
       'dispatch_preamble_undelivered',
-      `The dispatch preamble was not delivered${
-        submission.rejection ? ` (${submission.rejection.kind})` : ''
-      }: ${reasonClause(submission.reason)}.`
+      `The dispatch preamble was not delivered: ${submission.reason ?? 'no reason given'}.`
     )
   }
   // Only `accepted` is an acknowledgement — the same rule the mail lane already applies. A thrown
@@ -301,7 +265,7 @@ export function preambleDispatchState(
   // `outcome_unknown` receipt whose nextCommands send the coordinator to look.
   throw new OrchestrationError(
     'operation_unknown',
-    `The dispatch preamble was submitted but not acknowledged (${submission?.dispatchState ?? 'unknown'}): ${reasonClause(submission?.reason)}.`
+    `The dispatch preamble was submitted but not acknowledged (${submission.dispatchState}): ${submission.reason ?? 'no reason given'}.`
   )
 }
 
@@ -340,17 +304,17 @@ const REDRIVE_MAX_WAIT_MS = 2_000
  * idle worker — that is `deliverForHandle`, called when the message is enqueued and untouched
  * here. This is only the retry for mail already parked because the worker was busy.
  */
-async function subscribeForRedrive(
+function subscribeForRedrive(
   host: StructuredAgentSessionHost,
   sessionId: string,
   onJournalActivity: (sessionId: string) => void
-): Promise<() => void> {
+): () => void {
   const coalescer = createKeyedTrailingEdgeCoalescer(onJournalActivity, {
     flushMs: REDRIVE_FLUSH_MS,
     maxWaitMs: REDRIVE_MAX_WAIT_MS
   })
   try {
-    const unsubscribe = await host.subscribe({
+    const unsubscribe = host.subscribe({
       id: `orchestration:redrive:${sessionId}`,
       sessionId,
       emit: (event) => {
@@ -360,7 +324,7 @@ async function subscribeForRedrive(
       }
     })
     // Disposal drops the pending timer rather than flushing it: every settlement reaches here, and
-    // a redrive that fires after it would nudge a session no dispatch owns.
+    // a redrive that fires after the hold is gone would nudge a session no dispatch owns.
     return () => {
       coalescer.dispose()
       unsubscribe()

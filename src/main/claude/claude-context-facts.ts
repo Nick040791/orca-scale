@@ -25,10 +25,7 @@ import type { ClaudeOpenTurn } from './claude-open-turn'
 import { claudeRecord, claudeText } from './claude-structured-item-translation'
 import type { ClaudeTurnEnd } from './claude-turn-lifecycle-item'
 import { isRootClaudeFrame } from './claude-turn-opening'
-import {
-  writeAgentJournalTurnRow,
-  type AgentJournalTurnRowTarget
-} from '../native-chat/agent-session-timeline/agent-journal-turn-row-revision'
+import { writeClaudeTurnRow, type ClaudeTurnRowTarget } from './claude-turn-row-revision'
 
 const CONVERSATION_FRAME_TYPES = new Set(['assistant', 'user', 'stream_event'])
 
@@ -191,7 +188,7 @@ export class ClaudeContextFacts {
     this.windowHint = report.windowTokens
     const contextUsage: AgentSessionContextUsage =
       part === 'report' ? { used: { kind: 'report', ...report }, window } : { window }
-    writeAgentJournalTurnRow(
+    writeClaudeTurnRow(
       this.sink,
       target === null ? { newest: true } : { identity: target },
       { contextUsage },
@@ -214,9 +211,9 @@ export class ClaudeContextFacts {
     windowIfNoneHeld?: AgentSessionContextWindow
   ): void {
     const identity = this.turn.identity
-    const target: AgentJournalTurnRowTarget = identity ? { identity } : { newest: true }
+    const target: ClaudeTurnRowTarget = identity ? { identity } : { newest: true }
     // A context fact often lands with no later frame to publish it, so it publishes itself.
-    writeAgentJournalTurnRow(
+    writeClaudeTurnRow(
       this.sink,
       target,
       { contextUsage, ...(windowIfNoneHeld ? { windowIfNoneHeld } : {}) },

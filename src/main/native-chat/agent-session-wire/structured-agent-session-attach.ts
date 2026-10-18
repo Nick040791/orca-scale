@@ -1,4 +1,3 @@
-import { activeProviderContext } from '../../../shared/agent-session-provider-context'
 // Attach: reserve the session record, then open its journal.
 //
 // `create` and `ensure` are the same transition with a different starting
@@ -6,18 +5,17 @@ import { activeProviderContext } from '../../../shared/agent-session-provider-co
 // the record store's compare-and-swap, which also owns the idempotency row, so
 // a retried attach replays instead of reserving a second owner.
 
-import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
+import type {
+  AgentSessionJournalIdentity,
+  AgentSessionProviderHandle
+} from '../../../shared/agent-session-journal-types'
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import type {
-  StructuredAgentId,
-  AgentSessionProviderHandle,
+  AgentSessionHandleProvider,
   AgentSessionProviderHandleLink
 } from '../../../shared/agent-session-provider-handle'
-import {
-  agentSessionProviderHandleBelongsTo,
-  agentSessionProviderHandleFromWire,
-  type AgentSessionWireProviderHandle
-} from '../../../shared/agent-session-provider-handle-encoding'
+import { claudeProviderHandleLink } from '../../claude/claude-structured-owner-identity'
+import { codexProviderHandleLink } from '../../codex/codex-structured-owner-identity'
 import type {
   AgentSessionAccountHome,
   AgentSessionExecutionLocation,
@@ -26,23 +24,26 @@ import type {
   AgentSessionRecord
 } from '../../../shared/agent-session-record'
 import {
-  AgentSessionRefusalError,
-  agentSessionRefusalFromReference,
-  agentSessionRefusalReference,
-  isAgentSessionWireRefusalCode,
-  refuse,
+  AGENT_SESSION_WIRE_REFUSAL_CODES,
   type AgentSessionMutationEnvelope,
-  type AgentSessionRefusalReference,
-  type AgentSessionWireRefusal
+  type AgentSessionWireRefusal,
+  type AgentSessionWireRefusalCode
 } from '../../../shared/agent-session-wire'
 import {
   agentSessionFingerprintConflict,
   computeAgentSessionPayloadFingerprint
 } from '../../../shared/agent-session-mutation-envelope'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { agentSessionProviderHandleChainHead } from '../../../shared/agent-session-provider-handle'
+import { agentSessionJournalCloseRetries } from '../agent-session-journal/journal-close-retry'
+import { journalDirectoryFor } from '../agent-session-journal/journal-paths'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { reconcileJournalSubmissionsAgainstHistory } from '../agent-session-journal/journal-restart-reconciliation'
 import type { ProviderHistoryWindow } from '../agent-session-journal/journal-submission-reconciler'
+import {
+  openAgentSessionJournalWithRecovery,
+  type AgentSessionJournalRecovery
+} from './agent-session-journal-recovery'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { structuredAgentSessionRefusalMessage } from './structured-agent-session-refusal-message'
 
@@ -55,8 +56,8 @@ import { structuredAgentSessionRefusalMessage } from './structured-agent-session
 export type AgentSessionAttachParams = {
   envelope: AgentSessionMutationEnvelope
   location: AgentSessionExecutionLocation
-  provider: StructuredAgentId
-  agent: StructuredAgentId
+  provider: AgentSessionHandleProvider
+  agent: AgentSessionHandleProvider
   accountHome: AgentSessionAccountHome
   /** Always `native`; kept on the params because the operation fingerprint covers it. */
   runtimeKind: 'native'
@@ -66,9 +67,8 @@ export type AgentSessionAttachParams = {
    *  attach fingerprint: which tab shows the chat is not which conversation it attaches to. */
   surfaceTabId?: string
   launchArgs?: string[]
-  /** Omitted only for create-by-intent; the adapter proves the durable handle. In the wire's
-   *  form, because the attach fingerprint covers it as the client sent it. */
-  providerHandle?: AgentSessionWireProviderHandle
+  /** Omitted only for create-by-intent; the adapter proves the durable handle. */
+  providerHandle?: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
   /**
    * Host-resolved only. Present when this create adopts an existing provider conversation rather
    * than starting one: it seeds the handle chain so the adapter resumes instead of creating, and
@@ -78,16 +78,14 @@ export type AgentSessionAttachParams = {
    * without adopting — presence of a handle must never be what triggers a resume.
    */
   adopt?: {
-    providerHandle: AgentSessionProviderHandle
+    providerHandle: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>
     /** Omitted only when the exact committed operation replays an already-imported journal. */
     transcriptPath?: string
-    source?: { providerSessionId: string; workspaceCwd: string }
   }
 }
 
 /** Host-supplied half of the reservation. */
 export type AgentSessionAttachAuthority = {
-  launchDirectory?: string
   spawnToken: string | (() => string)
   claimKeyId: string
   handoffOperationId: string | null
@@ -123,31 +121,13 @@ export function attachFingerprintFields(params: AgentSessionAttachParams): Recor
 export function admitAttachOrRefuse(
   params: AgentSessionAttachParams
 ): { ok: true; fingerprint: string } | { ok: false; refusal: AgentSessionWireRefusal } {
-  // The start check judges the record's agent and the router starts `agent`'s adapter: one agent.
-  if (params.agent !== params.provider) {
+  if (params.providerHandle && params.providerHandle.kind !== params.provider) {
     return {
       ok: false,
-      refusal: refuse(
-        'agent_session_operation_invalid',
-        { reason: 'requestMalformed' },
-        `A ${params.provider} session cannot be started as ${params.agent}.`
-      )
-    }
-  }
-  if (
-    params.providerHandle &&
-    !agentSessionProviderHandleBelongsTo(
-      agentSessionProviderHandleFromWire(params.providerHandle),
-      params.provider
-    )
-  ) {
-    return {
-      ok: false,
-      refusal: refuse(
-        'agent_session_operation_invalid',
-        { reason: 'requestMalformed' },
-        `A ${params.provider} session requires a ${params.provider} provider handle.`
-      )
+      refusal: {
+        code: 'agent_session_operation_invalid',
+        message: `A ${params.provider} session requires a ${params.provider} provider handle.`
+      }
     }
   }
   const fingerprint = computeAgentSessionPayloadFingerprint({
@@ -163,13 +143,17 @@ export function journalIdentityFor(
   record: AgentSessionRecord,
   params: AgentSessionAttachParams
 ): AgentSessionJournalIdentity {
-  const active = activeProviderContext(record)
-  const head = active.head
-  const providerHandle =
-    head?.handle ??
-    (!active.pendingClear && params.providerHandle
-      ? agentSessionProviderHandleFromWire(params.providerHandle)
-      : null)
+  const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
+  const providerHandle: AgentSessionProviderHandle =
+    head?.handle.provider === 'codex'
+      ? { kind: 'codex', threadId: head.handle.threadId }
+      : head?.handle.provider === 'claude'
+        ? {
+            kind: 'claude',
+            sessionId: head.handle.sessionId,
+            leafUuid: head.handle.leafUuid
+          }
+        : (params.providerHandle ?? { kind: 'opaque', agent: params.agent, value: 'pending' })
   return {
     sessionId: record.sessionId,
     workspaceId: params.location.workspaceId,
@@ -181,13 +165,16 @@ export function journalIdentityFor(
 
 export type AttachedJournal = {
   journal: AgentSessionJournal
-  /** Submissions the crash boundary left `unknown` that provider history could not decide. */
+  recovery: AgentSessionJournalRecovery | null
+  /** Submissions still `unknown` after this open: the crash boundary settled
+   *  them there and provider history could not decide them either. */
   unconfirmedClientMessageIds: string[]
 }
 
 /**
- * The conversation's journal — opened, and its crash boundary settled, by the conversation's own
- * open — with provider history deciding the submissions that boundary could only doubt.
+ * Open the session's journal, recovering it when the stored one is unusable,
+ * settle every submission left in flight by a previous process, then let
+ * provider history decide the ones it can prove.
  *
  * Why the reconciliation belongs HERE and nowhere else: this runs after the
  * record store handed this host the lease and before `onAttached` starts a
@@ -195,43 +182,54 @@ export type AttachedJournal = {
  * is read, and the window stays valid until the resume consumes it. Every other
  * settlement site — a proven child exit — runs while the host
  * may still start another child, and a read there could be overtaken before it
- * is acted on. Orca still never re-sends: this decides state only. A queued
- * submission is left alone: it was never handed over, so history cannot hold it.
+ * is acted on. Orca still never re-sends: this decides state only.
  */
 export async function attachJournal(input: {
   record: AgentSessionRecord
   params: AgentSessionAttachParams
+  journalRoot: string
   adapter: StructuredAgentSessionAdapter
-  /** The host's open conversation, whose journal the attach adopts. */
-  openConversation: (record: AgentSessionRecord) => Promise<AgentSessionJournal>
   /** Provider history sampled before a new child is acquired. `null` means the
    *  adapter had no usable history; omit to read lazily for direct callers. */
   providerHistoryWindow?: ProviderHistoryWindow | null
 }): Promise<AttachedJournal> {
   const identity = journalIdentityFor(input.record, input.params)
   const fence = input.record.lease.runtimeFence
-  const journal = await input.openConversation(input.record)
-  const settled = await reconcileAgainstProviderHistory({
-    adapter: input.adapter,
+  const historyFilePath = input.adapter.historyFilePath
+    ? await input.adapter.historyFilePath({ identity })
+    : null
+  const opened = await openAgentSessionJournalWithRecovery({
     identity,
-    journal,
+    journalDir: journalDirectoryFor(input.journalRoot, {
+      workspaceId: identity.workspaceId,
+      sessionId: identity.sessionId
+    }),
     fence,
-    accountHome: input.record.accountHome,
-    ...(Object.hasOwn(input, 'providerHistoryWindow')
-      ? { history: input.providerHistoryWindow }
-      : {})
+    historyFilePath
   })
-  return {
-    journal,
-    unconfirmedClientMessageIds: journal
-      .submissions()
-      .filter(
-        (entry) =>
-          entry.dispatchState === 'unknown' &&
-          entry.recovered === true &&
-          !settled.includes(entry.clientMessageId)
-      )
-      .map((entry) => entry.clientMessageId)
+  try {
+    // That await is a WRITE. A failure in it leaves the journal with no caller
+    // holding a reference to close it.
+    const unconfirmed = await opened.journal.markPendingSubmissionsUnknown(fence)
+    const settled = await reconcileAgainstProviderHistory({
+      adapter: input.adapter,
+      identity,
+      journal: opened.journal,
+      fence,
+      accountHome: input.record.accountHome,
+      ...(Object.hasOwn(input, 'providerHistoryWindow')
+        ? { history: input.providerHistoryWindow }
+        : {})
+    })
+    return {
+      ...opened,
+      unconfirmedClientMessageIds: unconfirmed.filter((id) => !settled.includes(id))
+    }
+  } catch (error) {
+    // A rejected close leaves the handle open, so the journal is retained for a
+    // later retry rather than dropped along with the only reference to it.
+    await agentSessionJournalCloseRetries.closeOrRetain(opened.journal)
+    throw error
   }
 }
 
@@ -282,19 +280,25 @@ async function reconcileAgainstProviderHistory(input: {
 const ADOPTED_HANDLE_FENCE = 1
 
 function adoptedProviderHandleLink(
-  handle: AgentSessionProviderHandle,
+  handle: Exclude<AgentSessionProviderHandle, { kind: 'opaque' }>,
   observedAt: number
 ): AgentSessionProviderHandleLink {
-  return {
-    // A link id is a bounded slug; Pi's native id is a file path.
-    linkId: `${handle.agent}-${ADOPTED_HANDLE_FENCE}-${handle.nativeId}`
-      .replace(/[^A-Za-z0-9_-]/g, '_')
-      .slice(0, 128),
-    handle,
-    origin: 'adopted',
-    mintedAtFence: ADOPTED_HANDLE_FENCE,
-    observedAt
-  }
+  return handle.kind === 'claude'
+    ? claudeProviderHandleLink({
+        sessionId: handle.sessionId,
+        leafUuid: handle.leafUuid,
+        resumed: false,
+        origin: 'adopted',
+        fence: ADOPTED_HANDLE_FENCE,
+        observedAt
+      })
+    : codexProviderHandleLink({
+        threadId: handle.threadId,
+        resumed: false,
+        origin: 'adopted',
+        fence: ADOPTED_HANDLE_FENCE,
+        observedAt
+      })
 }
 
 export function reserveRequestFor(input: {
@@ -317,7 +321,6 @@ export function reserveRequestFor(input: {
       : {}),
     ...(authority.launchArgs ? { launchArgs: authority.launchArgs } : {}),
     ...(authority.launchEnv ? { launchEnv: authority.launchEnv } : {}),
-    ...(authority.launchDirectory ? { launchDirectory: authority.launchDirectory } : {}),
     ...(params.adopt
       ? {
           // Fence 1 is a new record's first, and the owner probe requires the head link to carry
@@ -347,21 +350,16 @@ export function classifyStoreFailure(
   record: AgentSessionRecord | null = null
 ): AgentSessionWireRefusal {
   const rawCode = error instanceof Error ? error.message : String(error)
-  if (!isAgentSessionWireRefusalCode(rawCode)) {
+  if (!(AGENT_SESSION_WIRE_REFUSAL_CODES as readonly string[]).includes(rawCode)) {
     throw error
   }
-  // A refusal error's message is its code, so its details are this code's.
-  const emitted: AgentSessionRefusalReference =
-    error instanceof AgentSessionRefusalError
-      ? agentSessionRefusalReference(error.refusal)
-      : { code: rawCode }
-  // Why: a latched session is exactly where a bare store code strands the user.
-  const told = structuredAgentSessionRefusalMessage(emitted, record)
-  const reference = told?.reference ?? emitted
-  return agentSessionRefusalFromReference(
-    reference.code === 'agent_session_checkpoint_stale' && currentFence !== null
-      ? { code: reference.code, details: { ...reference.details, currentFence } }
-      : reference,
-    told?.message ?? `The session store refused this call: ${rawCode}.`
-  )
+  const code = rawCode as AgentSessionWireRefusalCode
+  return {
+    code,
+    // Why: a latched session is exactly where a bare store code strands the user.
+    message:
+      structuredAgentSessionRefusalMessage(code, record) ??
+      `The session store refused this call: ${code}.`,
+    ...(code === 'agent_session_checkpoint_stale' && currentFence !== null ? { currentFence } : {})
+  }
 }

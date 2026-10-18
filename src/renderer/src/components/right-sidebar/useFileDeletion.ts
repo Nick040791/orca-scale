@@ -9,10 +9,6 @@ import { runBatchDeletion, selectDeletionRoots } from './file-explorer-batch-del
 import type { TreeNode } from './file-explorer-types'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
 import {
-  getFileExplorerDeletionEditors,
-  type FileExplorerDeletionEditor
-} from './file-explorer-deletion-editors'
-import {
   getFileDeleteErrorMessage,
   isLocalDeleteNode,
   needsRemoteDeleteConfirmation
@@ -22,13 +18,20 @@ import {
   requestEditorSaveQuiesce
 } from '@/components/editor/editor-autosave'
 import { commitFileExplorerOp } from './fileExplorerUndoRedo'
-import { deleteRuntimePath, writeRuntimeFile } from '@/runtime/runtime-file-mutation-client'
-import { readRuntimeFileContent } from '@/runtime/runtime-file-read-client'
+import {
+  deleteRuntimePath,
+  readRuntimeFileContent,
+  writeRuntimeFile
+} from '@/runtime/runtime-file-client'
 import { translate } from '@/i18n/i18n'
 
 type UseFileDeletionParams = {
   activeWorktreeId: string | null
-  openFiles: FileExplorerDeletionEditor[]
+  openFiles: {
+    id: string
+    filePath: string
+    isDirty?: boolean
+  }[]
   closeFile: (fileId: string) => void
   refreshDir: (dirPath: string) => Promise<void>
   setSelectedPaths: (paths: Set<string>) => void
@@ -103,12 +106,8 @@ export function useFileDeletion({
           }
         }
 
-        const operationRoute = operationGuard.assertCurrent()
-        const filesToClose = getFileExplorerDeletionEditors(
-          useAppStore.getState(),
-          openFiles,
-          node.path,
-          operationRoute
+        const filesToClose = openFiles.filter((file) =>
+          isPathEqualOrDescendant(file.filePath, node.path)
         )
         // Why: force-save any dirty buffers before trashing so the undo snapshot
         // reads the user's latest edits from disk — not an older version that
@@ -123,11 +122,11 @@ export function useFileDeletion({
         await Promise.all(filesToClose.map((file) => requestEditorSaveQuiesce({ fileId: file.id })))
 
         // Why: confirmation and autosave can outlive a reconnect or graph replacement; mutations require the owner generation that produced the row.
-        operationGuard.assertCurrent()
+        const operationRoute = operationGuard.assertCurrent()
         const state = useAppStore.getState()
         const worktree = activeWorktreeId ? state.getKnownWorktreeById(activeWorktreeId) : null
         const fileContext = {
-          target: operationRoute.target,
+          settings: operationRoute.settings,
           worktreeId: activeWorktreeId,
           worktreePath: worktree?.path ?? null,
           connectionId: operationRoute.connectionId,
@@ -144,7 +143,7 @@ export function useFileDeletion({
         if (!node.isDirectory) {
           try {
             const rf = await readRuntimeFileContent({
-              target: fileContext.target,
+              settings: fileContext.settings,
               filePath: node.path,
               relativePath: node.relativePath,
               worktreeId: activeWorktreeId ?? undefined,
@@ -169,7 +168,7 @@ export function useFileDeletion({
               await writeRuntimeFile(
                 {
                   ...fileContext,
-                  target: currentRoute.target,
+                  settings: currentRoute.settings,
                   connectionId: currentRoute.connectionId
                 },
                 node.path,
@@ -182,7 +181,7 @@ export function useFileDeletion({
               await deleteRuntimePath(
                 {
                   ...fileContext,
-                  target: currentRoute.target,
+                  settings: currentRoute.settings,
                   connectionId: currentRoute.connectionId
                 },
                 node.path,

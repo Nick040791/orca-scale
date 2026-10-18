@@ -1,7 +1,4 @@
-import { closeTestStores, createSqliteTestStore, testState } from './persistence-test-harness'
-import { Store as CanonicalStore } from './persistence/loading-store/store'
-import { initDataPath as initCanonicalDataPath } from './persistence/loading-store/user-data-path'
-import { resetRetirementCollisionKeyCacheForTests } from './worktree-name-retirement'
+import { closeTestStores, createSqliteTestStore } from './persistence-test-harness'
 // Why this file exists: worktree removal writes to host session partitions, and the two hazards below
 // are only visible across a removal followed by a renderer session write — persistence.test.ts covers
 // removal and partitioning separately, so neither suite catches the interaction.
@@ -13,9 +10,9 @@ import type { TerminalTab } from '../shared/terminal-tab-types'
 import { getDefaultWorkspaceSession } from '../shared/constants'
 import { toRuntimeExecutionHostId } from '../shared/execution-host'
 
-let hasCreatedStoreInCase = false
+const testState = { dir: '' }
 
-vi.mock('./ssh/config/ssh-config-parser', () => ({
+vi.mock('./ssh/ssh-config-parser', () => ({
   loadUserSshConfig: vi.fn(),
   sshConfigHostsToTargets: vi.fn()
 }))
@@ -35,13 +32,6 @@ vi.mock('./telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('./telemetry/cohort-classifier', () => ({ getCohortAtEmit: vi.fn().mockReturnValue({}) }))
 
 async function createStore() {
-  if (!hasCreatedStoreInCase) {
-    hasCreatedStoreInCase = true
-    initCanonicalDataPath()
-    return createSqliteTestStore(CanonicalStore, {
-      dataFile: join(testState.dir, 'orca-data.json')
-    })
-  }
   vi.resetModules()
   const { Store, initDataPath } = await import('./persistence')
   initDataPath()
@@ -66,8 +56,6 @@ const LIVE = 'repo-gone::/workspace/live'
 
 describe('worktree removal across host session partitions', () => {
   beforeEach(() => {
-    hasCreatedStoreInCase = false
-    resetRetirementCollisionKeyCacheForTests()
     testState.dir = mkdtempSync(join(tmpdir(), 'orca-test-'))
   })
 

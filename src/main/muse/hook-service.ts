@@ -33,8 +33,7 @@ import {
   getMuseRemoteManagedCommand,
   getMuseRemoteManagedHooksPath,
   MUSE_HOOK_EVENTS,
-  readManagedMuseHookEvents,
-  refreshMuseManagedHooksFile
+  readManagedMuseHookEvents
 } from './hook-settings'
 import {
   MUSE_MANAGED_HOOK_ENV_VARS,
@@ -146,13 +145,7 @@ function buildStatus(
 
 export class MuseHookService {
   async refreshManagedScripts(): Promise<void> {
-    const present = await refreshManagedScriptIfPresent(
-      getMuseManagedScriptPath(),
-      getManagedScript()
-    )
-    if (present && process.platform === 'win32') {
-      await refreshMuseManagedHooksFile()
-    }
+    await refreshManagedScriptIfPresent(getMuseManagedScriptPath(), getManagedScript())
   }
 
   getStatus(): AgentHookInstallStatus {

@@ -1,11 +1,14 @@
 import type * as pty from 'node-pty'
+import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import {
   hostReportsChildExitStatus,
   wrapShellSpawnForMacosTccAttribution
 } from '../../providers/macos-tcc-login-shell'
 import type { WindowsShellSpawnAttempt } from '../../providers/windows-shell-fallback-chain'
 import { assignHostProcessToKillOnCloseJob } from '../../windows/windows-pty-job'
-import { wrapPtySpawnInTerminalScope } from '../terminal-scopes-runtime'
+
+import { canUseBunPty, spawnBunPty } from './bun-pty-process'
+import { WindowsBunPtySpawnUnconfirmedError } from './windows-bun-pty-spawn-receipt'
 
 async function loadNodePty(): Promise<typeof pty> {
   return import('node-pty')
@@ -19,18 +22,26 @@ export type SpawnedDaemonPty = {
   reportsChildExitStatus: boolean
 }
 
+type NativePtyRuntime = {
+  canUseBunPty: typeof canUseBunPty
+  spawnBunPty: typeof spawnBunPty
+}
+
 /** Walks the Windows PowerShell -> cmd.exe fallback chain when ConPTY rejects the primary shell. */
-export async function spawnNativeDaemonPty(args: {
-  shellPath: string
-  shellArgs: string[]
-  spawnCwd: string
-  env: Record<string, string>
-  cols: number
-  rows: number
-  windowsFallbackAttempts: WindowsShellSpawnAttempt[]
-  signal?: AbortSignal
-  onMacosTccSpawnStrategy?: (strategy: 'wrapped' | 'direct') => void
-}): Promise<SpawnedDaemonPty> {
+export async function spawnNativeDaemonPty(
+  args: {
+    shellPath: string
+    shellArgs: string[]
+    spawnCwd: string
+    env: Record<string, string>
+    cols: number
+    rows: number
+    windowsFallbackAttempts: WindowsShellSpawnAttempt[]
+    signal?: AbortSignal
+    onMacosTccSpawnStrategy?: (strategy: 'wrapped' | 'direct') => void
+  },
+  runtime: NativePtyRuntime = { canUseBunPty, spawnBunPty }
+): Promise<SpawnedDaemonPty> {
   let reportsChildExitStatus = true
   const spawnAt = async (
     shellPath: string,
@@ -38,9 +49,33 @@ export async function spawnNativeDaemonPty(args: {
     cwd: string
   ): Promise<pty.IPty> => {
     args.signal?.throwIfAborted()
-    const tcc = wrapShellSpawnForMacosTccAttribution(shellPath, shellArgs, args.env)
-    // Linux: exec through systemd-run into this terminal's own scope.
-    const wrapped = wrapPtySpawnInTerminalScope(tcc.file, tcc.args, args.env)
+    const wrapped = wrapShellSpawnForMacosTccAttribution(shellPath, shellArgs, args.env)
+    reportsChildExitStatus = hostReportsChildExitStatus(wrapped.file)
+    if (runtime.canUseBunPty()) {
+      const proc = runtime.spawnBunPty({
+        file: wrapped.file,
+        args: wrapped.args,
+        cwd,
+        env: args.env,
+        cols: args.cols,
+        rows: args.rows
+      })
+      try {
+        if (proc.waitForSpawn) {
+          await waitForPromiseWithSignal(proc.waitForSpawn(), args.signal)
+        }
+        args.signal?.throwIfAborted()
+      } catch (error) {
+        try {
+          proc.destroy()
+        } catch (cleanupError) {
+          console.warn('[daemon/pty] Failed shell launch cleanup failed:', cleanupError)
+        }
+        throw error
+      }
+      args.onMacosTccSpawnStrategy?.(wrapped.file === shellPath ? 'direct' : 'wrapped')
+      return proc
+    }
     const nodePty = await loadNodePty()
     // Why: children inherit job membership, so the host job must exist before the first Windows PTY.
     if (process.platform === 'win32') {
@@ -51,12 +86,12 @@ export async function spawnNativeDaemonPty(args: {
       cols: args.cols,
       rows: args.rows,
       cwd,
-      env: wrapped.env,
+      env: args.env,
       // Why: bundled ConPTY has the wrap-marker behavior xterm expects.
       ...(process.platform === 'win32' ? { useConptyDll: true } : {})
     })
-    reportsChildExitStatus = hostReportsChildExitStatus(tcc.file)
-    args.onMacosTccSpawnStrategy?.(tcc.file === shellPath ? 'direct' : 'wrapped')
+    reportsChildExitStatus = hostReportsChildExitStatus(wrapped.file)
+    args.onMacosTccSpawnStrategy?.(wrapped.file === shellPath ? 'direct' : 'wrapped')
     return proc
   }
 
@@ -70,7 +105,7 @@ export async function spawnNativeDaemonPty(args: {
     }
   } catch (primaryErr) {
     args.signal?.throwIfAborted()
-    if (process.platform !== 'win32') {
+    if (process.platform !== 'win32' || primaryErr instanceof WindowsBunPtySpawnUnconfirmedError) {
       throw primaryErr
     }
     for (const attempt of args.windowsFallbackAttempts.slice(1)) {
@@ -87,8 +122,11 @@ export async function spawnNativeDaemonPty(args: {
           startupCommandDeliveredInShellArgs: attempt.startupCommandDeliveredInShellArgs,
           reportsChildExitStatus
         }
-      } catch {
+      } catch (error) {
         args.signal?.throwIfAborted()
+        if (error instanceof WindowsBunPtySpawnUnconfirmedError) {
+          throw error
+        }
         // This fallback shell also failed -- try the next link in the chain.
       }
     }

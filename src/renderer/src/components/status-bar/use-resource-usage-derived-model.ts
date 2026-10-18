@@ -4,7 +4,7 @@ import type { MemorySnapshot } from '../../../../shared/process-stats-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../../../../shared/execution-host'
 import { mergeSnapshotAndSessions } from './mergeSnapshotAndSessions'
-import type { DaemonSession, RuntimeHostResourceSample } from './resource-usage-merge-types'
+import type { DaemonSession } from './resource-usage-merge-types'
 import type { ResourceSessionBindingInputs } from './resource-session-bindings'
 import { countUnboundDaemonSessions } from './resource-session-bindings'
 import {
@@ -22,7 +22,6 @@ import { findAmbiguousWorktreeIds, findDuplicateIds } from '../../lib/unified-ta
 export function useResourceUsageDerivedModel({
   open,
   resourceSnapshot,
-  runtimeHostResources,
   sessions,
   resourceSessionBindings,
   runtimePaneTitlesByTabId,
@@ -39,7 +38,6 @@ export function useResourceUsageDerivedModel({
 }: {
   open: boolean
   resourceSnapshot: MemorySnapshot | null
-  runtimeHostResources: readonly RuntimeHostResourceSample[]
   sessions: readonly DaemonSession[]
   resourceSessionBindings: ResourceSessionBindingInputs
   runtimePaneTitlesByTabId: AppState['runtimePaneTitlesByTabId']
@@ -80,14 +78,12 @@ export function useResourceUsageDerivedModel({
     return map
   }, [repos])
 
-  // Why: runtime-hosted repos have no local samples or killable sessions; their rows come only from that server's own samples.
-  const repoRuntimeHostIdById = useMemo(() => {
-    const map = new Map<string, string>()
+  // Why: runtime-hosted repos have no local daemon samples or killable sessions; this map drives their per-row exclusion in the merge.
+  const repoRuntimeScopedById = useMemo(() => {
+    const map = new Map<string, boolean>()
     for (const repo of repos) {
       const parsed = parseExecutionHostId(getRepoExecutionHostId(repo))
-      if (parsed?.kind === 'runtime') {
-        map.set(repo.id, parsed.id)
-      }
+      map.set(repo.id, parsed?.kind === 'runtime')
     }
     return map
   }, [repos])
@@ -112,8 +108,7 @@ export function useResourceUsageDerivedModel({
             runtimePaneTitlesByTabId,
             repoDisplayNameById,
             repoConnectionIdById,
-            repoRuntimeHostIdById,
-            runtimeHostResources,
+            repoRuntimeScopedById,
             browserTabsByWorktree,
             worktreeById,
             ambiguousWorktreeIds
@@ -127,8 +122,7 @@ export function useResourceUsageDerivedModel({
       runtimePaneTitlesByTabId,
       repoDisplayNameById,
       repoConnectionIdById,
-      repoRuntimeHostIdById,
-      runtimeHostResources,
+      repoRuntimeScopedById,
       browserTabsByWorktree,
       worktreeById,
       ambiguousWorktreeIds

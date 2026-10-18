@@ -1,12 +1,11 @@
 import { constants as fsConstants } from 'node:fs'
 import { access, mkdir, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import { getAppEnvironment } from '../../shared/app-environment'
+import { app } from 'electron'
 import type { GlobalSettings } from '../../shared/global-settings-types'
 import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
 import type { Store } from '../persistence'
-
-type FloatingTerminalSettings = Pick<GlobalSettings, 'floatingTerminalTrustedCwds'>
+import { authorizeExternalPath } from './filesystem-auth'
 
 const FLOATING_WORKSPACE_DIRNAME = 'floating-workspace'
 
@@ -24,8 +23,7 @@ function expandHomePath(input: string, home: string): string {
 }
 
 function resolveFloatingWorkspaceInput(input: string): string {
-  // Why the environment port: the headless runtime resolves this too, and it has no Electron app.
-  const home = getAppEnvironment().getPath('home')
+  const home = app.getPath('home')
   const expanded = expandHomePath(input, home)
   return path.isAbsolute(expanded) ? path.resolve(expanded) : path.resolve(home, expanded)
 }
@@ -43,7 +41,7 @@ async function canonicalizeAccessibleDirectory(dirPath: string): Promise<string 
   }
 }
 
-function getTrustedFloatingWorkspaceDirectories(settings: FloatingTerminalSettings): Set<string> {
+function getTrustedFloatingWorkspaceDirectories(settings: GlobalSettings): Set<string> {
   return new Set(
     (settings.floatingTerminalTrustedCwds ?? [])
       .map((trustedPath) => trustedPath.trim())
@@ -65,25 +63,22 @@ async function getPreservedTrustedFloatingWorkspaceDirectories(
 
 function isTrustedFloatingWorkspaceDirectory(
   canonicalDirPath: string,
-  settings: FloatingTerminalSettings
+  settings: GlobalSettings
 ): boolean {
   return getTrustedFloatingWorkspaceDirectories(settings).has(path.resolve(canonicalDirPath))
 }
 
-/** The app-owned folder floating markdown documents are created in; a desktop-only root. */
-export function getDefaultFloatingWorkspacePath(): string {
-  // Why the environment port: the headless runtime resolves this too, and it has no Electron app.
-  return path.join(getAppEnvironment().getPath('userData'), FLOATING_WORKSPACE_DIRNAME)
-}
-
 export async function ensureDefaultFloatingWorkspacePath(): Promise<string> {
-  const cwd = getDefaultFloatingWorkspacePath()
+  const cwd = path.join(app.getPath('userData'), FLOATING_WORKSPACE_DIRNAME)
   await mkdir(cwd, { recursive: true })
+  // Why: the default floating workspace lives outside repo roots by design;
+  // authorize only this app-owned directory instead of widening access to ~.
+  authorizeExternalPath(cwd)
   return cwd
 }
 
 export async function resolveFloatingTerminalCwd(
-  store: { getSettings(): FloatingTerminalSettings },
+  store: Store,
   args?: FloatingTerminalCwdRequest
 ): Promise<string> {
   const configuredPath = typeof args?.path === 'string' ? args.path.trim() : ''
@@ -99,16 +94,18 @@ export async function resolveFloatingTerminalCwd(
     return ensureDefaultFloatingWorkspacePath()
   }
 
-  // Why: only picker-approved directories may become the cwd, so arbitrary settings text can't.
   if (isTrustedFloatingWorkspaceDirectory(canonicalCwd, store.getSettings())) {
+    // Why: picker-approved directories are persisted as explicit grants, so a
+    // restart can restore file creation access without trusting arbitrary text.
+    authorizeExternalPath(canonicalCwd)
     return canonicalCwd
   }
 
   return args?.requireTrusted === true ? ensureDefaultFloatingWorkspacePath() : cwd
 }
 
-export async function trustFloatingWorkspaceDirectory(
-  store: Pick<Store, 'getSettings' | 'updateSettings'>,
+export async function grantFloatingWorkspaceDirectory(
+  store: Store,
   dirPath: string
 ): Promise<void> {
   const resolvedDir = resolveFloatingWorkspaceInput(dirPath)
@@ -116,6 +113,7 @@ export async function trustFloatingWorkspaceDirectory(
   if (!canonicalDir) {
     return
   }
+  authorizeExternalPath(canonicalDir)
   const trustedDirectories = await getPreservedTrustedFloatingWorkspaceDirectories(
     store.getSettings()
   )

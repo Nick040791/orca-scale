@@ -10,7 +10,7 @@ import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode
 } from '../../shared/terminal-tab-types'
-import { appendRetiredTerminalSurfaceProofs } from '../../shared/terminal-retirement-proof-ledger'
+import { appendRetiredTerminalSurfaceProofs } from './mobile-session-terminal-retirement-proof'
 
 export type RetiredTerminalSurface = {
   worktreeId: string

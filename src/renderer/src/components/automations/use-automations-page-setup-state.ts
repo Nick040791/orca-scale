@@ -1,15 +1,11 @@
 import { useCallback, useMemo } from 'react'
 import type { OrcaHooks } from '../../../../shared/orca-yaml-hook-types'
-import { getRuntimeEnvironmentIdForRepo } from '@/lib/repo-runtime-owner'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { checkRuntimeHooks } from '@/runtime/runtime-hooks-client'
 import type { AutomationDraft } from './AutomationEditorDialog'
 import { getAutomationHostTargetFromKey, type AutomationHostTarget } from './automation-host-client'
 import { getAutomationCreateRepos } from './automation-create-projects'
-import {
-  getRepoExecutionHostId,
-  toRuntimeExecutionHostId,
-  type ExecutionHostId
-} from '../../../../shared/execution-host'
+import { toRuntimeExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import { getVisibleAutomationSetupDecision } from './automation-setup-decision'
 import { capturedAutomationOwner, capturedAutomationOwnerKey } from './automation-captured-owner'
 import type { AutomationsPageListState } from './use-automations-page-list-state'
@@ -28,6 +24,7 @@ export function useAutomationsPageSetupState({
 }) {
   const { repos, settings, projectHostSetups, worktreesByRepo } = store
   const {
+    createTarget,
     automationYamlHooksByRepoKey,
     automationHookCheckPromisesRef,
     setAutomationYamlHooksByRepoKey,
@@ -71,8 +68,16 @@ export function useAutomationsPageSetupState({
             (setup) => setup.repoId !== candidate.projectId || setup.hostId === setupHostId
           )
         : projectHostSetups
-      const hookKey = `${setupHostId ?? getRuntimeEnvironmentIdForRepo({ repos, settings }, candidate.projectId) ?? 'local'}:${candidate.projectId}`
+      const settingsForRepo = setupHostId
+        ? {
+            ...settings,
+            activeRuntimeEnvironmentId:
+              selectedEditAuthority?.kind === 'runtime' ? selectedEditAuthority.environmentId : null
+          }
+        : getSettingsForRepoRuntimeOwner({ repos, settings }, candidate.projectId)
+      const hookKey = `${setupHostId ?? settingsForRepo.activeRuntimeEnvironmentId ?? 'local'}:${candidate.projectId}`
       return getVisibleAutomationSetupDecision({
+        createTarget,
         workspaceMode: candidate.workspaceMode,
         repoId: candidate.projectId,
         repos: setupRepos,
@@ -82,6 +87,7 @@ export function useAutomationsPageSetupState({
     },
     [
       automationYamlHooksByRepoKey,
+      createTarget,
       list.hostCatalog.entries,
       local.editingAutomationId,
       local.editingHostStableKey,
@@ -95,7 +101,8 @@ export function useAutomationsPageSetupState({
       if (hostId) {
         return `${hostId}:${repoId}`
       }
-      return `${getRuntimeEnvironmentIdForRepo({ repos, settings }, repoId) ?? 'local'}:${repoId}`
+      const settingsForRepo = getSettingsForRepoRuntimeOwner({ repos, settings }, repoId)
+      return `${settingsForRepo.activeRuntimeEnvironmentId ?? 'local'}:${repoId}`
     },
     [repos, settings]
   )
@@ -109,15 +116,8 @@ export function useAutomationsPageSetupState({
       if (existingPromise) {
         return (await existingPromise).hooks
       }
-      // Why: a repo id on two hosts has no single owner to inspect; never let focus pick one.
-      const ownerRows = hostId ? [] : repos.filter((repo) => repo.id === repoId)
-      const ownerHostId =
-        hostId ?? (ownerRows.length === 1 ? getRepoExecutionHostId(ownerRows[0]) : null)
-      const promise = (
-        ownerHostId
-          ? checkRuntimeHooks(ownerHostId, repoId)
-          : Promise.reject(new Error('The project host is unknown.'))
-      )
+      const settingsForRepo = getSettingsForRepoRuntimeOwner({ repos, settings }, repoId)
+      const promise = checkRuntimeHooks(settingsForRepo, repoId, hostId)
         .then((result) => ({
           hooks: result.status === 'error' ? null : ((result.hooks as OrcaHooks | null) ?? null),
           ok: result.status !== 'error'
@@ -139,17 +139,19 @@ export function useAutomationsPageSetupState({
       automationYamlHooksByRepoKey,
       getAutomationHooksCacheKey,
       repos,
-      setAutomationYamlHooksByRepoKey
+      setAutomationYamlHooksByRepoKey,
+      settings
     ]
   )
   const getDraftSetupDecisionDefaultSignature = useCallback(
     (candidate: Pick<AutomationDraft, 'projectId' | 'workspaceMode'>): string =>
       [
+        createTarget,
         candidate.workspaceMode,
         candidate.projectId,
         getDraftSetupDecisionDefault(candidate) ?? 'none'
       ].join(':'),
-    [getDraftSetupDecisionDefault]
+    [createTarget, getDraftSetupDecisionDefault]
   )
   const markSetupDecisionTouched = useCallback((): void => {
     setupDecisionTouchedRef.current = true

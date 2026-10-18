@@ -77,16 +77,14 @@ export function parseOpenCodeUsageRow(row: OpenCodeUsageRow): OpenCodeUsageParse
     return null
   }
   const cache = parseJsonObject(tokens.cache)
-  const uncachedInputTokens = ensureNumber(tokens.input)
+  const inputTokens = ensureNumber(tokens.input)
   const outputTokens = ensureNumber(tokens.output)
   const reasoningOutputTokens = ensureNumber(tokens.reasoning)
-  // OpenCode reports uncached input separately; Orca includes both cache buckets in input.
-  const cacheWriteInputTokens = ensureNumber(cache?.write)
-  const cachedInputTokens = ensureNumber(cache?.read) + cacheWriteInputTokens
-  const inputTokens = uncachedInputTokens + cachedInputTokens
+  // Cache reads can exceed input; max avoids double-counting when total already includes them.
+  const cachedInputTokens = ensureNumber(cache?.read)
   const totalTokens = Math.max(
     ensureNumber(tokens.total),
-    inputTokens + outputTokens + reasoningOutputTokens
+    inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens
   )
 
   if (inputTokens + outputTokens + reasoningOutputTokens + cachedInputTokens + totalTokens <= 0) {
@@ -106,7 +104,6 @@ export function parseOpenCodeUsageRow(row: OpenCodeUsageRow): OpenCodeUsageParse
     estimatedCostUsd: ensureNumber(data.cost) > 0 ? ensureNumber(data.cost) : null,
     inputTokens,
     cachedInputTokens,
-    cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
     totalTokens

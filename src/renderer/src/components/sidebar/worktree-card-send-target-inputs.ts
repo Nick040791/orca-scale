@@ -6,7 +6,6 @@ export type SendTargetInputsState = Pick<
   | 'agentSendPopoverTargetMode'
   | 'agentStatusByPaneKey'
   | 'tabsByWorktree'
-  | 'unifiedTabsByWorktree'
   | 'terminalLayoutsByTabId'
   | 'ptyIdsByTabId'
   | 'runtimePaneTitlesByTabId'
@@ -29,7 +28,6 @@ export type SendTargetControlInputs = {
 export const EMPTY_SEND_TARGET_INPUTS: RunningAgentTargetState = Object.freeze({
   agentStatusByPaneKey: {},
   tabsByWorktree: {},
-  unifiedTabsByWorktree: {},
   terminalLayoutsByTabId: {},
   ptyIdsByTabId: {},
   runtimePaneTitlesByTabId: {}
@@ -43,7 +41,7 @@ export const EMPTY_SEND_TARGET_CONTROL_INPUTS: SendTargetControlInputs = Object.
 })
 
 /**
- * Select the maps `deriveRunningAgentSendTargets` needs — but only while
+ * Select the five maps `deriveRunningAgentSendTargets` needs — but only while
  * the send-target popover targets this worktree. When it doesn't, return a
  * stable empty constant so a useShallow-wrapped subscription stays referentially
  * equal across the (very hot) pane-title / agent-status writes and skips the
@@ -59,7 +57,6 @@ export function selectSendTargetInputs(
   return {
     agentStatusByPaneKey: s.agentStatusByPaneKey,
     tabsByWorktree: s.tabsByWorktree,
-    unifiedTabsByWorktree: s.unifiedTabsByWorktree,
     terminalLayoutsByTabId: s.terminalLayoutsByTabId,
     ptyIdsByTabId: s.ptyIdsByTabId,
     runtimePaneTitlesByTabId: s.runtimePaneTitlesByTabId

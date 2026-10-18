@@ -1,6 +1,5 @@
 import type { WebSessionTabsSyncState } from './state'
 import {
-  hostSessionGroupIdByLocalKey,
   hostSessionTabIdByLocalKey,
   hostSessionTabMappingKeysByEnvironmentAndWorktree
 } from './state'
@@ -22,7 +21,6 @@ export function clearHostSessionTabIdMappings(environmentId: string, worktreeId:
   }
   for (const mappingKey of mappingKeys) {
     hostSessionTabIdByLocalKey.delete(mappingKey)
-    hostSessionGroupIdByLocalKey.delete(mappingKey)
   }
   mappingKeysByWorktree?.delete(worktreeId)
   if (mappingKeysByWorktree?.size === 0) {
@@ -32,16 +30,10 @@ export function clearHostSessionTabIdMappings(environmentId: string, worktreeId:
 
 export function setHostSessionTabIdMapping(
   args: { environmentId: string; worktreeId: string; tabId: string },
-  hostTabId: string,
-  hostGroupId?: string
+  hostTabId: string
 ): void {
   const mappingKey = hostSessionTabMappingKey(args)
   hostSessionTabIdByLocalKey.set(mappingKey, hostTabId)
-  if (hostGroupId) {
-    hostSessionGroupIdByLocalKey.set(mappingKey, hostGroupId)
-  } else {
-    hostSessionGroupIdByLocalKey.delete(mappingKey)
-  }
   const mappingKeysByWorktree =
     hostSessionTabMappingKeysByEnvironmentAndWorktree.get(args.environmentId) ?? new Map()
   const mappingKeys = mappingKeysByWorktree.get(args.worktreeId) ?? new Set<string>()
@@ -65,15 +57,6 @@ export function resolveHostSessionTabIdForWebSessionTab(
   )
 }
 
-/** The host group holding the host tab a local tab mirrors, as of the last applied snapshot. */
-export function resolveHostSessionGroupIdForWebSessionTab(args: {
-  environmentId: string
-  worktreeId: string
-  tabId: string
-}): string | null {
-  return hostSessionGroupIdByLocalKey.get(hostSessionTabMappingKey(args)) ?? null
-}
-
 /** Enumerate only this publishing host's workspace mappings. */
 export function hostSessionTabIdsByLocalTabForWorktree(
   environmentId: string,
@@ -89,21 +72,4 @@ export function hostSessionTabIdsByLocalTabForWorktree(
     }
   }
   return entries
-}
-
-/** The local tab mirroring a host tab, or null when no mirrored tab claims it. */
-export function resolveLocalTabIdForHostSessionTab(args: {
-  environmentId: string
-  worktreeId: string
-  hostTabId: string
-}): string | null {
-  for (const [tabId, hostTabId] of hostSessionTabIdsByLocalTabForWorktree(
-    args.environmentId,
-    args.worktreeId
-  )) {
-    if (hostTabId === args.hostTabId) {
-      return tabId
-    }
-  }
-  return null
 }

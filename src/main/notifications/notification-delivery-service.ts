@@ -13,8 +13,7 @@ import type {
 } from '../../shared/notification-settings-types'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { buildNotificationOptions } from '../ipc/notification-options'
-import { translateMain } from '../i18n/main-i18n'
-import { reserveNotificationCooldown } from '../../shared/notification-burst-cooldown'
+import { reserveNotificationCooldown } from '../ipc/notification-burst-cooldown'
 
 export type NotificationDeliveryDependencies = {
   readNotificationSettings: () => NotificationSettings
@@ -52,9 +51,8 @@ export function createNotificationDeliveryService(
   const recentDesktopNotifications = new Map<string, number>()
   const recentMobileNotifications = new Map<string, number>()
 
-  // Keyed news is announced once by its producer, so only its own repeat may collapse it.
   const dedupeKeyFor = (request: NotificationDispatchRequest): string =>
-    request.attentionKey ?? request.worktreeId ?? request.worktreeLabel ?? 'global'
+    request.worktreeId ?? request.worktreeLabel ?? 'global'
 
   const deliverNativeAndRecord = (
     request: NotificationDispatchRequest,
@@ -82,24 +80,15 @@ export function createNotificationDeliveryService(
       }
 
       const settings = deps.readNotificationSettings()
-      const hostMuted =
-        request.notificationSourceId !== undefined &&
-        settings.mutedNotificationSourceIds.includes(request.notificationSourceId)
-      // Machine mutes leave mobile eligibility and its cooldown unchanged.
       const desktopAllowed =
         settings.enabled &&
         (request.source !== 'agent-task-complete' || settings.agentTaskComplete) &&
         (request.source !== 'terminal-bell' || settings.terminalBell)
 
-      const notificationOptions = buildNotificationOptions(request, translateMain)
+      const notificationOptions = buildNotificationOptions(request)
 
       // Why: desktop focus only means this computer sees the worktree; the paired phone may still need the alert.
-      // The execution host pushed its own phones and retires them itself on acknowledgement.
-      if (
-        !request.mobileDeliveredByHost &&
-        deps.dispatchMobileNotification &&
-        request.source !== 'test'
-      ) {
+      if (deps.dispatchMobileNotification && request.source !== 'test') {
         if (
           reserveNotificationCooldown(
             recentMobileNotifications,
@@ -120,23 +109,17 @@ export function createNotificationDeliveryService(
             title: notificationOptions.title,
             body: notificationOptions.body,
             worktreeId: request.worktreeId,
-            ...(request.executionHost ? { executionHost: request.executionHost } : {}),
             ...(request.notificationId ? { notificationId: request.notificationId } : {}),
             // Why: background push needs the agent's real state to pick "needs input"
             // vs "finished" — and to stay silent while the agent is still working.
-            ...(request.agentState ? { agentState: request.agentState } : {}),
-            ...(request.attentionKey ? { attentionKey: request.attentionKey } : {}),
-            ...(request.structuredOrigin ? { structuredOrigin: request.structuredOrigin } : {})
+            ...(request.agentState ? { agentState: request.agentState } : {})
           })
           deps.recordAnnounced?.(request)
         }
       }
 
-      if (!desktopAllowed || hostMuted) {
-        return {
-          delivered: false,
-          reason: !settings.enabled ? 'disabled' : hostMuted ? 'host-muted' : 'source-disabled'
-        }
+      if (!desktopAllowed) {
+        return { delivered: false, reason: settings.enabled ? 'source-disabled' : 'disabled' }
       }
 
       const browserWindow = deps.findActiveWindow()

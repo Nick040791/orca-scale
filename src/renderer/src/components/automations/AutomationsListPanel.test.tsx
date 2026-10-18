@@ -134,6 +134,7 @@ function renderPanel(
           toggleAutomation={() => undefined}
           requestDeleteAutomation={() => undefined}
           requestExternalAction={() => undefined}
+          openEditExternalDialog={() => undefined}
           openCreateDialog={() => undefined}
           onOpenDetail={options.onOpenDetail ?? (() => undefined)}
           onRefresh={() => undefined}

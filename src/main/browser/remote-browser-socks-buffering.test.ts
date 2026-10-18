@@ -58,9 +58,7 @@ describe('pending browser SOCKS route buffering', () => {
       expect(copiedBytes).toBeLessThan(payload.length * 3)
       opened.resolve(upstream)
       await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
-      expect(Buffer.isBuffer(write.mock.calls[0][0])).toBe(true)
-      expect(write.mock.calls[0][0]).toHaveLength(payload.length)
-      expect(Buffer.prototype.equals.call(write.mock.calls[0][0], payload)).toBe(true)
+      expect(write.mock.calls[0][0]).toEqual(payload)
     } finally {
       copy.mockRestore()
       concat.mockRestore()

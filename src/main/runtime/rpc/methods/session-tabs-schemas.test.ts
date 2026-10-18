@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  ActivateTab,
-  CloseLifecycleTab,
-  CloseTab,
-  UpdatePaneLayout
-} from '../../../../shared/rpc-contract/session-tabs-schemas-params'
+import { ActivateTab, CloseLifecycleTab, CloseTab, UpdatePaneLayout } from './session-tabs-schemas'
 
 const WT = 'id:wt'
 

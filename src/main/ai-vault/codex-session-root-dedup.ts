@@ -1,6 +1,5 @@
 import type { AiVaultSession } from '../../shared/ai-vault-types'
-import { sessionFileExecutionNamespace } from '../../shared/ai-vault-scope-cwd-match'
-export { sessionFileExecutionNamespace } from '../../shared/ai-vault-scope-cwd-match'
+import { parseWslUncPath } from '../../shared/wsl-paths'
 import { mapWithConcurrency } from '../../shared/map-with-concurrency'
 import { throwIfAiVaultScanCancelled } from './ai-vault-scan-cancellation'
 import { sessionSortTime } from './session-scanner-accumulator'
@@ -19,6 +18,14 @@ const CODEX_ROLLOUT_FILE_NAME_PATTERN = /^rollout-.+\.jsonl$/
 // separators must be handled independently of the local platform.
 function lastPathSegment(filePath: string): string {
   return filePath.split(/[\\/]/).at(-1) ?? ''
+}
+
+// Why: local Windows discovery scans both the host and every WSL distro under
+// one `local` host id, even though hardlinks and resume identity cannot cross
+// those execution boundaries.
+function codexPathExecutionNamespace(filePath: string): string {
+  const wslPath = parseWslUncPath(filePath)
+  return wslPath ? `wsl:${wslPath.distro.toLowerCase()}` : 'native'
 }
 
 /** Returns a pre-parse alias key only when metadata proves a shared hardlink. */
@@ -92,7 +99,7 @@ export function dedupeCodexRolloutFileAliases<T>(
     if (!hardlinkIdentity) {
       continue
     }
-    const aliasKey = `${sessionFileExecutionNamespace(filePath)}\0${fileName}\0${hardlinkIdentity}`
+    const aliasKey = `${codexPathExecutionNamespace(filePath)}\0${fileName}\0${hardlinkIdentity}`
     const rank = codexSessionRootRank(accessors.getCodexHome(candidate))
     const best = bestByAlias.get(aliasKey)
     if (!best || rank < best.rank || (rank === best.rank && filePath < best.filePath)) {
@@ -109,7 +116,7 @@ export function dedupeCodexRolloutFileAliases<T>(
       return true
     }
     const best = bestByAlias.get(
-      `${sessionFileExecutionNamespace(accessors.getFilePath(candidate))}\0${fileName}\0${hardlinkIdentity}`
+      `${codexPathExecutionNamespace(accessors.getFilePath(candidate))}\0${fileName}\0${hardlinkIdentity}`
     )
     return !best || best.candidate === candidate
   })
@@ -160,7 +167,7 @@ export async function dedupeCodexRolloutCopyAliases<T>(
     if (!CODEX_ROLLOUT_FILE_NAME_PATTERN.test(fileName)) {
       continue
     }
-    const key = `${sessionFileExecutionNamespace(filePath)}\0${fileName}`
+    const key = `${codexPathExecutionNamespace(filePath)}\0${fileName}`
     const group = groups.get(key)
     if (group) {
       group.push(candidate)
@@ -224,7 +231,7 @@ export function codexSessionAliasKey(session: AiVaultSession): string | null {
   if (!CODEX_ROLLOUT_FILE_NAME_PATTERN.test(fileName)) {
     return null
   }
-  return `${session.executionHostId}\0${sessionFileExecutionNamespace(session.filePath)}\0${session.sessionId}\0${fileName}`
+  return `${session.executionHostId}\0${codexPathExecutionNamespace(session.filePath)}\0${session.sessionId}\0${fileName}`
 }
 
 export function codexSessionAliasBeats(candidate: AiVaultSession, best: AiVaultSession): boolean {

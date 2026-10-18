@@ -14,7 +14,13 @@ const apiMocks = vi.hoisted(() => ({
   listAssignableUsersBySlug: vi.fn()
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: vi.fn(),
+  getActiveRuntimeTarget: (settings?: { activeRuntimeEnvironmentId?: string | null } | null) =>
+    settings?.activeRuntimeEnvironmentId
+      ? { kind: 'environment', environmentId: settings.activeRuntimeEnvironmentId }
+      : { kind: 'local' }
+}))
 
 const roots: Root[] = []
 
@@ -70,7 +76,9 @@ describe('useGitHubSlugMetadata', () => {
 
     function LabelsProbe(): null {
       renders += 1
-      const metadata = useRepoLabelsBySlug('stablyai', 'orca', { kind: 'local' })
+      const metadata = useRepoLabelsBySlug('stablyai', 'orca', {
+        activeRuntimeEnvironmentId: null
+      })
       labels = metadata.data
       return null
     }
@@ -97,7 +105,9 @@ describe('useGitHubSlugMetadata', () => {
 
     function AssigneesProbe(): null {
       renders += 1
-      const metadata = useRepoAssigneesBySlug('stablyai', 'orca', ['jinwoo'], { kind: 'local' })
+      const metadata = useRepoAssigneesBySlug('stablyai', 'orca', ['jinwoo'], {
+        activeRuntimeEnvironmentId: null
+      })
       assigneeLogins = metadata.data.map((user) => user.login)
       return null
     }
@@ -125,7 +135,9 @@ describe('useGitHubSlugMetadata', () => {
 
     function FailingLabelsProbe(): null {
       renders += 1
-      const metadata = useRepoLabelsBySlug('stablyai', 'orca', { kind: 'local' })
+      const metadata = useRepoLabelsBySlug('stablyai', 'orca', {
+        activeRuntimeEnvironmentId: null
+      })
       error = metadata.error
       return null
     }
@@ -145,7 +157,12 @@ describe('useGitHubSlugMetadata', () => {
     apiMocks.listLabelsBySlug.mockResolvedValue({ ok: true, labels: ['enterprise'] })
 
     function LabelsProbe(): null {
-      useRepoLabelsBySlug('stablyai', 'orca', { kind: 'local' }, 'ghe.example.com')
+      useRepoLabelsBySlug(
+        'stablyai',
+        'orca',
+        { activeRuntimeEnvironmentId: null },
+        'ghe.example.com'
+      )
       return null
     }
 
@@ -166,7 +183,9 @@ describe('useGitHubSlugMetadata', () => {
 
     function FailingAssigneesProbe(): null {
       renders += 1
-      const metadata = useRepoAssigneesBySlug('stablyai', 'orca', ['jinwoo'], { kind: 'local' })
+      const metadata = useRepoAssigneesBySlug('stablyai', 'orca', ['jinwoo'], {
+        activeRuntimeEnvironmentId: null
+      })
       error = metadata.error
       return null
     }

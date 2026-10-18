@@ -3,8 +3,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
 import { useRepoLabels, useRepoAssignees, useImmediateMutation } from '@/hooks/useIssueMetadata'
 import { useRepoLabelsBySlug, useRepoAssigneesBySlug } from '@/hooks/useGitHubSlugMetadata'
-import { githubRepoIdentityKey } from '../../../../../shared/github/repository-identity-key'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
+import {
+  getTaskSourceRuntimeSettings,
+  type TaskSourceContext
+} from '../../../../../shared/task-source-context'
+import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
+import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import {
   getTaskPageGitHubDuplicateCandidates,
   getTaskPageGitHubDuplicateTargetErrorMessage,
@@ -13,8 +17,7 @@ import {
 } from '@/components/task-page-github-status-actions'
 import { parseOwnerRepoFromItemUrl } from '@/components/github/github-work-item-identity'
 import { translate } from '@/i18n/i18n'
-import type { GitHubItemDialogEditSectionProps } from '../load-item-details/github-item-dialog-types'
-import { useMountedRef } from '@/hooks/useMountedRef'
+import type { GitHubItemDialogProjectOrigin } from '../load-item-details/github-item-dialog-types'
 import { getGitHubRepositoryLabelsUrl } from './repository-labels-url'
 import {
   closeGHEditAsDuplicate,
@@ -26,14 +29,7 @@ import { GHEditSectionTopColumns } from './gh-edit-section-top-columns'
 import { GHEditSectionHorizontal } from './gh-edit-section-horizontal'
 import { useGitHubDuplicateIssueCandidates } from '@/components/github/github-duplicate-issue-candidates'
 
-export function GHEditSection(props: GitHubItemDialogEditSectionProps): React.JSX.Element | null {
-  const { item, projectOrigin } = props
-  const repository = projectOrigin ?? parseOwnerRepoFromItemUrl(item.url)
-  const itemKey = `${item.repoId}\0${repository ? githubRepoIdentityKey(repository) : item.url}\0${item.type}\0${item.id}`
-  return <GHEditSectionItem key={itemKey} {...props} />
-}
-
-function GHEditSectionItem({
+export function GHEditSection({
   item,
   repoPath,
   repoId,
@@ -49,7 +45,25 @@ function GHEditSectionItem({
   onOpenOrUse,
   attachedWorkspaceLabel,
   layout = 'horizontal'
-}: GitHubItemDialogEditSectionProps): React.JSX.Element | null {
+}: {
+  item: GitHubWorkItem
+  repoPath: string | null
+  repoId: string | null
+  sourceContext?: TaskSourceContext | null
+  projectOrigin: GitHubItemDialogProjectOrigin | undefined
+  localState: GitHubWorkItem['state']
+  localLabels: string[]
+  onStateChange: (state: GitHubWorkItem['state']) => void
+  onLabelsChange: (labels: string[]) => void
+  /** Why: lets the parent invalidate its details cache after a mutation, else a reopen within FRESH_MS paints pre-mutation data. */
+  onMutated: () => void
+  assignees: string[]
+  onUse: (item: GitHubWorkItem) => void
+  onOpenOrUse?: (item: GitHubWorkItem) => void
+  attachedWorkspaceLabel?: string | null
+  /** `horizontal`: compact pill strip for the non-issue drawer/header; `top-columns`: labeled columns above the issue page body. */
+  layout?: 'horizontal' | 'top-columns'
+}): React.JSX.Element | null {
   const [labelPopoverOpen, setLabelPopoverOpen] = useState(false)
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
   const [statusPopoverOpen, setStatusPopoverOpen] = useState(false)
@@ -58,13 +72,22 @@ function GHEditSectionItem({
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
   const [localAssignees, setLocalAssignees] = useState<string[]>(assignees)
   const editedAssigneesItemKeyRef = useRef<string | null>(null)
-  const mountedRef = useMountedRef()
   const assigneesItemKey = `${item.repoId}\0${item.id}`
   const patchWorkItem = useAppStore((s) => s.patchWorkItem)
   const patchProjectRowContent = useAppStore((s) => s.patchProjectRowContent)
   const duplicateIssueCandidates = useGitHubDuplicateIssueCandidates(item, duplicatePickerOpen)
-  const ownerTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, item.repoId ?? null, sourceContext))
+  const repoOwnerSettings = useAppStore(
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
+  )
+  const sourceSettings = useMemo(
+    () =>
+      sourceContext?.provider === 'github'
+        ? ({
+            ...repoOwnerSettings,
+            ...getTaskSourceRuntimeSettings(sourceContext)
+          } as typeof repoOwnerSettings)
+        : repoOwnerSettings,
+    [repoOwnerSettings, sourceContext]
   )
   const { isPending, run } = useImmediateMutation()
   // Why: from a Project view, keep projectViewCache in sync too — patchWorkItem only walks workItemsCache, so the table would render stale without this. See docs/design/github-project-view-tasks.md §Dialog editing from Project rows.
@@ -78,23 +101,18 @@ function GHEditSectionItem({
     [projectOrigin, patchProjectRowContent]
   )
 
-  const issueRepo = useMemo(() => parseOwnerRepoFromItemUrl(item.url), [item.url])
-  const metadataOptions = useMemo(
-    () => ({ target: ownerTarget, ownerRepo: issueRepo }),
-    [ownerTarget, issueRepo]
-  )
-  // Project metadata comes from the row repository.
+  // Why: with projectOrigin set, read labels/assignees from the row's repo, not the workspace path, or popovers list a different repo than writes target.
   const slugOwner = projectOrigin?.owner ?? null
   const slugRepo = projectOrigin?.repo ?? null
   const repoLabelsByPath = useRepoLabels(
     projectOrigin ? null : repoPath,
     projectOrigin ? null : repoId,
-    metadataOptions
+    sourceSettings
   )
   const repoLabelsBySlug = useRepoLabelsBySlug(
     slugOwner,
     slugRepo,
-    ownerTarget,
+    sourceSettings,
     projectOrigin?.host
   )
   const repoLabels = projectOrigin ? repoLabelsBySlug : repoLabelsByPath
@@ -102,13 +120,13 @@ function GHEditSectionItem({
   const repoAssigneesByPath = useRepoAssignees(
     projectOrigin ? null : repoPath,
     projectOrigin ? null : repoId,
-    metadataOptions
+    sourceSettings
   )
   const repoAssigneesBySlug = useRepoAssigneesBySlug(
     slugOwner,
     slugRepo,
     assignees,
-    ownerTarget,
+    sourceSettings,
     projectOrigin?.host
   )
   const repoAssignees = projectOrigin ? repoAssigneesBySlug : repoAssigneesByPath
@@ -169,13 +187,8 @@ function GHEditSectionItem({
         repoPath,
         sourceContext,
         projectOrigin,
-        issueRepo,
         run,
-        onStateChange: (state) => {
-          if (mountedRef.current) {
-            onStateChange(state)
-          }
-        },
+        onStateChange,
         patchWorkItem,
         patchProjectRowIfNeeded,
         onMutated
@@ -189,11 +202,9 @@ function GHEditSectionItem({
       repoPath,
       sourceContext,
       projectOrigin,
-      issueRepo,
       patchWorkItem,
       patchProjectRowIfNeeded,
       run,
-      mountedRef,
       onStateChange,
       onMutated
     ]
@@ -242,13 +253,8 @@ function GHEditSectionItem({
         repoPath,
         sourceContext,
         projectOrigin,
-        issueRepo,
         run,
-        onLabelsChange: (labels) => {
-          if (mountedRef.current) {
-            onLabelsChange(labels)
-          }
-        },
+        onLabelsChange,
         patchWorkItem,
         patchProjectRowIfNeeded,
         onMutated
@@ -262,11 +268,9 @@ function GHEditSectionItem({
       repoPath,
       sourceContext,
       projectOrigin,
-      issueRepo,
       patchWorkItem,
       patchProjectRowIfNeeded,
       run,
-      mountedRef,
       onLabelsChange,
       onMutated
     ]
@@ -284,7 +288,6 @@ function GHEditSectionItem({
         repoPath,
         sourceContext,
         projectOrigin,
-        issueRepo,
         run,
         setLocalAssignees,
         patchProjectRowIfNeeded,
@@ -298,7 +301,6 @@ function GHEditSectionItem({
       repoPath,
       sourceContext,
       projectOrigin,
-      issueRepo,
       localAssignees,
       patchProjectRowIfNeeded,
       run,

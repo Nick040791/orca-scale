@@ -48,7 +48,6 @@ export type PushSendNotification = {
   title: string
   body: string
   worktreeId?: string
-  executionHost?: `runtime:${string}`
 }
 
 type PushGatewayClientOptions = {

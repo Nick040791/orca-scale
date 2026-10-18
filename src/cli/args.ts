@@ -147,7 +147,6 @@ export function supportsBrowserPageFlag(commandPath: string[]): boolean {
       'automations',
       'project',
       'repo',
-      'reference',
       'worktree',
       'terminal',
       'file',
@@ -156,7 +155,6 @@ export function supportsBrowserPageFlag(commandPath: string[]): boolean {
       'emulator',
       'note',
       'diagnostics',
-      'jira',
       'linear',
       'skills',
       'search',
@@ -216,10 +214,7 @@ export function normalizeCommandPositionals(specs: CommandSpec[], parsed: Parsed
       // Why: `< 0` (not `<= 0`) so an exact base match with zero positionals
       // still canonicalizes an aliased path; upper bound guards over-consumption.
       const positionalCount = parsed.commandPath.length - base.length
-      if (
-        positionalCount < 0 ||
-        (!spec.variadicPositional && positionalCount > positionalArgs.length)
-      ) {
+      if (positionalCount < 0 || positionalCount > positionalArgs.length) {
         continue
       }
       if (!matches(parsed.commandPath.slice(0, base.length), base)) {
@@ -229,14 +224,12 @@ export function normalizeCommandPositionals(specs: CommandSpec[], parsed: Parsed
       const values = parsed.commandPath.slice(base.length)
       // Why: validation runs inside main's error-reporting path, so normalization
       // records ambiguity instead of throwing before CLI errors can be formatted.
-      const providedPositionals = values.map(
-        (_, index) => positionalArgs[Math.min(index, positionalArgs.length - 1)]
-      )
+      const providedPositionals = values.map((_, index) => positionalArgs[index])
       const positionalFlagConflicts = providedPositionals.filter((name) => flags.has(name))
       values.forEach((value, index) => {
-        const name = providedPositionals[index]
-        if (!parsed.flags.has(name)) {
-          setFlagValue(flags, name, value, new Set(spec.repeatableFlags ?? []))
+        const name = positionalArgs[index]
+        if (!flags.has(name)) {
+          flags.set(name, value)
         }
       })
       return { commandPath: spec.path, flags, positionalFlagConflicts }

@@ -12,7 +12,7 @@ import {
   completedWorkerFakeCodexCommand,
   completedWorkerLaunchEnv,
   listRuntimeTerminals,
-  hasCompletedWorkerReceivedPreamble,
+  readCompletedWorkerDispatchCapability,
   readCompletedWorkerLedger,
   readPersistedWorkerRecoveryRecord,
   runBuiltOrcaCli,
@@ -160,13 +160,21 @@ for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
     const workerBefore = terminalIdentity(worker)
     const workerPaneKey = `${worker.tabId}:${worker.leafId}`
     expect(worker.worktreeId).toBe(targetWorktreeId)
-    // Keep the never-opened worker dormant so foreground-shell cleanup cannot retire it first.
-    expect(
-      await orcaPage.evaluate(
-        (tabId) => Boolean(window.__paneManagers?.get(tabId)),
-        workerBefore.tabId
+    await orcaPage.evaluate(
+      ({ tabId, worktreeId }) => {
+        window.dispatchEvent(
+          new CustomEvent('orca-background-mount-terminal-worktree', {
+            detail: { worktreeId, tabIds: [tabId] }
+          })
+        )
+      },
+      { tabId: worker.tabId, worktreeId: targetWorktreeId }
+    )
+    await expect
+      .poll(() =>
+        orcaPage.evaluate((tabId) => Boolean(window.__paneManagers?.get(tabId)), workerBefore.tabId)
       )
-    ).toBe(false)
+      .toBe(true)
     expect(
       await orcaPage.evaluate(
         (worktreeId) => window.__store?.getState().everActivatedWorktreeIds.has(worktreeId),
@@ -176,7 +184,13 @@ for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
     await expect
       .poll(() => readCompletedWorkerLedger().filter((event) => event.event === 'spawn'))
       .toHaveLength(1)
-    await expect.poll(() => hasCompletedWorkerReceivedPreamble()).toBe(true)
+    let dispatchCapability: string | null = null
+    await expect
+      .poll(() => {
+        dispatchCapability = readCompletedWorkerDispatchCapability()
+        return dispatchCapability
+      })
+      .not.toBeNull()
     await expect
       .poll(() =>
         readCompletedWorkerLedger()
@@ -184,14 +198,74 @@ for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
           .map((event) => event.mode)
       )
       .toEqual(['bracketed'])
+    if (!dispatchCapability) {
+      throw new Error('Background worker did not receive its dispatch capability')
+    }
 
-    seedCurrentCodexTranscript(isolatedHome, PROVIDER_SESSION_ID, targetWorktreePath)
+    const transcriptPath = seedCurrentCodexTranscript(
+      isolatedHome,
+      PROVIDER_SESSION_ID,
+      targetWorktreePath
+    )
 
-    await client.call('terminal.send', {
-      terminal: workerHandle,
-      text: 'ORCA_E2E_PUBLISH_DONE',
-      enter: true
-    })
+    await orcaPage.evaluate(
+      ({
+        agentCommand,
+        paneKey,
+        providerSessionId,
+        tabId,
+        terminalHandle,
+        transcriptPath,
+        worktreeId
+      }) => {
+        const state = window.__store?.getState()
+        if (!state) {
+          throw new Error('Renderer store unavailable')
+        }
+        const providerSession = {
+          key: 'session_id' as const,
+          id: providerSessionId,
+          transcriptPath
+        }
+        const metadata = { tabId, worktreeId, terminalHandle }
+        const recovery = {
+          providerSession,
+          launchConfig: {
+            // Why not bare 'codex': resume prefers the captured command over
+            // agentCmdOverrides, so a bare name would resolve the machine's real
+            // Codex off PATH and unpin the adoption leg this spec exercises.
+            agentCommand,
+            agentArgs: '--dangerously-bypass-approvals-and-sandbox',
+            agentEnv: {}
+          }
+        }
+        state.setAgentStatus(
+          paneKey,
+          { state: 'working', prompt: 'Report completion, then exit normally', agentType: 'codex' },
+          'Completed background worker',
+          undefined,
+          metadata,
+          recovery
+        )
+        state.setAgentStatus(
+          paneKey,
+          { state: 'done', prompt: 'Report completion, then exit normally', agentType: 'codex' },
+          'Completed background worker',
+          undefined,
+          metadata,
+          recovery
+        )
+      },
+      {
+        agentCommand: completedWorkerFakeCodexCommand,
+        paneKey: workerPaneKey,
+        providerSessionId: PROVIDER_SESSION_ID,
+        tabId: worker.tabId,
+        terminalHandle: workerHandle,
+        transcriptPath,
+        worktreeId: targetWorktreeId
+      }
+    )
 
     const expectedRecovery = {
       origin: 'live',
@@ -228,17 +302,21 @@ for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
       )
       .toEqual(expectedRecovery)
 
-    const completed = await client.call<{ message: { type: string } }>('orchestration.send', {
-      from: workerHandle,
-      subject: 'Completed',
-      body: 'The fixture completed. It found no work. Nothing remains.',
-      type: 'worker_done',
-      payload: JSON.stringify({
-        taskId: task.result.task.id,
-        dispatchId: started.result.dispatchId,
-        outcome: 'succeeded'
-      })
-    })
+    const completed = await client.call<{ message: { type: string } }>(
+      'orchestration.send',
+      {
+        from: workerHandle,
+        subject: 'Completed',
+        body: 'The fixture completed. It found no work. Nothing remains.',
+        type: 'worker_done',
+        payload: JSON.stringify({
+          taskId: task.result.task.id,
+          dispatchId: started.result.dispatchId,
+          outcome: 'succeeded'
+        })
+      },
+      { orchestrationCapability: dispatchCapability }
+    )
     expect(completed.result.message.type).toBe('worker_done')
     await expect
       .poll(
@@ -270,23 +348,18 @@ for (const closeMode of ['terminal-close-cli', 'worker-release'] as const) {
     await expect
       .poll(() => readCompletedWorkerLedger().filter((event) => event.event === 'normal-exit'))
       .toHaveLength(1)
-    // The exit marker precedes the asynchronous renderer recovery update.
-    await expect
-      .poll(() =>
-        orcaPage.evaluate(
-          ({ paneKey, tabId, worktreeId }) => {
-            const state = window.__store?.getState()
-            return {
-              tabPresent: Boolean(
-                state?.tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)
-              ),
-              recoveryPresent: Boolean(state?.sleepingAgentSessionsByPaneKey[paneKey])
-            }
-          },
-          { paneKey: workerPaneKey, tabId: workerBefore.tabId, worktreeId: targetWorktreeId }
-        )
+    expect(
+      await orcaPage.evaluate(
+        ({ paneKey, tabId, worktreeId }) => {
+          const state = window.__store?.getState()
+          return {
+            tabPresent: Boolean(state?.tabsByWorktree[worktreeId]?.some((tab) => tab.id === tabId)),
+            recoveryPresent: Boolean(state?.sleepingAgentSessionsByPaneKey[paneKey])
+          }
+        },
+        { paneKey: workerPaneKey, tabId: workerBefore.tabId, worktreeId: targetWorktreeId }
       )
-      .toEqual({ tabPresent: true, recoveryPresent: true })
+    ).toEqual({ tabPresent: true, recoveryPresent: true })
 
     await orcaPage.evaluate(
       ({ paneKey, tabId, worktreeId }) => {

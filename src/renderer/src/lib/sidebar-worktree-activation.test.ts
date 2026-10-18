@@ -26,7 +26,6 @@ describe('sidebar worktree activation', () => {
     await activateWorktreeFromSidebar('wt-live')
 
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-live', {
-      navigationIntent: 'user-open',
       revealInSidebar: false
     })
     expect(mocks.activateAndRevealFolderWorkspace).not.toHaveBeenCalled()
@@ -39,7 +38,6 @@ describe('sidebar worktree activation', () => {
     // sidebar click itself must switch app state immediately.
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledTimes(1)
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-slept', {
-      navigationIntent: 'user-open',
       revealInSidebar: false
     })
   })
@@ -59,7 +57,6 @@ describe('sidebar worktree activation', () => {
     const activation = activateWorktreeFromSidebar('wt-vm')
 
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('wt-vm', {
-      navigationIntent: 'user-open',
       revealInSidebar: false
     })
     expect(resumeWorkspace).toHaveBeenCalledWith({ workspaceId: 'wt-vm' })
@@ -71,9 +68,7 @@ describe('sidebar worktree activation', () => {
   it('routes folder workspace activation through the guarded folder path', async () => {
     await activateWorktreeFromSidebar('folder:folder-workspace-1')
 
-    expect(mocks.activateAndRevealFolderWorkspace).toHaveBeenCalledWith('folder-workspace-1', {
-      navigationIntent: 'user-open'
-    })
+    expect(mocks.activateAndRevealFolderWorkspace).toHaveBeenCalledWith('folder-workspace-1')
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 })

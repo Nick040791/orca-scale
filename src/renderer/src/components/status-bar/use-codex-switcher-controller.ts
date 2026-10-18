@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CodexRateLimitAccountsState } from '../../../../shared/managed-account-types'
 import type { ProviderRateLimits } from '../../../../shared/rate-limit-types'
 import { useAppStore } from '../../store'
-import { defaultScopeHost } from '@/lib/default-creation-host'
-import { useActiveAccountOwner } from '@/runtime/use-worktree-runtime-target'
-import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
+import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   fetchProviderAccountsSnapshot,
   selectCodexProviderAccount
@@ -69,31 +67,27 @@ export function useCodexSwitcherController(codex: ProviderRateLimits) {
   const codexTarget = useAppStore((s) => s.rateLimits.codexTarget)
   const settings = useAppStore((s) => s.settings)
   const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
-  // Why: no host picker; the focused workspace's owner, else the default scope host.
-  const { target: runtimeTarget, wslHostDistro } = useActiveAccountOwner(defaultScopeHost(settings))
-  const activeRuntimeEnvironmentId = runtimeTargetEnvironmentId(runtimeTarget)
-  const hasActiveRuntimeEnvironment = activeRuntimeEnvironmentId !== null
+  const hasActiveRuntimeEnvironment = Boolean(settings?.activeRuntimeEnvironmentId?.trim())
+  const runtimeTarget = useMemo(() => getActiveRuntimeTarget(settings), [settings])
   const providerAccountHostLabel = hasActiveRuntimeEnvironment
-    ? (runtimeEnvironments.find((environment) => environment.id === activeRuntimeEnvironmentId)
-        ?.name ??
+    ? (runtimeEnvironments.find(
+        (environment) => environment.id === settings?.activeRuntimeEnvironmentId?.trim()
+      )?.name ??
       translate('auto.components.status.bar.StatusBar.remoteServerLabel', 'Remote server'))
     : undefined
   const windowsTerminalCapabilities = useWindowsTerminalCapabilities(
     navigator.userAgent.includes('Windows') || hasActiveRuntimeEnvironment,
     false,
-    getWindowsTerminalCapabilityOwnerKey(activeRuntimeEnvironmentId),
+    getWindowsTerminalCapabilityOwnerKey(settings?.activeRuntimeEnvironmentId),
     runtimeTarget
   )
   const codexAccountSyncKey = useAppStore((s) => getCodexAccountSyncKey(s.settings))
-  const accountState = resolveCodexStatusAccountState(
-    settings,
-    accounts,
-    activeRuntimeEnvironmentId
-  )
+  const accountState = resolveCodexStatusAccountState(settings, accounts)
 
+  const activeRuntimeEnvironmentId = settings?.activeRuntimeEnvironmentId?.trim() || null
   // Why: keyed on owner id, not settings identity, so routine settings mutations don't re-run the remote snapshot fetch.
   const loadAccounts = useCallback(async () => {
-    const snapshot = await fetchProviderAccountsSnapshot(runtimeTarget)
+    const snapshot = await fetchProviderAccountsSnapshot({ activeRuntimeEnvironmentId })
     // Why: a failed Codex half is a substituted empty roster; keep prior state.
     if (snapshot.failedProviders?.includes('codex')) {
       console.error('Codex account list failed; keeping previous status bar state.')
@@ -102,7 +96,7 @@ export function useCodexSwitcherController(codex: ProviderRateLimits) {
     if (mountedRef.current) {
       setAccounts(snapshot.codex)
     }
-  }, [runtimeTarget])
+  }, [activeRuntimeEnvironmentId])
 
   useEffect(() => {
     mountedRef.current = true
@@ -133,7 +127,7 @@ export function useCodexSwitcherController(codex: ProviderRateLimits) {
     const previousActiveAccountId = getCodexStatusActiveId(accountState, target)
     setIsSwitching(true)
     try {
-      const next = await selectCodexProviderAccount(runtimeTarget, {
+      const next = await selectCodexProviderAccount(settings, {
         accountId,
         runtime: target.runtime,
         wslDistro: target.wslDistro
@@ -163,7 +157,6 @@ export function useCodexSwitcherController(codex: ProviderRateLimits) {
           nextAccountId: nextActiveAccountId ?? null,
           // Why: the mutation wrote this row's slot only, so panes on any other
           // lane still launch under the account they already had.
-          owner: runtimeTarget,
           target,
           // Why: clearing a distro-less WSL row nulls every distro slot at once.
           clearsEveryWslDistro: accountId === null
@@ -277,18 +270,16 @@ export function useCodexSwitcherController(codex: ProviderRateLimits) {
   const selectedRuntimeKey = getCodexStatusRuntimeKey(
     normalizeCodexStatusRuntimeTarget(accountState, toCodexStatusRuntimeTarget(codexTarget))
   )
-  // A focused WSL host's accounts are this desktop's for its distro, so that group always shows.
-  const fallbackWslDistro =
-    wslHostDistro ??
-    getStatusBarPreferredWslDistro(settings, windowsTerminalCapabilities.wslDistros)
+  const fallbackWslDistro = getStatusBarPreferredWslDistro(
+    settings,
+    windowsTerminalCapabilities.wslDistros
+  )
   const switchGroups = buildCodexStatusSwitchGroups(
     accountState,
     toCodexStatusRuntimeTarget(codexTarget),
     {
       fallbackWslDistro,
-      includeFallbackWsl:
-        wslHostDistro !== null ||
-        (!hasActiveRuntimeEnvironment && shouldIncludeSettingsWslRuntime(settings)),
+      includeFallbackWsl: !hasActiveRuntimeEnvironment && shouldIncludeSettingsWslRuntime(settings),
       hostLabel: providerAccountHostLabel
     }
   )

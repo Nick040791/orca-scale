@@ -330,5 +330,5 @@ function isDestinationExistsError(error: unknown): boolean {
 }
 
 function sessionKey(browserPageId: string, transferId: string): string {
-  return `${browserPageId}\u0000${transferId}`
+  return `${browserPageId} ${transferId}`
 }

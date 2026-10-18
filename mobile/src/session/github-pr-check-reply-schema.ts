@@ -60,10 +60,6 @@ const checkJobSchema = z
     completedAt: prText('completedAt'),
     url: prText('url'),
     logTail: prText('logTail'),
-    logState: salvagedOptional(
-      'logState',
-      z.enum(['available', 'empty', 'error', 'not_requested'])
-    ),
     steps: salvagedOptional('steps', salvagingArray(checkStepSchema))
   })
   .transform((job): PRCheckJob => ({
@@ -75,7 +71,6 @@ const checkJobSchema = z
     completedAt: job.completedAt ?? null,
     url: job.url ?? null,
     logTail: job.logTail ?? null,
-    ...(job.logState === undefined ? {} : { logState: job.logState }),
     steps: job.steps ?? []
   }))
 

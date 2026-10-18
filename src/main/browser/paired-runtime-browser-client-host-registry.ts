@@ -10,7 +10,6 @@ type RegisteredBrowserClientHost<Start> = {
   start(): Promise<BrowserClientHostLeaseAuthority>
   replaceAuthority(input: Start): Promise<BrowserClientHostLeaseAuthority>
   retirePage(browserPageId: string, pageHostGeneration: number): Promise<boolean>
-  hostsPage(browserPageId: string): boolean
   close(error?: Error): Promise<boolean>
   whenClosed(): Promise<void>
 }
@@ -100,13 +99,6 @@ export class PairedRuntimeBrowserClientHostRegistry<
         throw error
       }
     })
-  }
-
-  hostsPage(environmentId: string, browserPageId: string): boolean {
-    const record = this.hosts.get(environmentId)
-    return (
-      record !== undefined && !record.cleanupPending && record.composition.hostsPage(browserPageId)
-    )
   }
 
   retirePage(

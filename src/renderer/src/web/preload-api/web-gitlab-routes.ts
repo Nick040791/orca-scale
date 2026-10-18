@@ -8,7 +8,6 @@ export type WebGitLabRouteKey =
   | 'updateIssue'
   | 'addIssueComment'
   | 'listLabels'
-  | 'listAssignableUsers'
   | 'todos'
   | 'workItemDetails'
   | 'closeMR'
@@ -33,7 +32,6 @@ export type WebGitLabRuntimeMethod =
   | 'gitlab.updateIssue'
   | 'gitlab.addIssueComment'
   | 'gitlab.listLabels'
-  | 'gitlab.listAssignableUsers'
   | 'gitlab.todos'
   | 'gitlab.workItemDetails'
   | 'gitlab.updateMRState'
@@ -57,7 +55,6 @@ export const GITLAB_WEB_RPC_METHODS = {
   updateIssue: 'gitlab.updateIssue',
   addIssueComment: 'gitlab.addIssueComment',
   listLabels: 'gitlab.listLabels',
-  listAssignableUsers: 'gitlab.listAssignableUsers',
   todos: 'gitlab.todos',
   workItemDetails: 'gitlab.workItemDetails',
   closeMR: 'gitlab.updateMRState',

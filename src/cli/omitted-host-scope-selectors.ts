@@ -4,7 +4,13 @@ import {
   type ParsedExecutionHost
 } from '../shared/execution-host'
 import type { RuntimeListingHostScope } from '../shared/runtime-listing-host-scope'
-import { findEnvironmentByName } from './host-selector-alternatives'
+import {
+  findEnvironmentByName,
+  findSshTargetByName,
+  listSshTargets,
+  type SshTargetSummary
+} from './host-selector-alternatives'
+import type { RuntimeClient } from './runtime-client'
 
 export type OmittedHostScopeSelector = {
   hostId: ExecutionHostId
@@ -32,13 +38,11 @@ export type WithAnnotatedHostScope<TResult> = Omit<TResult, 'hostScope'> & {
  * The ids are kept rather than filtered: dropping one would shrink what the listing admits it did
  * not cover, and `docs/reference/ssh-execution-boundary.md` requires a listing to name its gaps.
  * A `null` selector marks the ones this machine cannot name, which is the part a caller needs.
- * Only the local pairing store is consulted, so this answers "can I select it", never "is it up" —
- * no host is claimed live or exited on this path.
- *
- * `local` and `ssh:` hosts get no selector: the listing commands take no `--host` (#29901), and
- * the runtime that answered is the one that reaches them, so no flag would route elsewhere.
+ * Only the local pairing store and SSH-target registry are consulted, so this answers "can I
+ * select it", never "is it up" — no host is claimed live or exited on this path.
  */
 export async function resolveOmittedHostScopeSelectors(
+  client: RuntimeClient,
   omittedHostIds: readonly ExecutionHostId[]
 ): Promise<OmittedHostScopeSelector[]> {
   const parsed = omittedHostIds.map((hostId) => ({
@@ -48,9 +52,13 @@ export async function resolveOmittedHostScopeSelectors(
   const environments = parsed.some((entry) => entry.host?.kind === 'runtime')
     ? await listPairedEnvironments()
     : []
+  // Why: SSH targets need a round trip, so only pay for it when an ssh host was actually omitted.
+  const sshTargets = parsed.some((entry) => entry.host?.kind === 'ssh')
+    ? await listSshTargets(client)
+    : []
   return parsed.map(({ hostId, host }) => ({
     hostId,
-    selector: resolveSelector(host, environments)
+    selector: resolveSelector(host, environments, sshTargets)
   }))
 }
 
@@ -67,8 +75,15 @@ async function listPairedEnvironments(): Promise<{ id: string; name: string }[]>
 
 function resolveSelector(
   host: ParsedExecutionHost | null,
-  environments: readonly { id: string; name: string }[]
+  environments: readonly { id: string; name: string }[],
+  sshTargets: readonly SshTargetSummary[]
 ): string | null {
+  if (host?.kind === 'local') {
+    return '--host local'
+  }
+  if (host?.kind === 'ssh') {
+    return findSshTargetByName(sshTargets, host.targetId) ? `--host ssh:${host.targetId}` : null
+  }
   if (host?.kind === 'runtime') {
     const environment = findEnvironmentByName(environments, host.environmentId)
     return environment ? `--environment ${environment.name}` : null
@@ -93,24 +108,19 @@ export function formatListingHostScope(scope: ListingHostScopeWithSelectors | un
       return hostId
     }
     const selector = selectorByHostId.get(hostId)
-    if (selector) {
-      return `${hostId} (${selector})`
-    }
-    const kind = parseExecutionHostId(hostId)?.kind
-    return kind === 'local' || kind === 'ssh'
-      ? `${hostId} (reached through this runtime; no flag selects it)`
-      : `${hostId} (not selectable from this machine)`
+    return selector ? `${hostId} (${selector})` : `${hostId} (not selectable from this machine)`
   })
   return `scope: ${covered} — not covered: ${omitted.join(', ')}`
 }
 
 /** Attaches the resolved selectors in place; a listing with no omitted hosts pays nothing. */
-export async function annotateOmittedHostScope(result: {
-  hostScope?: ListingHostScopeWithSelectors
-}): Promise<void> {
+export async function annotateOmittedHostScope(
+  client: RuntimeClient,
+  result: { hostScope?: ListingHostScopeWithSelectors }
+): Promise<void> {
   const scope = result.hostScope
   if (!scope || scope.omittedHostIds.length === 0) {
     return
   }
-  scope.omittedHostSelectors = await resolveOmittedHostScopeSelectors(scope.omittedHostIds)
+  scope.omittedHostSelectors = await resolveOmittedHostScopeSelectors(client, scope.omittedHostIds)
 }

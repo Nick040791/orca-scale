@@ -5,7 +5,7 @@ import {
   getCyclicProjectedWorktreeLineageIds,
   getLineageRenderInfo,
   getProjectedWorktreeLineageChildrenByParentId
-} from '../../../../shared/sidebar-list/worktree-lineage-projection'
+} from './worktree-lineage-projection'
 
 function makeWorktree(id: string): Worktree {
   return {

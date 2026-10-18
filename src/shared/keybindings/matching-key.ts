@@ -6,7 +6,6 @@ import {
   logicalKeyTokenFromInput,
   physicalCodeKeyTokenFromInput,
   numpadCodeKeyTokenFromInput,
-  shouldUseMacOptionComposedCaptureFallback,
   isPunctuationKeyToken
 } from './input'
 
@@ -91,11 +90,7 @@ export function digitKeyMatches(
   if (logicalKey && logicalKey.length === 1 && logicalKey >= '0' && logicalKey <= '9') {
     return logicalKey === digit
   }
-  const macOptionDigit =
-    logicalKey === null && shouldUseMacOptionComposedCaptureFallback(input, platform)
-  return (
-    (canFallBackToPhysicalCode(input, platform) || macOptionDigit) && input.code === `Digit${digit}`
-  )
+  return canFallBackToPhysicalCode(input, platform) && input.code === `Digit${digit}`
 }
 
 export function semanticPunctuationKey(input: KeybindingInput): string | null {

@@ -1,8 +1,11 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { isAppImageCacheKey } from '../../shared/appimage-cache-identity'
 import { LINUX_CLI_COMMAND_NAME } from './bundled-cli-launcher-path'
 
-export { isAppImageCacheKey }
+const CACHE_KEY_PATTERN = /^[0-9a-f]{24}$/u
+
+export function isAppImageCacheKey(value: string): boolean {
+  return CACHE_KEY_PATTERN.test(value)
+}
 
 export function resolveCachedAppImagePayloadRoot(
   cacheRootPath: string,

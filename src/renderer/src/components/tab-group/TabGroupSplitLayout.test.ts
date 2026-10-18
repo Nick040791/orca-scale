@@ -73,10 +73,7 @@ describe('TabGroupSplitLayout', () => {
   })
 
   function getLayoutWrapper(element: ReturnType<typeof TabGroupSplitLayout>) {
-    // The layout composes WorkspaceTabDragLayer (a render prop) around the chrome wrapper:
-    // invoke it to reach TabDragProvider > DndContext > [wrapper, DragOverlay, split overlay].
-    const providerElement = asElement(invokeComponent(asElement(element)))
-    const dndContext = asElement(providerElement.props.children)
+    const dndContext = asElement(element.props.children)
     return React.Children.toArray(dndContext.props.children as React.ReactNode)[0]
   }
 
@@ -85,12 +82,9 @@ describe('TabGroupSplitLayout', () => {
       asElement(getLayoutWrapper(element)).props.children as React.ReactNode
     )
     const splitBody = layoutWrapperChildren[1]
-    const treeElement = React.Children.only(
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the wrapper's split body renders exactly the tree element; props are untyped in this shallow-walk rig.
+    const splitNodeElement = React.Children.only(
       asElement(splitBody).props.children as React.ReactNode
     )
-    // TabGroupSplitNodeTree renders the recursive SplitNode; invoke both to reach the leaf/split.
-    const splitNodeElement = invokeComponent(asElement(treeElement))
     return invokeComponent(asElement(splitNodeElement))
   }
 

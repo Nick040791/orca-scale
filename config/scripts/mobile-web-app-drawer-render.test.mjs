@@ -187,9 +187,9 @@ describeDrawer('the bottom drawer on the page', () => {
           () => document.documentElement.dataset.orcaWebEntry === 'mounted',
           { timeout: 30_000, polling: 250 }
         )
-        // The Workspace options sheet, not the row's action sheet: both are the same MountedBottomDrawer, and
+        // The filter sheet, not the row's action sheet: both are the same MountedBottomDrawer, and
         // this one opens from the header, which needs nothing of the list's own layout.
-        const chip = await page.waitForFunction(centreOf, 'Workspace options', {
+        const chip = await page.waitForFunction(centreOf, 'Filter', {
           timeout: 30_000,
           polling: 250
         })
@@ -302,6 +302,9 @@ describeDrawer('the device Back key reaching a sheet on the page', () => {
         host: SHELL_HOST,
         storage: {},
         faultGrant,
+        // What a shell that knows the lane offers, and the frame it would send. Without the first
+        // the page posts no claim at all, which is the older-shell arm the unit suites pin.
+        accepts: [backNames.claim],
         backFrame: backNames.frame
       })
       await page.goto(`${origin}/`, { waitUntil: 'load' })
@@ -313,7 +316,7 @@ describeDrawer('the device Back key reaching a sheet on the page', () => {
       // leaves today's pop as the fallback.
       expect(await page.evaluate(notifyNames)).not.toContain(backNames.claim)
 
-      const chip = await page.waitForFunction(centreOf, 'Workspace options', {
+      const chip = await page.waitForFunction(centreOf, 'Filter', {
         timeout: 30_000,
         polling: 250
       })

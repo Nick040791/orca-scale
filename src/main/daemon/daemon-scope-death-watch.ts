@@ -1,5 +1,9 @@
-import { spawnProcess } from '@orca/process-host'
-import type { ProcessSpec, SpawnedProcess } from '@orca/process-host/process-spec'
+import {
+  spawnProcess,
+  type ProcessSpec,
+  type SpawnedProcess
+} from '../../shared/child-process/run-process'
+import { daemonScopeUnitName, detectOwnCgroupScopeUnit } from './daemon-cgroup-scope'
 
 // The pipe closes even on SIGKILL; a live/reused owner PID always vetoes cleanup.
 const SCOPE_DEATH_WATCH_SCRIPT = `
@@ -21,15 +25,22 @@ exec systemctl --user --no-block stop "$2"
 `
 
 type ScopeDeathWatchOptions = {
-  /** From `ownFreshDaemonScope`; the terminal slice is bound to it, so stopping it reaps both. */
-  daemonScope: string | null
+  freshScope: boolean
+  launchNonce?: string
   log: (event: string, details?: Record<string, unknown>) => void
+  platform?: NodeJS.Platform
+  detectScope?: typeof detectOwnCgroupScopeUnit
   spawn?: (spec: ProcessSpec) => SpawnedProcess
 }
 
 export function startDaemonScopeDeathWatch(options: ScopeDeathWatchOptions): SpawnedProcess | null {
-  const { daemonScope: unit, log } = options
-  if (!unit) {
+  const { freshScope, launchNonce, log } = options
+  if ((options.platform ?? process.platform) !== 'linux' || !freshScope || !launchNonce) {
+    return null
+  }
+  const unit = daemonScopeUnitName(launchNonce)
+  // Migrated legacy scopes may also hold the GUI, so a name alone never authorizes cleanup.
+  if ((options.detectScope ?? detectOwnCgroupScopeUnit)() !== unit) {
     return null
   }
   const env = { ...process.env }

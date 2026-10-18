@@ -1,6 +1,5 @@
 import type { NativeChatSessionOptionSettingsMutation } from '../../../../shared/native-chat-session-options'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { callRuntimeRpc, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 
 /**
  * The executing runtime applies deltas to its latest record. This keeps paired-runtime

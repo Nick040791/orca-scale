@@ -6,11 +6,8 @@ import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
 } from '../../../shared/agent-session-record.test-fixture'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import { StructuredAgentSessionLeaseRenewer } from './structured-agent-session-lease-renewer'
-import { recordingStructuredAgentSessionLogger } from './structured-agent-session-logger-test-support'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 
 const NOW = 1_800_000_000_000
 const roots: string[] = []
@@ -18,7 +15,7 @@ const roots: string[] = []
 async function liveStore(): Promise<AgentSessionRecordStore> {
   const root = await mkdtemp(join(tmpdir(), 'orca-lease-renewer-'))
   roots.push(root)
-  const store = await openTestAgentSessionRecordStore(root)
+  const store = await AgentSessionRecordStore.open({ directory: root, hostId: 'local' })
   const reserved = await store.reserveOwner({
     sessionId: 'session-renewal',
     location: {
@@ -57,7 +54,7 @@ async function liveStore(): Promise<AgentSessionRecordStore> {
     fence: reserved.record.lease.runtimeFence,
     link: {
       linkId: 'link-renewal',
-      handle: codexProviderHandle('thread-renewal'),
+      handle: { provider: 'codex', threadId: 'thread-renewal' },
       origin: 'created',
       mintedAtFence: reserved.record.lease.runtimeFence,
       observedAt: NOW
@@ -105,8 +102,6 @@ describe('structured agent-session lease renewal', () => {
         )
     )
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
-      logger: recordingStructuredAgentSessionLogger().logger,
       store: { listRecords: () => records, renewLeases } as unknown as AgentSessionRecordStore,
       probe: vi.fn(),
       probeMany,
@@ -148,9 +143,8 @@ describe('structured agent-session lease renewal', () => {
       }
       return records[0]!
     })
-    const log = recordingStructuredAgentSessionLogger()
+    const onError = vi.fn()
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
       store: {
         listRecords: () => records,
         renewLeases,
@@ -161,15 +155,14 @@ describe('structured agent-session lease renewal', () => {
         matchedOn: ['spawn-token' as const]
       }),
       now: () => NOW + 10_000,
-      logger: log.logger
+      onError
     })
 
     await renewer.renewNow()
 
     expect(renewLeases).toHaveBeenCalledOnce()
     expect(renewLease).toHaveBeenCalledTimes(2)
-    expect(log.entries.map((entry) => entry.fields)).toContainEqual({
-      scope: 'lease-renewal',
+    expect(onError).toHaveBeenCalledWith({
       sessionId: 'session-b',
       error: expect.objectContaining({ message: 'agent_session_checkpoint_stale' })
     })
@@ -180,8 +173,6 @@ describe('structured agent-session lease renewal', () => {
     const store = await liveStore()
     let now = NOW
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
-      logger: recordingStructuredAgentSessionLogger().logger,
       store,
       probe: async () => ({
         outcome: 'identity-matched',
@@ -199,36 +190,9 @@ describe('structured agent-session lease renewal', () => {
         { timeout: 5000 }
       )
     } finally {
-      await renewer.stop()
+      renewer.stop()
       vi.useRealTimers()
     }
-  })
-
-  it('stops only once a renewal already in flight has finished writing', async () => {
-    const store = await liveStore()
-    let releaseProbe = (): void => {}
-    const probing = new Promise<void>((resolve) => {
-      releaseProbe = resolve
-    })
-    const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
-      logger: recordingStructuredAgentSessionLogger().logger,
-      store,
-      probe: async () => {
-        await probing
-        return { outcome: 'identity-matched', matchedOn: ['process-start-time'] }
-      },
-      now: () => NOW + 10_000
-    })
-
-    void renewer.renewNow()
-    // Nothing has been written yet: the tick is parked in its probe.
-    expect(store.getRecord('session-renewal')?.lease.lastRenewedAt).toBe(NOW)
-    const stopped = renewer.stop()
-    releaseProbe()
-    await stopped
-
-    expect(store.getRecord('session-renewal')?.lease.lastRenewedAt).toBe(NOW + 10_000)
   })
 
   it('renews every live owner only after re-proving its child identity', async () => {
@@ -238,8 +202,6 @@ describe('structured agent-session lease renewal', () => {
       matchedOn: ['process-start-time' as const]
     }))
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
-      logger: recordingStructuredAgentSessionLogger().logger,
       store,
       probe,
       now: () => NOW + 10_000
@@ -253,20 +215,18 @@ describe('structured agent-session lease renewal', () => {
 
   it('stops extending the lease when child proof is no longer sufficient', async () => {
     const store = await liveStore()
-    const log = recordingStructuredAgentSessionLogger()
+    const onError = vi.fn()
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
       store,
       probe: async () => ({ outcome: 'indeterminate', reason: 'probe unavailable' }),
       now: () => NOW + 10_000,
-      logger: log.logger
+      onError
     })
 
     await renewer.renewNow()
 
     expect(store.getRecord('session-renewal')?.lease.lastRenewedAt).toBe(NOW)
-    expect(log.entries.map((entry) => entry.fields)).toContainEqual({
-      scope: 'lease-renewal',
+    expect(onError).toHaveBeenCalledWith({
       sessionId: 'session-renewal',
       error: expect.any(Error)
     })
@@ -285,8 +245,6 @@ describe('structured agent-session lease renewal', () => {
       matchedOn: ['process-start-time' as const]
     }))
     const renewer = new StructuredAgentSessionLeaseRenewer({
-      holdsLiveChild: () => false,
-      logger: recordingStructuredAgentSessionLogger().logger,
       store,
       probe,
       now: () => NOW + 10_000

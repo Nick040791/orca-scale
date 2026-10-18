@@ -7,7 +7,7 @@ import {
   ACK_WORKTREE,
   createAcknowledgedTabRetirementFixture
 } from './acknowledged-terminal-tab-retirement-fixture'
-import { advanceTerminalTopologyRevision } from '../persistence/terminal-topology/terminal-topology-membership'
+import { advanceTerminalTopologyRevision } from './workspace-session-terminal-membership-authority'
 import { delegatedMobileSessionTabClose } from './mobile-session-tab-close-outcome'
 
 const fixtures: ReturnType<typeof createAcknowledgedTabRetirementFixture>[] = []

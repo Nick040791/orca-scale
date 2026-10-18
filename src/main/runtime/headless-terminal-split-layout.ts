@@ -2,10 +2,19 @@ import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode
 } from '../../shared/terminal-tab-types'
-import {
-  insertLeafBeside,
-  removeLayoutLeaf
-} from '../../shared/workspace-layout/terminal-pane-tree'
+
+export function terminalLayoutContainsLeaf(
+  node: TerminalPaneLayoutNode | null | undefined,
+  leafId: string
+): boolean {
+  if (!node) {
+    return false
+  }
+  return node.type === 'leaf'
+    ? node.leafId === leafId
+    : terminalLayoutContainsLeaf(node.first, leafId) ||
+        terminalLayoutContainsLeaf(node.second, leafId)
+}
 
 /**
  * Insert a newly split-off leaf into a terminal tab's persisted layout tree.
@@ -24,22 +33,45 @@ export function buildHeadlessTerminalSplitLayout(
     direction: 'horizontal' | 'vertical'
   }
 ): TerminalLayoutSnapshot {
-  // Why: the stored tree may already hold the new leaf; it is placed again beside its source.
-  const currentRoot = existing?.root ? removeLayoutLeaf(existing.root, args.leafId) : null
+  const removeProvisionalLeaf = (node: TerminalPaneLayoutNode): TerminalPaneLayoutNode | null => {
+    if (node.type === 'leaf') {
+      return node.leafId === args.leafId ? null : node
+    }
+    const first = removeProvisionalLeaf(node.first)
+    const second = removeProvisionalLeaf(node.second)
+    if (!first) {
+      return second
+    }
+    if (!second) {
+      return first
+    }
+    return { ...node, first, second }
+  }
+  // Why: PTY admission durably appends a fallback vertical leaf before this exact-direction commit.
+  const currentRoot = existing?.root ? removeProvisionalLeaf(existing.root) : null
   const existingRoot: TerminalPaneLayoutNode = currentRoot ?? {
     type: 'leaf',
     leafId: args.splitFromLeafId
+  }
+  const insertSplit = (node: TerminalPaneLayoutNode): TerminalPaneLayoutNode => {
+    if (node.type === 'leaf') {
+      if (node.leafId !== args.splitFromLeafId) {
+        return node
+      }
+      return {
+        type: 'split',
+        direction: args.direction,
+        first: node,
+        second: { type: 'leaf', leafId: args.leafId }
+      }
+    }
+    return { ...node, first: insertSplit(node.first), second: insertSplit(node.second) }
   }
   const ptyIdsByLeafId = { ...existing?.ptyIdsByLeafId }
   delete ptyIdsByLeafId[args.leafId]
   return {
     ...existing,
-    root: insertLeafBeside(
-      existingRoot,
-      args.splitFromLeafId,
-      args.leafId,
-      args.direction === 'vertical' ? 'right' : 'bottom'
-    ),
+    root: insertSplit(existingRoot),
     activeLeafId: args.leafId,
     expandedLeafId: existing?.expandedLeafId ?? null,
     ptyIdsByLeafId: {

@@ -1,14 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { win32 as pathWin32 } from 'node:path'
-import { mkdir } from 'node:fs/promises'
-import { JCODE_RUNTIME_DIR_ENV_KEY } from '../../shared/jcode-runtime-dir'
 import { SessionNotFoundError } from '../daemon/daemon-errors'
 import { prepareMacosTccLoginShell } from './macos-tcc-login-shell'
 import { finalizeLocalPtySpawnEnvironment } from './local-pty-finalize-environment'
 import { normalizeLocalCallerSessionId } from './local-pty-launch-helpers'
 import { createLocalPtyLaunchPlan, DeferredLocalPtyLaunchPlan } from './local-pty-launch-plan'
 import type { LocalPtyProviderOptions } from './local-pty-provider-types'
-import { validateWorkingDirectory, WorkingDirectoryValidationAbortedError } from './local-pty-utils'
 import { allocatePtyId, ptyShutdownOperations } from './local-pty-provider-state'
 import { activateLocalPtySession } from './local-pty-session-activation'
 import {
@@ -23,7 +20,7 @@ import {
 import { loadLocalPtyRuntimeSpawn } from './local-pty-runtime-spawn'
 import { destroyPtyProcess } from './local-pty-termination'
 import { updateHistoryEnvForFallback } from '../terminal-history'
-import type { PtySpawnOptions, PtySpawnResult } from './pty-provider-contract'
+import type { PtySpawnOptions, PtySpawnResult } from './types'
 
 export async function spawnLocalPty(
   args: PtySpawnOptions,
@@ -43,18 +40,6 @@ export async function spawnLocalPty(
   if (args.attachOnly) {
     throw new SessionNotFoundError(args.sessionId ?? '')
   }
-  // Validate the selected runtime directory before starting a fresh local process.
-  const jcodeRuntimeDir = args.env?.[JCODE_RUNTIME_DIR_ENV_KEY]
-  if (jcodeRuntimeDir) {
-    try {
-      await mkdir(jcodeRuntimeDir, { recursive: true })
-    } catch {
-      // Why non-fatal: the dir is stamped on every local pane, so an EACCES on a
-      // shared /tmp/orca-jcode or a read-only TMPDIR would otherwise stop a plain
-      // shell from opening. Drop the variable and let jcode use its own default.
-      delete args.env?.[JCODE_RUNTIME_DIR_ENV_KEY]
-    }
-  }
   const id = allocatePtyId(reattachId ?? undefined)
   return runCancelableLocalPtySpawn(id, async (throwIfCanceled, cancellation) => {
     const incarnationId = randomUUID()
@@ -65,18 +50,6 @@ export async function spawnLocalPty(
       plan = plan.finish(available)
     }
     throwIfCanceled()
-    if (args.prevalidatedCwd !== plan.validationCwd) {
-      try {
-        await validateWorkingDirectory(plan.validationCwd, cancellation)
-      } catch (error) {
-        // Why: an abandoned probe keeps running for other waiters; report the spawn's own cancel.
-        if (error instanceof WorkingDirectoryValidationAbortedError) {
-          throwIfCanceled()
-        }
-        throw error
-      }
-      throwIfCanceled()
-    }
     const envResult = buildLocalPtySpawnEnvironment({
       id,
       spawn: args,
@@ -118,7 +91,7 @@ export async function spawnLocalPty(
         termName: finalEnv.TERM,
         signal: args.signal ? AbortSignal.any([args.signal, cancellation]) : cancellation,
         getShellReadyConfig: plan.getFallbackShellReadyConfig,
-        preLaunchEnv: plan.primaryPreLaunchEnv,
+        launchEnvKeys: plan.primaryLaunchEnvKeys,
         // Why: on zsh→bash fallback HISTFILE still points to zsh_history; update before spawn so the child inherits it (design doc §8).
         onBeforeFallbackSpawn: fallbackHistory
           ? (env, fallbackShell) => updateHistoryEnvForFallback(env, fallbackShell, fallbackHistory)

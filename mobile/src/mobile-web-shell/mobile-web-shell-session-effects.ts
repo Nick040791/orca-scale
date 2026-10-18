@@ -26,7 +26,8 @@ export async function openCache(
   hostKey: string
 ): Promise<CachedGeneration | null> {
   try {
-    // Here and nowhere earlier: only a mounted shell sweeps, so nothing sweeps a cache it never wrote.
+    // Here and nowhere earlier: with the flag off no code path reaches this hook, so a store build
+    // never sweeps a cache it never wrote.
     await store.sweepStagedGenerations()
     const active = await store.readActiveGeneration(hostKey)
     return active === null
@@ -39,9 +40,7 @@ export async function openCache(
           compat: {
             schemaVersion: active.manifest.schemaVersion,
             runtimeProtocolVersion: active.manifest.runtimeProtocolVersion,
-            minCompatibleRuntimeProtocolVersion:
-              active.manifest.minCompatibleRuntimeProtocolVersion,
-            pageVersion: active.manifest.pageVersion
+            minCompatibleRuntimeProtocolVersion: active.manifest.minCompatibleRuntimeProtocolVersion
           }
         }
   } catch {
@@ -79,10 +78,10 @@ export async function readManifest(
         schemaVersion: manifest.schemaVersion,
         runtimeProtocolVersion: manifest.runtimeProtocolVersion,
         minCompatibleRuntimeProtocolVersion: manifest.minCompatibleRuntimeProtocolVersion,
-        pageVersion: manifest.pageVersion,
         totalBytes: manifest.totalBytes,
         totalAssets: manifest.assets.length,
-        routes: manifest.routes
+        routes: manifest.routes,
+        wire: manifest
       }
     })
   } catch (error) {

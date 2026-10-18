@@ -13,8 +13,7 @@ import type {
   AgentSessionStatusEvent
 } from '../../../shared/agent-session-wire'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
-import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+import { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
@@ -26,11 +25,6 @@ import {
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
-import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
-import { startsWhenPublished } from './structured-agent-session-instant-start.test-support'
 
 const CALLER = { callerKey: 'client-1' }
 
@@ -40,11 +34,10 @@ let root = ''
 function adapter(): StructuredAgentSessionAdapter {
   return {
     acquire: async ({ fence, spawnToken }) => ({
-      providerChildPhase: 'starting' as const,
       process: { hostId: 'local', pid: 4242, processStartTimeMs: 1_700_000_000_000, spawnToken },
       link: {
         linkId: `link-${fence}`,
-        handle: codexProviderHandle(THREAD),
+        handle: { provider: 'codex', threadId: THREAD },
         origin: 'created',
         mintedAtFence: fence,
         observedAt: NOW
@@ -61,12 +54,10 @@ function adapter(): StructuredAgentSessionAdapter {
 }
 
 function createHost(store: AgentSessionRecordStore): StructuredAgentSessionHost {
-  const host: StructuredAgentSessionHost = new StructuredAgentSessionHost({
-    agents: NO_STRUCTURED_AGENTS,
-    logger: createStructuredAgentSessionLogger(),
+  const host = new StructuredAgentSessionHost({
     store,
-    adapter: startsWhenPublished(adapter(), () => host),
-    journalDatabase: openTestJournalHostDatabase(root),
+    adapter: adapter(),
+    journalRoot: root,
     claimKeyId: 'key-1',
     mintSpawnToken: () => 'spawn-a',
     probeOwner: async () => ({
@@ -99,18 +90,14 @@ function sendEnvelope(
 async function restartWithPersistedTurn(): Promise<StructuredAgentSessionHost> {
   root = await mkdtemp(join(tmpdir(), 'orca-restart-status-'))
   resetHostTestOperationIds()
-  const store = await openTestAgentSessionRecordStore(root)
+  const directory = join(root, 'store')
+  const store = await AgentSessionRecordStore.open({ directory, hostId: 'local' })
   const host = createHost(store)
   expect(await host.attach(CALLER, hostTestAttachParams(null))).toMatchObject({ ok: true })
   const body = hostTestMessage('persisted conversation')
-  const sent = await host.send(CALLER, { envelope: sendEnvelope(store, { body }), body })
-  if (!sent.ok) {
-    throw new Error('send was refused')
-  }
-  // Delivered, not just accepted: a message still queued at the restart was never a request.
-  await host.waitForSendSettlement(SESSION, sent.value.clientMessageId)
+  await host.send(CALLER, { envelope: sendEnvelope(store, { body }), body })
   await host.flushAllStreamedEvents()
-  return createHost(await openTestAgentSessionRecordStore(root))
+  return createHost(await AgentSessionRecordStore.open({ directory, hostId: 'local' }))
 }
 
 afterEach(async () => {

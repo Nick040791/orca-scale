@@ -80,10 +80,9 @@ export function useMobileNativeChatSessionOptionController(args: {
     dispatchCommand,
     onAgentPicker: handleAgentPicker
   })
-  // Kept with nothing to pick (OMP lists no models): the "/" menu reads the chat's commands from it.
   const structuredController = useMemo<MobileNativeChatSessionOptionsController | null>(
     () =>
-      activeChatStructured
+      activeChatStructured && structuredSnapshot.length > 0
         ? {
             snapshot: structuredSnapshot,
             optionPickerRequest: structured.optionPickerRequest,

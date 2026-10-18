@@ -1,10 +1,7 @@
 import { createConnection } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { findTransport, type RuntimeMetadata } from '../../shared/runtime-bootstrap'
-import type {
-  ExpectedRuntimeSource,
-  RuntimeOrchestrationEnvelope
-} from '../../shared/runtime-rpc-envelope'
+import type { RuntimeOrchestrationEnvelope } from '../../shared/runtime-rpc-envelope'
 import { isKeepaliveFrame, RuntimeRpcEnvelopeSchema } from './envelope-schema'
 import { RuntimeClientError, type RuntimeRpcResponse } from './types'
 import { MAX_TIMER_DELAY_MS, isSafeTimerDelayMs } from '../../shared/timer-delay'
@@ -15,9 +12,7 @@ export async function sendRequest<TResult>(
   method: string,
   params: unknown,
   timeoutMs: number,
-  envelope?: RuntimeOrchestrationEnvelope,
-  // Why separate from the envelope: federation forwards envelopes to other runtimes.
-  expectedRuntimeSource?: ExpectedRuntimeSource
+  envelope?: RuntimeOrchestrationEnvelope
 ): Promise<RuntimeRpcResponse<TResult>> {
   if (!isSafeTimerDelayMs(timeoutMs)) {
     throw new RuntimeClientError(
@@ -208,8 +203,7 @@ export async function sendRequest<TResult>(
           orchestrationContractVersion: envelope?.orchestrationContractVersion,
           orchestrationRequestId: envelope?.orchestrationRequestId,
           compatibilityInvocationId: envelope?.compatibilityInvocationId,
-          orchestrationCompatibilityEvidence: envelope?.orchestrationCompatibilityEvidence,
-          expectedRuntimeSource
+          orchestrationCompatibilityEvidence: envelope?.orchestrationCompatibilityEvidence
         })}\n`
       )
     })

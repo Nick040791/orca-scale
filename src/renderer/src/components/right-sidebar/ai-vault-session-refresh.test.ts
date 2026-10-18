@@ -4,11 +4,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import type {
-  AiVaultListArgs,
-  AiVaultListResult,
-  AiVaultSession
-} from '../../../../shared/ai-vault-types'
+import type { AiVaultListResult, AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { ExecutionHostScope } from '../../../../shared/execution-host'
 import { useAppStore } from '@/store'
 import {
@@ -27,8 +23,8 @@ const EMPTY_RESULT: AiVaultListResult = {
 
 const THROTTLE_MS = 30_000
 
-const listSessionsMock = vi.fn<(args: AiVaultListArgs) => Promise<AiVaultListResult>>()
-const cancelListSessionsMock = vi.fn<(args: { requestToken: string }) => Promise<void>>()
+const listSessionsMock = vi.fn<(args: unknown) => Promise<AiVaultListResult>>()
+const cancelListSessionsMock = vi.fn<() => Promise<void>>()
 
 // Captures the hook's subscription to the main-process window-focus push.
 let windowFocusCallback: (() => void) | null = null
@@ -367,6 +363,16 @@ describe('useAiVaultSessionRefresh refocus behavior', () => {
     expect(lastCallArgs()).toMatchObject({ force: false })
   })
 
+  it('does not force transcript scans for refocus events', async () => {
+    await renderHook()
+    await flushMicrotasks()
+    expect(listSessionsMock).toHaveBeenCalledTimes(1)
+
+    await fireWindowFocused()
+    expect(listSessionsMock).toHaveBeenCalledTimes(2)
+    expect(lastCallArgs()).toMatchObject({ force: false })
+  })
+
   it('ignores focus/visibility events while the document is hidden', async () => {
     await renderHook()
     await flushMicrotasks()
@@ -664,49 +670,6 @@ describe('useAiVaultSessionRefresh refocus behavior', () => {
     expect(lastCallArgs()).toMatchObject({ force: true })
   })
 
-  it('replaces a stuck scan on manual Refresh without cancelling an automatic rescan', async () => {
-    let resolveInitial: ((result: AiVaultListResult) => void) | null = null
-    let resolveReplacement: ((result: AiVaultListResult) => void) | null = null
-    listSessionsMock
-      .mockImplementationOnce(
-        () => new Promise<AiVaultListResult>((resolve) => (resolveInitial = resolve))
-      )
-      .mockImplementationOnce(
-        () => new Promise<AiVaultListResult>((resolve) => (resolveReplacement = resolve))
-      )
-    await renderHook()
-    expect(latest?.loading).toBe(true)
-
-    await setAgentStatuses({ 'pane-1': makeAgentEntry('new-session') })
-    expect(listSessionsMock).toHaveBeenCalledTimes(1)
-    expect(cancelListSessionsMock).not.toHaveBeenCalled()
-
-    cancelListSessionsMock.mockImplementationOnce(async () => {
-      resolveInitial?.({
-        ...EMPTY_RESULT,
-        sessions: [makeVaultSession(1)],
-        cancelled: true
-      })
-    })
-    await act(async () => {
-      await latest?.refresh({ force: true })
-    })
-    await flushMicrotasks()
-
-    expect(cancelListSessionsMock).toHaveBeenCalledExactlyOnceWith({
-      requestToken: listSessionsMock.mock.calls[0]?.[0].requestToken
-    })
-    expect(listSessionsMock).toHaveBeenCalledTimes(2)
-    expect(listSessionsMock.mock.calls[1]?.[0]).toMatchObject({ force: true })
-    expect(latest?.scanResult).toBeNull()
-    expect(latest?.error).toBeNull()
-
-    await act(async () => {
-      resolveReplacement?.({ ...EMPTY_RESULT, sessions: [makeVaultSession(2)] })
-    })
-    expect(latest?.sessions.map((session) => session.id)).toEqual(['session-2'])
-  })
-
   it('keeps refocus cache-backed after a manual force refresh', async () => {
     await renderHook()
     await flushMicrotasks()
@@ -855,5 +818,12 @@ describe('useAiVaultSessionRefresh in a non-secure context', () => {
         )
       })
     })
+  })
+
+  // Guards the stub itself: an own-property stub of randomUUID is unrestorable, so a
+  // leaky teardown would silently strip the real method from every later test in the file.
+  it('leaves the real crypto.randomUUID in place afterwards', () => {
+    // oxlint-disable-next-line no-restricted-properties -- asserting the restore this case exists for
+    expect(typeof globalThis.crypto.randomUUID).toBe('function')
   })
 })

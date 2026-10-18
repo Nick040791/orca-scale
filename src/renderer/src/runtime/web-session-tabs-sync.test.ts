@@ -13,15 +13,13 @@ import type { Tab } from '../../../shared/tab-types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import {
   acceptReplayedWebSessionTabsSnapshot,
-  clearWebSessionTabsTrackingForEnvironment
-} from './web-session-tabs-sync/tracking-lifecycle'
-import {
   applyFreshWebSessionTabsSnapshot,
-  applyWebSessionTabsSnapshot
-} from './web-session-tabs-sync/snapshot-api'
-import { resolveHostSessionTabIdForWebSessionTab } from './web-session-tabs-sync/tracking-mappings'
-import { shouldApplyWebSessionTabsSnapshot } from './web-session-tabs-sync/tracking-decisions'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+  applyWebSessionTabsSnapshot,
+  clearWebSessionTabsTrackingForEnvironment,
+  resolveHostSessionTabIdForWebSessionTab,
+  shouldApplyWebSessionTabsSnapshot,
+  type WebSessionTabsSyncState
+} from './web-session-tabs-sync'
 import {
   recordReceivedWebSessionTabsSnapshot,
   shouldApplyRecoveredWebSessionTabsSnapshot

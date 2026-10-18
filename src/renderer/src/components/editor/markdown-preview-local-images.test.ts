@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-import { unified } from 'unified'
-import type * as Unified from 'unified'
+import { describe, expect, it } from 'vitest'
 import {
   MARKDOWN_PREVIEW_LOCAL_IMAGE_PREWARM_CONCURRENCY,
   MARKDOWN_PREVIEW_LOCAL_IMAGE_PREWARM_LIMIT,
@@ -8,11 +6,6 @@ import {
   prewarmMarkdownPreviewLocalImages,
   type MarkdownPreviewLocalImageCandidate
 } from './markdown-preview-local-images'
-
-vi.mock('unified', async (importOriginal) => {
-  const actual = await importOriginal<typeof Unified>()
-  return { ...actual, unified: vi.fn(() => actual.unified()) }
-})
 
 async function flushPromises(): Promise<void> {
   await Promise.resolve()
@@ -24,25 +17,6 @@ function markdownImages(count: number): string {
 }
 
 describe('extractMarkdownPreviewLocalImageCandidates', () => {
-  it.each([
-    '# Notes\n\nA [link](./page.md) and ordinary text.',
-    '&#33;[Entity](./image.png)\n！[Fullwidth](./image.png)',
-    '<img src="./image.png" />\n[logo]: ./image.png'
-  ])('skips the image-prewarm parser when no image introducer exists', (markdown) => {
-    vi.mocked(unified).mockClear()
-
-    expect(extractMarkdownPreviewLocalImageCandidates(markdown, '/repo/docs/readme.md')).toEqual([])
-    expect(unified).not.toHaveBeenCalled()
-
-    expect(
-      extractMarkdownPreviewLocalImageCandidates(
-        `${markdown}\n\n![Logo](./logo.png)`,
-        '/repo/docs/readme.md'
-      )
-    ).toHaveLength(1)
-    expect(unified).toHaveBeenCalledOnce()
-  })
-
   it('extracts direct, reference-style, and GFM table images in document order', () => {
     const candidates = extractMarkdownPreviewLocalImageCandidates(
       [
@@ -130,7 +104,7 @@ describe('extractMarkdownPreviewLocalImageCandidates', () => {
       '/repo/docs/readme.md',
       {
         runtimeContext: {
-          target: { kind: 'environment' as const, environmentId: 'env-1' },
+          settings: { activeRuntimeEnvironmentId: 'env-1' },
           worktreeId: 'wt-1',
           worktreePath: '/repo'
         }
@@ -141,7 +115,7 @@ describe('extractMarkdownPreviewLocalImageCandidates', () => {
       '/repo/docs/readme.md',
       {
         runtimeContext: {
-          target: { kind: 'environment' as const, environmentId: 'env-2' },
+          settings: { activeRuntimeEnvironmentId: 'env-2' },
           worktreeId: 'wt-1',
           worktreePath: '/repo'
         }
@@ -271,23 +245,5 @@ describe('prewarmMarkdownPreviewLocalImages', () => {
     await prewarm.done
 
     expect(started).toHaveLength(2)
-  })
-})
-
-describe('prewarming preview images', () => {
-  it('reads each image as a resource of the document that references it', async () => {
-    const readFile = vi.fn().mockResolvedValue({ content: '', isBinary: false })
-    vi.stubGlobal('window', { api: { fs: { readFile } } })
-    try {
-      await prewarmMarkdownPreviewLocalImages('![Logo](./logo.png)', '/notes/readme.md').done
-
-      expect(readFile).toHaveBeenCalledWith({
-        filePath: '/notes/logo.png',
-        connectionId: undefined,
-        access: { kind: 'document-resource', documentPath: '/notes/readme.md' }
-      })
-    } finally {
-      vi.unstubAllGlobals()
-    }
   })
 })

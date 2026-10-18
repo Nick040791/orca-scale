@@ -8,14 +8,9 @@ import { basename, dirname, resolve } from 'node:path'
 import {
   ensureWindowsProcessTreeCommandLinePatch,
   inspectWindowsProcessTreeAddon,
-  nodeGypRebuildInvocation,
-  nodeGypRebuildTimeoutMs,
   stageWindowsProcessTreeNodeAddonApiHeaders,
   windowsProcessTreeAddonPath
 } from './windows-process-tree-gyp-rebuild.mjs'
-import { runProcessSync } from '@orca/process-host'
-import { describeProcessFailure } from './process-failure-message.mjs'
-import { disableMsbuildFileTrackingOnWindows } from './msbuild-file-tracking.mjs'
 
 const require = createRequire(import.meta.url)
 const { assertNodePtyJobOwnership, nodePtyAddonPath } = require('./node-pty-job-ownership.cjs')
@@ -27,7 +22,7 @@ const runtime = readRuntimeArg()
 const NATIVE_MODULES = [
   'node-pty',
   ...(process.platform === 'win32'
-    ? ['@orca/windows-registry', '@orca/windows-security', '@vscode/windows-process-tree']
+    ? ['@orca/windows-registry', '@vscode/windows-process-tree']
     : [])
 ]
 const NODE_PTY_CONPTY_RUNTIME_FILES = ['conpty.dll', 'OpenConsole.exe']
@@ -286,11 +281,6 @@ function loadNativeModule(moduleName) {
     registry.getRegistryKey(registry.HK.CU, 'Environment')
     return
   }
-  if (moduleName === '@orca/windows-security') {
-    // Why: the package defers loading its .node addon until the first call.
-    require(moduleName).currentUserSid()
-    return
-  }
   if (moduleName === 'node-pty') {
     loadNodePtyNativeModule()
     return
@@ -410,39 +400,33 @@ function rebuildNodeRuntimeModules(moduleNames) {
       moduleDir = realpathSync(moduleDir)
     }
     console.warn(`[native-runtime] Rebuilding ${moduleName} with node-gyp.`)
-    // pnpm exec inside an installed addon cannot discover the root build tool.
-    runNodeGyp(
-      moduleName,
-      nodeGypRebuildInvocation(
-        process.arch,
-        moduleDir,
-        process.env.npm_config_node_gyp || undefined
-      )
-    )
+    runPnpm(['exec', 'node-gyp', 'rebuild'], { cwd: moduleDir })
     if (moduleName === 'node-pty' && process.platform === 'win32') {
       runNodeScript([resolve(moduleDir, 'scripts', 'post-install.js')])
     }
   }
 }
 
-function runNodeGyp(moduleName, { args, cwd }) {
+function runPnpm(args, { cwd = projectDir } = {}) {
+  // cmd.exe resolves both Corepack's pnpm.cmd and pnpm 12's native pnpm.exe.
+  const command = 'pnpm'
   const env =
-    process.platform === 'linux'
+    process.platform === 'linux' && args.includes('node-gyp')
       ? { ...process.env, CXXFLAGS: `${process.env.CXXFLAGS ?? ''} -std=gnu++2a`.trim() }
-      : disableMsbuildFileTrackingOnWindows({ ...process.env })
-  const result = runProcessSync({
-    program: process.execPath,
-    args,
+      : process.env
+  const result = spawnSync(command, args, {
     cwd,
-    env,
     stdio: 'inherit',
-    timeoutMs: nodeGypRebuildTimeoutMs(moduleName)
+    shell: process.platform === 'win32',
+    env
   })
-  if (result.code !== 0) {
-    console.error(
-      `[native-runtime] node-gyp rebuild failed in ${cwd}: ${describeProcessFailure(result)}`
-    )
-    process.exit(result.code ?? 1)
+
+  if (result.error || result.status !== 0) {
+    console.error(`[native-runtime] ${command} ${args.join(' ')} failed in ${cwd}.`)
+    if (result.error) {
+      console.error(formatError(result.error))
+    }
+    process.exit(result.status ?? 1)
   }
 }
 

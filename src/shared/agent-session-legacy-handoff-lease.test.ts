@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
   leaseCarriesLegacyHandoffValues,
   normalizeLegacyHandoffLease,
+  normalizeLegacyHandoffRecord,
   terminalOwnerRefusalMessage,
   type PersistedAgentSessionLease
 } from './agent-session-legacy-handoff-lease'
 import type { AgentSessionClaimStatus, AgentSessionHandoffStage } from './agent-session-record'
-import { agentSessionLeaseFixture } from './agent-session-record.test-fixture'
+import {
+  agentSessionLeaseFixture,
+  agentSessionRecordFixture
+} from './agent-session-record.test-fixture'
 
 const CLAIMS: AgentSessionClaimStatus[] = ['reserved', 'live', 'conflicted', 'released']
 const STAGES: (AgentSessionHandoffStage | null)[] = [null, 'new-owner-proving', 'recovering']
@@ -64,6 +68,16 @@ describe('normalizing a lease the removed terminal handoff wrote', () => {
       runtimeKind: 'native',
       handoffStage: 'recovering',
       claimStatus: 'conflicted'
+    })
+  })
+
+  it('reports whether a record needed normalizing', () => {
+    const record = agentSessionRecordFixture()
+    expect(normalizeLegacyHandoffRecord(record)).toEqual({ record, normalized: false })
+    const legacy = { ...record, lease: persisted({ runtimeKind: 'tui' }) }
+    expect(normalizeLegacyHandoffRecord(legacy)).toEqual({
+      record: { ...record, lease: { ...record.lease, claimStatus: 'conflicted' } },
+      normalized: true
     })
   })
 })

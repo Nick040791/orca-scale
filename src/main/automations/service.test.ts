@@ -1,7 +1,6 @@
 import {
   closeTestStores,
-  createStore,
-  testState,
+  createSqliteTestStore,
   readPersistedStateJson,
   writePersistedStateJson
 } from '../persistence-test-harness'
@@ -12,6 +11,9 @@ import { tmpdir } from 'node:os'
 import type { Repo } from '../../shared/repo-types'
 import { toRuntimeExecutionHostId } from '../../shared/execution-host'
 import { AutomationService } from './service'
+import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
+
+const testState = { dir: '' }
 
 vi.mock('electron', () => ({
   app: {
@@ -23,6 +25,15 @@ vi.mock('electron', () => ({
     decryptString: (ciphertext: Buffer) => ciphertext.toString('utf-8').slice('encrypted:'.length)
   }
 }))
+
+async function createStore() {
+  vi.resetModules()
+  // Why: userData resolves through AppEnvironment; point it at this file's temp dir.
+  installFakeAppEnvironment({ getPath: () => testState.dir })
+  const { Store, initDataPath } = await import('../persistence')
+  initDataPath()
+  return createSqliteTestStore(Store, { dataFile: join(testState.dir, 'orca-data.json') })
+}
 
 /** Simulate registry drift after a record was stored; the create path derives contexts itself. */
 function mutateDataFile(mutate: (state: { automations: Record<string, unknown>[] }) => void): void {

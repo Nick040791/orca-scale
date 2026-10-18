@@ -1,11 +1,5 @@
 import { join } from 'node:path'
 
-export function getTarProgram(): string {
-  return process.platform === 'win32'
-    ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
-    : 'tar'
-}
-
 /** The destination must already exist; callers extract only checksum-verified archives. */
 export function getZipExtractorCommand(
   zipPath: string,
@@ -13,7 +7,7 @@ export function getZipExtractorCommand(
 ): { file: string; args: string[]; label: string } {
   if (process.platform === 'win32' && !process.env.ORCA_UNZIP_BIN) {
     return {
-      file: getTarProgram(),
+      file: join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'),
       args: ['-xf', zipPath, '-C', extractDir],
       label: 'tar'
     }

@@ -12,14 +12,31 @@ import type * as FsPromises from 'node:fs/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as WslPathTranslation from './command-runner/wsl-path-translation'
 
-const { gitExecFileAsyncMock, gitExecFileSyncMock, statMock, readFileMock, resolveGitDirMock } =
-  vi.hoisted(() => ({
-    gitExecFileAsyncMock: vi.fn(),
-    gitExecFileSyncMock: vi.fn(),
-    statMock: vi.fn(),
-    readFileMock: vi.fn(),
-    resolveGitDirMock: vi.fn()
-  }))
+const {
+  gitExecFileAsyncMock,
+  gitExecFileSyncMock,
+  statMock,
+  readFileMock,
+  resolveGitDirMock,
+  moveWorktreeDirectoryToTrashMock,
+  restoreWorktreeDirectoryFromTrashMock,
+  scheduleWorktreeTrashDeletionMock
+} = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn(),
+  gitExecFileSyncMock: vi.fn(),
+  statMock: vi.fn(),
+  readFileMock: vi.fn(),
+  resolveGitDirMock: vi.fn(),
+  moveWorktreeDirectoryToTrashMock: vi.fn(),
+  restoreWorktreeDirectoryFromTrashMock: vi.fn(),
+  scheduleWorktreeTrashDeletionMock: vi.fn()
+}))
+
+vi.mock('../worktree-trash', () => ({
+  moveWorktreeDirectoryToTrash: moveWorktreeDirectoryToTrashMock,
+  restoreWorktreeDirectoryFromTrash: restoreWorktreeDirectoryFromTrashMock,
+  scheduleWorktreeTrashDeletion: scheduleWorktreeTrashDeletionMock
+}))
 
 // Why the real translator: an identity mock removes the Linux -> UNC rewrite that production
 // always applies, which is the only reason the Linux spelling would ever reach the comparison.
@@ -134,7 +151,11 @@ describe('removeWorktree branch selection on a Windows desktop', () => {
     readFileMock.mockReset()
     readFileMock.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
     resolveGitDirMock.mockReset()
-    resetWorktreeRemovalState()
+    resetWorktreeRemovalState({
+      moveWorktreeDirectoryToTrashMock,
+      restoreWorktreeDirectoryFromTrashMock,
+      scheduleWorktreeTrashDeletionMock
+    })
   })
 
   afterEach(() => {

@@ -19,6 +19,7 @@ type ComposerAsyncStateInput = Pick<
   | 'selectedRepoConnectionId'
   | 'selectedRepoHookContextKey'
   | 'selectedRepoIsGit'
+  | 'selectedRepoSettings'
   | 'setName'
 >
 
@@ -30,11 +31,7 @@ import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import { CONTEXTUAL_TOUR_ENABLE_AUTO_WORKSPACE_NAME_EVENT } from '@/components/contextual-tours/contextual-tour-composer-events'
 import type { GitHubRepositoryIdentity } from '../../../../shared/github/pull-request-types'
 import { getRepoSetupAgentStartupPolicy } from './setup-policy-decisions'
-import { getJiraIssueKeyCasingSeedOptions } from '@/lib/jira-issue-key-casing'
-import type {
-  SmartGitHubPrStartPointSelection,
-  SmartSourceSelection
-} from './source-selection-decisions'
+import type { SmartGitHubPrStartPointSelection } from './source-selection-decisions'
 
 export function useComposerAsyncState(input: ComposerAsyncStateInput) {
   const {
@@ -55,6 +52,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     selectedRepoConnectionId,
     selectedRepoHookContextKey,
     selectedRepoIsGit,
+    selectedRepoSettings,
     setName
   } = input
   const { getInitialAutoManagedWorkspaceName, getInitialGitHubPrStartPointSelection } = decisions
@@ -135,8 +133,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     draftName: persistDraft ? newWorkspaceDraft?.name : null,
     draftLinkedWorkItem: persistDraft ? draftLinkedWorkItemSeed : null,
     initialName,
-    initialLinkedWorkItem: initialLinkedWorkItemSeed,
-    ...getJiraIssueKeyCasingSeedOptions()
+    initialLinkedWorkItem: initialLinkedWorkItemSeed
   })
 
   const nameRef = useRef<string>(name)
@@ -165,7 +162,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
         repoId: selectedRepo?.id ?? initialRepoId
       })
     )
-  const smartSourceSelectionRef = useRef<SmartSourceSelection | null>(
+  const smartGitHubPrStartPointSelectionRef = useRef<SmartGitHubPrStartPointSelection | null>(
     initialSmartGitHubPrStartPointSelection
   )
 
@@ -209,12 +206,15 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
 
   const selectedRepoPathRef = useRef<string | undefined>(selectedRepoPath)
 
+  const selectedRepoSettingsRef = useRef(selectedRepoSettings)
+
   useEffect(() => {
     agentPromptRef.current = agentPrompt
     connectionIdRef.current = connectionId
     selectedRepoConnectionIdRef.current = selectedRepoConnectionId
     selectedRepoPathRef.current = selectedRepoPath
-  }, [agentPrompt, connectionId, selectedRepoConnectionId, selectedRepoPath])
+    selectedRepoSettingsRef.current = selectedRepoSettings
+  }, [agentPrompt, connectionId, selectedRepoConnectionId, selectedRepoPath, selectedRepoSettings])
 
   return {
     yamlHooks,
@@ -223,6 +223,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     setCheckedHooksContextKey,
     loadedIssueCommand,
     setLoadedIssueCommand,
+    currentIssueCommand,
     issueCommandTemplate,
     hasLoadedIssueCommand,
     setupDecision,
@@ -265,7 +266,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     branchAutoNameRef,
     lastAutoNoteRef,
     noteRef,
-    smartSourceSelectionRef,
+    smartGitHubPrStartPointSelectionRef,
     composerRef,
     promptTextareaRef,
     promptCaretFrameRef,
@@ -276,6 +277,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     selectedRepoSlug,
     setSelectedRepoSlug,
     selectedRepoPath,
-    selectedRepoPathRef
+    selectedRepoPathRef,
+    selectedRepoSettingsRef
   }
 }

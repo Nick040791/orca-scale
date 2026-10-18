@@ -1,5 +1,5 @@
 import { QrCode } from 'lucide-react-native'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { colors, radii, spacing } from '../theme/mobile-theme'
 
 const ONBOARDING_STEPS = [
@@ -23,10 +23,9 @@ export function MobileHomeEmptyState(props: {
   isWideLayout: boolean
   onPairDesktop: () => void
 }) {
-  // Scrolls because a phone in landscape is shorter than the hero and the steps together.
   return (
-    <ScrollView
-      contentContainerStyle={[
+    <View
+      style={[
         styles.emptyContainer,
         { paddingBottom: props.bottomInset },
         props.isWideLayout && {
@@ -61,14 +60,14 @@ export function MobileHomeEmptyState(props: {
           </View>
         ))}
       </View>
-    </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  emptyContainer: { flexGrow: 1 },
+  emptyContainer: { flex: 1 },
   emptyHero: {
-    flexGrow: 1,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,

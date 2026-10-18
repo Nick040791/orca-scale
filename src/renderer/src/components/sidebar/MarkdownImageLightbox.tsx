@@ -16,7 +16,6 @@ type ExpandableMarkdownImageProps = {
   alt?: string
   className?: string
   triggerClassName?: string
-  onError?: () => void
 }
 
 /**
@@ -27,8 +26,7 @@ export function ExpandableMarkdownImage({
   src,
   alt,
   className,
-  triggerClassName,
-  onError
+  triggerClassName
 }: ExpandableMarkdownImageProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
   const label =
@@ -53,12 +51,7 @@ export function ExpandableMarkdownImage({
             'Expand image'
           )}
         >
-          <img
-            src={src}
-            alt={alt ?? ''}
-            className={cn(className, 'pointer-events-none')}
-            onError={onError}
-          />
+          <img src={src} alt={alt ?? ''} className={cn(className, 'pointer-events-none')} />
         </button>
       </DialogTrigger>
       <DialogContent

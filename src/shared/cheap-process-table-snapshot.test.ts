@@ -4,7 +4,7 @@ const { runProcessMock } = vi.hoisted(() => ({ runProcessMock: vi.fn() }))
 
 // The cheap reader goes through Orca's single child-process entry point (windowsHide, argv
 // encoding, tree termination); mock at that seam rather than node:child_process.
-vi.mock('@orca/process-host', () => ({ runProcess: runProcessMock }))
+vi.mock('./child-process/run-process', () => ({ runProcess: runProcessMock }))
 
 import {
   getCheapProcessTableSnapshot,

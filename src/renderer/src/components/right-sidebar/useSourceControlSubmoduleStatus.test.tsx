@@ -1,15 +1,12 @@
 // @vitest-environment happy-dom
 
 import { act } from 'react'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-
-const LOCAL_TARGET: RuntimeClientTarget = { kind: 'local' }
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ getRuntimeGitSubmoduleStatus: vi.fn() }))
 
-vi.mock('@/runtime/runtime-git-status-client', () => ({
+vi.mock('@/runtime/runtime-git-client', () => ({
   getRuntimeGitSubmoduleStatus: mocks.getRuntimeGitSubmoduleStatus
 }))
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: () => undefined }))
@@ -54,12 +51,12 @@ function Probe({
   worktreeId: string
   worktreePath: string
   entries: GitStatusEntry[]
-  settings?: RuntimeClientTarget | null
+  settings?: { activeRuntimeEnvironmentId: string | null } | null
 }): null {
   latest = useSourceControlSubmoduleStatus({
     activeWorktreeId: worktreeId,
     worktreePath,
-    activeRepoTarget: settings ?? LOCAL_TARGET,
+    activeRepoSettings: settings,
     entries
   })
   return null
@@ -180,10 +177,8 @@ describe('useSourceControlSubmoduleStatus', () => {
     const envA = deferred<{ entries: GitStatusEntry[] }>()
     const envB = deferred<{ entries: GitStatusEntry[] }>()
     mocks.getRuntimeGitSubmoduleStatus.mockImplementation(
-      (ctx: { target?: RuntimeClientTarget }) =>
-        ctx.target?.kind === 'environment' && ctx.target.environmentId === 'env-b'
-          ? envB.promise
-          : envA.promise
+      (ctx: { settings?: { activeRuntimeEnvironmentId?: string | null } | null }) =>
+        ctx.settings?.activeRuntimeEnvironmentId === 'env-b' ? envB.promise : envA.promise
     )
 
     const container = document.createElement('div')
@@ -195,7 +190,7 @@ describe('useSourceControlSubmoduleStatus', () => {
         <Probe
           worktreeId="A"
           worktreePath="/a"
-          settings={{ kind: 'environment', environmentId: 'env-a' }}
+          settings={{ activeRuntimeEnvironmentId: 'env-a' }}
           entries={[submoduleEntry()]}
         />
       )
@@ -210,7 +205,7 @@ describe('useSourceControlSubmoduleStatus', () => {
         <Probe
           worktreeId="A"
           worktreePath="/a"
-          settings={{ kind: 'environment', environmentId: 'env-b' }}
+          settings={{ activeRuntimeEnvironmentId: 'env-b' }}
           entries={[submoduleEntry()]}
         />
       )

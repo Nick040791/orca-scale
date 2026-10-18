@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useForceReconnect } from '../transport/host-client-hooks'
-import { useWorkspaceClient } from '../transport/use-workspace-client'
-import type { RpcClient } from '../transport/rpc-client'
+import { useHostClient, useForceReconnect } from '../transport/client-context'
 import { connectionRetryAction } from '../transport/connection-retry-action'
 import type {
   AiVaultScanIssue,
@@ -41,24 +39,11 @@ export type MobileAgentHistoryStateParams = {
 
 export function useMobileAgentHistoryState(params: MobileAgentHistoryStateParams) {
   const { hostId, worktreeId, worktrees, worktreesLoaded } = params
-  const { client, state: connState } = useWorkspaceClient(hostId)
+  const { client, state: connState } = useHostClient(hostId)
   const forceReconnect = useForceReconnect()
   const [scope, setScope] = useState<AiVaultScope>('workspace')
   const [screenState, setScreenState] = useState<AgentHistoryScreenState>({ kind: 'loading' })
-  const clientGeneration = client?.getGeneration?.() ?? 0
-  const [hostStatusProbe, setHostStatusProbe] = useState<{
-    hostId: string
-    client: RpcClient
-    generation: number
-    result: unknown
-  } | null>(null)
-  const hostStatusResult =
-    connState === 'connected' &&
-    hostStatusProbe?.hostId === hostId &&
-    hostStatusProbe.client === client &&
-    hostStatusProbe.generation === clientGeneration
-      ? hostStatusProbe.result
-      : null
+  const [hostStatusResult, setHostStatusResult] = useState<unknown>(null)
   const [refreshing, setRefreshing] = useState(false)
   const generationRef = useRef(0)
   const mountedRef = useRef(true)
@@ -87,14 +72,10 @@ export function useMobileAgentHistoryState(params: MobileAgentHistoryStateParams
     async (options: { scope: AiVaultScope; force: boolean }): Promise<void> => {
       const generation = generationRef.current + 1
       generationRef.current = generation
-      const isCurrent = () =>
-        mountedRef.current &&
-        generationRef.current === generation &&
-        (client?.getGeneration?.() ?? 0) === clientGeneration
+      const isCurrent = () => mountedRef.current && generationRef.current === generation
 
       if (!client || connState !== 'connected') {
         if (isCurrent()) {
-          setHostStatusProbe(null)
           // Why: keep the stale list visible through transient reconnects
           // (connState flips re-run the load effect) instead of tearing it
           // down to a full-screen error, matching the host list screen.
@@ -117,7 +98,7 @@ export function useMobileAgentHistoryState(params: MobileAgentHistoryStateParams
           () => agentHistoryHostStatusRead.interpret(statusReply),
           'Unable to reach host'
         )
-        setHostStatusProbe({ hostId, client, generation: clientGeneration, result: status })
+        setHostStatusResult(status)
         if (!status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY)) {
           setScreenState({ kind: 'unsupported' })
           return
@@ -159,11 +140,11 @@ export function useMobileAgentHistoryState(params: MobileAgentHistoryStateParams
           return
         }
         const message = err instanceof Error ? err.message : 'Unable to load agent sessions'
-        setHostStatusProbe(null)
+        setHostStatusResult(null)
         setScreenState({ kind: 'error', message })
       }
     },
-    [activeWorktree, client, clientGeneration, connState, hostId, worktrees, worktreesLoaded]
+    [activeWorktree, client, connState, worktrees, worktreesLoaded]
   )
 
   // Initial + reconnect load. Why: scope switches reuse the host's 15s cache

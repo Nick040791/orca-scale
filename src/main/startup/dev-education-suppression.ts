@@ -1,4 +1,4 @@
-import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../../shared/onboarding-defaults'
+import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../../shared/constants'
 import { CONTEXTUAL_TOUR_IDS } from '../../shared/contextual-tours'
 import {
   FEATURE_INTERACTION_IDS,

@@ -491,12 +491,8 @@ it('fences a first-ever read whose file was removed before it committed', () => 
 })
 
 it('replaces the previous generation without ever showing both', async () => {
-  const candidate = syntheticCandidate()
-  replayTranscriptRead({ candidate, messages: userMessages('firstgeneration', 10) })
-  replayTranscriptRead({
-    candidate: syntheticCandidate({ mtimeMs: candidate.file.mtimeMs + 1 }),
-    messages: userMessages('secondgeneration', 10)
-  })
+  replayTranscriptRead({ messages: userMessages('firstgeneration', 10) })
+  replayTranscriptRead({ messages: userMessages('secondgeneration', 10) })
 
   expect(matches(index.db, 'messages_fts', 'firstgeneration')).toBe(0)
   expect(matches(index.db, 'messages_fts', 'secondgeneration')).toBe(10)
@@ -545,12 +541,8 @@ it('replaces a generation by cutting the old one loose, not by deleting it inlin
 })
 
 it('drains what a replace cut loose without being asked', async () => {
-  const candidate = syntheticCandidate()
-  replayTranscriptRead({ candidate, messages: userMessages('firstgeneration', 200) })
-  replayTranscriptRead({
-    candidate: syntheticCandidate({ mtimeMs: candidate.file.mtimeMs + 1 }),
-    messages: userMessages('secondgeneration', 3)
-  })
+  replayTranscriptRead({ messages: userMessages('firstgeneration', 200) })
+  replayTranscriptRead({ messages: userMessages('secondgeneration', 3) })
 
   // The store schedules the reclaim the way it schedules retention's. Hiding a
   // generation and never reclaiming it would grow the file by every re-read.

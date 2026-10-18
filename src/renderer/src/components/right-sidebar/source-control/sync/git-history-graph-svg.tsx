@@ -1,7 +1,6 @@
 import React from 'react'
 import type { GitHistoryGraphColorId } from '../../../../../../shared/git-history'
 import {
-  getGitHistoryItemColor,
   getGitHistoryItemLaneIndex,
   getGitHistoryMergeParentLaneIndex,
   type GitHistoryItemViewModel
@@ -48,7 +47,12 @@ export function GitHistoryGraphSvg({
   const outputSwimlanes = viewModel.outputSwimlanes
   const inputIndex = inputSwimlanes.findIndex((node) => node.id === historyItem.id)
   const circleIndex = getGitHistoryItemLaneIndex(viewModel)
-  const circleColor = getGitHistoryItemColor(viewModel)
+  const circleColor =
+    circleIndex < outputSwimlanes.length
+      ? outputSwimlanes[circleIndex]!.color
+      : circleIndex < inputSwimlanes.length
+        ? inputSwimlanes[circleIndex]!.color
+        : 'git-graph-ref'
 
   const paths: React.JSX.Element[] = []
   let outputSwimlaneIndex = 0
@@ -68,7 +72,7 @@ export function GitHistoryGraphSvg({
             ].join(' ')}
           />
         )
-      } else if (historyItem.parentIds.length > 0) {
+      } else {
         outputSwimlaneIndex += 1
       }
       continue

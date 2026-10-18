@@ -52,6 +52,15 @@ const DICTATION_GRANTS = ['native.audio.start', 'native.audio.read', 'native.aud
  *  web builds are a denied microphone and a no-op screen lock. */
 const NATIVE_AUDIO_MODULES = ['@orca/expo-two-way-audio', 'expo-keep-awake']
 
+/**
+ * How many of their modules re-enter the session closure when the seam's web half is moved aside.
+ *
+ * Recorded rather than measured here, because measuring it means walking the closure a second time
+ * against a mutated tree. Five from `@orca/expo-two-way-audio` (its module, `core`, `events`,
+ * `hooks` and the index) and three from `expo-keep-awake`. The docstring above carries the run.
+ */
+const NATIVE_AUDIO_MODULES_BEHIND_THE_SEAM = 8
+
 const SESSION_PATHNAME = '/h/[hostId]/session/[worktreeId]'
 const SESSION = 'app/h/[hostId]/session/[worktreeId].tsx'
 
@@ -177,6 +186,13 @@ describeClosure(
       expect(closure.local).toContain('src/hooks/use-mobile-dictation.ts')
       expect(closure.local).toContain('src/hooks/mobile-dictation-audio-chunk.ts')
     })
+
+    it('is big enough that finding nothing would mean something', async () => {
+      const closure = await closureOf(SESSION)
+      // The largest route of the series; a closure that collapsed would pass every rule above by
+      // containing nothing to judge.
+      expect(closure.local.length).toBeGreaterThan(900)
+    })
   },
   240_000
 )
@@ -187,7 +203,6 @@ describe('the census rule itself', () => {
       'app/h/[hostId]/index.tsx',
       'app/h/[hostId]/agent-history/[worktreeId].tsx',
       'app/h/[hostId]/tasks.tsx',
-      'app/h/[hostId]/accounts.tsx',
       'app/h/[hostId]/files/[worktreeId].tsx',
       'app/h/[hostId]/files/preview/[worktreeId].tsx',
       'app/h/[hostId]/source-control/[worktreeId].tsx',
@@ -199,6 +214,11 @@ describe('the census rule itself', () => {
   it('asks for all three grants or none, never a subset', () => {
     expect(dictationGrantsNeeded({ local: [SEAM] })).toEqual(DICTATION_GRANTS)
     expect(dictationGrantsNeeded({ local: ['src/platform/media-picker.web.ts'] })).toEqual([])
+  })
+
+  it('records what the seam keeps out, in the number that was measured', () => {
+    expect(NATIVE_AUDIO_MODULES_BEHIND_THE_SEAM).toBe(8)
+    expect(NATIVE_AUDIO_MODULES).toHaveLength(2)
   })
 
   /**

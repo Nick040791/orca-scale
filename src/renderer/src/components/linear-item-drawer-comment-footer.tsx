@@ -1,4 +1,3 @@
-import { ImeTextarea } from '@/lib/ime-text-field'
 import React, { useCallback, useRef, useState } from 'react'
 import { LoaderCircle, Send } from 'lucide-react'
 import { toast } from 'sonner'
@@ -15,7 +14,6 @@ import { linearAddIssueComment } from '@/runtime/runtime-linear-issue-mutations'
 import { translate } from '@/i18n/i18n'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { LinearLocalComment } from '@/components/linear-item-drawer-types'
-import { defaultScopeSource } from '@/lib/default-creation-host'
 
 export function LinearIssueCommentFooter({
   issueId,
@@ -31,7 +29,7 @@ export function LinearIssueCommentFooter({
   sourceContext?: TaskSourceContext | null
 }): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
-  const providerSettings = sourceContext ?? defaultScopeSource(settings)
+  const providerSettings = sourceContext ?? settings
   const submitShortcutLabel = getScreenSubmitShortcutLabel()
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -125,7 +123,7 @@ export function LinearIssueCommentFooter({
         ref={handleFooterRef}
         className="rounded-xl border border-border/70 bg-background shadow-xs"
       >
-        <ImeTextarea
+        <textarea
           ref={textareaRef}
           value={body}
           onChange={(e) => {
@@ -170,7 +168,7 @@ export function LinearIssueCommentFooter({
       ref={handleFooterRef}
       className="flex items-end gap-2 border-t border-border/60 bg-background/40 px-4 py-3"
     >
-      <ImeTextarea
+      <textarea
         ref={textareaRef}
         value={body}
         onChange={(e) => {

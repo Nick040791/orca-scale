@@ -51,14 +51,16 @@ export function WorktreeCardSurface({ card }: { card: WorktreeCardController }):
         'relative flex cursor-pointer flex-col pr-1.5 transition-[background-color,border-color,opacity,box-shadow] duration-200 outline-none select-none',
         titleOnlyCard ? 'py-2' : 'pt-1.25 pb-1.5',
         flushSurface ? 'ml-1 w-[calc(100%-0.25rem)]' : 'ml-1',
-        'overflow-hidden rounded-lg',
+        'rounded-lg',
         // Why: the live data attribute updates before React state during navigation,
         // so it must own the complete active style without stale utility classes.
         isLineageDropTarget
           ? 'border border-worktree-sidebar-foreground/40 bg-worktree-sidebar-accent text-worktree-sidebar-accent-foreground ring-1 ring-inset ring-worktree-sidebar-ring/60'
           : isActiveSurface
             ? 'border border-transparent'
-            : 'border border-transparent worktree-sidebar-card-hover',
+            : isMultiSelected
+              ? 'border border-worktree-sidebar-ring/35 bg-worktree-sidebar-accent/70 ring-1 ring-worktree-sidebar-ring/30'
+              : 'border border-transparent worktree-sidebar-card-hover',
         isActiveSurface && isMultiSelected && 'ring-1 ring-worktree-sidebar-ring/35',
         revealHighlight && [
           'scroll-to-current-workspace-reveal-highlight',
@@ -77,9 +79,6 @@ export function WorktreeCardSurface({ card }: { card: WorktreeCardController }):
       data-worktree-card-surface="true"
       data-worktree-card-active={
         isActiveSurface && !isLineageDropTarget ? activeSurfaceVariant : undefined
-      }
-      data-worktree-card-selected={
-        (isMultiSelected && !isActiveSurface && !isLineageDropTarget) || undefined
       }
       data-worktree-lineage-drop-target={isLineageDropTarget || undefined}
       onClick={handleClick}
@@ -110,9 +109,9 @@ export function WorktreeCardSurface({ card }: { card: WorktreeCardController }):
         parentCardContent
       )}
 
-      {lineageChildren ? (
+      {newCardStyle && lineageChildren ? (
         <div
-          className={cn('space-y-1', newCardStyle ? 'mt-1.5' : 'mt-3')}
+          className="mt-1.5 space-y-1"
           data-worktree-lineage-children=""
           style={lineageChildrenStyle}
         >

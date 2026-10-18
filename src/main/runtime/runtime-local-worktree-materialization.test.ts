@@ -21,7 +21,6 @@ vi.mock('../git/worktree-shared-directories', () => ({
 }))
 
 import { materializeRuntimeLocalWorktree } from './runtime-local-worktree-materialization'
-import { createWorktreeCreateTimingRecorder } from '../worktree-create-timing'
 
 describe('materializeRuntimeLocalWorktree', () => {
   it('records lineage immediately after metadata and before filesystem setup', async () => {
@@ -66,8 +65,7 @@ describe('materializeRuntimeLocalWorktree', () => {
         onMetadataPersisted: () => {
           order.push('metadata')
           return null
-        },
-        timing: createWorktreeCreateTimingRecorder()
+        }
       } as never)
     ).rejects.toThrow('link failed')
 

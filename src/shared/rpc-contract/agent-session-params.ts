@@ -11,8 +11,6 @@ import type {
   RuntimeEnsureAgentSessionRequest
 } from '../agent-session-host-authority'
 import { isTuiAgent } from '../tui-agent-config'
-import { RESTORE_SPAWN_INTENTS } from '../host-spawn-admission'
-import { AgentLaunchAccountEnv } from '../agent-launch-account-env'
 
 export const MAX_WORKTREE_SELECTOR_LENGTH = 32_768
 
@@ -70,9 +68,6 @@ export const LaunchPreferences = z
   .strict()
 
 export const PromptDelivery = z.enum(['auto-submit', 'draft'])
-
-/** Sent only to hosts advertising `terminal.spawn-intent.v1`; presence opts into deferral. */
-export const SpawnIntentParam = z.enum(RESTORE_SPAWN_INTENTS)
 
 export const AgentArgs = z
   .string()
@@ -137,10 +132,7 @@ export const ExplicitEnsure = z
     agentArgs: AgentArgs.optional(),
     launchPreferences: LaunchPreferences.optional(),
     presentation: Presentation.optional(),
-    placement: Placement.optional(),
-    spawnIntent: SpawnIntentParam.optional(),
-    /** Sent only to hosts advertising `agent-session.account-env.v1`; outside replay identity. */
-    accountEnv: AgentLaunchAccountEnv.optional()
+    placement: Placement.optional()
   })
   .strict()
   .superRefine((value, context) => {
@@ -187,9 +179,7 @@ export const CreateAgentSessionParams: z.ZodType<RuntimeCreateAgentSessionReques
     startupCwd: z.string().min(1).max(MAX_WORKTREE_SELECTOR_LENGTH).optional(),
     presentation: Presentation.optional(),
     placement: Placement.optional(),
-    viewMode: z.enum(['terminal', 'chat']).optional(),
-    /** Sent only to hosts advertising `agent-session.account-env.v1`; outside the fingerprint. */
-    accountEnv: AgentLaunchAccountEnv.optional()
+    viewMode: z.enum(['terminal', 'chat']).optional()
   })
   .strict()
   .superRefine((value, context) => {

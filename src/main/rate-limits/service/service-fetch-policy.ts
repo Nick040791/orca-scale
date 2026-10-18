@@ -10,8 +10,6 @@ import {
   type ProviderRateLimits
 } from './service-types'
 import { mapClaudeUsageWindow } from '../claude-usage-window'
-import { readUserClaudeConfigDir } from '../../claude-accounts/claude-profile-paths'
-import { getClaudeProfileRouter } from '../../claude-accounts/claude-profile-installed-router'
 
 export abstract class RateLimitServiceFetchPolicy extends RateLimitServiceFetchTargets {
   protected getMiniMaxCredentialError(message: string): ProviderRateLimits {
@@ -19,19 +17,6 @@ export abstract class RateLimitServiceFetchPolicy extends RateLimitServiceFetchT
       provider: 'minimax',
       session: null,
       weekly: null,
-      updatedAt: Date.now(),
-      error: message,
-      status: 'error',
-      usageMetadata: { failureKind: 'keychain-unavailable', source: 'web' }
-    }
-  }
-
-  protected getZcodePlanCredentialError(message: string): ProviderRateLimits {
-    return {
-      provider: 'zcode',
-      session: null,
-      weekly: null,
-      monthly: null,
       updatedAt: Date.now(),
       error: message,
       status: 'error',
@@ -93,12 +78,7 @@ export abstract class RateLimitServiceFetchPolicy extends RateLimitServiceFetchT
       return
     }
     this.lastClaudeAuthSnapshot = {
-      // Why the user's own folder: System default passes it through rather than injecting it.
-      configDir: normalizeClaudeConfigDir(
-        authPreparation?.envPatch.CLAUDE_CONFIG_DIR ??
-          getClaudeProfileRouter()?.userConfigDir() ??
-          readUserClaudeConfigDir(process.env)
-      ),
+      configDir: normalizeClaudeConfigDir(authPreparation?.envPatch.CLAUDE_CONFIG_DIR),
       provenance: authPreparation?.provenance ?? 'system'
     }
   }

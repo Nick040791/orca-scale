@@ -1,14 +1,11 @@
 import { joinPath, dirname, normalizeRelativePath } from '@/lib/path'
 import {
-  isWindowsAbsolutePathLike,
   normalizeRuntimePathForComparison,
   relativePathInsideRoot
 } from '../../../../shared/cross-platform-path'
 
 export function normalizeExplorerAbsolutePath(path: string): string {
-  return path === '/' || /^[A-Za-z]:[\\/]$/.test(path)
-    ? path
-    : path.replace(isWindowsAbsolutePathLike(path) ? /[\\/]+$/ : /\/+$/, '')
+  return path === '/' || /^[A-Za-z]:[\\/]$/.test(path) ? path : path.replace(/[\\/]+$/, '')
 }
 
 export function getExternalFileChangeRelativePath(
@@ -26,7 +23,7 @@ export function getExternalFileChangeRelativePath(
   }
 
   // Why: EditorPanel reloads tabs only from a worktree-relative path, not the watcher's absolute one; normalize or contents go stale.
-  return normalizeRelativePath(relativePath, worktreePath)
+  return normalizeRelativePath(relativePath)
 }
 
 export function canonicalizeFileExplorerWatchPath(
@@ -43,11 +40,10 @@ export function canonicalizeFileExplorerWatchPath(
 }
 
 export function createCachedDirPathIndex(
-  cache: Record<string, { children: unknown }>,
-  keys: readonly string[] = Object.keys(cache)
+  cache: Record<string, { children: unknown }>
 ): ReadonlyMap<string, string> {
   const index = new Map<string, string>()
-  for (const key of keys) {
+  for (const key of Object.keys(cache)) {
     const normalizedKey = normalizeRuntimePathForComparison(key)
     if (!index.has(normalizedKey)) {
       index.set(normalizedKey, key)
@@ -91,10 +87,6 @@ export function resolveCachedDirPath(
 }
 
 export function parentDirForWatchPath(normalizedPath: string): string {
-  if (!isWindowsAbsolutePathLike(normalizedPath)) {
-    const separator = normalizedPath.lastIndexOf('/')
-    return separator === -1 ? '.' : normalizedPath.slice(0, separator) || '/'
-  }
   const parentPath = dirname(normalizedPath)
   if (/^[A-Za-z]:$/.test(parentPath)) {
     return `${parentPath}${normalizedPath.includes('\\') ? '\\' : '/'}`

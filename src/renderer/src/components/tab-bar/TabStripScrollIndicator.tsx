@@ -1,53 +1,52 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { computeTabStripThumbLayout } from './tab-strip-scroll-metrics'
-import { motionSafeScrollBehavior } from '@/hooks/usePrefersReducedMotion'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  computeTabStripThumbLayout,
+  type TabStripScrollMetrics,
+  type TabStripThumbLayout
+} from './tab-strip-scroll-metrics'
+
+const EMPTY_THUMB_LAYOUT: TabStripThumbLayout = { widthPx: 0, leftPx: 0 }
 
 export type TabStripScrollIndicatorProps = {
-  hasOverflow: boolean
+  metrics: TabStripScrollMetrics
   scrollContainerRef?: React.RefObject<HTMLElement | null>
-  /** Called when tabs change the strip's size without a scroll event; returns an unsubscribe. */
-  subscribeToStripResize?: (listener: () => void) => () => void
   disabled?: boolean
 }
 
 export function TabStripScrollIndicator({
-  hasOverflow,
+  metrics,
   scrollContainerRef,
-  subscribeToStripResize,
   disabled = false
 }: TabStripScrollIndicatorProps): React.JSX.Element | null {
   const trackRef = useRef<HTMLDivElement>(null)
-  const thumbRef = useRef<HTMLDivElement>(null)
   const cleanupDragRef = useRef<(() => void) | null>(null)
+  const [thumbLayout, setThumbLayout] = useState<TabStripThumbLayout>(EMPTY_THUMB_LAYOUT)
   const [isHovered, setIsHovered] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Why write the thumb's style directly: it moves every scroll frame, and React state would re-render per frame.
-  useLayoutEffect(() => {
+  const remeasureThumb = useCallback((): void => {
     const track = trackRef.current
-    const thumb = thumbRef.current
-    const scrollContainer = scrollContainerRef?.current
-    if (!track || !thumb || !scrollContainer) {
+    if (!track) {
       return
     }
-    const syncThumb = (): void => {
-      const layout = computeTabStripThumbLayout(track.clientWidth, scrollContainer)
-      thumb.style.width = `${layout.widthPx}px`
-      thumb.style.transform = `translateX(${layout.leftPx}px)`
+    setThumbLayout(computeTabStripThumbLayout(track.clientWidth, metrics))
+  }, [metrics])
+
+  useLayoutEffect(() => {
+    remeasureThumb()
+  }, [remeasureThumb])
+
+  useLayoutEffect(() => {
+    const track = trackRef.current
+    if (!track) {
+      return
     }
-    syncThumb()
-    scrollContainer.addEventListener('scroll', syncThumb, { passive: true })
-    const trackResizeObserver = new ResizeObserver(syncThumb)
-    trackResizeObserver.observe(track)
-    const unsubscribeStripResize = subscribeToStripResize?.(syncThumb)
-    return () => {
-      scrollContainer.removeEventListener('scroll', syncThumb)
-      trackResizeObserver.disconnect()
-      unsubscribeStripResize?.()
-    }
-  }, [hasOverflow, scrollContainerRef, subscribeToStripResize])
+    const resizeObserver = new ResizeObserver(remeasureThumb)
+    resizeObserver.observe(track)
+    return () => resizeObserver.disconnect()
+  }, [remeasureThumb])
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef?.current
@@ -80,10 +79,10 @@ export function TabStripScrollIndicator({
 
   // Why: hiding the indicator mid-drag would otherwise leave window listeners and body cursor/user-select stuck.
   useEffect(() => {
-    if (disabled || !hasOverflow) {
+    if (disabled || !metrics.hasOverflow) {
       cleanupDragRef.current?.()
     }
-  }, [disabled, hasOverflow])
+  }, [disabled, metrics.hasOverflow])
 
   const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || disabled) {
@@ -101,8 +100,7 @@ export function TabStripScrollIndicator({
     const startX = e.clientX
     const startScrollLeft = scrollContainer.scrollLeft
     const trackWidth = track.clientWidth
-    const thumbWidth = computeTabStripThumbLayout(trackWidth, scrollContainer).widthPx
-    const maxLeft = Math.max(1, trackWidth - thumbWidth)
+    const maxLeft = Math.max(1, trackWidth - thumbLayout.widthPx)
     const maxScrollLeft = Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth)
 
     if (maxScrollLeft <= 0 || maxLeft <= 0) {
@@ -159,7 +157,7 @@ export function TabStripScrollIndicator({
     const trackRect = track.getBoundingClientRect()
     const clickX = e.clientX - trackRect.left
     const trackWidth = track.clientWidth
-    const thumbWidth = computeTabStripThumbLayout(trackWidth, scrollContainer).widthPx
+    const thumbWidth = thumbLayout.widthPx
     const maxLeft = Math.max(1, trackWidth - thumbWidth)
     const maxScrollLeft = Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth)
 
@@ -172,7 +170,7 @@ export function TabStripScrollIndicator({
 
     scrollContainer.scrollTo({
       left: targetScrollLeft,
-      behavior: motionSafeScrollBehavior()
+      behavior: 'smooth'
     })
   }
 
@@ -186,7 +184,7 @@ export function TabStripScrollIndicator({
     scrollContainer.scrollLeft += delta
   }
 
-  if (!hasOverflow) {
+  if (!metrics.hasOverflow) {
     return null
   }
 
@@ -200,7 +198,7 @@ export function TabStripScrollIndicator({
       ref={trackRef}
       data-testid="tab-strip-scroll-indicator"
       className={`absolute inset-x-0 bottom-0 z-[12] select-none transition-[height,background-color,opacity] duration-150 ease-out ${
-        isExpanded ? 'h-[4px] bg-muted-foreground/15 cursor-pointer' : 'h-[3px] bg-transparent'
+        isExpanded ? 'h-[3px] bg-muted-foreground/10 cursor-pointer' : 'h-[2px] bg-transparent'
       } ${
         disabled
           ? 'opacity-0 pointer-events-none'
@@ -216,15 +214,18 @@ export function TabStripScrollIndicator({
       aria-hidden
     >
       <div
-        ref={thumbRef}
         data-testid="tab-strip-scroll-thumb"
-        className={`absolute bottom-0 left-0 h-full rounded-full will-change-transform transition-colors duration-150 ease-out ${
+        className={`absolute bottom-0 h-full rounded-full transition-colors duration-150 ease-out ${
           isDragging
-            ? 'bg-foreground/70 cursor-grabbing'
+            ? 'bg-foreground/40 cursor-grabbing'
             : isHovered
-              ? 'bg-muted-foreground/80 cursor-grab'
-              : 'bg-muted-foreground/60 cursor-default'
+              ? 'bg-muted-foreground/50 cursor-grab'
+              : 'bg-muted-foreground/25 cursor-default'
         }`}
+        style={{
+          width: `${thumbLayout.widthPx}px`,
+          left: `${thumbLayout.leftPx}px`
+        }}
         onPointerDown={handleThumbPointerDown}
       />
     </div>

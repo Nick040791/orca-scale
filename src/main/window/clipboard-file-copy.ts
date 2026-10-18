@@ -1,7 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ProcessResult, ProcessSpec } from '@orca/process-host/process-spec'
-import { windowsPowerShellPath } from '@orca/process-host/windows-system-binary'
+import { quotePowerShellLiteral } from '../../shared/powershell-native-argument'
 
 export type ClipboardFileResult = { ok: boolean; reason?: string }
 
@@ -16,10 +15,8 @@ export type ClipboardFileDeps = {
     path: string
   ) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>
   writeBuffer: (format: string, buffer: Buffer) => void
-  runProcess: (spec: ProcessSpec) => Promise<ProcessResult>
+  runCommand: (command: string, args: string[], stdin?: string) => Promise<void>
 }
-
-const WINDOWS_CLIPBOARD_FILE_ENV = 'ORCA_CLIPBOARD_FILE'
 
 // Put a real OS-level file reference on the clipboard so pasting in Finder /
 // Explorer / a file manager drops the actual file (not its path as text). Only
@@ -50,19 +47,20 @@ export async function writeFileToClipboard(
   }
 
   if (deps.platform === 'win32') {
-    // Set-Clipboard publishes CF_HDROP; Electron's writeBuffer only registers custom formats Explorer can't paste.
-    // The path travels in the environment so it is never parsed as script.
-    const copied = await runClipboardHelper(deps.runProcess, {
-      program: windowsPowerShellPath(),
-      args: [
+    // Set-Clipboard -LiteralPath populates CF_HDROP, which Explorer pastes as a
+    // file. Guard the spawn so a missing/erroring PowerShell surfaces as a
+    // result, not a throw.
+    try {
+      await deps.runCommand('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        `Set-Clipboard -LiteralPath $env:${WINDOWS_CLIPBOARD_FILE_ENV}`
-      ],
-      env: { ...process.env, [WINDOWS_CLIPBOARD_FILE_ENV]: clipboardPath }
-    })
-    return copied ? { ok: true } : { ok: false, reason: 'clipboard-command-failed' }
+        `Set-Clipboard -LiteralPath ${quotePowerShellLiteral(clipboardPath)}`
+      ])
+      return { ok: true }
+    } catch {
+      return { ok: false, reason: 'clipboard-command-failed' }
+    }
   }
 
   // Linux: best-effort and desktop-dependent. GNOME-family managers
@@ -72,31 +70,16 @@ export async function writeFileToClipboard(
   const [mime, payload] = /kde/i.test(deps.desktop ?? '')
     ? ['text/uri-list', `${fileUrl}\r\n`]
     : ['x-special/gnome-copied-files', `copy\n${fileUrl}`]
-  for (const [program, args] of [
+  for (const [command, args] of [
     ['wl-copy', ['--type', mime]],
     ['xclip', ['-selection', 'clipboard', '-t', mime]]
   ] as const) {
-    if (await runClipboardHelper(deps.runProcess, { program, args, input: payload })) {
+    try {
+      await deps.runCommand(command, [...args], payload)
       return { ok: true }
+    } catch {
+      // try the next tool
     }
   }
   return { ok: false, reason: 'unsupported-platform' }
-}
-
-// True only on a clean exit; a helper that cannot start, fails or times out is false.
-async function runClipboardHelper(
-  runProcess: ClipboardFileDeps['runProcess'],
-  spec: ProcessSpec
-): Promise<boolean> {
-  try {
-    const result = await runProcess({
-      ...spec,
-      // Why ignored: wl-copy and xclip fork a background selection owner, and an
-      // inherited output pipe would hold the run open until that owner exits.
-      stdio: ['pipe', 'ignore', 'ignore']
-    })
-    return result.code === 0 && !result.timedOut
-  } catch {
-    return false
-  }
 }

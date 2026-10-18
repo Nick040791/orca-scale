@@ -3,7 +3,6 @@ import { CreateProject } from '../../../../shared/rpc-contract/linear-project-cr
 
 export const LINEAR_PROJECT_CREATE_METHOD = defineMethod({
   name: 'linear.createProject',
-  permission: 'workspace',
   params: CreateProject,
   handler: async (params, { runtime }) =>
     runtime.linearCreateProject(

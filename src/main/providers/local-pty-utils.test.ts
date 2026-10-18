@@ -1,23 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as fs from 'node:fs'
-import type * as FsPromises from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 
-const {
-  existsSyncMock,
-  statSyncMock,
-  statMock,
-  accessSyncMock,
-  wslUncDirectoryExistsAsyncMock,
-  wrapSpawnMock
-} = vi.hoisted(() => ({
-  existsSyncMock: vi.fn(),
-  statSyncMock: vi.fn(),
-  statMock: vi.fn(),
-  accessSyncMock: vi.fn(),
-  wslUncDirectoryExistsAsyncMock: vi.fn(),
-  wrapSpawnMock: vi.fn()
-}))
+const { existsSyncMock, statSyncMock, accessSyncMock, wslUncDirectoryExistsMock, wrapSpawnMock } =
+  vi.hoisted(() => ({
+    existsSyncMock: vi.fn(),
+    statSyncMock: vi.fn(),
+    accessSyncMock: vi.fn(),
+    wslUncDirectoryExistsMock: vi.fn(),
+    wrapSpawnMock: vi.fn()
+  }))
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof fs>()
@@ -29,17 +21,12 @@ vi.mock('fs', async (importOriginal) => {
   }
 })
 
-vi.mock('node:fs/promises', async (importOriginal) => ({
-  ...(await importOriginal<typeof FsPromises>()),
-  stat: statMock
-}))
-
 function dirStats(isDirectory: boolean): Stats {
   return { isDirectory: () => isDirectory } as Stats
 }
 
 vi.mock('../wsl', () => ({
-  wslUncDirectoryExistsAsync: wslUncDirectoryExistsAsyncMock
+  wslUncDirectoryExists: wslUncDirectoryExistsMock
 }))
 
 vi.mock('./macos-tcc-login-shell', () => ({
@@ -52,8 +39,6 @@ import {
   spawnShellWithFallback,
   validateWorkingDirectory
 } from './local-pty-utils'
-import { _resetWorkingDirectoryValidationStateForTest } from './working-directory-validation'
-import { getFishXdgDataDirsLaunchEnv } from '../fish-xdg-data-dirs-handoff'
 
 const WSL_UNC_DIR = '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo'
 const NATIVE_DIR = 'C:\\Users\\jin\\repo'
@@ -62,81 +47,61 @@ describe('validateWorkingDirectory', () => {
   beforeEach(() => {
     existsSyncMock.mockReset()
     statSyncMock.mockReset()
-    statMock.mockReset()
-    wslUncDirectoryExistsAsyncMock.mockReset()
-    _resetWorkingDirectoryValidationStateForTest()
+    wslUncDirectoryExistsMock.mockReset()
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('accepts a WSL UNC worktree that exists inside the distro even when fs.statSync would fail', async () => {
+  it('accepts a WSL UNC worktree that exists inside the distro even when fs.statSync would fail', () => {
     // Why: the Win32 9P stat is the exact path that falsely reported ENOENT and
     // broke opening WSL worktrees. The distro answer must win.
-    wslUncDirectoryExistsAsyncMock.mockResolvedValue(true)
+    wslUncDirectoryExistsMock.mockReturnValue(true)
     existsSyncMock.mockReturnValue(false)
 
-    await expect(validateWorkingDirectory(WSL_UNC_DIR)).resolves.toBeUndefined()
-    expect(wslUncDirectoryExistsAsyncMock).toHaveBeenCalledWith(WSL_UNC_DIR)
+    expect(() => validateWorkingDirectory(WSL_UNC_DIR)).not.toThrow()
+    expect(wslUncDirectoryExistsMock).toHaveBeenCalledWith(WSL_UNC_DIR)
     // The fs fallback must not run when the distro confirmed existence.
     expect(existsSyncMock).not.toHaveBeenCalled()
-    expect(statMock).not.toHaveBeenCalled()
   })
 
-  it('returns to the event loop while the distro probe is still running', async () => {
-    const probe = Promise.withResolvers<boolean | null>()
-    wslUncDirectoryExistsAsyncMock.mockReturnValue(probe.promise)
-    let settled = false
+  it('rejects a WSL UNC worktree that does not exist inside the distro', () => {
+    wslUncDirectoryExistsMock.mockReturnValue(false)
 
-    const validation = validateWorkingDirectory(WSL_UNC_DIR).finally(() => {
-      settled = true
-    })
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(settled).toBe(false)
-
-    probe.resolve(true)
-    await validation
-    expect(settled).toBe(true)
-  })
-
-  it('rejects a WSL UNC worktree that does not exist inside the distro', async () => {
-    wslUncDirectoryExistsAsyncMock.mockResolvedValue(false)
-
-    await expect(validateWorkingDirectory(WSL_UNC_DIR)).rejects.toThrow(/does not exist/)
-    expect(existsSyncMock).not.toHaveBeenCalled()
-    expect(statMock).not.toHaveBeenCalled()
-  })
-
-  it('falls back to the fs check when the distro answer is inconclusive', async () => {
-    wslUncDirectoryExistsAsyncMock.mockResolvedValue(null)
-    statMock.mockResolvedValue(dirStats(true))
-
-    await expect(validateWorkingDirectory(WSL_UNC_DIR)).resolves.toBeUndefined()
-    expect(wslUncDirectoryExistsAsyncMock).toHaveBeenCalledWith(WSL_UNC_DIR)
-    expect(statMock).toHaveBeenCalledWith(WSL_UNC_DIR)
+    expect(() => validateWorkingDirectory(WSL_UNC_DIR)).toThrow(/does not exist/)
     expect(existsSyncMock).not.toHaveBeenCalled()
   })
 
-  it('validates native Windows paths via fs without consulting the distro', async () => {
+  it('falls back to the fs check when the distro answer is inconclusive', () => {
+    wslUncDirectoryExistsMock.mockReturnValue(null)
     existsSyncMock.mockReturnValue(true)
     statSyncMock.mockReturnValue(dirStats(true))
 
-    await expect(validateWorkingDirectory(NATIVE_DIR)).resolves.toBeUndefined()
-    expect(wslUncDirectoryExistsAsyncMock).not.toHaveBeenCalled()
+    expect(() => validateWorkingDirectory(WSL_UNC_DIR)).not.toThrow()
+    expect(wslUncDirectoryExistsMock).toHaveBeenCalledWith(WSL_UNC_DIR)
+    expect(existsSyncMock).toHaveBeenCalledWith(WSL_UNC_DIR)
+  })
+
+  it('validates native Windows paths via fs without consulting the distro', () => {
+    existsSyncMock.mockReturnValue(true)
+    statSyncMock.mockReturnValue(dirStats(true))
+
+    expect(() => validateWorkingDirectory(NATIVE_DIR)).not.toThrow()
+    expect(wslUncDirectoryExistsMock).not.toHaveBeenCalled()
     expect(existsSyncMock).toHaveBeenCalledWith(NATIVE_DIR)
   })
 
-  it('rejects a missing native Windows path', async () => {
+  it('rejects a missing native Windows path', () => {
     existsSyncMock.mockReturnValue(false)
     const previousVersion = process.env.ORCA_APP_VERSION
     process.env.ORCA_APP_VERSION = '1.4.178-test'
 
     try {
-      await expect(validateWorkingDirectory(NATIVE_DIR)).rejects.toThrow(
+      expect(() => validateWorkingDirectory(NATIVE_DIR)).toThrow(
         /does not exist.*orca: 1\.4\.178-test/
       )
-      expect(wslUncDirectoryExistsAsyncMock).not.toHaveBeenCalled()
+      expect(wslUncDirectoryExistsMock).not.toHaveBeenCalled()
     } finally {
       if (previousVersion === undefined) {
         delete process.env.ORCA_APP_VERSION
@@ -146,11 +111,11 @@ describe('validateWorkingDirectory', () => {
     }
   })
 
-  it('rejects a native Windows path that exists but is not a directory', async () => {
+  it('rejects a native Windows path that exists but is not a directory', () => {
     existsSyncMock.mockReturnValue(true)
     statSyncMock.mockReturnValue(dirStats(false))
 
-    await expect(validateWorkingDirectory(NATIVE_DIR)).rejects.toThrow(/is not a directory/)
+    expect(() => validateWorkingDirectory(NATIVE_DIR)).toThrow(/is not a directory/)
   })
 })
 
@@ -299,11 +264,7 @@ describe('spawnShellWithFallback macOS TCC login wrapping', () => {
       cwd: '/work',
       env,
       ptySpawn: ptySpawn as never,
-      preLaunchEnv: {
-        ZDOTDIR: undefined,
-        ORCA_ORIG_ZDOTDIR: undefined,
-        ORCA_SHELL_FEATURES: undefined
-      },
+      launchEnvKeys: Object.keys(zshLaunchEnv),
       getShellReadyConfig: (shell) =>
         shell === '/bin/zsh' ? { args: ['-l'], env: zshLaunchEnv } : { args: null, env: {} }
     })
@@ -312,44 +273,6 @@ describe('spawnShellWithFallback macOS TCC login wrapping', () => {
     expect(env.ZDOTDIR).toBeUndefined()
     expect(env.ORCA_ORIG_ZDOTDIR).toBeUndefined()
     expect(env.HOME).toBe('/home/jin')
-  })
-
-  it.each<[string, Record<string, string>, Record<string, string>]>([
-    [
-      '/opt/homebrew/bin/fish',
-      { XDG_DATA_DIRS: '/opt/a:/opt/b' },
-      getFishXdgDataDirsLaunchEnv('/userdata/wrappers', '/opt/a:/opt/b')
-    ],
-    [
-      '/bin/zsh',
-      { ZDOTDIR: '/home/jin/.zsh' },
-      { ZDOTDIR: '/userdata/shell-ready/zsh', ORCA_SHELL_FEATURES: 'history' }
-    ]
-  ])('hands back the user’s own env when %s falls back', (shellPath, userEnv, launchEnv) => {
-    const preLaunchEnv = Object.fromEntries(
-      Object.keys(launchEnv).map((key) => [key, userEnv[key]])
-    )
-    const env: Record<string, string> = { HOME: '/home/jin', ...userEnv, ...launchEnv }
-    const ptySpawn = vi
-      .fn()
-      .mockImplementationOnce(() => {
-        throw new Error('primary boom')
-      })
-      .mockReturnValue({ pid: 5 })
-
-    const result = spawnShellWithFallback({
-      shellPath,
-      shellArgs: ['-l'],
-      cols: 80,
-      rows: 24,
-      cwd: '/work',
-      env,
-      ptySpawn: ptySpawn as never,
-      preLaunchEnv,
-      getShellReadyConfig: () => ({ args: null, env: {} })
-    })
-
-    expect(env).toEqual({ HOME: '/home/jin', SHELL: result.shellPath, ...userEnv })
   })
 
   it('drops the first fallback’s launch env when a second fallback takes over', () => {
@@ -376,7 +299,7 @@ describe('spawnShellWithFallback macOS TCC login wrapping', () => {
       cwd: '/work',
       env,
       ptySpawn: ptySpawn as never,
-      preLaunchEnv: { ZDOTDIR: undefined },
+      launchEnvKeys: ['ZDOTDIR'],
       getShellReadyConfig: (shell) =>
         shell === '/bin/bash' ? { args: ['--rcfile', '/rc'], env: bashLaunchEnv } : null
     })

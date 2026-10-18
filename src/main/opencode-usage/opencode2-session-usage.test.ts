@@ -81,10 +81,10 @@ describe('OpenCode 2 session_v2 usage', () => {
         cwd: WORKTREE,
         model: 'anthropic/claude-sonnet-4-5',
         estimatedCostUsd: 0.5,
-        inputTokens: 1300,
+        inputTokens: 100,
         outputTokens: 20,
         reasoningOutputTokens: 5,
-        cachedInputTokens: 1200,
+        cachedInputTokens: 900,
         totalTokens: 1325
       })
     ])
@@ -106,9 +106,8 @@ describe('OpenCode 2 session_v2 usage', () => {
     })
 
     const [event] = readEvents(path)
-    expect(event?.cachedInputTokens).toBe(7_000)
-    expect(event?.inputTokens).toBe(7_010)
-    // Both cache buckets contribute to input; total counts them once.
+    expect(event?.cachedInputTokens).toBe(5_000)
+    // Cache writes are not billed as input, so they only reach the total.
     expect(event?.totalTokens).toBe(7_011)
   })
 
@@ -131,7 +130,7 @@ describe('OpenCode 2 session_v2 usage', () => {
 
     const events = readEvents(path)
     expect(events.map((event) => event.sessionId)).toEqual(['ses_shared', 'ses_v2_only'])
-    expect(events[0]?.inputTokens).toBe(240)
+    expect(events[0]?.inputTokens).toBe(180)
     expect(events[0]?.cachedInputTokens).toBe(60)
   })
 
@@ -212,9 +211,9 @@ describe('OpenCode 2 session_v2 usage', () => {
       expect.objectContaining({
         sessionId: 'ses_v1',
         estimatedCostUsd: 1.25,
-        inputTokens: 20,
+        inputTokens: 11,
         outputTokens: 3,
-        cachedInputTokens: 9,
+        cachedInputTokens: 7,
         totalTokens: 23
       })
     ])
@@ -241,7 +240,7 @@ describe('OpenCode 2 session_v2 usage', () => {
     db.close()
 
     expect(readEvents(path)).toEqual([
-      expect.objectContaining({ sessionId: 'ses_msg', inputTokens: 75, cachedInputTokens: 15 })
+      expect.objectContaining({ sessionId: 'ses_msg', inputTokens: 60, cachedInputTokens: 12 })
     ])
   })
 
@@ -374,7 +373,7 @@ describe('OpenCode 2 migrated session column merge', () => {
     const events = readEvents(path)
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({
-      inputTokens: 2200,
+      inputTokens: 1000,
       cachedInputTokens: 1200,
       estimatedCostUsd: 2,
       totalTokens: 2200
@@ -427,9 +426,9 @@ describe('OpenCode 2 migrated session column merge', () => {
         cwd: WORKTREE,
         model: 'anthropic/claude-sonnet-4-5',
         estimatedCostUsd: 1.25,
-        inputTokens: 20,
+        inputTokens: 11,
         outputTokens: 3,
-        cachedInputTokens: 9,
+        cachedInputTokens: 7,
         totalTokens: 23
       })
     ])

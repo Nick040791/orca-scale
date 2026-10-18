@@ -447,6 +447,12 @@ describe('OrcaRuntimeService', () => {
       listProcesses: vi.fn(async () => []),
       shutdown: vi.fn(async () => {})
     }
+    const sshProvider = {
+      listProcesses: vi.fn(async () => [
+        { id: `${deletedId}@@ssh-session`, cwd: '/tmp/deleted', title: 'shell' }
+      ]),
+      shutdown: vi.fn(async () => {})
+    }
     const localRepo = store.getRepos()[0]
     const sshRepo = { ...localRepo, connectionId: 'ssh-1' }
     const runtime = new OrcaRuntimeService(
@@ -456,7 +462,9 @@ describe('OrcaRuntimeService', () => {
       } as never,
       undefined,
       {
-        getLocalProvider: () => localProvider as never
+        getLocalProvider: () => localProvider as never,
+        getSshProvider: (connectionId) =>
+          connectionId === 'ssh-1' ? (sshProvider as never) : undefined
       }
     )
     vi.spyOn(
@@ -471,7 +479,10 @@ describe('OrcaRuntimeService', () => {
 
     await runtime.teardownMissingManagedWorktreeTerminals(TEST_REPO_ID, [deletedId], 'ssh-1')
 
-    // The SSH repo was selected, so the local inventory is never swept.
+    expect(sshProvider.shutdown).toHaveBeenCalledWith(
+      `${deletedId}@@ssh-session`,
+      expect.objectContaining({ immediate: true })
+    )
     expect(localProvider.listProcesses).not.toHaveBeenCalled()
   })
 

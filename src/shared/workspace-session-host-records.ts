@@ -6,9 +6,7 @@ export function isWorkspaceSessionRecord(value: unknown): value is WorkspaceSess
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function buildWorktreeIdByTabId(
-  state: Partial<Pick<WorkspaceSessionState, 'tabsByWorktree' | 'unifiedTabs'>>
-): Map<string, string> {
+export function buildWorktreeIdByTabId(state: WorkspaceSessionState): Map<string, string> {
   const byTab = new Map<string, string>()
   for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree ?? {})) {
     for (const tab of tabs) {
@@ -66,9 +64,7 @@ export function worktreeIdForPaneKey(
   return separator > 0 ? worktreeIdByTabId.get(paneKey.slice(0, separator)) : undefined
 }
 
-export function buildWorktreeIdByFileId(
-  state: Partial<Pick<WorkspaceSessionState, 'openFilesByWorktree'>>
-): Map<string, string> {
+export function buildWorktreeIdByFileId(state: WorkspaceSessionState): Map<string, string> {
   const byFile = new Map<string, string>()
   for (const files of Object.values(state.openFilesByWorktree ?? {})) {
     for (const file of files) {

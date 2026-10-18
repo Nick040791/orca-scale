@@ -5,11 +5,7 @@ import {
   type DashboardCardDotState
 } from '../../../../shared/dashboard-snapshot'
 import { dashboardBucketForDotState } from './dashboard-card-bucket'
-import type { AgentRowState } from '../../../../shared/agent-row-decay-state'
-import {
-  isAgentSubjectUnread,
-  type AgentAttentionTurnRecords
-} from '@/attention/agent-attention-acknowledgement'
+import type { AgentRowState } from '@/lib/agent-row-decay-state'
 
 /**
  * Project a row state onto the published card vocabulary.
@@ -23,29 +19,6 @@ export function dashboardCardDotState(state: AgentRowState): DashboardCardDotSta
   return state === 'unverifiable' ? 'idle' : state
 }
 
-/** The store slices the agent-row unread rule reads. */
-export type AgentRowUnreadState = {
-  agentStatusByPaneKey: AgentAttentionTurnRecords['liveTurns']
-  retainedAgentsByPaneKey: AgentAttentionTurnRecords['retainedTurns']
-  acknowledgedAgentsByPaneKey: AgentAttentionTurnRecords['acknowledgedTurnStartedAt']
-}
-
-/**
- * The records behind the one unread (bold) rule for an agent row, on every surface that draws one:
- * `isAgentSubjectUnread(records, row.paneKey)`.
- *
- * Why the store's turn records, not the row: auto-acknowledgement clears exactly these, so a row
- * is bold only while viewing or clicking it can clear it. Rows built from a terminal title, a
- * subagent or a migration block have no record and are never unread.
- */
-export function readAgentRowTurnRecords(state: AgentRowUnreadState): AgentAttentionTurnRecords {
-  return {
-    liveTurns: state.agentStatusByPaneKey,
-    retainedTurns: state.retainedAgentsByPaneKey,
-    acknowledgedTurnStartedAt: state.acknowledgedAgentsByPaneKey
-  }
-}
-
 export type DashboardRowBucketProjection = {
   isTitleDerived: boolean
   dotState: DashboardCardDotState
@@ -57,7 +30,7 @@ export type DashboardRowBucketProjection = {
 /** Derive the shared dashboard presentation state for one agent row. */
 export function dashboardRowBucketProjection(
   row: Pick<DashboardAgentRow, 'paneKey' | 'entry' | 'state' | 'startedAt'>,
-  turnRecords: AgentAttentionTurnRecords
+  acknowledgedAgentsByPaneKey?: Record<string, number>
 ): DashboardRowBucketProjection {
   const isTitleDerived = row.startedAt === 0
   const dotState = dashboardCardDotState(row.state)
@@ -65,7 +38,8 @@ export function dashboardRowBucketProjection(
     row.state === 'working' && row.entry.workingMode === 'monitoring'
       ? row.entry.workingMode
       : undefined
-  const unseen = isAgentSubjectUnread(turnRecords, row.paneKey)
+  const unseen =
+    !isTitleDerived && (acknowledgedAgentsByPaneKey?.[row.paneKey] ?? 0) < row.entry.stateStartedAt
   const bucket = dashboardBucketForDotState(
     dashboardCardDisplayState({ dotState, workingMode, unseen })
   )

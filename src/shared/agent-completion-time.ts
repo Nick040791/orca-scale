@@ -1,10 +1,9 @@
 import type { AgentStateHistoryEntry, AgentStatusEntry } from './agent-status-types'
-import { agentTurnEndedOnPurpose } from './agent-main-agent-verdict'
 
 /** The subset of a hook entry a completion time is derived from. */
 export type AgentCompletionSource = Pick<
   AgentStatusEntry,
-  'state' | 'stateStartedAt' | 'stateHistory' | 'interrupted' | 'mainAgent' | 'sessionBoundary'
+  'state' | 'stateStartedAt' | 'stateHistory' | 'interrupted' | 'sessionBoundary'
 >
 
 function mostRecentCompletedTurnInHistory(
@@ -14,7 +13,7 @@ function mostRecentCompletedTurnInHistory(
   for (const row of history ?? []) {
     if (
       row.state === 'done' &&
-      !agentTurnEndedOnPurpose(row) &&
+      row.interrupted !== true &&
       Number.isFinite(row.startedAt) &&
       row.startedAt > max
     ) {
@@ -30,11 +29,11 @@ function mostRecentCompletedTurnInHistory(
  * can't rank as freshly done while showing an age past the staleness threshold.
  *
  * A completion is only:
- *   - a `done` the user did not stop, failures included (its `stateStartedAt` — unmoved by same-state tool/prompt pings); or
+ *   - a non-interrupted `done` (its `stateStartedAt` — unmoved by same-state tool/prompt pings); or
  *   - for a session-boundary `done` (connected idle, not a turn), the real completion it displaced.
  */
 export function agentEntryCompletionAt(entry: AgentCompletionSource): number | null {
-  if (entry.state !== 'done' || agentTurnEndedOnPurpose(entry)) {
+  if (entry.state !== 'done' || entry.interrupted === true) {
     return null
   }
   if (entry.sessionBoundary === true) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { listWorktreesMock } from './worktrees-test-module-mocks'
+import { listWorktreesMock, getSshGitProviderMock } from './worktrees-test-module-mocks'
 import { handlers, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import { makeWorktreeMeta } from './worktrees-test-fixtures'
 import { buildDetectedGitWorktrees } from './worktrees/listing/ssh-worktree-fallback'
@@ -28,11 +28,18 @@ vi.mock('../github/client', async () =>
 vi.mock('../source-control/hosted-review', async () =>
   (await import('./worktrees-test-module-mocks')).hostedReviewModuleMock()
 )
+vi.mock('../providers/ssh-git-dispatch', async () =>
+  (await import('./worktrees-test-module-mocks')).sshGitDispatchModuleMock()
+)
 vi.mock('../providers/ssh-filesystem-dispatch', async () =>
   (await import('./worktrees-test-module-mocks')).sshFilesystemDispatchModuleMock()
 )
 vi.mock('./worktree-symlinks', async () =>
   (await import('./worktrees-test-module-mocks')).worktreeSymlinksModuleMock()
+)
+vi.mock('./ssh', async () => (await import('./worktrees-test-module-mocks')).sshModuleMock())
+vi.mock('../ssh/ssh-target-registry', async () =>
+  (await import('./worktrees-test-module-mocks')).sshTargetRegistryModuleMock()
 )
 vi.mock('../hooks', async () => (await import('./worktrees-test-module-mocks')).hooksModuleMock())
 vi.mock('../setup-runner-script-text', async (importOriginal) =>
@@ -78,12 +85,7 @@ vi.mock('../workspace-cleanup-removal-snapshot-prune', async () =>
 vi.mock('../runtime/worktree-teardown', async () =>
   (await import('./worktrees-test-module-mocks')).worktreeTeardownModuleMock()
 )
-vi.mock('./pty/provider/registry', async () =>
-  (await import('./worktrees-test-module-mocks')).ptyRegistryModuleMock()
-)
-vi.mock('./pty/provider/state-cleanup', async () =>
-  (await import('./worktrees-test-module-mocks')).ptyStateCleanupModuleMock()
-)
+vi.mock('./pty', async () => (await import('./worktrees-test-module-mocks')).ptyModuleMock())
 
 describe('registerWorktreeHandlers', () => {
   beforeEach(() => {
@@ -266,7 +268,7 @@ describe('registerWorktreeHandlers', () => {
     ])
   })
 
-  it('lists reconstructed SSH rows from persisted metadata', async () => {
+  it('falls back to reconstructed SSH rows when provider listing throws', async () => {
     const repo = {
       id: 'repo-ssh',
       path: '/remote/repo',
@@ -275,7 +277,11 @@ describe('registerWorktreeHandlers', () => {
       addedAt: 0,
       connectionId: 'conn-1'
     }
+    const provider = {
+      listWorktrees: vi.fn().mockRejectedValue(new Error('connection lost'))
+    }
     store.getRepo.mockReturnValue(repo)
+    getSshGitProviderMock.mockReturnValue(provider)
     store.getAllWorktreeMeta.mockReturnValue({
       'repo-ssh::/remote/feature-wt': makeWorktreeMeta({
         displayName: 'Feature workspace',
@@ -285,7 +291,7 @@ describe('registerWorktreeHandlers', () => {
 
     const listed = await handlers['worktrees:list'](null, { repoId: 'repo-ssh' })
 
-    expect(listWorktreesMock).not.toHaveBeenCalled()
+    expect(provider.listWorktrees).toHaveBeenCalledWith('/remote/repo')
     expect(listed).toEqual([
       expect.objectContaining({
         id: 'repo-ssh::/remote/feature-wt',

@@ -12,8 +12,7 @@ import { scanWorkspacePorts } from './local-workspace-port-scanner'
 import type { WorkspacePortScanOptions } from './local-workspace-port-scan-state'
 
 export type WorkspacePortProbeInput = WorkspacePortProbe & {
-  /** True only when this host itself runs the workspace. */
-  runsHere: boolean
+  connectionId?: string | null
 }
 
 export function getStoreWorkspacePortProbes(
@@ -62,7 +61,7 @@ export function filterWorkspacePortProbes(
   repoId?: string
 ): WorkspacePortProbe[] {
   return worktrees.flatMap((worktree) => {
-    if ((repoId && worktree.repoId !== repoId) || !worktree.runsHere) {
+    if ((repoId && worktree.repoId !== repoId) || worktree.connectionId) {
       return []
     }
     return [

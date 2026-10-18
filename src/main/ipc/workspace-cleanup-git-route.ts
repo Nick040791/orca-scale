@@ -27,11 +27,12 @@ import {
   ExecutionHostNotDispatchableError,
   resolveGitRouteForHost
 } from '../providers/execution-host-provider-dispatch'
+import type { SshGitProvider } from '../providers/ssh-git-provider'
 
 export type WorkspaceCleanupGitRoute =
   | { kind: 'local'; hostId: typeof LOCAL_EXECUTION_HOST_ID }
-  /** This process serves no SSH git, so an `ssh` route is always unreachable — never "read it here". */
-  | { kind: 'ssh'; hostId: `ssh:${string}`; connectionId: string }
+  /** `provider: null` is "remote and currently unreachable" — never "read it here". */
+  | { kind: 'ssh'; hostId: `ssh:${string}`; connectionId: string; provider: SshGitProvider | null }
 
 /**
  * The workspace's own host is the authority, and it can disagree with the row that produced the
@@ -55,7 +56,8 @@ export function resolveWorkspaceCleanupRepoGitRoute(
       return {
         kind: 'ssh',
         hostId: route.hostId,
-        connectionId: route.connectionId
+        connectionId: route.connectionId,
+        provider: route.provider
       }
     case 'runtime':
       throw new ExecutionHostNotDispatchableError(route.hostId)

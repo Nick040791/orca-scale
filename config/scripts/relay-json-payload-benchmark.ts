@@ -8,7 +8,7 @@ import {
   encodePreparedJsonRpcFrame,
   prepareJsonRpcPayload,
   type JsonRpcNotification
-} from '../../src/wsl-guest/protocol'
+} from '../../src/relay/protocol'
 
 type BenchmarkCase = {
   name: string

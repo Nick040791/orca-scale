@@ -9,8 +9,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import { resolveNewIssueOpenSeed } from '@/components/task-page-new-issue-draft'
 import { useAppStore } from '@/store'
-import { useShallow } from 'zustand/react/shallow'
-import { getGitHubRepoRoutingTarget } from '@/lib/github-source-runtime-context'
 import { hasUpstreamCandidateDivergence, hasDivergentSources } from '../../task-page-draft-storage'
 import IssueSourceIndicator from '@/components/github/IssueSourceIndicator'
 import IssueSourceSelector, { issueSourceChipClass } from '@/components/github/IssueSourceSelector'
@@ -21,6 +19,7 @@ export function TaskPageGitHubFilters({
   model: TaskPageComposerActionsModel
 }): React.JSX.Element | null {
   const {
+    settings,
     setTaskResumeState,
     setIssueSourcePreference,
     selectedRepos,
@@ -52,14 +51,6 @@ export function TaskPageGitHubFilters({
     handleTaskSearchKeyDown,
     githubTasksBusy
   } = model
-  // Why: filter metadata for the primary slug is read from the host that owns the repo it came from.
-  const primaryGithubFilterRepoId =
-    perRepoSourceState.find((state) =>
-      activeGithubTaskKind === 'prs' ? state.sources?.prs : state.sources?.issues
-    )?.repoId ?? null
-  const primaryGithubFilterTarget = useAppStore(
-    useShallow((s) => getGitHubRepoRoutingTarget(s, primaryGithubFilterRepoId, null))
-  )
   return (
     // Why: top of the joined GitHub list card — pairs with the
     // table shell below (rounded-t-none border-t-0) as one surface.
@@ -107,7 +98,7 @@ export function TaskPageGitHubFilters({
           kind={activeGithubTaskKind}
           authorLogins={loadedGitHubAuthorLogins}
           primarySlug={primaryGithubFilterSlug}
-          ownerTarget={primaryGithubFilterTarget}
+          settings={settings}
           onChange={(change) => applyPRFilterChange(change)}
         />
         <div className="relative min-w-0 flex-1 basis-64">

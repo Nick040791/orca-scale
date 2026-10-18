@@ -425,26 +425,22 @@ describe('AgentBrowserBridge coordinate pointer input', () => {
     expect(wc.debugger.detach).not.toHaveBeenCalled()
   })
 
-  it('focuses an offscreen page on press, as mouseClick does', async () => {
+  it('focuses the guest on press, as mouseClick does', async () => {
     await bridge.mouseDown('left')
 
     expect(wc.focus).toHaveBeenCalled()
   })
 
-  it('guards the user’s focus instead of focusing an embedded guest on press', async () => {
-    const release = vi.fn()
-    const guardUserFocusForAgentInput = vi.fn(async () => release)
-    bridge = new AgentBrowserBridge(
-      mockBrowserManager(undefined, undefined, { guardUserFocusForAgentInput })
-    )
-    bridge.setActiveTab(100)
-    wc.getType.mockReturnValue('webview')
+  it('drops empty command queues after pointer commands finish', async () => {
+    await bridge.mouseMove(10, 20)
+    await bridge.mouseWheel(120)
 
-    await bridge.mouseDown('left')
-    await bridge.mouseUp('left')
-
-    expect(wc.focus).not.toHaveBeenCalled()
-    expect(guardUserFocusForAgentInput).toHaveBeenCalledTimes(1)
-    expect(release).toHaveBeenCalledTimes(1)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: reads the bridge's own private queue bookkeeping, mirroring agent-browser-bridge-mouse-input.test.ts.
+    const internals = bridge as unknown as {
+      commandQueues: Map<string, unknown[]>
+      processingQueues: Set<string>
+    }
+    expect(internals.commandQueues.size).toBe(0)
+    expect(internals.processingQueues.size).toBe(0)
   })
 })

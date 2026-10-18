@@ -1,46 +1,23 @@
 import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { WorkspaceStatusDefinition, Worktree } from '../../../../../../shared/worktree/types'
-import {
-  folderWorkspaceToWorktree,
-  getFolderWorkspaceHostIdentity
-} from '../../../../../../shared/folder-workspace-worktree'
-import {
-  normalizeWorkspaceSessionKeyToWorkspaceId,
-  parseWorkspaceKey
-} from '../../../../../../shared/workspace-scope'
-import {
-  composeWorktreeHostIdentity,
-  getExecutionHostIdFromWorktreeHostIdentity
-} from '../../../../../../shared/worktree/host-qualified-identity'
-import { getProjectGroupHeaderKey } from '../../../../../../shared/sidebar-list/group-keys'
-import {
-  getRepoExecutionHostId,
-  type ExecutionHostId
-} from '../../../../../../shared/execution-host'
-import { getFolderWorkspaceLaneKey } from '../../../../../../shared/sidebar-list/folder-workspace-lanes'
-import type { WorktreeGroupBy } from '../../../../../../shared/sidebar-list/row-types'
-import { getFolderWorkspaceHostId } from '../../../../../../shared/sidebar-list/folder-workspace-host-id'
-import { getHostSectionCollapseKey } from '../../../../../../shared/sidebar-list/host-section-collapse'
+import { folderWorkspaceToWorktree } from '../../../../../../shared/folder-workspace-worktree'
+import { parseWorkspaceKey } from '../../../../../../shared/workspace-scope'
+import { getProjectGroupHeaderKey } from '../grouping/group-keys'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import { getFolderWorkspaceLaneKey } from '../grouping/folder-workspace-lanes'
+import type { WorktreeGroupBy } from '../grouping/row-types'
+import { getFolderWorkspaceHostId } from '../../folder-workspace-host-id'
 
 function findFolderWorkspaceByKey(
   worktreeId: string,
-  folderWorkspaces: readonly FolderWorkspace[],
-  executionHostId?: ExecutionHostId | null
+  folderWorkspaces: readonly FolderWorkspace[]
 ): FolderWorkspace | null {
   const scope = parseWorkspaceKey(worktreeId)
   if (scope?.type !== 'folder') {
     return null
   }
-  return (
-    folderWorkspaces.find(
-      (workspace) =>
-        workspace.id === scope.folderWorkspaceId &&
-        (!executionHostId ||
-          getFolderWorkspaceHostIdentity(workspace) ===
-            composeWorktreeHostIdentity(executionHostId, worktreeId))
-    ) ?? null
-  )
+  return folderWorkspaces.find((workspace) => workspace.id === scope.folderWorkspaceId) ?? null
 }
 
 export function getKnownSidebarWorktreeById(
@@ -50,17 +27,15 @@ export function getKnownSidebarWorktreeById(
   worktrees?: readonly Worktree[],
   executionHostId?: ExecutionHostId | null
 ): Worktree | null {
-  const workspaceId = normalizeWorkspaceSessionKeyToWorkspaceId(worktreeId)
-  const ownerHostId = getExecutionHostIdFromWorktreeHostIdentity(worktreeId) ?? executionHostId
-  const worktree = ownerHostId
+  const worktree = executionHostId
     ? (worktrees?.find(
-        (candidate) => candidate.id === workspaceId && candidate.hostId === ownerHostId
+        (candidate) => candidate.id === worktreeId && candidate.hostId === executionHostId
       ) ?? null)
-    : worktreeMap.get(workspaceId)
+    : worktreeMap.get(worktreeId)
   if (worktree) {
     return worktree
   }
-  const folderWorkspace = findFolderWorkspaceByKey(workspaceId, folderWorkspaces, ownerHostId)
+  const folderWorkspace = findFolderWorkspaceByKey(worktreeId, folderWorkspaces)
   return folderWorkspace ? folderWorkspaceToWorktree(folderWorkspace) : null
 }
 
@@ -79,7 +54,7 @@ export function sidebarWorkspaceStillExists(
   ) {
     return true
   }
-  return findFolderWorkspaceByKey(worktreeId, folderWorkspaces, executionHostId) !== null
+  return findFolderWorkspaceByKey(worktreeId, folderWorkspaces) !== null
 }
 
 export function getFolderWorkspaceRevealGroupKeys(
@@ -90,38 +65,20 @@ export function getFolderWorkspaceRevealGroupKeys(
     groupBy?: WorktreeGroupBy
     workspaceStatuses?: readonly WorkspaceStatusDefinition[]
     defaultHostId?: ExecutionHostId
-    hostScopedGroups?: boolean
-    executionHostId?: ExecutionHostId
   }
 ): string[] {
-  const folderWorkspace = findFolderWorkspaceByKey(
-    worktreeId,
-    folderWorkspaces,
-    options?.executionHostId
-  )
+  const folderWorkspace = findFolderWorkspaceByKey(worktreeId, folderWorkspaces)
   if (!folderWorkspace) {
     return []
   }
 
-  const groupsById = new Map(
-    projectGroups
-      .filter(
-        (group) =>
-          !options?.executionHostId || getRepoExecutionHostId(group) === options.executionHostId
-      )
-      .map((group) => [group.id, group])
-  )
-  // Why unfiltered: same-id host copies render under the last copy's parents, whichever host's row
-  // the folder is (getDistinctProjectGroups); header keys carry no host.
-  const renderedGroupsById = new Map(projectGroups.map((group) => [group.id, group]))
+  const groupsById = new Map(projectGroups.map((group) => [group.id, group]))
   const keys: string[] = []
   const seen = new Set<string>()
-  let groupId: string | null = groupsById.has(folderWorkspace.projectGroupId)
-    ? folderWorkspace.projectGroupId
-    : null
+  let groupId: string | null = folderWorkspace.projectGroupId
   while (groupId && !seen.has(groupId)) {
     seen.add(groupId)
-    const group = renderedGroupsById.get(groupId)
+    const group = groupsById.get(groupId)
     if (!group) {
       break
     }
@@ -134,18 +91,12 @@ export function getFolderWorkspaceRevealGroupKeys(
   // keys come from the same function grouping uses, so the two cannot disagree.
   const owningGroup = groupsById.get(folderWorkspace.projectGroupId)
   if (options?.groupBy && options.groupBy !== 'repo' && owningGroup) {
-    const laneKey = getFolderWorkspaceLaneKey(
-      { folderWorkspace, projectGroup: owningGroup },
-      options.groupBy,
-      options.workspaceStatuses ?? []
-    )
     keys.push(
-      options.hostScopedGroups && options.defaultHostId
-        ? getHostSectionCollapseKey(
-            laneKey,
-            getFolderWorkspaceHostId(folderWorkspace, owningGroup, options.defaultHostId)
-          )
-        : laneKey
+      getFolderWorkspaceLaneKey(
+        { folderWorkspace, projectGroup: owningGroup },
+        options.groupBy,
+        options.workspaceStatuses ?? []
+      )
     )
   }
   if (owningGroup && options?.defaultHostId) {

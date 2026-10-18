@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type {
@@ -19,7 +19,7 @@ vi.mock('@/runtime/structured-agent-session-client', () =>
   moduleFactories.structuredAgentSessionClient()
 )
 vi.mock('./use-structured-agent-session', () => moduleFactories.useStructuredAgentSession())
-vi.mock('./use-native-chat-font-size', () => moduleFactories.useNativeChatFontSize())
+vi.mock('./use-native-chat-font-scale', () => moduleFactories.useNativeChatFontScale())
 vi.mock('./use-native-chat-file-link-context', () => moduleFactories.useNativeChatFileLinkContext())
 vi.mock('./use-native-chat-file-link-click', () => moduleFactories.useNativeChatFileLinkClick())
 vi.mock('./NativeChatMessageList', () => moduleFactories.nativeChatMessageList())
@@ -35,7 +35,7 @@ const STRIP = '[data-native-chat-background-tasks]'
 const GOAL = '[data-native-chat-thread-goal]'
 // The seam is CSS on DOM adjacency: the strip styles itself when a goal tab follows
 // it, and the goal tab styles itself when the strip precedes it.
-const STRIP_DOCK_RULE = /^\[\[data-native-chat-background-tasks\]:has\(\+\[([a-z-]+)\]\)_&\]:(.+)$/
+const STRIP_DOCK_RULE = /^group-has-\[\+\[([a-z-]+)\]\]\/tasks:(.+)$/
 const GOAL_DOCK_RULE = /^group-\[\[([a-z-]+)\]\+&\]\/goal:(.+)$/
 
 function dockRules(root: Element, rule: RegExp): { attribute: string; utility: string }[] {
@@ -59,7 +59,7 @@ function goal(status: AgentJournalThreadGoal['status']): AgentJournalThreadGoal 
   }
 }
 
-function sessionView(agent: 'codex' | 'claude' = 'codex'): React.JSX.Element {
+function sessionView(): React.JSX.Element {
   return (
     <TooltipProvider>
       <NativeChatStructuredSession
@@ -68,7 +68,7 @@ function sessionView(agent: 'codex' | 'claude' = 'codex'): React.JSX.Element {
         tabId="structured-tab-goal"
         sessionId="session-goal"
         target={{ kind: 'local' }}
-        agent={agent}
+        agent="codex"
       />
     </TooltipProvider>
   )
@@ -77,7 +77,7 @@ function sessionView(agent: 'codex' | 'claude' = 'codex'): React.JSX.Element {
 function showStripAndGoal(status: AgentJournalThreadGoal['status'] = 'active'): void {
   mocks.monitoringBackgroundTasks = true
   mocks.backgroundTasks = [{ id: 'task-agent', kind: 'agent' }]
-  mocks.threadGoal = { goal: goal(status), pending: false, hostChanges: true, change: vi.fn() }
+  mocks.threadGoal = { goal: goal(status), pending: false, change: vi.fn() }
 }
 
 describe('NativeChatStructuredSession task strip on the goal tab', () => {
@@ -85,40 +85,6 @@ describe('NativeChatStructuredSession task strip on the goal tab', () => {
     cleanup()
     localStorage.clear()
     resetStructuredSessionMocks()
-  })
-
-  it('reveals a Claude goal cleared from the strip while preserving the composer draft', () => {
-    const change = vi.fn(async () => true)
-    mocks.threadGoal = { goal: goal('active'), pending: false, hostChanges: false, change }
-    const view = render(sessionView('claude'))
-    const composer = screen.getByRole('textbox', { name: 'Message' })
-    fireEvent.change(composer, { target: { value: 'Keep this draft' } })
-
-    const clear = screen.getByRole('button', { name: 'Clear goal' })
-    mocks.sendOut = true
-    view.rerender(sessionView('claude'))
-    expect(clear).toHaveProperty('disabled', true)
-    fireEvent.click(clear)
-    expect(change).not.toHaveBeenCalled()
-    expect(mocks.revealLatest).not.toHaveBeenCalled()
-
-    mocks.sendOut = false
-    mocks.isWorking = true
-    view.rerender(sessionView('claude'))
-    expect(mocks.turnId).toBeNull()
-    expect(clear).toHaveProperty('disabled', true)
-    fireEvent.click(clear)
-    expect(change).not.toHaveBeenCalled()
-    expect(mocks.revealLatest).not.toHaveBeenCalled()
-
-    mocks.isWorking = false
-    view.rerender(sessionView('claude'))
-    expect(clear).toHaveProperty('disabled', false)
-    fireEvent.click(clear)
-
-    expect(change).toHaveBeenCalledWith({ kind: 'clear' })
-    expect(mocks.revealLatest).toHaveBeenCalledOnce()
-    expect(composer).toHaveProperty('value', 'Keep this draft')
   })
 
   it('stacks the strip directly on the goal tab at the tab width, sharing one edge', () => {
@@ -239,38 +205,5 @@ describe('NativeChatStructuredSession task strip above a pending prompt', () => 
     expect(strip.compareDocumentPosition(promptCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     )
-  })
-})
-
-describe('NativeChatStructuredSession queued messages above the task strip', () => {
-  afterEach(() => {
-    cleanup()
-    localStorage.clear()
-    resetStructuredSessionMocks()
-  })
-
-  it('stacks queued messages above the strip, so running shells and agents sit next to the composer', () => {
-    showStripAndGoal()
-    mocks.queuedCards = [
-      {
-        messageId: 'draft-1',
-        position: 1,
-        text: 'Reply with the word banana.',
-        state: 'waiting',
-        hold: 'turn'
-      }
-    ]
-    render(sessionView())
-
-    const queued = document.querySelector('[data-queued-message-id="draft-1"]')
-    const strip = document.querySelector(STRIP)
-    if (!queued || !strip) {
-      throw new Error('expected both a queued message and the task strip')
-    }
-    expect(queued.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    )
-    // The strip still docks on the goal tab; the queue never sits between them.
-    expect(strip.nextElementSibling).toBe(document.querySelector(GOAL))
   })
 })

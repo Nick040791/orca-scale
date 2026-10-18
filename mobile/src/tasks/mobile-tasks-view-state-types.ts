@@ -6,7 +6,6 @@ import type {
   GitHubProjectRef
 } from './mobile-tasks-dependencies'
 import type { GitHubProjectSortDirection } from '../../../src/shared/github/project-types'
-import type { JiraIssueFilter } from '../../../src/shared/jira-types'
 
 export type GitHubTaskKind = 'issues' | 'prs'
 
@@ -47,8 +46,6 @@ export type TaskResumeState = {
   githubProjectHiddenFieldIdsByView?: Record<string, string[]>
   linearPreset?: LinearFilter
   linearQuery?: string
-  jiraPreset?: JiraIssueFilter
-  jiraQuery?: string
 }
 
 export type RuntimeTaskSettings = {

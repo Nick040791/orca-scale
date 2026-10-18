@@ -192,9 +192,7 @@ describe.each(['darwin', 'linux', 'win32'] as const)('%s native-handle contract'
             expect(host.listSessions()).toHaveLength(1)
             expect(fixture.proc.destroy).not.toHaveBeenCalled()
             expect(onExit).not.toHaveBeenCalled()
-            await vi.waitFor(() => expect(signal).toHaveBeenCalledWith(4242, 'SIGKILL'), {
-              interval: 1
-            })
+            await vi.waitFor(() => expect(signal).toHaveBeenCalledWith(4242, 'SIGKILL'))
           } finally {
             fixture.proc._simulateExit(137)
             killFailure = await settled

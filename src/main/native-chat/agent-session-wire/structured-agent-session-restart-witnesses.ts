@@ -24,17 +24,14 @@ export type StructuredAgentSessionRestartWitnesses = {
   /** The child is proven gone, so what it was doing was cut off. */
   stopped: (sessionId: string) => void
   record: () => Promise<void>
-  /** An explicit action on the offer supersedes witnesses this host has not yet written; with an
-   *  audience, only those of agents it sees. A session whose record is unreadable here stays. */
-  clear: (audience?: (agent: string) => boolean) => void
+  /** An explicit action on the offer supersedes witnesses this host has not yet written. */
+  clear: () => void
 }
 
 export function createStructuredAgentSessionRestartWitnesses(deps: {
   sessions: ReadonlyMap<string, NonNullable<WorkingAtStopInput['session']>>
   getRecord: (sessionId: string) => AgentSessionRecord | null
-  childWork: WorkingAtStopInput['childWork']
-  childWorkOpen: WorkingAtStopInput['childWorkOpen']
-  startAnswered: NonNullable<WorkingAtStopInput['startAnswered']>
+  backgroundTasks: WorkingAtStopInput['backgroundTasks']
   capsule?: Pick<AgentSessionRecoveryCapsule, 'record'>
   teardownId: string
   now: () => number
@@ -43,21 +40,10 @@ export function createStructuredAgentSessionRestartWitnesses(deps: {
   let trigger: AgentSessionResumeTrigger | null = null
   const stopping = new Map<string, AgentSessionResumeMarker>()
   const confirmed = new Map<string, AgentSessionResumeMarker>()
-  const clear = (audience?: (agent: string) => boolean): void => {
-    if (!audience) {
-      trigger = null
-      stopping.clear()
-      confirmed.clear()
-      return
-    }
-    for (const witnessed of [stopping, confirmed]) {
-      for (const sessionId of witnessed.keys()) {
-        const record = deps.getRecord(sessionId)
-        if (record && audience(record.provider)) {
-          witnessed.delete(sessionId)
-        }
-      }
-    }
+  const clear = (): void => {
+    trigger = null
+    stopping.clear()
+    confirmed.clear()
   }
   return {
     begin: (next) => {
@@ -73,9 +59,7 @@ export function createStructuredAgentSessionRestartWitnesses(deps: {
         sessionId,
         session: deps.sessions.get(sessionId),
         getRecord: deps.getRecord,
-        childWork: deps.childWork,
-        childWorkOpen: deps.childWorkOpen,
-        startAnswered: deps.startAnswered,
+        backgroundTasks: deps.backgroundTasks,
         trigger,
         teardownId: deps.teardownId,
         now: deps.now()

@@ -51,14 +51,11 @@ export function canRerunAutomationRun({
 export function getAutomationRunViewState({
   run,
   workspaceExists,
-  terminalTargetExists,
-  terminalOnPairedServer = false
+  terminalTargetExists
 }: {
   run: AutomationRun
   workspaceExists: boolean
   terminalTargetExists: boolean
-  /** The workspace's paired server holds the terminal; only it can say whether it still lives. */
-  terminalOnPairedServer?: boolean
 }): AutomationRunViewState {
   const hasTerminalIdentity = Boolean(run.terminalPaneKey && run.terminalPtyId)
   if (run.workspaceId && workspaceExists && terminalTargetExists) {
@@ -66,15 +63,6 @@ export function getAutomationRunViewState({
       availability: 'terminal',
       actionLabel: 'View run',
       statusLabel: 'Run is open',
-      canOpen: true
-    }
-  }
-
-  if (run.workspaceId && workspaceExists && hasTerminalIdentity && terminalOnPairedServer) {
-    return {
-      availability: 'terminal',
-      actionLabel: 'View run',
-      statusLabel: 'Run terminal is on the paired server.',
       canOpen: true
     }
   }
@@ -88,11 +76,10 @@ export function getAutomationRunViewState({
     }
   }
 
-  // Why: a run that never dispatched left no agent to resume; opening seeds an empty shell (STA-10103).
-  if (run.workspaceId && workspaceExists && run.dispatchedAt !== null) {
+  if (run.workspaceId && workspaceExists) {
     return {
       availability: 'workspace',
-      actionLabel: 'Open workspace',
+      actionLabel: 'Resume workspace',
       statusLabel: 'Workspace is available.',
       canOpen: true
     }

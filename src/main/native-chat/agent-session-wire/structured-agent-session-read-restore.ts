@@ -1,25 +1,104 @@
-import { readJournalSessionEpoch } from '../agent-session-journal/journal-row-table'
+import type { AgentSessionRecord } from '../../../shared/agent-session-record'
+import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
+import { findJournalFileFormatRemnant } from '../agent-session-journal/journal-file-format-remnant'
+import { loadJournal } from '../agent-session-journal/journal-open'
+import { journalDirectoryFor } from '../agent-session-journal/journal-paths'
+import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import { openAgentSessionJournal } from '../agent-session-journal/journal-store-factory'
 import {
-  openStructuredAgentSessionConversationJournal,
-  type OpenedStructuredAgentSessionConversation,
-  type StructuredAgentSessionConversationOpenDeps
-} from './structured-agent-session-conversation-open'
+  attachFingerprintFields,
+  journalIdentityFor,
+  type AgentSessionAttachParams
+} from './structured-agent-session-attach'
+import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 
-/**
- * A reader's open: the conversation's own open, for a session that has a journal to read. One
- * with none — never written, or gone — stays unpublished rather than founding an empty one.
- * Opening can still write: the crash boundary.
- */
+export type RestoredStructuredAgentSessionRead = {
+  journal: AgentSessionJournal
+  params: AgentSessionAttachParams
+  fence: number
+  hasProviderChild: false
+  providerChildPhase: 'ready'
+  acquisitionGeneration: null
+}
+
 export async function restoreStructuredAgentSessionRead(
-  deps: StructuredAgentSessionConversationOpenDeps,
+  store: AgentSessionRecordStore,
+  journalRoot: string,
   sessionId: string
-): Promise<OpenedStructuredAgentSessionConversation | null> {
-  const record = deps.store.getRecord(sessionId)
+): Promise<RestoredStructuredAgentSessionRead | null> {
+  const record = store.getRecord(sessionId)
   if (!record) {
     return null
   }
-  if (readJournalSessionEpoch(deps.journalDatabase.db, sessionId) === null) {
+  const params = attachParamsForRecord(record, {
+    clientOperationId: `read-restore:${record.sessionId}`,
+    expectedRuntimeFence: record.lease.runtimeFence
+  })
+  const journalDir = journalDirectoryFor(journalRoot, {
+    workspaceId: record.location.workspaceId,
+    sessionId
+  })
+  const loaded = loadJournal(journalDir, sessionId)
+  if (loaded?.corrupt) {
     return null
   }
-  return openStructuredAgentSessionConversationJournal(deps, record)
+  // A session still in the pre-SQLite format has no `journal.db` to load. Dropping
+  // it here leaves it unpublished, which is also what prunes its tab out of the
+  // saved workspace — so the chat disappears with nowhere to explain itself.
+  if (!loaded && !findJournalFileFormatRemnant(journalDir)) {
+    return null
+  }
+  const journal = await openAgentSessionJournal({
+    identity: journalIdentityFor(record, params),
+    journalDir,
+    // Omitted, not `null`: the store reads `null` as "replay already ran and
+    // found nothing" and founds a fresh epoch. In process the probe above is the
+    // previous statement, so the window is zero-width; this holds the line for a
+    // database another process creates in between.
+    ...(loaded ? { loaded } : {})
+  })
+  // Read restore opens the journal and nothing else: no adapter call, so no
+  // provider child. Opening it can still write — a session whose history is in
+  // the old format founds its epoch and commits the row explaining that here.
+  return {
+    journal,
+    params,
+    fence: record.lease.runtimeFence,
+    hasProviderChild: false,
+    providerChildPhase: 'ready',
+    acquisitionGeneration: null
+  }
+}
+
+export function attachParamsForRecord(
+  record: AgentSessionRecord,
+  input: {
+    clientOperationId: string
+    expectedRuntimeFence: number
+  }
+): AgentSessionAttachParams {
+  const params: AgentSessionAttachParams = {
+    envelope: {
+      sessionId: record.sessionId,
+      clientOperationId: input.clientOperationId,
+      expectedRuntimeFence: input.expectedRuntimeFence,
+      payloadFingerprint: ''
+    },
+    location: record.location,
+    provider: record.provider,
+    agent: record.provider,
+    accountHome: record.accountHome,
+    runtimeKind: 'native'
+  }
+  return {
+    ...params,
+    envelope: {
+      ...params.envelope,
+      payloadFingerprint: computeAgentSessionPayloadFingerprint({
+        method: 'agentSession.attach',
+        sessionId: record.sessionId,
+        fields: attachFingerprintFields(params)
+      })
+    }
+  }
 }

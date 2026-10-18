@@ -129,10 +129,10 @@ vi.mock('../runtime/worktree-teardown', () => ({
   killAllProcessesForWorktree: killAllProcessesForWorktreeMock
 }))
 
-vi.mock('./pty/provider/state-cleanup', () => ({
-  clearProviderPtyState: clearProviderPtyStateMock
+vi.mock('./pty', () => ({
+  clearProviderPtyState: clearProviderPtyStateMock,
+  getLocalPtyProvider: getLocalPtyProviderMock
 }))
-vi.mock('./pty/provider/registry', () => ({ getLocalPtyProvider: getLocalPtyProviderMock }))
 
 vi.mock('../terminal-history-deletion', () => ({
   deleteWorktreeHistoryDir: deleteWorktreeHistoryDirMock
@@ -311,10 +311,7 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
       closeFileWatchersForRemoval: vi.fn().mockResolvedValue(undefined),
       acquireFileWatcherRemoval: vi.fn().mockResolvedValue({
         finish: vi.fn().mockResolvedValue(undefined)
-      }),
-      publishWorktreeRemovalChange: vi.fn((repoId: string) =>
-        mainWindow.webContents.send('worktrees:changed', { repoId })
-      )
+      })
     }
     registerWorktreeHandlers(mainWindow as never, store as never, runtimeStub as never)
   })

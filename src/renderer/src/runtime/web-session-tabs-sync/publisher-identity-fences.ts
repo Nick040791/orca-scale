@@ -11,7 +11,7 @@ import {
 const SESSION_TABS_RETIRED_EPOCH_LIMIT = 8
 const SESSION_TABS_RETIRED_RUNTIME_ID_LIMIT = 8
 
-function hasRetiredValue(history: RetiredValueHistory | undefined, value: string): boolean {
+export function hasRetiredValue(history: RetiredValueHistory | undefined, value: string): boolean {
   return history?.retired.includes(value) ?? false
 }
 
@@ -37,23 +37,16 @@ export function noteRetiredValue(
 }
 
 /**
- * Whether a snapshot under `value` may apply. A retired value applies only on an authoritative
- * census that names it, which revives just that value (or its lineage); anything else stays fenced.
+ * Un-retires one value, leaving every other retired generation fenced.
+ *
+ * Only an authority that names the value current may call this; reviving on a delayed frame's own
+ * say-so is exactly the resurrection `retired` exists to prevent.
  */
-export function admitRetiredValueUnderAuthority(
-  history: RetiredValueHistory | undefined,
-  value: string,
-  authoritative: boolean,
-  sameValue: (retired: string, value: string) => boolean = (retired, candidate) =>
-    retired === candidate
-): boolean {
-  if (!history?.retired.some((retired) => sameValue(retired, value))) {
-    return true
+export function reviveRetiredValue(history: RetiredValueHistory | undefined, value: string): void {
+  const index = history?.retired.indexOf(value) ?? -1
+  if (history && index >= 0) {
+    history.retired.splice(index, 1)
   }
-  if (authoritative) {
-    history.retired = history.retired.filter((retired) => !sameValue(retired, value))
-  }
-  return authoritative
 }
 
 function normalizeSessionTabsRuntimeId(runtimeId: unknown): string | undefined {

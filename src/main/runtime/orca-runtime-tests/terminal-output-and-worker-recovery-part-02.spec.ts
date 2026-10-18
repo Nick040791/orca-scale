@@ -54,7 +54,7 @@ describe('OrcaRuntimeService', () => {
       tail: ['after restart']
     })
     await expect(
-      runtime.sendTerminal('term_exported', { text: 'still writable' }, { inputKind: 'driving' })
+      runtime.sendTerminal('term_exported', { text: 'still writable' })
     ).resolves.toMatchObject({
       handle: 'term_exported',
       accepted: true
@@ -179,7 +179,7 @@ describe('OrcaRuntimeService', () => {
     ])
     expect(getSession().terminalTopologyRevisionByRepoId?.[TEST_REPO_ID]).toBe(1)
 
-    await runtime.sendTerminal('term_agent', { text: 'input' }, { inputKind: 'driving' })
+    await runtime.sendTerminal('term_agent', { text: 'input' })
     await runtime.updateRemoteDesktopViewer('pty-agent', 'viewer', 'client', 132, 41)
     expect(writes).toEqual([['pty-agent', 'input']])
     expect(resize).toHaveBeenCalledWith('pty-agent', 132, 41)
@@ -212,7 +212,7 @@ describe('OrcaRuntimeService', () => {
       paneKey: makePaneKey('tab-agent', HEADLESS_LEAF_ID)
     })
     expect(listProcesses).toHaveBeenCalledTimes(inventoryCount + 1)
-    expect(listProcesses).toHaveBeenLastCalledWith('local', LIST_PROVIDER_DEADLINE)
+    expect(listProcesses).toHaveBeenLastCalledWith(null, LIST_PROVIDER_DEADLINE)
     expect(
       (await runtime.listTerminals()).terminals.find((terminal) => terminal.ptyId === 'pty-agent')
     ).toMatchObject({
@@ -609,10 +609,7 @@ describe('OrcaRuntimeService', () => {
       condition: 'tui-idle',
       timeoutMs: 50
     })
-    // The probe's read starts a microtask late; a 50 ms poll would race the wait's 50 ms timeout.
-    await vi.waitFor(() => expect(serializeProviderBuffer).toHaveBeenCalledTimes(4), {
-      interval: 1
-    })
+    await vi.waitFor(() => expect(serializeProviderBuffer).toHaveBeenCalledTimes(4))
     runtime.onPtyData('pty-legacy', '\x1b[H', Date.now())
     lateReadySnapshot.resolve({
       data: READY_SCREEN,

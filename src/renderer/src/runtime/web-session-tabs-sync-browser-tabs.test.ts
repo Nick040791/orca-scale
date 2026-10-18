@@ -7,13 +7,13 @@ import {
   recordWebSessionBrowserPlacement,
   takeWebSessionBrowserPlacementGroup
 } from './web-session-browser-placement'
-import { acceptReplayedWebSessionTabsSnapshot } from './web-session-tabs-sync/tracking-lifecycle'
 import {
+  acceptReplayedWebSessionTabsSnapshot,
   applyFreshWebSessionTabsSnapshot,
-  applyWebSessionTabsSnapshot
-} from './web-session-tabs-sync/snapshot-api'
-import { resolveHostSessionTabIdForWebSessionTab } from './web-session-tabs-sync/tracking-mappings'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+  applyWebSessionTabsSnapshot,
+  resolveHostSessionTabIdForWebSessionTab,
+  type WebSessionTabsSyncState
+} from './web-session-tabs-sync'
 import {
   ENV,
   HOST_SURFACE_ID,
@@ -493,45 +493,44 @@ describe('applyWebSessionTabsSnapshot', () => {
       groupId: previewGroupId
     })
 
-    const state = makeState({
-      groupsByWorktree: {
-        [WT]: [
-          {
-            id: editorGroupId,
-            worktreeId: WT,
-            activeTabId: 'local-editor',
-            tabOrder: ['local-editor']
-          },
-          {
-            id: previewGroupId,
-            worktreeId: WT,
-            activeTabId: null,
-            tabOrder: []
-          }
-        ]
-      },
-      layoutByWorktree: { [WT]: initialLayout },
-      unifiedTabsByWorktree: {
-        [WT]: [
-          {
-            id: 'local-editor',
-            worktreeId: WT,
-            groupId: editorGroupId,
-            contentType: 'editor',
-            entityId: 'local-file',
-            label: 'example.html',
-            sortOrder: 0,
-            createdAt: NOW,
-            isPreview: false,
-            isPinned: false,
-            customLabel: null,
-            color: null
-          }
-        ]
-      }
-    })
     const patch = applyWebSessionTabsSnapshot(
-      state,
+      makeState({
+        groupsByWorktree: {
+          [WT]: [
+            {
+              id: editorGroupId,
+              worktreeId: WT,
+              activeTabId: 'local-editor',
+              tabOrder: ['local-editor']
+            },
+            {
+              id: previewGroupId,
+              worktreeId: WT,
+              activeTabId: null,
+              tabOrder: []
+            }
+          ]
+        },
+        layoutByWorktree: { [WT]: initialLayout },
+        unifiedTabsByWorktree: {
+          [WT]: [
+            {
+              id: 'local-editor',
+              worktreeId: WT,
+              groupId: editorGroupId,
+              contentType: 'editor',
+              entityId: 'local-file',
+              label: 'example.html',
+              sortOrder: 0,
+              createdAt: NOW,
+              isPreview: false,
+              isPinned: false,
+              customLabel: null,
+              color: null
+            }
+          ]
+        }
+      }),
       makeSnapshot([], {
         activeTabType: null,
         tabGroups: [{ id: editorGroupId, activeTabId: null, tabOrder: [], recentTabIds: [] }],
@@ -539,11 +538,9 @@ describe('applyWebSessionTabsSnapshot', () => {
       }),
       ENV,
       NOW
-    )
-    // An omitted groups patch means the snapshot left every group as it was.
-    const groups = patch.groupsByWorktree?.[WT] ?? state.groupsByWorktree[WT]
+    ) as Partial<WebSessionTabsSyncState>
 
-    expect(groups?.map((group) => group.id)).toContain(previewGroupId)
+    expect(patch.groupsByWorktree?.[WT]?.map((group) => group.id)).toContain(previewGroupId)
     expect(layoutHasGroup(patch.layoutByWorktree?.[WT] ?? initialLayout, previewGroupId)).toBe(true)
   })
 

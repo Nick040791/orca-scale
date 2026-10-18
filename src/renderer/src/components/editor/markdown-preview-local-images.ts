@@ -4,8 +4,7 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { resolveImageAbsolutePath } from './markdown-preview-links'
 import { getLocalImageCacheKey, loadLocalImageAbsolutePath } from './useLocalImageSrc'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { documentResourceAccess } from '@/lib/local-file-access'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 
 export const MARKDOWN_PREVIEW_LOCAL_IMAGE_PREWARM_LIMIT = 64
 export const MARKDOWN_PREVIEW_LOCAL_IMAGE_PREWARM_CONCURRENCY = 4
@@ -31,8 +30,7 @@ type MarkdownImageAstNode = {
 type ExtractLocalImageCandidatesOptions = {
   connectionId?: string | null
   limit?: number
-  /** `null`: the owner is unresolved, so nothing is read. */
-  runtimeContext?: MarkdownImageRuntimeContext | null
+  runtimeContext?: MarkdownImageRuntimeContext
 }
 
 type PrewarmMarkdownPreviewLocalImagesOptions = ExtractLocalImageCandidatesOptions & {
@@ -71,7 +69,7 @@ export function extractMarkdownPreviewLocalImageCandidates(
   options: ExtractLocalImageCandidatesOptions = {}
 ): MarkdownPreviewLocalImageCandidate[] {
   const limit = Math.max(0, options.limit ?? MARKDOWN_PREVIEW_LOCAL_IMAGE_PREWARM_LIMIT)
-  if (limit === 0 || options.runtimeContext === null || !markdown.includes('!')) {
+  if (limit === 0) {
     return []
   }
 
@@ -99,9 +97,7 @@ export function extractMarkdownPreviewLocalImageCandidates(
     const cacheKey = getLocalImageCacheKey(
       absolutePath,
       options.connectionId,
-      // Null returned early above.
-      options.runtimeContext ?? undefined,
-      documentResourceAccess(filePath)
+      options.runtimeContext
     )
     if (seenCacheKeys.has(cacheKey)) {
       return
@@ -147,8 +143,7 @@ export function prewarmMarkdownPreviewLocalImages(
       loadLocalImageAbsolutePath(
         candidate.absolutePath,
         options.connectionId,
-        options.runtimeContext,
-        documentResourceAccess(filePath)
+        options.runtimeContext
       ))
   let cancelled = false
   let nextIndex = 0

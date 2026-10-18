@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toRemoteRuntimePtyId } from './runtime-terminal-stream'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-types'
-import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
-import { decideWebSessionTabsSnapshot } from './web-session-tabs-sync/tracking-decisions'
+import { applyWebSessionTabsSnapshot, decideWebSessionTabsSnapshot } from './web-session-tabs-sync'
 import {
   recordReceivedWebSessionTabsSnapshot,
   shouldApplyRecoveredWebSessionTabsSnapshot

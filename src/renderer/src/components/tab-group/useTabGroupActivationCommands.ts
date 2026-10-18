@@ -3,8 +3,10 @@ import type { Tab } from '../../../../shared/tab-types'
 import { useAppStore } from '../../store'
 import { focusTerminalTabSurface } from '../../lib/focus-terminal-tab-surface'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
-import { activateWebRuntimeSessionTab } from '../../runtime/web-runtime-session-tab-lifecycle'
-import { isWebRuntimeSessionActive } from '../../runtime/web-runtime-session-environment'
+import {
+  activateWebRuntimeSessionTab,
+  isWebRuntimeSessionActive
+} from '../../runtime/web-runtime-session'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { browserWorkspaceHasRemoteOwner } from '@/runtime/remote-browser-tab-ownership'
 import { activateStructuredAgentSessionTab } from '@/lib/structured-agent-session-tab-activation'
@@ -100,7 +102,7 @@ export function useTabGroupActivationCommands({
         setActiveTabType('simulator', worktreeId)
         // simulator has no editor file entity
       } else {
-        setActiveFile(item.entityId, worktreeId)
+        setActiveFile(item.entityId)
         setActiveTabType('editor', worktreeId)
       }
     },
@@ -131,7 +133,7 @@ export function useTabGroupActivationCommands({
           environmentId: runtimeEnvironmentId
         })
       }
-      setActiveBrowserTab(browserTabId, worktreeId)
+      setActiveBrowserTab(browserTabId)
       setActiveTabType('browser', worktreeId)
     },
     [activateTab, focusGroup, groupId, groupTabs, setActiveBrowserTab, setActiveTabType, worktreeId]

@@ -40,8 +40,6 @@ export type NativeChatPtySessionOptionsSurface = SessionOptionsSurface & {
   recordOutgoingCommand(command: string): void
   reportSessionOptions(values: Record<string, SessionOptionValue>): void
   replaceModels(models: CatalogModel[]): void
-  /** The context window the host's model listing states for `modelId`, or null. */
-  contextWindowTokens(modelId: string): number | null
 }
 
 export type CreateNativeChatPtySessionOptionsArgs = {
@@ -223,8 +221,6 @@ export function createNativeChatPtySessionOptions(
       modelsAreDiscovered = true
       untrackRetiredModel()
       publish()
-    },
-    contextWindowTokens: (modelId) =>
-      models.find((model) => model.id === modelId)?.contextWindowTokens ?? null
+    }
   }
 }

@@ -1,29 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AGENT_SESSION_RECORD_SCHEMA_VERSION,
   type AgentSessionRecord
 } from '../../../shared/agent-session-record'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import {
-  closeTestJournalHostDatabases,
-  openTestJournalHostDatabase
-} from '../agent-session-journal/journal-host-database-test-support'
 import { StructuredAgentSessionHostRuntimeState } from './structured-agent-session-host-runtime-state'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host'
-import { recordingStructuredAgentSessionLogger } from './structured-agent-session-logger-test-support'
-import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
 
 const NOW = 1_800_000_000_000
-
-// The runtime state never reads the journal database; it only fills the deps' shape.
-const stateDirectory = mkdtempSync(join(tmpdir(), 'orca-host-runtime-state-'))
-afterAll(() => {
-  closeTestJournalHostDatabases()
-  rmSync(stateDirectory, { recursive: true, force: true })
-})
 
 function reservedRecord(): AgentSessionRecord {
   return {
@@ -64,16 +48,14 @@ function runtimeState(
   record: AgentSessionRecord | null,
   probeOwner: NonNullable<StructuredAgentSessionHostDeps['probeOwner']>
 ) {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the runtime state reads only store, probeOwner and optional deps; the rest of the host's deps are unused here.
   const deps = {
     store: { getRecord: () => record } as unknown as AgentSessionRecordStore,
     adapter: {},
-    journalDatabase: openTestJournalHostDatabase(stateDirectory),
+    journalRoot: '/tmp',
     claimKeyId: 'key-1',
-    probeOwner,
-    logger: createStructuredAgentSessionLogger()
+    probeOwner
   } as StructuredAgentSessionHostDeps
-  return new StructuredAgentSessionHostRuntimeState(deps, new Map())
+  return new StructuredAgentSessionHostRuntimeState(deps)
 }
 
 function liveRecord(): AgentSessionRecord {
@@ -132,38 +114,32 @@ describe('host runtime-state owner probe', () => {
 
   it('does not force-close a provider for transient lease probe errors', async () => {
     const onEventSinkFailure = vi.fn()
-    const log = recordingStructuredAgentSessionLogger()
+    const onEventSinkError = vi.fn()
     const probeOwner = vi.fn(async () => {
       throw new Error('lease probe unavailable')
     })
     const record = liveRecord()
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the lease renewal under test reads only listRecords and getRecord from the store.
     const deps = {
       store: {
         listRecords: () => [record],
         getRecord: () => record
       },
       adapter: {},
-      journalDatabase: openTestJournalHostDatabase(stateDirectory),
+      journalRoot: '/tmp',
       claimKeyId: 'key-1',
       probeOwner,
-      logger: log.logger
+      onEventSinkError
     } as unknown as StructuredAgentSessionHostDeps
-    const state = new StructuredAgentSessionHostRuntimeState(deps, new Map(), onEventSinkFailure)
+    const state = new StructuredAgentSessionHostRuntimeState(deps, onEventSinkFailure)
 
     await (
       state as unknown as { leaseRenewer: { renewNow: () => Promise<void> } }
     ).leaseRenewer.renewNow()
 
-    expect(log.entries).toContainEqual(
-      expect.objectContaining({
-        fields: expect.objectContaining({
-          scope: 'lease-renewal',
-          sessionId: record.sessionId,
-          error: expect.any(Error)
-        })
-      })
-    )
+    expect(onEventSinkError).toHaveBeenCalledWith({
+      sessionId: record.sessionId,
+      error: expect.any(Error)
+    })
     expect(onEventSinkFailure).not.toHaveBeenCalled()
   })
 })

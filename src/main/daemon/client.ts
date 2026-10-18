@@ -147,29 +147,32 @@ export class DaemonClient {
       const pendingControlSocket = await connectDaemonSocket(this.socketPath, remainingMs())
       this.assertConnectionAttemptCurrent(attemptGeneration, pendingControlSocket)
       this.controlSocket = pendingControlSocket
-      const controlHello = await this.sendHello(this.controlSocket, token, 'control', remainingMs())
-      const controlIdentity = controlHello.identity
+      const controlIdentity = await this.sendHello(
+        this.controlSocket,
+        token,
+        'control',
+        remainingMs()
+      )
       this.assertConnectionAttemptCurrent(attemptGeneration, this.controlSocket)
       pendingListenerCleanups.push(
-        attachControlResponseReader(
-          this.controlSocket,
-          (response) => this.pendingRequests.settle(response),
-          controlHello.remainder
+        attachControlResponseReader(this.controlSocket, (response) =>
+          this.pendingRequests.settle(response)
         )
       )
 
       const pendingStreamSocket = await connectDaemonSocket(this.socketPath, remainingMs())
       this.assertConnectionAttemptCurrent(attemptGeneration, pendingStreamSocket)
       this.streamSocket = pendingStreamSocket
-      const streamHello = await this.sendHello(this.streamSocket, token, 'stream', remainingMs())
+      const streamIdentity = await this.sendHello(this.streamSocket, token, 'stream', remainingMs())
       this.assertConnectionAttemptCurrent(attemptGeneration, this.streamSocket)
-      if (!sameDaemonIdentity(controlIdentity, streamHello.identity)) {
+      if (!sameDaemonIdentity(controlIdentity, streamIdentity)) {
         throw new DaemonProtocolError('Daemon identity changed during connection')
       }
-      const streamReader = attachStreamEventReader(this.streamSocket, streamHello, (event) => {
-        this.eventListeners.each((listener) => listener(event))
-      })
-      pendingListenerCleanups.push(streamReader.detach)
+      pendingListenerCleanups.push(
+        attachStreamEventReader(this.streamSocket, (event) => {
+          this.eventListeners.each((listener) => listener(event))
+        })
+      )
 
       this.assertConnectionAttemptCurrent(attemptGeneration)
       this.connected = true
@@ -180,11 +183,8 @@ export class DaemonClient {
 
       const gen = this.connectionGeneration
       pendingListenerCleanups.push(
-        armDaemonSocketCloseHandlers(
-          this.controlSocket,
-          this.streamSocket,
-          () => this.handleDisconnect(gen),
-          streamReader.drainBuffered
+        armDaemonSocketCloseHandlers(this.controlSocket, this.streamSocket, () =>
+          this.handleDisconnect(gen)
         )
       )
       this.cleanupSocketListeners = cleanupPendingListeners
@@ -310,7 +310,7 @@ export class DaemonClient {
     token: string,
     role: 'control' | 'stream',
     timeoutMs: number
-  ): ReturnType<typeof sendDaemonHello> {
+  ): Promise<DaemonEndpointIdentity | null> {
     return sendDaemonHello({
       socket,
       token,

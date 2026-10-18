@@ -6,7 +6,6 @@ import type {
   AgentChildWorkMembership,
   AgentChildWorkOperation,
   AgentChildWorkOutcome,
-  AgentChildWorkOutcomeBasis,
   AgentChildWorkProviderTiming,
   AgentChildWorkProvenance,
   AgentChildWorkRecord,
@@ -38,8 +37,6 @@ export type AgentChildWorkObservationFields = {
   state: AgentChildWorkState
   membership: AgentChildWorkMembership
   outcome?: AgentChildWorkOutcome
-  /** Only with a settled `outcome`; see `AgentChildWorkOutcomeBasis`. */
-  outcomeBasis?: AgentChildWorkOutcomeBasis
   name?: string
   description?: string
   agentType?: string

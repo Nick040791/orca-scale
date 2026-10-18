@@ -37,9 +37,11 @@ vi.mock('../providers/ssh-filesystem-dispatch', () => ({
   onSshFilesystemProviderRegistered: () => () => {}
 }))
 
-import { closeAllWatchers } from './filesystem-watcher-shutdown'
-import { closeLocalWatcherForWorktreePath } from './filesystem-watcher-local-removal'
-import { registerFilesystemWatcherHandlers } from './filesystem-watcher-handlers'
+import {
+  closeAllWatchers,
+  closeLocalWatcherForWorktreePath,
+  registerFilesystemWatcherHandlers
+} from './filesystem-watcher'
 import {
   createWatcherRemovalDeadline,
   drainBeforeWatcherRemoval,

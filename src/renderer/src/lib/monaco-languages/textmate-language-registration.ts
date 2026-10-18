@@ -13,6 +13,7 @@ type TextMateTokenProviderModule = {
 export type TextMateLanguageRegistration = {
   language: Monaco.languages.ILanguageExtensionPoint
   configuration?: Monaco.languages.LanguageConfiguration
+  scopeName: string
   loadGrammar: TextMateGrammarLoader
   loadProviderModule?: () => Promise<TextMateTokenProviderModule>
 }
@@ -45,7 +46,10 @@ export function registerTextMateLanguage(
       tokensProviderPromise ??= (
         registration.loadProviderModule ?? loadDefaultProviderModule
       )().then(({ createTextMateTokensProvider }) =>
-        createTextMateTokensProvider({ loadGrammar: registration.loadGrammar })
+        createTextMateTokensProvider({
+          scopeName: registration.scopeName,
+          loadGrammar: registration.loadGrammar
+        })
       )
       return tokensProviderPromise
     }

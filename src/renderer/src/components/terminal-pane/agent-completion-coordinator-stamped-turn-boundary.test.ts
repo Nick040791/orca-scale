@@ -13,6 +13,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -40,6 +41,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -61,6 +63,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const firstCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -78,6 +81,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const remounted = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -100,6 +104,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchHookLifecycle,
@@ -162,6 +167,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
       const localCoordinator = createAgentCompletionCoordinator({
         paneKey: 'tab-1:leaf-1',
         getPtyId: () => 'pty-1',
+        getSettings: () => null,
         inspectProcess: vi.fn(),
         dispatchCompletion,
         isLive: () => true
@@ -169,6 +175,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
       const hostCoordinator = createAgentCompletionCoordinator({
         paneKey: 'tab-1:leaf-1',
         getPtyId: () => 'pty-1',
+        getSettings: () => null,
         inspectProcess: vi.fn(),
         dispatchCompletion,
         isLive: () => true
@@ -223,6 +230,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const localCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -230,6 +238,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const hostCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -278,6 +287,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const localCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -285,6 +295,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const hostCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -338,6 +349,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const localCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true
@@ -345,6 +357,7 @@ describe('agent completion coordinator stamped turn boundary', () => {
     const hostCoordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       isLive: () => true

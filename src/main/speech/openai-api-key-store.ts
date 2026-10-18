@@ -1,9 +1,4 @@
 import { getSecretStore } from '../../shared/secret-store'
-import { readCredentialFileProtection } from '../credential-file-protection'
-import {
-  classifyUnenvelopedCredential,
-  type SecretAtRestProtection
-} from '../../shared/secret-at-rest-protection'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +21,7 @@ function ensureOrcaDir(): void {
   }
 }
 
-export function getOpenAiKeyPath(): string {
+function getOpenAiKeyPath(): string {
   return join(getOrcaDir(), OPENAI_SPEECH_TOKEN_FILE)
 }
 
@@ -50,15 +45,6 @@ export function hasOpenAiSpeechApiKey(): boolean {
   // Why: Settings and model-state refresh call this on startup; checking file
   // existence avoids a decrypt that triggers macOS keychain prompts.
   return existsSync(getOpenAiKeyPath())
-}
-
-/** How the stored speech key sits on disk, or null when none is stored. */
-export function getOpenAiSpeechApiKeyProtection(): SecretAtRestProtection | null {
-  // The legacy JSON wrapper only ever held base64 ciphertext, so it is sealed by shape.
-  if (readLegacyJsonStoredOpenAiKey()) {
-    return 'sealed'
-  }
-  return readCredentialFileProtection(getOpenAiKeyPath())
 }
 
 export function saveOpenAiSpeechApiKey(apiKey: string): void {
@@ -97,23 +83,11 @@ export function readOpenAiSpeechApiKey(): string {
       return cachedOpenAiSpeechApiKey
     }
     cachedOpenAiSpeechApiKey = getSecretStore().isEncryptionAvailable()
-      ? decryptOrLegacyPlaintext(raw)
+      ? getSecretStore().decryptString(raw)
       : raw.toString('utf8')
     return cachedOpenAiSpeechApiKey
   } catch {
     throw new Error('OpenAI API key could not be decrypted')
-  }
-}
-
-// Why: a key saved before sealing became available stays plaintext until it is migrated or re-saved.
-function decryptOrLegacyPlaintext(raw: Buffer): string {
-  try {
-    return getSecretStore().decryptString(raw)
-  } catch (error) {
-    if (classifyUnenvelopedCredential(raw) === 'plaintext') {
-      return raw.toString('utf8')
-    }
-    throw error
   }
 }
 

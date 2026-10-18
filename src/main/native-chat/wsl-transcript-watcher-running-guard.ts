@@ -4,7 +4,6 @@ import {
   createTranscriptNativeWatcher,
   type TranscriptNativeWatcher
 } from './transcript-native-watcher'
-import { parseSshTranscriptPath } from './ssh-transcript-path'
 
 export function isWslTranscriptWatcherPath(filePath: string): boolean {
   return isWslUncPath(filePath)
@@ -22,8 +21,8 @@ export function createRunningGuardedTranscriptNativeWatcher(
   onEvent: () => void,
   onRetry: () => void
 ): TranscriptNativeWatcher {
-  // fs.watch cannot see an SSH host's file; the reconciliation poll stats it there instead.
-  if (isWslTranscriptWatcherPath(filePath) || parseSshTranscriptPath(filePath)) {
+  const isWslPath = isWslTranscriptWatcherPath(filePath)
+  if (isWslPath) {
     return {
       bind: () => false,
       dispose: () => {},

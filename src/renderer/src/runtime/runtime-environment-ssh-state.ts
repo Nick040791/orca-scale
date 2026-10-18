@@ -9,7 +9,6 @@ import {
   sshTargetLabelsEqual
 } from '@/store/slices/ssh-target-cleanup'
 import { sanitizeSshTargetGeneration } from '../../../shared/ssh-target-generation'
-import { forEachWithConcurrency } from '../../../shared/map-with-concurrency'
 
 /**
  * Mirrors a remote Orca server's own SSH targets into that environment's
@@ -20,9 +19,6 @@ import { forEachWithConcurrency } from '../../../shared/map-with-concurrency'
  */
 
 const SSH_RPC_TIMEOUT_MS = 15_000
-// Why: these decorative reads share the host's 8-slot foreground RPC lane with sends and listings,
-// so a small pool cuts N x 15 s stalls without letting them take the lane interactions need.
-export const SSH_STATE_READ_CONCURRENCY = 3
 
 function environmentTarget(environmentId: string): { kind: 'environment'; environmentId: string } {
   return { kind: 'environment', environmentId }
@@ -90,7 +86,7 @@ async function fetchEnvironmentSshConnectionStates(
   targets: readonly SshTargetSummary[],
   generation: number
 ): Promise<void> {
-  await forEachWithConcurrency(targets, SSH_STATE_READ_CONCURRENCY, async (target) => {
+  for (const target of targets) {
     if (generation !== getEnvironmentSshStateGeneration(environmentId)) {
       return
     }
@@ -110,7 +106,7 @@ async function fetchEnvironmentSshConnectionStates(
     } catch {
       // Why: a timeout or unsupported RPC is not authoritative evidence that the HUB's SSH link disconnected.
     }
-  })
+  }
 }
 
 type SshRefreshKind = 'metadata' | 'full'

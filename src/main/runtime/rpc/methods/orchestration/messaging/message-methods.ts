@@ -8,11 +8,10 @@ import { orchestrationCallerIdentity, resolveRunScope } from '../runs/run-scope'
 import {
   readMutationReplayNudge,
   stripMutationReplayNudge
-} from '../../../orchestration-mutation-receipt'
+} from '../../../orchestration-mutation-executor'
 import { exposeMessage } from './mailbox-message-receipt'
 import { resolveOrchestrationParty } from '../../../../orchestration/orchestration-party'
 import { recordReceiptBeforeNudge, replayMutationNudge } from './mutation-replay-nudge'
-import { resolveReplyRecipient } from './recipient-routing'
 import {
   ReplyParams,
   InboxParams,
@@ -24,7 +23,6 @@ import {
 export const ORCHESTRATION_MESSAGE_METHODS = [
   defineMethod({
     name: 'orchestration.reply',
-    permission: 'workspace',
     params: ReplyParams,
     handler: async (
       params,
@@ -115,20 +113,15 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
         )
       }
 
-      const recipient = resolveReplyRecipient({
-        runtime,
-        db,
-        originalFrom: original.from_handle,
-        originalRunId: original.run_id
-      })
       db.markAsRead([original.id])
+
       const reply = db.insertMessage({
         from: params.from ?? original.to_handle,
-        to: recipient.to,
+        to: original.from_handle,
         subject: `Re: ${original.subject}`,
         body: params.body,
         threadId: original.thread_id ?? original.id,
-        runId: recipient.runId
+        runId: original.run_id
       })
 
       const receipt = { message: exposeMessage(reply) }
@@ -140,7 +133,6 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.inbox',
-    permission: 'workspace',
     params: InboxParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
@@ -157,7 +149,6 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskCreate',
-    permission: 'workspace',
     params: TaskCreateParams,
     handler: (
       params,
@@ -206,7 +197,6 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskList',
-    permission: 'workspace',
     params: TaskListParams,
     handler: (
       params,
@@ -249,7 +239,6 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskUpdate',
-    permission: 'workspace',
     params: TaskUpdateParams,
     handler: (
       params,

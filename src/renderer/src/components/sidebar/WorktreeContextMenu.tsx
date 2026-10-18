@@ -14,6 +14,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu(
 
 export default WorktreeContextMenu
 export {
+  CLOSE_ALL_CONTEXT_MENUS_EVENT,
   WORKTREE_CONTEXT_MENU_SCOPE_ATTR,
   WORKTREE_NATIVE_CONTEXT_MENU_ATTR,
   getWorktreeParentPickerAnchor,

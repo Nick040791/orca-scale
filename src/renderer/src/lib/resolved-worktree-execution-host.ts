@@ -1,6 +1,5 @@
 import {
   LOCAL_EXECUTION_HOST_ID,
-  getRepoExecutionHostId,
   parseExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
@@ -15,9 +14,7 @@ import {
   findIndexedWorktreeOwner,
   findIndexedWorktreeOwnerForHost
 } from './worktree-runtime-owner-index'
-import type { WorktreeRuntimeOwnerState } from './worktree-runtime-owner-state'
-import { runtimeRpcTargetForAuthorityKey } from '@/runtime/runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import type { WorktreeRuntimeOwnerState } from './worktree-runtime-owner'
 
 function getResolvedFolderHost(
   state: WorktreeRuntimeOwnerState,
@@ -90,20 +87,11 @@ export function getResolvedExecutionHostIdForWorktree(
   if (!repo) {
     return null
   }
-  return getRepoExecutionHostId(repo)
-}
-
-/**
- * RPC target of the focused workspace's owner row; `null` when nothing is focused, ownership is
- * unproven, or the owner has no RPC route (direct SSH). Callers pick their own fallback.
- */
-export function getActiveWorkspaceOwnerTarget(
-  state: WorktreeRuntimeOwnerState
-): RuntimeClientTarget | null {
-  // Why: with no paired server every RPC owner is this app; skip the owner-index build.
-  if (state.runtimeEnvironmentCatalogHydrated && state.runtimeEnvironments?.length === 0) {
-    return null
+  const explicitRepoHost = parseExecutionHostId(repo.executionHostId)
+  if (explicitRepoHost) {
+    return explicitRepoHost.id
   }
-  const hostId = getResolvedExecutionHostIdForWorktree(state, state.activeWorktreeId)
-  return hostId ? runtimeRpcTargetForAuthorityKey(hostId) : null
+  return repo.connectionId?.trim()
+    ? toSshExecutionHostId(repo.connectionId)
+    : LOCAL_EXECUTION_HOST_ID
 }

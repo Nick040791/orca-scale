@@ -4,11 +4,11 @@ import type {
   BrowserClientHostCommandResult,
   BrowserClientHostLeaseAuthority
 } from '../../shared/browser-client-host-protocol'
-import type { PairedRuntimeConnection } from '../../shared/paired-runtime-connection'
+import type { PairingOffer } from '../../shared/pairing'
 import type { RemoteRuntimeSubscriptionOptions } from '../../shared/remote-runtime-client'
 
 export type PairedRuntimeBrowserHostLeaseOptions = {
-  connection: PairedRuntimeConnection
+  pairing: PairingOffer
   authorityRuntimeId: string
   browserHostClientId: string
   hostCapabilities: readonly string[]

@@ -41,6 +41,7 @@ export type LifecycleReconciliationResult =
 
 export type LifecycleRejectionCode =
   | 'sender_not_assignee'
+  | 'dispatch_capability_invalid'
   | 'invalid_payload'
   | 'missing_task_id'
   | 'missing_dispatch_id'

@@ -2,10 +2,8 @@ import type Database from '../../../../sqlite/sync-database'
 import { isOrcaSessionId } from '../../../../../shared/orca-session-address'
 import {
   STRUCTURED_WORKER_HANDLE_PREFIX,
-  isStructuredWorkerHandle
-} from '../../../../../shared/structured-worker-handle'
-import {
   STRUCTURED_WORKER_INCARNATION_PREFIX,
+  isStructuredWorkerHandle,
   sessionIdFromStructuredWorkerIncarnation
 } from '../../../structured-worker-identity'
 import { currentRunCoordinatorOrcaSessionIdSql } from '../runs/run-coordinator-orca-session'

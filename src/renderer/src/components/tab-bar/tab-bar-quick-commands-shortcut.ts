@@ -13,7 +13,6 @@ import { TOGGLE_QUICK_COMMANDS_MENU_EVENT } from '@/lib/quick-commands-menu-even
 import { useAppStore } from '@/store'
 
 type UseTabBarQuickCommandsShortcutParams = {
-  isFocused: boolean
   menuOpen: boolean
   onOpenChange: (next: boolean) => void
 }
@@ -34,7 +33,6 @@ function getQuickCommandsShortcutContext(target: EventTarget | null): Keybinding
 }
 
 export function useTabBarQuickCommandsShortcut({
-  isFocused,
   menuOpen,
   onOpenChange
 }: UseTabBarQuickCommandsShortcutParams): void {
@@ -44,9 +42,10 @@ export function useTabBarQuickCommandsShortcut({
   )
   const activeView = useAppStore((s) => s.activeView)
 
-  // Why: every strip stays mounted for stable layout, but only the visible focused group owns shortcuts.
+  // Why: this hook only runs in the focused tab group's menu component, so the
+  // listener naturally scopes to the active group with no extra coordination.
   useEffect(() => {
-    if (!isFocused || activeView !== 'terminal') {
+    if (activeView !== 'terminal') {
       return
     }
     const platform = getShortcutPlatform()
@@ -134,10 +133,10 @@ export function useTabBarQuickCommandsShortcut({
       window.removeEventListener('keyup', onKeyUp, { capture: true })
       window.removeEventListener('blur', onBlur)
     }
-  }, [activeView, isFocused, keybindings, menuOpen, onOpenChange, terminalShortcutPolicy])
+  }, [activeView, keybindings, menuOpen, onOpenChange, terminalShortcutPolicy])
 
   useEffect(() => {
-    if (!isFocused || activeView !== 'terminal') {
+    if (activeView !== 'terminal') {
       return
     }
     const onToggleQuickCommandsMenu = (): void => {
@@ -147,12 +146,5 @@ export function useTabBarQuickCommandsShortcut({
     return () => {
       window.removeEventListener(TOGGLE_QUICK_COMMANDS_MENU_EVENT, onToggleQuickCommandsMenu)
     }
-  }, [activeView, isFocused, menuOpen, onOpenChange])
-
-  // Why: the menu stays mounted after its group loses focus or its workspace hides, so it must not keep targeting that group.
-  useEffect(() => {
-    if (!isFocused && menuOpen) {
-      onOpenChange(false)
-    }
-  }, [isFocused, menuOpen, onOpenChange])
+  }, [activeView, menuOpen, onOpenChange])
 }

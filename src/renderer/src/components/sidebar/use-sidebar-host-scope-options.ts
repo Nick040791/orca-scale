@@ -21,8 +21,6 @@ export function useSidebarHostScopeOptions(): {
   const settings = useAppStore((s) => s.settings)
   const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
   const runtimeStatusByEnvironmentId = useAppStore((s) => s.runtimeStatusByEnvironmentId)
-  const wslHostStatuses = useAppStore((s) => s.wslHostStatuses)
-  const wslHostServerFilesMissing = useAppStore((s) => s.wslHostServerFiles === 'missing')
 
   const hostLabelOverrides = useMemo(() => getHostDisplayLabelOverrides(settings), [settings])
   const hostOptions = useMemo(
@@ -34,10 +32,7 @@ export function useSidebarHostScopeOptions(): {
         settings,
         runtimeEnvironments,
         runtimeStatusByEnvironmentId,
-        hostLabelOverrides,
-        wslHostStatuses,
-        wslHostsEnabled: settings?.experimentalWslHosts === true,
-        wslHostServerFilesMissing
+        hostLabelOverrides
       }),
     [
       repos,
@@ -46,9 +41,7 @@ export function useSidebarHostScopeOptions(): {
       settings,
       runtimeEnvironments,
       runtimeStatusByEnvironmentId,
-      hostLabelOverrides,
-      wslHostStatuses,
-      wslHostServerFilesMissing
+      hostLabelOverrides
     ]
   )
   const hostScopeOptions = useMemo(() => buildSidebarHostScopeOptions(hostOptions), [hostOptions])

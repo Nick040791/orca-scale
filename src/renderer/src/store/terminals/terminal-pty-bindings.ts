@@ -1,10 +1,12 @@
-import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
 import { parseRemoteRuntimePtyId, toRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
 import { isTerminalTabPresent } from '../slices/terminal-tab-retirement'
 import type { TerminalSlice, TerminalStoreGet, TerminalStoreSet } from './terminal-state'
 import {
   consumePendingActivationSpawn,
-  getPendingActivationSpawnCount
+  getPendingActivationSpawnCount,
+  isCurrentDirectSshAuthority,
+  isRemoteRuntimePtyId
 } from './terminal-pty-identities'
 import { omitUnverifiedPtyLossTabIds } from './terminal-unverified-pty-loss'
 import { clearWorktreeSleepIntent } from '@/lib/worktree-sleep-intent'
@@ -15,7 +17,7 @@ export function createTerminalPtyBindingActions(
   get: TerminalStoreGet
 ): Pick<TerminalSlice, 'updateTabPtyId'> {
   return {
-    updateTabPtyId: (tabId, ptyId, replacedPtyId) => {
+    updateTabPtyId: (tabId, ptyId, replacedPtyId, directSshRetryAttemptId) => {
       // Why: final guard preventing a late caller from recreating retired tab maps (async spawn owners still do their own provider teardown).
       if (!isTerminalTabPresent(get(), tabId)) {
         return
@@ -24,6 +26,28 @@ export function createTerminalPtyBindingActions(
       let wasActivationSpawn = false
       const isRemoteRuntimeMirror = isRemoteRuntimePtyId(ptyId)
       set((s) => {
+        if (directSshRetryAttemptId) {
+          const pendingRetry = s.directSshPaneRetryByTabId[tabId]
+          const liveRetry = s.directSshLivePtyBindingByTabId[tabId]
+          const retryLease =
+            pendingRetry?.attemptId === directSshRetryAttemptId
+              ? pendingRetry
+              : liveRetry?.attemptId === directSshRetryAttemptId
+                ? liveRetry
+                : undefined
+          const boundTab = Object.values(s.tabsByWorktree)
+            .flat()
+            .find((candidate) => candidate.id === tabId)
+          if (
+            !retryLease ||
+            !boundTab ||
+            parseAppSshPtyId(ptyId)?.connectionId !== retryLease.authority.targetId ||
+            !isCurrentDirectSshAuthority(s, retryLease.authority) ||
+            (boundTab.generation ?? 0) !== retryLease.tabGeneration
+          ) {
+            return s
+          }
+        }
         const existingPtyIds = s.ptyIdsByTabId[tabId] ?? []
         const remote = parseRemoteRuntimePtyId(ptyId)
         const legacyRemotePtyId = remote?.environmentId ? toRemoteRuntimePtyId(remote.handle) : null
@@ -76,9 +100,8 @@ export function createTerminalPtyBindingActions(
             wasActivationSpawn = true
           }
           // Why: consume one suppression per split-pane activation callback.
-          const { pendingActivationSpawn: _unused, restoredFromSession: _restored, ...rest } = tab
+          const { pendingActivationSpawn: _unused, ...rest } = tab
           void _unused
-          void _restored
           // Why: tab.ptyId is the single-pane fallback for legacy attach; later split-pane spawns must not steal it or remount/close reattaches the tab to the wrong PTY.
           const currentTabPtyId = tab.ptyId === replacementPtyId ? ptyId : tab.ptyId
           const nextTabPtyId = currentTabPtyId ?? nextPtyIds[0] ?? null
@@ -126,7 +149,7 @@ export function createTerminalPtyBindingActions(
           replacementPtyId ? [ptyId, replacementPtyId] : [ptyId]
         )
         const hasReplacementPendingRestart = replacementPtyId
-          ? replacementPtyId in s.pendingPaneAccountRestarts
+          ? replacementPtyId in s.pendingCodexPaneRestartIds
           : false
         const hasReplacementRestartNotice = replacementPtyId
           ? replacementPtyId in s.codexRestartNoticeByPtyId
@@ -134,9 +157,9 @@ export function createTerminalPtyBindingActions(
         const hasReplacementMigrationUnsupported = replacementPtyId
           ? replacementPtyId in s.migrationUnsupportedByPtyId
           : false
-        const nextPendingPaneAccountRestarts = hasReplacementPendingRestart
-          ? { ...s.pendingPaneAccountRestarts }
-          : s.pendingPaneAccountRestarts
+        const nextPendingCodexPaneRestartIds = hasReplacementPendingRestart
+          ? { ...s.pendingCodexPaneRestartIds }
+          : s.pendingCodexPaneRestartIds
         const nextCodexRestartNoticeByPtyId = hasReplacementRestartNotice
           ? { ...s.codexRestartNoticeByPtyId }
           : s.codexRestartNoticeByPtyId
@@ -145,8 +168,8 @@ export function createTerminalPtyBindingActions(
           : s.migrationUnsupportedByPtyId
         if (replacementPtyId) {
           if (hasReplacementPendingRestart) {
-            nextPendingPaneAccountRestarts[ptyId] = nextPendingPaneAccountRestarts[replacementPtyId]
-            delete nextPendingPaneAccountRestarts[replacementPtyId]
+            nextPendingCodexPaneRestartIds[ptyId] = true
+            delete nextPendingCodexPaneRestartIds[replacementPtyId]
           }
           if (hasReplacementRestartNotice) {
             const replacedNotice = nextCodexRestartNoticeByPtyId[replacementPtyId]
@@ -160,6 +183,67 @@ export function createTerminalPtyBindingActions(
               ptyId
             }
             delete nextMigrationUnsupportedByPtyId[replacementPtyId]
+          }
+        }
+        const pendingRetry = s.directSshPaneRetryByTabId[tabId]
+        const liveRetry = s.directSshLivePtyBindingByTabId[tabId]
+        const retryLease =
+          pendingRetry?.attemptId === directSshRetryAttemptId
+            ? pendingRetry
+            : liveRetry?.attemptId === directSshRetryAttemptId
+              ? liveRetry
+              : undefined
+        const boundTab = worktreeId
+          ? nextTabsByWorktree[worktreeId]?.find((candidate) => candidate.id === tabId)
+          : undefined
+        const parsedSshPty = parseAppSshPtyId(ptyId)
+        const acknowledgesDirectSshRetry = Boolean(
+          retryLease &&
+          boundTab &&
+          parsedSshPty?.connectionId === retryLease.authority.targetId &&
+          isCurrentDirectSshAuthority(s, retryLease.authority) &&
+          (boundTab.generation ?? 0) === retryLease.tabGeneration &&
+          nextPtyIds.includes(ptyId)
+        )
+        let nextDirectSshPaneRetryByTabId = s.directSshPaneRetryByTabId
+        let nextDirectSshLivePtyBindingByTabId = s.directSshLivePtyBindingByTabId
+        if (acknowledgesDirectSshRetry && retryLease && boundTab?.ptyId) {
+          if (pendingRetry?.attemptId === directSshRetryAttemptId) {
+            nextDirectSshPaneRetryByTabId = { ...s.directSshPaneRetryByTabId }
+            delete nextDirectSshPaneRetryByTabId[tabId]
+          }
+          if (!liveRetry || liveRetry.attemptId !== directSshRetryAttemptId) {
+            nextDirectSshLivePtyBindingByTabId = {
+              ...s.directSshLivePtyBindingByTabId,
+              [tabId]: {
+                attemptId: retryLease.attemptId,
+                authority: retryLease.authority,
+                tabGeneration: retryLease.tabGeneration,
+                ptyId: boundTab.ptyId
+              }
+            }
+          } else if (
+            (replacementPtyId === liveRetry.ptyId && boundTab.ptyId === ptyId) ||
+            !nextPtyIds.includes(liveRetry.ptyId)
+          ) {
+            nextDirectSshLivePtyBindingByTabId = {
+              ...s.directSshLivePtyBindingByTabId,
+              [tabId]: { ...liveRetry, ptyId: boundTab.ptyId }
+            }
+          }
+        } else {
+          const liveBinding = s.directSshLivePtyBindingByTabId[tabId]
+          if (liveBinding) {
+            if (
+              replacementPtyId === liveBinding.ptyId &&
+              boundTab?.ptyId === ptyId &&
+              isCurrentDirectSshAuthority(s, liveBinding.authority)
+            ) {
+              nextDirectSshLivePtyBindingByTabId = {
+                ...s.directSshLivePtyBindingByTabId,
+                [tabId]: { ...liveBinding, ptyId }
+              }
+            }
           }
         }
         return {
@@ -181,9 +265,11 @@ export function createTerminalPtyBindingActions(
             ? { disownedPtyIds: nextDisownedPtyIds }
             : {}),
           suppressedPtyExitIds: nextSuppressedPtyExitIds,
-          pendingPaneAccountRestarts: nextPendingPaneAccountRestarts,
+          pendingCodexPaneRestartIds: nextPendingCodexPaneRestartIds,
           codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
           migrationUnsupportedByPtyId: nextMigrationUnsupportedByPtyId,
+          directSshPaneRetryByTabId: nextDirectSshPaneRetryByTabId,
+          directSshLivePtyBindingByTabId: nextDirectSshLivePtyBindingByTabId,
           ...(nextTerminalLayoutsByTabId !== s.terminalLayoutsByTabId
             ? { terminalLayoutsByTabId: nextTerminalLayoutsByTabId }
             : {}),

@@ -3,7 +3,8 @@ import type { JiraProject } from '../../../shared/jira-types'
 import {
   JIRA_PROJECT_PICKER_QUERY_MAX_BYTES,
   filterJiraProjectPickerProjects,
-  getJiraProjectPickerDisplayLabel
+  getJiraProjectPickerDisplayLabel,
+  isJiraProjectPickerQueryTooLarge
 } from './jira-project-picker-filter'
 
 function project(overrides: Partial<JiraProject> = {}): JiraProject {
@@ -53,6 +54,7 @@ describe('jira-project-picker-filter', () => {
     const query = 'é'.repeat(JIRA_PROJECT_PICKER_QUERY_MAX_BYTES)
 
     expect(query.length).toBe(JIRA_PROJECT_PICKER_QUERY_MAX_BYTES)
+    expect(isJiraProjectPickerQueryTooLarge(query)).toBe(true)
     expect(
       filterJiraProjectPickerProjects({
         projects: [project()],
@@ -76,6 +78,7 @@ describe('jira-project-picker-filter', () => {
       }
     } as JiraProject
 
+    expect(isJiraProjectPickerQueryTooLarge(oversizedQuery)).toBe(true)
     expect(
       filterJiraProjectPickerProjects({
         projects: [candidate],

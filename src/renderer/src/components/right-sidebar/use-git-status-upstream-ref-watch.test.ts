@@ -7,7 +7,7 @@ const { runtimeState, setWatch } = vi.hoisted(() => ({
 }))
 let cleanup: (() => void) | undefined
 
-vi.mock('@/runtime/runtime-git-status-client', () => ({
+vi.mock('@/runtime/runtime-git-client', () => ({
   setRuntimeGitStatusUpstreamRefWatch: setWatch
 }))
 
@@ -15,11 +15,10 @@ vi.mock('@/lib/connection-context', () => ({
   getConnectionId: () => null
 }))
 
-vi.mock('./worktree-git-owner-target', () => ({
-  getWorktreeGitOwnerTarget: () =>
-    runtimeState.environmentId
-      ? { kind: 'environment', environmentId: runtimeState.environmentId }
-      : { kind: 'local' }
+vi.mock('./file-explorer-runtime-owner', () => ({
+  getRightSidebarWorktreeRuntimeSettings: () => ({
+    activeRuntimeEnvironmentId: runtimeState.environmentId
+  })
 }))
 
 vi.mock('react', async () => {
@@ -55,7 +54,7 @@ describe('useGitStatusUpstreamRefWatch', () => {
 
     expect(setWatch).toHaveBeenCalledWith(
       {
-        target: { kind: 'local' },
+        settings: { activeRuntimeEnvironmentId: null },
         worktreeId: 'repo-1::/repo',
         worktreePath: '/repo',
         connectionId: undefined

@@ -4,10 +4,6 @@
  * shell-wrapper-content-address.ts).
  */
 import { join } from 'node:path'
-import {
-  buildFishVendorConfWrapperFile,
-  getFishVendorConfSnippetPath
-} from '../fish-xdg-data-dirs-handoff'
 import { ZSH_WRAPPER_DIR_MARKER_CONTENT, ZSH_WRAPPER_DIR_MARKER_FILE } from '../shell-templates'
 import type { ShellWrapperFile } from '../shell-wrapper-file-writer'
 import { buildZshStartupHook } from '../zsh-startup-wrapper-builder'
@@ -20,8 +16,7 @@ export function getDaemonShellReadyWrapperPaths(root: string): readonly string[]
   return [
     join(zshDir, '.zshenv'),
     join(zshDir, ZSH_WRAPPER_DIR_MARKER_FILE),
-    join(root, 'bash', 'rcfile'),
-    getFishVendorConfSnippetPath(root)
+    join(root, 'bash', 'rcfile')
   ]
 }
 
@@ -33,7 +28,6 @@ export function buildDaemonShellReadyWrapperFiles(root: string): readonly ShellW
   return [
     [zshEnvPath, buildZshStartupHook(getDaemonZshWrapperSpec())],
     [zshMarkerPath, ZSH_WRAPPER_DIR_MARKER_CONTENT],
-    [bashRcfilePath, getDaemonBashShellReadyRcfileContent()],
-    buildFishVendorConfWrapperFile(root)
+    [bashRcfilePath, getDaemonBashShellReadyRcfileContent()]
   ]
 }

@@ -3,9 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
-import { expectNoSidebarShadowMismatches } from './helpers/sidebar-shadow'
 import { waitForSessionReady } from './helpers/store'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../src/shared/child-process/run-process'
 
 test.use({ seedTestRepo: false })
 
@@ -72,8 +71,6 @@ test('keeps a collapsed group visible when an idle card below it grows', async (
   orcaPage,
   registerPostElectronShutdownCleanup
 }, testInfo) => {
-  // Why: the fixture's collapse slides rows in from their old position; a hidden window can freeze that mid-flight baseline.
-  await orcaPage.emulateMedia({ reducedMotion: 'reduce' })
   await waitForSessionReady(orcaPage)
   await orcaPage.setViewportSize({ width: 1200, height: 900 })
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'orca-sidebar-measured-row-')))
@@ -124,7 +121,7 @@ test('keeps a collapsed group visible when an idle card below it grows', async (
     if (!member || !collapsed || !expanded) {
       throw new Error('Expected three fixture repos')
     }
-    const group = await store.getState().createProjectGroup('Research gang', 'local')
+    const group = await store.getState().createProjectGroup('Research gang')
     if (!group) {
       throw new Error('Fixture group was not created')
     }
@@ -187,14 +184,4 @@ test('keeps a collapsed group visible when an idle card below it grows', async (
   expect(after.collapsedGap).toBeCloseTo(before.collapsedGap, 0)
   expect(after.expandedGap).toBeCloseTo(before.expandedGap, 0)
   await expect(group).toHaveCount(1)
-  // A pin lands in main's metadata, which the desktop-facts shadow compares against the window.
-  await orcaPage.evaluate(async (worktreeId) => {
-    const result = await window.__store
-      ?.getState()
-      .updateWorktreeMeta(worktreeId, { isPinned: true })
-    if (!result?.ok) {
-      throw new Error(`pin failed: ${JSON.stringify(result)}`)
-    }
-  }, fixture.worktreeId)
-  await expectNoSidebarShadowMismatches(orcaPage)
 })

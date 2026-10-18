@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -392,25 +392,6 @@ describe('configureOrcaUserDataPathEnv', () => {
     }
 
     expect(configuredUserDataPath).toBe('/tmp/current-orca-user-data')
-  })
-
-  it('drops a runtime source inherited from the Orca terminal that started this Orca', async () => {
-    const { app } = await import('electron')
-    const { configureOrcaUserDataPathEnv } = await import('./configure-process')
-    const saved = { ...process.env }
-    process.env.ORCA_RUNTIME_SOURCE_ID = 'parent-source'
-    process.env.ORCA_RUNTIME_SOURCE_INCARNATION = 'parent-runtime'
-    app.setPath('userData', '/tmp/current-orca-user-data')
-    let inherited: (string | undefined)[] = []
-
-    try {
-      configureOrcaUserDataPathEnv()
-      inherited = [process.env.ORCA_RUNTIME_SOURCE_ID, process.env.ORCA_RUNTIME_SOURCE_INCARNATION]
-    } finally {
-      process.env = saved
-    }
-
-    expect(inherited).toEqual([undefined, undefined])
   })
 })
 
@@ -959,6 +940,39 @@ describe('safe graphics mode startup switches', () => {
       'disable-features',
       'IntensiveWakeUpThrottling'
     )
+  })
+
+  // Why: the defect was the call site, not the switch — a win32 safe-graphics launch runs
+  // `if (!gpuFallbackActiveThisLaunch) enableMainProcessGpuFeatures()` and skips everything
+  // parked inside it, so only an unconditional call site reaches the users a GPU crash already hit.
+  it('calls the throttling opt-out outside the GPU-fallback gate in preflight', () => {
+    const mainSource = readFileSync(join(__dirname, 'main-process-preflight.ts'), 'utf8')
+    const gateStart = mainSource.indexOf('if (!state.gpuFallbackActiveThisLaunch) {')
+    expect(gateStart).toBeGreaterThanOrEqual(0)
+    const gateEnd = mainSource.indexOf('\n  }', gateStart)
+    expect(gateEnd).toBeGreaterThan(gateStart)
+
+    expect(mainSource.match(/\boptOutOfHiddenPageWakeUpThrottling\(\)/g)).toHaveLength(1)
+    expect(mainSource.slice(gateStart, gateEnd)).not.toContain('optOutOfHiddenPageWakeUpThrottling')
+  })
+
+  // Why: Chromium consumes the command line at ready, so this must stay in the pre-ready
+  // top-level block and never move into the whenReady callback, where appendSwitch is a silent
+  // no-op — the same invisible failure as parking it behind the GPU gate.
+  it('appends the throttling opt-out before app ready in preflight', () => {
+    const mainSource = readFileSync(join(__dirname, 'main-process-preflight.ts'), 'utf8')
+    const entrySource = readFileSync(join(__dirname, '..', 'index.ts'), 'utf8')
+    const preflightEnd = mainSource.indexOf('\n  return true')
+    const readyStart = entrySource.indexOf('void app.whenReady()')
+    const preflightCall = entrySource.indexOf('runMainProcessPreflight({')
+    expect(preflightEnd).toBeGreaterThan(0)
+    expect(readyStart).toBeGreaterThan(0)
+    expect(preflightCall).toBeGreaterThanOrEqual(0)
+    expect(preflightCall).toBeLessThan(readyStart)
+
+    const callIndex = mainSource.indexOf('optOutOfHiddenPageWakeUpThrottling()')
+    expect(callIndex).toBeGreaterThan(0)
+    expect(callIndex).toBeLessThan(preflightEnd)
   })
 
   // Why: Chromium enables IntensiveWakeUpThrottling on every desktop platform, so the opt-out

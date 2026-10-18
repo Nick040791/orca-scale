@@ -64,7 +64,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 vi.mock('./telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('./telemetry/cohort-classifier', () => ({ getCohortAtEmit: () => ({ nth_repo_added: 2 }) }))
-vi.mock('./ssh/config/ssh-config-parser', () => ({
+vi.mock('./ssh/ssh-config-parser', () => ({
   loadUserSshConfig: () => ({ hosts: [] }),
   sshConfigHostsToTargets: () => []
 }))
@@ -101,6 +101,17 @@ function pauseCommit(authority: ProfileStateWorkerAuthority) {
     })
   }
   return { started: started.promise, release: finish.resolve }
+}
+
+function consumerRecovery(clientInstanceId: string) {
+  return {
+    targetId: 'ssh-1',
+    clientInstanceId,
+    serverBuildId: 'relay-build-1',
+    clientGeneration: 3,
+    ownerGeneration: 5,
+    ownerLease: 'secret-owner-lease'
+  }
 }
 
 function readBackup(path: string) {
@@ -157,7 +168,7 @@ describe('worker persistence avoids synchronous profile filesystem calls', () =>
     const { store, authority, directory, readState } = await createWorkerMaintenanceFixture()
     const gate = pauseCommit(authority)
     record(directory)
-    const pending = store.updateSettingsAndFlush({ terminalFontSize: 17 })
+    const pending = store.upsertSshPtyConsumerRecovery(consumerRecovery('client-1'))
     await gate.started
     let complete = false
     void pending.then(() => {
@@ -169,7 +180,7 @@ describe('worker persistence avoids synchronous profile filesystem calls', () =>
     gate.release()
     await pending
     fsCalls.recording = false
-    expect(readState().settings.terminalFontSize).toBe(17)
+    expect(readState().sshPtyConsumerRecoveries[0].clientInstanceId).toBe('client-1')
   })
 
   it('drains a newer mutation before resolving a stable-generation barrier', async () => {
@@ -249,13 +260,89 @@ describe('worker persistence avoids synchronous profile filesystem calls', () =>
     expect(readState().ui.sidebarWidth).toBe(612)
   })
 
+  it('persists SSH consumer recovery without sync syscalls before acknowledging it', async () => {
+    const { store, authority, directory, readState } = await createWorkerMaintenanceFixture()
+    record(directory)
+    await store.upsertSshPtyConsumerRecovery(consumerRecovery('client-1'))
+    await authority.drainBackups()
+    fsCalls.recording = false
+    expect(fsCalls.sync).toEqual([])
+    expect(readState().sshPtyConsumerRecoveries).toEqual([
+      expect.objectContaining({ clientInstanceId: 'client-1' })
+    ])
+  })
+
+  it('rejects failed consumer recovery and preserves the prior durable state', async () => {
+    const { store, authority, readState } = await createWorkerMaintenanceFixture()
+    const before = readState().sshPtyConsumerRecoveries
+    const failure = new Error('profile mount rejected write')
+    vi.spyOn(authority, 'writeCompleteSerializedDomains').mockRejectedValueOnce(failure)
+    await expect(store.upsertSshPtyConsumerRecovery(consumerRecovery('client-1'))).rejects.toBe(
+      failure
+    )
+    expect(readState().sshPtyConsumerRecoveries).toEqual(before)
+  })
+
+  it('durably removes SSH consumer recovery without sync syscalls', async () => {
+    const { store, authority, directory, readState } = await createWorkerMaintenanceFixture()
+    await store.upsertSshPtyConsumerRecovery(consumerRecovery('client-1'))
+    await authority.drainBackups()
+    record(directory)
+    await store.removeSshPtyConsumerRecovery('ssh-1')
+    await authority.drainBackups()
+    fsCalls.recording = false
+    expect(fsCalls.sync).toEqual([])
+    expect(readState().sshPtyConsumerRecoveries).toEqual([])
+  })
+
+  it('persists lease detachment and selected reattachments without sync syscalls', async () => {
+    const { store, authority, directory, readState } = await createWorkerMaintenanceFixture()
+    for (const [ptyId, state] of [
+      ['pty-1', 'attached'],
+      ['pty-2', 'expired'],
+      ['pty-3', 'detached'],
+      ['pty-4', 'terminated']
+    ] as const) {
+      store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId, state })
+    }
+    record(directory)
+    await store.markSshRemotePtyLeasesAsync('ssh-1', 'detached')
+    await authority.drainBackups()
+    fsCalls.recording = false
+    expect(fsCalls.sync).toEqual([])
+    expect(
+      readState().sshRemotePtyLeases.filter(
+        (lease: { targetId: string }) => lease.targetId === 'ssh-1'
+      )
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ ptyId: 'pty-1', state: 'detached' })])
+    )
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-2', state: 'expired' })
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-4', state: 'terminated' })
+    record(directory)
+    const write = vi.spyOn(authority, 'writeSerializedDomains')
+    await store.markSshRemotePtyLeasesAttachedAsync('ssh-1', ['pty-1', 'pty-2', 'pty-4'])
+    await authority.drainBackups()
+    fsCalls.recording = false
+    expect(fsCalls.sync).toEqual([])
+    expect(write).toHaveBeenCalledOnce()
+    expect(readState().sshRemotePtyLeases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ptyId: 'pty-1', state: 'attached' }),
+        expect.objectContaining({ ptyId: 'pty-2', state: 'attached' }),
+        expect.objectContaining({ ptyId: 'pty-3', state: 'detached' }),
+        expect.objectContaining({ ptyId: 'pty-4', state: 'terminated' })
+      ])
+    )
+  })
+
   it('serializes queued durable mutations and refuses a synchronous live flush', async () => {
     const { store, authority, readState } = await createWorkerMaintenanceFixture()
     const gate = pauseCommit(authority)
-    const first = store.updateSettingsAndFlush({ terminalFontSize: 17 })
+    const first = store.upsertSshPtyConsumerRecovery(consumerRecovery('client-1'))
     await gate.started
     expect(() => store.flushOrThrow()).toThrow('awaited flush')
-    const second = store.updateSettingsAndFlush({ terminalFontSize: 18 })
+    const second = store.upsertSshPtyConsumerRecovery(consumerRecovery('client-2'))
     await Promise.resolve()
     expect(
       vi.mocked(authority.writeSerializedDomains).mock.calls.length +
@@ -263,7 +350,7 @@ describe('worker persistence avoids synchronous profile filesystem calls', () =>
     ).toBe(1)
     gate.release()
     await Promise.all([first, second])
-    expect(readState().settings.terminalFontSize).toBe(18)
+    expect(readState().sshPtyConsumerRecoveries[0].clientInstanceId).toBe('client-2')
   })
 
   it('keeps admitted offline SQL checkpoints synchronous and durable', () => {

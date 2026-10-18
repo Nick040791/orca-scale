@@ -6,26 +6,32 @@ export function useSourceControlBaseRefDefault({
   activeRepoConnectionId,
   activeRepoExecutionHostId,
   activeRepoId,
+  activeRepoRuntimeEnvironmentId,
   isBranchVisible,
   isFolder
 }: {
   activeRepoConnectionId: string | null
   activeRepoExecutionHostId: ExecutionHostId | null
   activeRepoId: string | null
+  activeRepoRuntimeEnvironmentId: string | null | undefined
   isBranchVisible: boolean
   isFolder: boolean
 }): string | null {
   // Why: start null (not 'origin/main') so branch compare doesn't fire with a fabricated ref before the IPC resolves.
   const [defaultBaseRef, setDefaultBaseRef] = useState<string | null>(null)
   useEffect(() => {
-    if (!isBranchVisible || !activeRepoId || !activeRepoExecutionHostId || isFolder) {
+    if (!isBranchVisible || !activeRepoId || isFolder) {
       return
     }
     // Why: reset to null so that effectiveBaseRef becomes falsy until the IPC resolves, so branch compare can't fire with a stale defaultBaseRef from a different repo (transient "invalid-base" on switch).
     setDefaultBaseRef(null)
     let stale = false
-    // Why: resolved on the repo's OWNER host, not the focused runtime.
-    void getRuntimeRepoBaseRefDefault(activeRepoExecutionHostId, activeRepoId)
+    void getRuntimeRepoBaseRefDefault(
+      { activeRuntimeEnvironmentId: activeRepoRuntimeEnvironmentId },
+      activeRepoId,
+      // Why: the direct-repo path resolves the record by OWNER host, not the focused runtime.
+      activeRepoExecutionHostId ?? undefined
+    )
       .then((result) => {
         if (!stale) {
           // IPC returns a { defaultBaseRef, remoteCount } envelope; only defaultBaseRef is needed here (remoteCount powers BaseRefPicker's multi-remote hint).
@@ -47,6 +53,7 @@ export function useSourceControlBaseRefDefault({
     activeRepoConnectionId,
     activeRepoExecutionHostId,
     activeRepoId,
+    activeRepoRuntimeEnvironmentId,
     isBranchVisible,
     isFolder
   ])

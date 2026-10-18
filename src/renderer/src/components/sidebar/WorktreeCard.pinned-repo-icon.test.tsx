@@ -16,33 +16,28 @@ let worktreeCardProperties: WorktreeCardProperty[] = []
 let settings: Partial<GlobalSettings> | null = null
 const WORKTREE_CARD_IMPORT_TIMEOUT_MS = 15_000
 
-vi.mock('@/store', () => {
-  const getState = () => ({
-    deleteStateByWorktreeId: {},
-    fetchHostedReviewForBranch,
-    fetchIssue,
-    fetchLinearIssue,
-    gitConflictOperationByWorktree: {},
-    hostedReviewCache: {},
-    issueCache: {},
-    linearIssueCache: {},
-    openModal,
-    projectGroups: [],
-    remoteBranchConflictByWorktreeId: {},
-    settings,
-    sshConnectionStates: new Map(),
-    sshTargetLabels: new Map(),
-    updateWorktreeMeta,
-    workspacePortScan: null,
-    worktreeCardProperties
-  })
-  return {
-    useAppStore: Object.assign((selector: (state: unknown) => unknown) => selector(getState()), {
-      getState,
-      subscribe: () => () => {}
+vi.mock('@/store', () => ({
+  useAppStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      deleteStateByWorktreeId: {},
+      fetchHostedReviewForBranch,
+      fetchIssue,
+      fetchLinearIssue,
+      gitConflictOperationByWorktree: {},
+      hostedReviewCache: {},
+      issueCache: {},
+      linearIssueCache: {},
+      openModal,
+      projectGroups: [],
+      remoteBranchConflictByWorktreeId: {},
+      settings,
+      sshConnectionStates: new Map(),
+      sshTargetLabels: new Map(),
+      updateWorktreeMeta,
+      workspacePortScan: null,
+      worktreeCardProperties
     })
-  }
-})
+}))
 
 vi.mock('@/lib/worktree-activation', () => ({
   activateAndRevealWorktree: vi.fn()
@@ -73,6 +68,7 @@ vi.mock('./WorktreeCardAgents', () => ({
 
 vi.mock('./WorktreeContextMenu', () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
+  CLOSE_ALL_CONTEXT_MENUS_EVENT: 'orca:test-close-context-menus',
   WORKTREE_NATIVE_CONTEXT_MENU_ATTR: 'data-worktree-native-context-menu',
   WORKTREE_CONTEXT_MENU_SCOPE_ATTR: 'data-orca-context-menu-scope'
 }))

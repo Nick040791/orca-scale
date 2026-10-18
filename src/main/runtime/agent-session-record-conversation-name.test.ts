@@ -1,28 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import {
-  isPersistedAgentSessionRecord,
-  type AgentSessionRecord
-} from '../../shared/agent-session-record'
-import { encodePersistedAgentSessionProviderHandleChain } from '../../shared/agent-session-provider-handle'
+import { isPersistedAgentSessionRecord } from '../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../../shared/agent-session-record.test-fixture'
 import { setAgentSessionRecordConversationName } from './agent-session-record-conversation-name'
 
 const NOW = 9_000
 
-/** Validates the record as its row stores it. */
-function storedRecordIsValid(
-  record: Omit<AgentSessionRecord, 'conversationName'> & { conversationName?: unknown }
-): boolean {
-  return isPersistedAgentSessionRecord({
-    ...record,
-    providerHandleChain: encodePersistedAgentSessionProviderHandleChain(record.providerHandleChain)
-  })
-}
-
 describe('agent session record conversationName validation', () => {
   it('accepts a record carrying a bounded name', () => {
     expect(
-      storedRecordIsValid({
+      isPersistedAgentSessionRecord({
         ...agentSessionRecordFixture(),
         conversationName: 'Fix the lease probe'
       })
@@ -30,12 +16,12 @@ describe('agent session record conversationName validation', () => {
   })
 
   it('accepts a record with no name at all', () => {
-    expect(storedRecordIsValid(agentSessionRecordFixture())).toBe(true)
+    expect(isPersistedAgentSessionRecord(agentSessionRecordFixture())).toBe(true)
   })
 
   it('rejects a name past the stored maximum', () => {
     expect(
-      storedRecordIsValid({
+      isPersistedAgentSessionRecord({
         ...agentSessionRecordFixture(),
         conversationName: 'a'.repeat(201)
       })
@@ -43,23 +29,23 @@ describe('agent session record conversationName validation', () => {
   })
 
   it('rejects a name that is not a string', () => {
-    expect(storedRecordIsValid({ ...agentSessionRecordFixture(), conversationName: 42 })).toBe(
-      false
-    )
-    expect(storedRecordIsValid({ ...agentSessionRecordFixture(), conversationName: '' })).toBe(
-      false
-    )
+    expect(
+      isPersistedAgentSessionRecord({ ...agentSessionRecordFixture(), conversationName: 42 })
+    ).toBe(false)
+    expect(
+      isPersistedAgentSessionRecord({ ...agentSessionRecordFixture(), conversationName: '' })
+    ).toBe(false)
   })
 
   it('rejects persisted names that bypassed canonical normalization', () => {
     expect(
-      storedRecordIsValid({
+      isPersistedAgentSessionRecord({
         ...agentSessionRecordFixture(),
         conversationName: 'Fix\u202Egnp.exe probe'
       })
     ).toBe(false)
     expect(
-      storedRecordIsValid({
+      isPersistedAgentSessionRecord({
         ...agentSessionRecordFixture(),
         conversationName: 'Fix\nthe probe'
       })
@@ -77,7 +63,7 @@ describe('setAgentSessionRecordConversationName', () => {
 
     expect(next.conversationName).toBe('Fix the lease probe')
     expect(next.updatedAt).toBe(NOW)
-    expect(storedRecordIsValid(next)).toBe(true)
+    expect(isPersistedAgentSessionRecord(next)).toBe(true)
   })
 
   it('normalizes on the way in so the record stays valid whatever the caller sent', () => {
@@ -88,7 +74,7 @@ describe('setAgentSessionRecordConversationName', () => {
     )
 
     expect(next.conversationName).toBe('Fix the probe')
-    expect(storedRecordIsValid(next)).toBe(true)
+    expect(isPersistedAgentSessionRecord(next)).toBe(true)
   })
 
   it('bounds an over-long name rather than storing a record the validator would reject', () => {
@@ -99,7 +85,7 @@ describe('setAgentSessionRecordConversationName', () => {
     )
 
     expect(next.conversationName).toHaveLength(200)
-    expect(storedRecordIsValid(next)).toBe(true)
+    expect(isPersistedAgentSessionRecord(next)).toBe(true)
   })
 
   it('clears the name via null, deleting the key rather than storing an empty string', () => {
@@ -113,7 +99,7 @@ describe('setAgentSessionRecordConversationName', () => {
 
     expect(Object.hasOwn(cleared, 'conversationName')).toBe(false)
     expect(cleared.updatedAt).toBe(NOW + 1)
-    expect(storedRecordIsValid(cleared)).toBe(true)
+    expect(isPersistedAgentSessionRecord(cleared)).toBe(true)
   })
 
   it('treats a name that normalizes to nothing as a clear', () => {

@@ -4,13 +4,11 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { resolveBuildSourceCommit } from './build-source-commit.mjs'
 
-// Electron packaging restamps the channel-specific version after compilation; `commit`
-// is what the tsc-compiled CLI pins official skill installs to.
-function buildOutPackageJson(version, commit) {
+// Electron packaging restamps the channel-specific version after compilation.
+function buildOutPackageJson(version) {
   return `${JSON.stringify(
-    { name: 'orca-compiled-output', type: 'commonjs', private: true, version, commit },
+    { name: 'orca-compiled-output', type: 'commonjs', private: true, version },
     null,
     2
   )}\n`
@@ -24,7 +22,6 @@ export function verifyPackageCliBin({
   projectDir = path.resolve(import.meta.dirname, '..', '..'),
   fixExecutable = false,
   fixPackageJson = false,
-  sourceCommit,
   runHelp = false
 } = {}) {
   const packageJsonPath = path.join(projectDir, 'package.json')
@@ -51,11 +48,7 @@ export function verifyPackageCliBin({
   const outPackageJsonPath = path.join(projectDir, 'out', 'package.json')
   if (fixPackageJson) {
     mkdirSync(path.dirname(outPackageJsonPath), { recursive: true })
-    writeFileSync(
-      outPackageJsonPath,
-      buildOutPackageJson(packageJson.version, sourceCommit),
-      'utf8'
-    )
+    writeFileSync(outPackageJsonPath, buildOutPackageJson(packageJson.version), 'utf8')
   }
   let outPackageJson
   try {
@@ -100,7 +93,6 @@ function main() {
   const result = verifyPackageCliBin({
     fixExecutable: args.has('--fix-executable'),
     fixPackageJson: args.has('--fix-package-json'),
-    sourceCommit: args.has('--fix-package-json') ? resolveBuildSourceCommit() : undefined,
     runHelp: args.has('--run-help')
   })
   console.log(

@@ -13,7 +13,7 @@ const IDENTITY: AgentSessionJournalIdentity = {
   workspaceId: 'workspace-1',
   hostId: 'local',
   agent: 'claude',
-  providerHandle: null
+  providerHandle: { kind: 'opaque', agent: 'claude', value: 'pending' }
 }
 
 describe('Claude structured processless acquisition', () => {
@@ -29,7 +29,7 @@ describe('Claude structured processless acquisition', () => {
       const connection: ClaudeStreamJsonConnection = {
         pid: undefined,
         closed: true,
-        exitVerdict: { root: 'exited', tree: 'exited', processless: true },
+        exitVerdict: { root: 'processless', tree: 'exited' },
         initializationResult: async () => {
           throw fault
         },
@@ -37,7 +37,7 @@ describe('Claude structured processless acquisition', () => {
         getContextUsage: async () => ({}),
         supportedModels: async () => [],
         interrupt: async () => undefined,
-        cancelAsyncMessage: async () => false,
+        cancelAsyncMessage: async () => {},
         setModel: async () => {},
         setPermissionMode: async () => {},
         applyFlagSettings: async () => {},

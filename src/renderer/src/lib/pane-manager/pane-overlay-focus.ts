@@ -1,4 +1,3 @@
-import { focusNativeChatCover } from '@/components/terminal-pane/native-chat-covered-pane'
 import { hasVisibleOverlay } from '../visible-overlay'
 import type { ManagedPane } from './pane-manager-types'
 
@@ -7,16 +6,12 @@ export function focusPanePreservingOverlays(
 ): void {
   if (
     typeof document !== 'undefined' &&
-    (document.activeElement?.matches('[data-worktree-sidebar][data-keyboard-navigation]') ||
-      hasVisibleOverlay({
-        ignoreMatches: '[role="listbox"][data-worktree-sidebar]',
-        ignoreContaining: pane.container,
-        ignoreDismissed: true
-      }))
+    hasVisibleOverlay({
+      ignoreMatches: '[role="listbox"][data-worktree-sidebar]',
+      ignoreContaining: pane.container,
+      ignoreDismissed: true
+    })
   ) {
-    return
-  }
-  if (focusNativeChatCover(pane)) {
     return
   }
   pane.terminal.focus()

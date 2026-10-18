@@ -68,9 +68,8 @@ export function buildBrowserPage(
     worktreeId,
     url: normalizedUrl,
     title: normalizeBrowserTitle(title, normalizedUrl, docLocation),
-    // Why cold: only a live guest may report loading. A restored page owns no guest until first
-    // shown; a background-opened local page's guest starts under its mount admission and reports
-    // its own load.
+    // Why cold: a page owns no guest until it is first shown, and only a live guest may report
+    // loading. A background-opened tab therefore sits idle, and navigates on first activation.
     loading: false,
     faviconUrl: null,
     canGoBack: false,

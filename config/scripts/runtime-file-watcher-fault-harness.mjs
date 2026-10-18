@@ -56,11 +56,6 @@ async function loadSupervisor(bundleDir) {
   return require(outfile).WatcherProcessSupervisor
 }
 
-// Why: release cuts run this harness from older tags too; #24863 moved the child and canary into `slot`.
-function watcherSlot(supervisor) {
-  return supervisor.slot ?? supervisor
-}
-
 async function main() {
   if (process.platform === 'win32') {
     console.log('[runtime-file-watcher-fault] SKIP: SIGSEGV oracle is macOS/Linux only')
@@ -120,7 +115,7 @@ async function main() {
         onInterruption: () => resolveInterruption()
       }
     )
-    watcherCanaryDir = watcherSlot(supervisor).canaryDir
+    watcherCanaryDir = supervisor.canaryDir
 
     const beforeEvent = nextMatchingEvent(
       (listener) => {
@@ -132,14 +127,14 @@ async function main() {
     await writeFile(join(rootPath, 'before.txt'), 'before')
     await Promise.race([beforeEvent, watcherError])
 
-    const firstChildPid = watcherSlot(supervisor).child?.pid
+    const firstChildPid = supervisor.child?.pid
     if (!firstChildPid) {
       throw new Error('Watcher supervisor did not expose a live child')
     }
     process.kill(firstChildPid, 'SIGSEGV')
     await Promise.race([interrupted, watcherError])
 
-    const replacementChildPid = watcherSlot(supervisor).child?.pid
+    const replacementChildPid = supervisor.child?.pid
     if (!replacementChildPid || replacementChildPid === firstChildPid) {
       throw new Error('Watcher supervisor did not replace the faulted child')
     }

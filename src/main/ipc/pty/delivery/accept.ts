@@ -1,3 +1,4 @@
+import type { LegacySshProjectionSemantics } from '../../ssh-pty-legacy-projection'
 import {
   recordHiddenRendererPtyDataDrop,
   shouldDropHiddenRendererPtyData
@@ -8,11 +9,7 @@ import {
   activeRendererPtys
 } from './visibility-state'
 import { PTY_BATCH_INTERVAL_MS } from './constants'
-import {
-  appendPendingPtyData,
-  getDroppedMode2031RendererData,
-  getDroppedSynchronizedOutputRendererData
-} from './pending'
+import { appendPendingPtyData, getDroppedMode2031RendererData } from './pending'
 import { sendModelRestoreNeededMarker, sendPtyDataToRenderer } from './payload'
 import { shouldSendInteractiveOutputNow } from './interactive'
 import { requestDeliveryResyncForGatedPty } from './accounting'
@@ -32,12 +29,17 @@ export function acceptPtyDataForRenderer(
     sequenceChars?: number
     transformed?: boolean
   },
-  outputSeq: number | undefined
+  outputSeq: number | undefined,
+  projection?: LegacySshProjectionSemantics
 ): void {
   const rawLength = payload.sequenceChars ?? payload.data.length
   const preservesSeq = !payload.transformed && rawLength === payload.data.length
   const startSeq = typeof outputSeq === 'number' ? Math.max(0, outputSeq - rawLength) : undefined
+  const projectionId = projection?.identity.projectionSemanticsId
   if (!session.mainWindow || session.mainWindow.isDestroyed()) {
+    if (projectionId) {
+      session.sshOutputIntake?.transferProjections([projectionId], 'renderer-destroyed')
+    }
     if (session.flushTimer) {
       clearTimeout(session.flushTimer)
       session.flushTimer = null
@@ -52,28 +54,34 @@ export function acceptPtyDataForRenderer(
     return
   }
   if (session.rendererExitingPtyIds.has(payload.id)) {
+    if (projectionId) {
+      session.sshOutputIntake?.transferProjections([projectionId], 'pty-exiting')
+    }
     return
   }
   if (shouldDropHiddenRendererPtyData(payload.id, session.getSettings?.())) {
-    const droppedChars = payload.data.length
+    if (projectionId) {
+      session.sshOutputIntake?.transferProjections([projectionId], 'hidden-drop')
+    }
+    const droppedChars = projection ? rawLength : payload.data.length
     const drop = recordHiddenRendererPtyDataDrop(payload.id, droppedChars)
     warnIfDroppingHiddenBytesForVisiblePty(session, payload.id, droppedChars)
     if (drop.shouldEmitRestoreMarker) {
-      sendModelRestoreNeededMarker(
-        session,
-        payload.id,
-        'hidden-drop',
-        outputSeq,
-        drop.hiddenDropEpisode
-      )
+      sendModelRestoreNeededMarker(session, payload.id, 'hidden-drop', outputSeq)
     }
     return
   }
   if (payload.data.length === 0 && !payload.transformed) {
+    if (projectionId) {
+      session.sshOutputIntake?.transferProjections([projectionId], 'empty-projection')
+    }
     return
   }
   const containsBackgroundOutput = rendererPtyIsKnownHidden(payload.id)
   const overflowMarkedBeforeAppend = session.pendingOverflowMarkedPtys.has(payload.id)
+  if (projection?.desktopSpan) {
+    session.sourceCreditPendingPtys.add(payload.id)
+  }
   const pending = appendPendingPtyData(
     session,
     payload.id,
@@ -83,19 +91,14 @@ export function acceptPtyDataForRenderer(
     preservesSeq,
     containsBackgroundOutput,
     rawLength,
-    payload.transformed === true
+    payload.transformed === true,
+    projectionId
   )
   const shouldEmitPendingCapRestoreMarker =
     pending.droppedOutput === true &&
     !overflowMarkedBeforeAppend &&
     session.pendingOverflowMarkedPtys.has(payload.id)
-  // Why the 2026 release goes BEFORE the 2031 data: that payload ends with a
-  // deliberately-retained INCOMPLETE private-mode sequence (extractPrivateModeScanTail),
-  // and an ESC after it would abort the dangling CSI and lose the carried mode.
-  const nextData =
-    pending.data +
-    getDroppedSynchronizedOutputRendererData(pending) +
-    getDroppedMode2031RendererData(pending)
+  const nextData = pending.data + getDroppedMode2031RendererData(pending)
   const isInteractiveOutput = shouldSendInteractiveOutputNow(
     payload.id,
     nextData,
@@ -118,19 +121,24 @@ export function acceptPtyDataForRenderer(
     }
     session.pendingOverflowMarkedPtys.delete(payload.id)
     try {
-      sendPtyDataToRenderer(session, payload.id, {
-        id: payload.id,
-        data: nextData,
-        ...(typeof pending.startSeq === 'number'
-          ? {
-              seq: pending.startSeq + (pending.rawLength ?? nextData.length),
-              rawLength: pending.rawLength ?? nextData.length
-            }
-          : {}),
-        ...(pending.transformed ? { transformed: true } : {}),
-        ...(pending.containsBackgroundOutput === true ? { background: true } : {}),
-        ...(pending.droppedOutput === true ? { droppedOutput: true } : {})
-      })
+      sendPtyDataToRenderer(
+        session,
+        payload.id,
+        {
+          id: payload.id,
+          data: nextData,
+          ...(typeof pending.startSeq === 'number'
+            ? {
+                seq: pending.startSeq + (pending.rawLength ?? nextData.length),
+                rawLength: pending.rawLength ?? nextData.length
+              }
+            : {}),
+          ...(pending.transformed ? { transformed: true } : {}),
+          ...(pending.containsBackgroundOutput === true ? { background: true } : {}),
+          ...(pending.droppedOutput === true ? { droppedOutput: true } : {})
+        },
+        pending.projectionAdmissionIds
+      )
     } finally {
       session.updateProducerFlowControl(payload.id)
     }

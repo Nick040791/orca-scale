@@ -1,4 +1,3 @@
-import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PairingOffer } from '../../shared/pairing'
 import type {
@@ -119,7 +118,7 @@ function createLease(overrides: {
   onReconnected?: (authority: unknown) => void
 }): PairedRuntimeBrowserHostLease {
   return new PairedRuntimeBrowserHostLease({
-    connection: pairedRuntimeConnectionFromOffer(pairing),
+    pairing,
     authorityRuntimeId: 'runtime-a',
     browserHostClientId: 'host-a',
     hostCapabilities: ['webview'],

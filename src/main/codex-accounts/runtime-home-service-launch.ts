@@ -61,11 +61,10 @@ export abstract class CodexRuntimeHomeLaunch extends CodexRuntimeHomeRouting {
       // Why: only an untrusted home clears the selection; fall through to the
       // system default without injecting a path Orca cannot prove it owns.
     }
-    if (this.isHostSystemDefaultRealHomeSelected(launchEnv)) {
+    if (this.isHostSystemDefaultRealHome(launchEnv)) {
       // Why: the system default runs Codex on the user's own ~/.codex.
       // Returning null tells the PTY/env layer to inject no managed CODEX_HOME;
       // the retired mirror is refreshed only for pre-rollout PTYs.
-      this.copyMirrorLoginIntoEmptySystemHome()
       this.reconcileLegacySharedHomeForRetainedPanes()
       return null
     }
@@ -103,15 +102,13 @@ export abstract class CodexRuntimeHomeLaunch extends CodexRuntimeHomeRouting {
       }
       // Why: launch prep deselects an UNTRUSTED home before routing onward, so
       // its next check sees no selection; predict that route, clearing nothing.
-      return !hasCustomCodexHomeOverrideForLaunch(launchEnv)
+      return this.wouldSystemDefaultRouteToRealHome(launchEnv)
         ? null
         : resolveOrcaManagedCodexHomePath()
     }
     // Why the path-only resolver: getRuntimeHomePath() mkdirs the mirror, and
     // this lookup must not create directories either.
-    return this.isHostSystemDefaultRealHomeSelected(launchEnv)
-      ? null
-      : resolveOrcaManagedCodexHomePath()
+    return this.isHostSystemDefaultRealHome(launchEnv) ? null : resolveOrcaManagedCodexHomePath()
   }
 
   async prepareForCodexLaunchAsync(

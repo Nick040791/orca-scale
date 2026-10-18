@@ -14,10 +14,8 @@ const {
   readDaemonPidRecordMock: vi.fn<() => { pid: number } | null>()
 }))
 
-vi.mock('../daemon/daemon-provider-init', () => ({
-  initDaemonPtyProvider: initDaemonPtyProviderMock
-}))
-vi.mock('../daemon/daemon-provider-state', () => ({
+vi.mock('../daemon/daemon-init', () => ({
+  initDaemonPtyProvider: initDaemonPtyProviderMock,
   disconnectDaemon: disconnectDaemonMock,
   // Exported here purely so the test can prove it is never reached — killing the daemon on
   // orcad shutdown is what would make an orcad restart destructive again.
@@ -54,24 +52,8 @@ describe('startOrcadDaemon', () => {
     // daemon must survive its SSH session ending — arming it would kill every terminal the
     // moment the operator logged out, which is the opposite of the property being bought.
     expect(initDaemonPtyProviderMock).toHaveBeenCalledWith(undefined, {
-      macosLoginSessionWatch: false,
-      spawnAdmission: 'enforce'
+      macosLoginSessionWatch: false
     })
-  })
-
-  it('gives a cold Windows daemon a longer startup budget', async () => {
-    await startOrcadDaemon('win32')
-    expect(initDaemonPtyProviderMock).toHaveBeenCalledWith(undefined, {
-      macosLoginSessionWatch: false,
-      spawnAdmission: 'enforce',
-      startupTimeoutMs: 30_000
-    })
-  })
-
-  it('retries the daemon spawn once before falling back to in-process terminals', async () => {
-    initDaemonPtyProviderMock.mockRejectedValueOnce(new Error('Daemon startup timed out'))
-    await expect(startOrcadDaemon()).resolves.toEqual({ state: 'live', pid: 4242 })
-    expect(initDaemonPtyProviderMock).toHaveBeenCalledTimes(2)
   })
 
   it('reports degraded when fresh terminals would fall back to the local provider', async () => {
@@ -89,7 +71,6 @@ describe('startOrcadDaemon', () => {
       state: 'unavailable',
       reason: 'node-pty is missing'
     })
-    expect(initDaemonPtyProviderMock).toHaveBeenCalledTimes(2)
   })
 })
 

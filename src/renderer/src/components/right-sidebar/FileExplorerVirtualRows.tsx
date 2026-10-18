@@ -8,15 +8,14 @@ import { InlineInputRow, type InlineInput } from './file-explorer-inline-input-r
 import { shouldShowIgnoredDecoration, STATUS_COLORS } from './status-display'
 import type { DirCache, FileExplorerOperationOwner, TreeNode } from './file-explorer-types'
 import type { FileExplorerRowProjection } from './file-explorer-row-projection'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 import { getFileExplorerOperationExecutionHostId } from './file-explorer-operation-owner'
-import type { WorkspaceFileDragSource } from '@/lib/workspace-file-drag'
+import type { ExecutionHostId } from '../../../../shared/execution-host'
 
 type FileExplorerVirtualRowsProps = {
   virtualizer: Virtualizer<HTMLDivElement, Element>
   inlineInputIndex: number
   rowProjection: FileExplorerRowProjection
-  displayDepthOffset?: number
   inlineInput: InlineInput | null
   handleInlineSubmit: (value: string) => void
   dismissInlineInput: () => void
@@ -83,36 +82,29 @@ function getDraggedPathOperationOwner(
 
 /** Null unless every dragged row came from one host: a mixed-owner drag has no
  *  single source to stamp, so it must fail closed at the drop target. */
-function resolveDragSourceOwner(
+function resolveDragSourceExecutionHostId(
   rowProjection: FileExplorerRowProjection,
   dirCache: Record<string, DirCache> | undefined,
   paths: readonly string[]
-): Omit<WorkspaceFileDragSource, 'workspaceId'> | null {
-  let sourceOwner: Omit<WorkspaceFileDragSource, 'workspaceId'> | null = null
+): ExecutionHostId | null {
+  let sourceExecutionHostId: ExecutionHostId | null = null
   for (const path of paths) {
-    const owner = getDraggedPathOperationOwner(rowProjection, dirCache, path)
-    const executionHostId = getFileExplorerOperationExecutionHostId(owner)
-    const runtimeEnvironmentId = owner?.kind === 'runtime' ? owner.environmentId : undefined
-    if (
-      !executionHostId ||
-      (sourceOwner &&
-        (executionHostId !== sourceOwner.executionHostId ||
-          runtimeEnvironmentId !== sourceOwner.runtimeEnvironmentId))
-    ) {
+    const executionHostId = getFileExplorerOperationExecutionHostId(
+      getDraggedPathOperationOwner(rowProjection, dirCache, path)
+    )
+    if (!executionHostId || (sourceExecutionHostId && executionHostId !== sourceExecutionHostId)) {
       return null
     }
-    sourceOwner = { executionHostId, ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}) }
+    sourceExecutionHostId = executionHostId
   }
-  return sourceOwner
+  return sourceExecutionHostId
 }
 
-/** Renders virtual and inline-input rows using display-relative indentation but worktree-relative operation paths. */
 export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): React.JSX.Element {
   const {
     virtualizer,
     inlineInputIndex,
     rowProjection,
-    displayDepthOffset = 0,
     inlineInput,
     handleInlineSubmit,
     dismissInlineInput,
@@ -160,8 +152,8 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
   const visibleSelectionCount = rowProjection.countVisiblePaths(selectedPaths)
   // Resolved at dragstart, not per render: the virtualizer re-renders on every
   // scroll frame and only a drag ever reads this.
-  const resolveSourceOwner = (paths: readonly string[]) =>
-    resolveDragSourceOwner(rowProjection, dirCache, paths)
+  const resolveDragSourceHostId = (paths: readonly string[]): ExecutionHostId | null =>
+    resolveDragSourceExecutionHostId(rowProjection, dirCache, paths)
 
   return (
     <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
@@ -191,7 +183,7 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
               style={{ transform: `translateY(${vItem.start}px)` }}
             >
               <InlineInputRow
-                depth={inlineDepth - displayDepthOffset}
+                depth={inlineDepth}
                 inlineInput={inlineInput!}
                 onSubmit={handleInlineSubmit}
                 onCancel={dismissInlineInput}
@@ -228,11 +220,9 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
             style={{ transform: `translateY(${vItem.start}px)` }}
           >
             <FileExplorerRow
-              displayDepthOffset={displayDepthOffset}
               node={n}
               isExpanded={expanded.has(n.path)}
               isLoading={n.isDirectory && loadingDirPaths.has(n.path)}
-              loadError={n.isDirectory ? (dirCache?.[n.path]?.error ?? null) : null}
               isSelected={selectedPaths.has(n.path) || activeFileId === n.path}
               selectedPaths={selectedPaths}
               isFlashing={flashingPath === n.path}
@@ -242,7 +232,7 @@ export function FileExplorerVirtualRows(props: FileExplorerVirtualRowsProps): Re
               deleteShortcutLabel={deleteShortcutLabel}
               connectionId={connectionId}
               sourceWorkspaceId={sourceWorkspaceId}
-              resolveDragSourceOwner={resolveSourceOwner}
+              resolveDragSourceHostId={resolveDragSourceHostId}
               runtimeDownloadContext={runtimeDownloadContext}
               supportsFolderDownload={supportsFolderDownload}
               canOpenInOrcaBrowser={canOpenInOrcaBrowser(n.path)}

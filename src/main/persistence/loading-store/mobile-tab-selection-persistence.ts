@@ -31,3 +31,12 @@ export class MobileTabSelectionPersistence {
     scheduleSave(this[mobileTabSelectionPersistenceContext].scheduling)
   }
 }
+
+export function installMobileTabSelectionPersistenceContext(
+  target: MobileTabSelectionPersistence,
+  source: MobileTabSelectionPersistence
+): void {
+  Object.defineProperty(target, mobileTabSelectionPersistenceContext, {
+    value: source[mobileTabSelectionPersistenceContext]
+  })
+}

@@ -50,7 +50,8 @@ describe('useComposerProviderRuntimeSync', () => {
       selectedRepoExecutionHostId: 'local',
       selectedRepoHookContextKey: 'local:repo',
       selectedRepoIsGit: true,
-      selectedRepoTarget: { kind: 'local' },
+      selectedRepoSettings: null,
+      selectedRepoSettingsRef: { current: null },
       setCheckedHooksContextKey:
         vi.fn<ComposerProviderRuntimeSyncInput['setCheckedHooksContextKey']>(),
       setSelectedRepoSlug,

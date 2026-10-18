@@ -437,7 +437,7 @@ describe('fetchReposForAllHosts', () => {
     const store = createTestStore()
 
     await store.getState().fetchReposForAllHosts()
-    await store.getState().fetchRepos({ runtimeEnvironmentId: null })
+    await store.getState().fetchRepos()
 
     expect(
       store

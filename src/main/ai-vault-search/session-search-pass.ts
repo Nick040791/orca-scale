@@ -1,4 +1,5 @@
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
+import { ensureSessionParseCacheLoaded } from '../ai-vault/session-parse-cache-persistence'
 import {
   cursorChatMetaRefusals,
   withCursorChatMetaScan
@@ -110,6 +111,7 @@ export async function runSessionSearchPass(
     // instance held is applied by the first sweep of this one.
     await store.purgeOlderThan(store.retentionCutoff, signal)
   }
+  await ensureSessionParseCacheLoaded()
   return withCursorChatMetaScan(async () => {
     const swept = await discoverSessionSearchCandidates(args.roots, {
       limitPerAgent: args.full ? Number.POSITIVE_INFINITY : args.recentPerAgent,

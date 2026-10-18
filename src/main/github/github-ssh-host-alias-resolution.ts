@@ -1,7 +1,8 @@
 import type { GitHubOwnerRepo } from '../../shared/github/pull-request-types'
 import { commandExecFileAsync } from '../git/runner'
+import { getSshGitProvider, getSshGitProviderGeneration } from '../providers/ssh-git-dispatch'
 import { parseWslPath } from '../wsl'
-import { resolveWithSshG } from '../ssh/config/ssh-g-config-resolution'
+import { resolveWithSshG } from '../ssh/ssh-g-config-resolution'
 import {
   gitHubSshConfigHostAlias,
   parseGitHubOwnerRepo,
@@ -57,7 +58,8 @@ function pruneSshHostnameCache(now: number): void {
 
 function sshRuntimeCacheKey(context: SshConfigResolutionContext): string {
   if (context.connectionId) {
-    return `ssh:${context.connectionId}`
+    const generation = getSshGitProviderGeneration(context.connectionId)
+    return `ssh:${context.connectionId}:${generation}`
   }
   const distro = context.wslDistro ?? parseWslPath(context.repoPath)?.distro
   return `local:${distro?.toLowerCase() ?? 'host'}`
@@ -78,7 +80,23 @@ async function resolveSshHostnameInRuntime(
   context: SshConfigResolutionContext
 ): Promise<string | null> {
   if (context.connectionId) {
-    return null
+    const provider = getSshGitProvider(context.connectionId)
+    if (!provider) {
+      return null
+    }
+    try {
+      const result = await provider.execNonInteractive(
+        'ssh',
+        ['-G', '--', host],
+        context.repoPath,
+        SSH_G_TIMEOUT_MS
+      )
+      return result.exitCode === 0 && !result.timedOut && !result.canceled
+        ? parseSshGHostname(result.stdout)
+        : null
+    } catch {
+      return null
+    }
   }
 
   const wslDistro = context.wslDistro ?? parseWslPath(context.repoPath)?.distro

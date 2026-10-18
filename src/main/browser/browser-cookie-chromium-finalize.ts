@@ -3,7 +3,6 @@ import type {
   BrowserCookieImportSummary
 } from '../../shared/browser-workspace-types'
 import { browserSessionRegistry } from './browser-session-registry'
-import { summarizePartitionSkips } from './browser-cookie-partition-summary'
 import { removeTransplantableCookies } from './browser-cookie-import-clear'
 import { openCookieClearStore } from './browser-cookie-clear-store'
 import { writeImportedCookies, type SourceCookieToWrite } from './browser-cookie-import-write'
@@ -31,7 +30,9 @@ export async function finalizeChromiumCookieImport(
           : {}),
         // Why: partition skips are a breakdown of skippedCookies, never an addition to it, so
         // totalCookies === importedCookies + skippedCookies keeps holding on this path too.
-        ...summarizePartitionSkips(context.nativePlan.skips),
+        ...(context.partitionSkipped > 0
+          ? { partitionSkippedCookies: context.partitionSkipped }
+          : {}),
         domains: [],
         // Why: a profile whose rows cannot be decrypted returns here, and without this it is
         // reported as a successful empty import.
@@ -157,7 +158,7 @@ export async function finalizeChromiumCookieImport(
     ...(context.googleCookiesSkipped > 0
       ? { googleCookiesSkipped: context.googleCookiesSkipped }
       : {}),
-    ...summarizePartitionSkips(context.nativePlan.skips),
+    ...(context.partitionSkipped > 0 ? { partitionSkippedCookies: context.partitionSkipped } : {}),
     domains: [...context.domainSet].sort(),
     ...(warning ? { warning } : {})
   }

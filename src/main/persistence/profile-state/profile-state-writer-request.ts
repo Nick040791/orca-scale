@@ -1,4 +1,3 @@
-import { startProfileStateWriterSlowWarning } from './profile-state-writer-slow-warning'
 import type {
   ProfileStateWriterCommand,
   ProfileStateWriterResponse
@@ -11,7 +10,7 @@ export type PendingProfileStateWriterRequest = {
   promise: Promise<SuccessfulProfileStateWriterResponse>
   resolve: (response: SuccessfulProfileStateWriterResponse) => void
   reject: (error: Error) => void
-  clearSlowWarning: () => void
+  timer: ReturnType<typeof setTimeout>
 }
 
 export function isExpectedProfileStateWriterSuccess(
@@ -36,7 +35,7 @@ export function isExpectedProfileStateWriterSuccess(
   if (command === 'export-json') {
     return response.exportedRevision !== undefined && response.exportedRevision !== null
   }
-  if (command === 'export-latest') {
+  if (command === 'export-compatibility' || command === 'export-latest') {
     return (
       response.exportedRevision !== undefined &&
       (response.exportedRevision !== null || response.revision === 0)
@@ -45,28 +44,16 @@ export function isExpectedProfileStateWriterSuccess(
   return response.exportedRevision === undefined
 }
 
-/** A request stays pending until its matching reply or a real fault; slowness only warns. */
 export function createProfileStateWriterRequest(
   id: number,
   command: PendingProfileStateWriterRequest['command'],
-  slowWarningMs: number,
-  diagnostics: { acknowledgedRevision: number; now?: () => number; onSlow?: () => void }
+  timeoutMs: number,
+  onTimeout: () => void
 ): PendingProfileStateWriterRequest {
-  const clearSlowWarning = startProfileStateWriterSlowWarning({
-    warningMs: slowWarningMs,
-    phase: 'awaiting-reply',
-    now: diagnostics.now,
-    onSlow: diagnostics.onSlow,
-    request: {
-      command,
-      requestId: id,
-      acknowledgedRevision: diagnostics.acknowledgedRevision
-    }
-  })
   return {
     id,
     command,
     ...Promise.withResolvers<SuccessfulProfileStateWriterResponse>(),
-    clearSlowWarning
+    timer: setTimeout(onTimeout, timeoutMs)
   }
 }

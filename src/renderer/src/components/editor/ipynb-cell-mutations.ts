@@ -146,16 +146,6 @@ export function updateIpynbCellRun(
   executionCount: number | null
 ): string {
   const root = parseNotebookRoot(content)
-  applyIpynbCellRun(root, index, outputs, executionCount)
-  return serializeNotebook(root)
-}
-
-function applyIpynbCellRun(
-  root: Record<string, unknown>,
-  index: number,
-  outputs: Record<string, unknown>[],
-  executionCount: number | null
-): void {
   const cell = ensureCell(root, index)
   // Like Jupyter, store stream text as lines so notebook diffs stay line-oriented.
   cell.outputs = outputs.map((output) =>
@@ -164,27 +154,7 @@ function applyIpynbCellRun(
       : output
   )
   cell.execution_count = executionCount
-}
-
-export function updateIpynbCellRuns(
-  content: string,
-  updates: { index: number; outputs: Record<string, unknown>[]; executionCount: number | null }[]
-): string {
-  if (updates.length === 0) {
-    return content
-  }
-  const root = parseNotebookRoot(content)
-  let changed = false
-  for (const update of updates) {
-    try {
-      applyIpynbCellRun(root, update.index, update.outputs, update.executionCount)
-      changed = true
-    } catch {
-      // Preserve the successful prefix when a later cell no longer exists.
-      break
-    }
-  }
-  return changed ? serializeNotebook(root) : content
+  return serializeNotebook(root)
 }
 
 export function clearIpynbOutputs(content: string): string {

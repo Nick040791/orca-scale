@@ -1,5 +1,5 @@
 import type { Session } from 'electron'
-import type { BrowserTabIdentity, UserAgentMetadata } from './browser-tab-identity'
+import type { ViewportUserAgentOverride } from './browser-viewport-user-agent'
 export { cleanElectronUserAgent } from './browser-process-user-agent'
 import { getBrowserProcessUserAgentIdentity } from './browser-process-user-agent'
 
@@ -19,7 +19,7 @@ export type BrowserSessionRequestUserAgentResolver = (args: {
   webContentsId?: number
   currentUserAgent?: string
   effectiveUserAgent?: string
-}) => BrowserTabIdentity | undefined
+}) => ViewportUserAgentOverride | undefined
 
 function quoteClientHint(value: string): string {
   return `"${value.replace(/["\\]/g, '\\$&')}"`
@@ -33,7 +33,7 @@ function formatClientHintBrands(brands: { brand: string; version: string }[]): s
 
 function applyUserAgentMetadataHeaders(
   headers: Record<string, string>,
-  metadata: UserAgentMetadata
+  metadata: NonNullable<ViewportUserAgentOverride['userAgentMetadata']>
 ): void {
   const values: Record<string, string> = {
     'sec-ch-ua': formatClientHintBrands(metadata.brands),
@@ -101,10 +101,15 @@ export function installBrowserSessionUserAgentPolicy(
         callback({ requestHeaders: headers })
         return
       }
-      setUserAgentHeader(headers, identity.userAgent)
-      if (identity.kind === 'google-auth') {
+      if (identity.userAgent) {
+        setUserAgentHeader(headers, identity.userAgent)
+      }
+      if (identity.userAgent === firefoxUa) {
         stripClientHints(headers)
-      } else if (identity.kind === 'mobile') {
+        callback({ requestHeaders: headers })
+        return
+      }
+      if (identity.userAgentMetadata) {
         applyUserAgentMetadataHeaders(headers, identity.userAgentMetadata)
       }
       callback({ requestHeaders: headers })

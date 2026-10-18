@@ -1,11 +1,8 @@
 import type { HttpLinkSourceOwner } from '@/lib/http-link-routing'
-import type { CheckRunDetailsTabPatch } from '@/components/editor/check-run-details-tab'
 import type {
-  CombinedDiffAlternate,
-  ConflictReviewEntry,
-  ConflictReviewState,
+  CheckRunDetailsTabPatch,
   OpenCheckRunDetailsState
-} from '../../../../../../shared/editor-tab-view-types'
+} from '@/components/editor/check-run-details-tab'
 import type {
   GitBranchChangeEntry,
   GitBranchCompareSummary,
@@ -16,9 +13,11 @@ import type { WorkspaceVisibleTabType } from '../../../../../../shared/tab-types
 import type {
   BranchCompareLike,
   ClosedEditorTabSnapshot,
+  CombinedDiffAlternate,
   CommitCompareLike,
+  ConflictReviewEntry,
+  ConflictReviewState,
   EditorOpenTargetOptions,
-  EditorTabSelection,
   OpenFile
 } from './open-file'
 import type { OpenFilePathRekey, RekeyOpenFilesResult } from './open-file-path-rekey'
@@ -45,7 +44,6 @@ export type EditorFilesSlice = {
       forceContentReload?: boolean
       focusEditor?: boolean
       reopenId?: string
-      selection?: EditorTabSelection
     }
   ) => string
   openNewMarkdownInActiveWorkspace: (groupId: string) => Promise<void>
@@ -74,15 +72,13 @@ export type EditorFilesSlice = {
   ) => void
   makePreviewFilePermanent: (fileId: string, tabId?: string) => void
   pinFile: (fileId: string, tabId?: string) => void
-  /** captureRecentlyClosed false keeps a cleanup close out of the reopen stack. */
-  closeFile: (fileId: string, opts?: { captureRecentlyClosed?: boolean }) => void
+  closeFile: (fileId: string) => void
   closeAllFiles: () => void
   /** Most recently closed editor tabs per worktree (for Cmd/Ctrl+Shift+T). */
   recentlyClosedEditorTabsByWorktree: Record<string, ClosedEditorTabSnapshot[]>
   reopenClosedEditorTab: (worktreeId: string) => boolean
-  /** Activation uses the file's workspace unless a target is supplied; global selection
-   *  moves only when that workspace is active. */
-  setActiveFile: (fileId: string, targetWorktreeId?: string) => void
+  setActiveFile: (fileId: string) => void
+  reorderFiles: (fileIds: string[]) => void
   markFileDirty: (fileId: string, dirty: boolean) => void
   setExternalMutation: (fileId: string, mutation: 'deleted' | 'renamed' | 'changed' | null) => void
   setLastKnownDiskSignature: (fileId: string, signature: string) => void
@@ -105,7 +101,7 @@ export type EditorFilesSlice = {
     relativePath: string,
     language: string,
     staged: boolean,
-    options?: EditorOpenTargetOptions & { selection?: EditorTabSelection }
+    options?: EditorOpenTargetOptions
   ) => void
   openBranchDiff: (
     worktreeId: string,

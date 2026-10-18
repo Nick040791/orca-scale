@@ -16,6 +16,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchAttention,
@@ -70,6 +71,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchAttention,
@@ -111,6 +113,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchAttention,
@@ -157,6 +160,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchAttention,
@@ -197,6 +201,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion: vi.fn(),
       dispatchAttention,
@@ -232,12 +237,58 @@ describe('agent completion coordinator', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('dispatches a non-Codex attention notification immediately', () => {
+    const dispatchAttention = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion: vi.fn(),
+      dispatchAttention,
+      isLive: () => true
+    })
+
+    const turn = { prompt: 'fix the bug', agentType: 'cursor' as const }
+    coordinator.observeHookStatus({ state: 'working', ...turn })
+    coordinator.observeHookStatus({
+      state: 'waiting',
+      ...turn,
+      toolName: 'Shell',
+      toolInput: 'pnpm test'
+    })
+
+    expect(dispatchAttention).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('dispatches a blocked Codex pause immediately, like waiting', () => {
+    const dispatchAttention = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion: vi.fn(),
+      dispatchAttention,
+      isLive: () => true
+    })
+
+    const turn = { prompt: 'fix the bug', agentType: 'codex' as const }
+    coordinator.observeHookStatus({ state: 'working', ...turn })
+    coordinator.observeHookStatus({ state: 'blocked', ...turn, toolName: 'exec_command' })
+
+    expect(dispatchAttention).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('notifies the Codex pause and the completion that ends the same turn', () => {
     const dispatchAttention = vi.fn()
     const dispatchCompletion = vi.fn()
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion,
       dispatchAttention,
@@ -257,6 +308,44 @@ describe('agent completion coordinator', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('notifies a second distinct Codex pause after work resumed', () => {
+    const dispatchAttention = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(),
+      dispatchCompletion: vi.fn(),
+      dispatchAttention,
+      isLive: () => true
+    })
+
+    const turn = { prompt: 'fix the bug', agentType: 'codex' as const }
+    coordinator.observeHookStatus({ state: 'working', ...turn })
+    coordinator.observeHookStatus({
+      state: 'waiting',
+      ...turn,
+      toolName: 'exec_command',
+      toolInput: 'ls'
+    })
+    expect(dispatchAttention).toHaveBeenCalledTimes(1)
+
+    coordinator.observeHookStatus({
+      state: 'working',
+      ...turn,
+      toolName: 'exec_command',
+      toolInput: 'ls'
+    })
+    coordinator.observeHookStatus({
+      state: 'waiting',
+      ...turn,
+      toolName: 'apply_patch',
+      toolInput: 'diff'
+    })
+
+    expect(dispatchAttention).toHaveBeenCalledTimes(2)
+  })
+
   it('settles foreground misses after Codex pauses before reporting a sustained exit', async () => {
     // Why: a real attention hook is positive liveness evidence even when the
     // local process table briefly misses the foreground agent during handoff.
@@ -266,6 +355,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(async () => processResult(foreground)),
       dispatchCompletion,
       dispatchAttention,
@@ -314,6 +404,7 @@ describe('agent completion coordinator', () => {
     const coordinator = createAgentCompletionCoordinator({
       paneKey: 'tab-1:leaf-1',
       getPtyId: () => 'pty-1',
+      getSettings: () => null,
       inspectProcess: vi.fn(),
       dispatchCompletion: vi.fn(),
       dispatchAttention,

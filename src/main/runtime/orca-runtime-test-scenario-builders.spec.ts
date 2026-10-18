@@ -35,7 +35,7 @@ type MobileCreateTestNotifier = {
   revealTerminalSession: TestMock
   splitTerminal: TestMock
   renameTerminal: TestMock
-  closeTerminal: (tabId: string, leafId?: string) => void
+  closeTerminal: (tabId: string, paneRuntimeId?: number) => void
   closeSessionTab: TestMock
   sleepWorktree: TestMock
   terminalFitOverrideChanged: TestMock
@@ -216,9 +216,7 @@ function makePostRevealWorkerRecoveryHarness(
     undefined,
     { canRecoverPersistentLocalPtys: () => true }
   )
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This recovery fixture reaches only the listed planner, terminal settlement and authority lookup methods.
   runtime.setOrchestrationDb({
-    reconcileMissingWorkerTerminal: vi.fn(),
     getActiveDispatchForTerminal: () => undefined,
     listLegacyWorkerTerminalRecoveryRows: () => [
       {
@@ -329,7 +327,7 @@ function makePendingAgentTabActivationRuntime(opts: { disabledTuiAgents?: string
 
 // Why: the five #7587 mobile-create tests share one notifier factory so interface changes live in one place.
 function createMobileCreateTestNotifier(
-  closeTerminal: (tabId: string, leafId?: string) => void
+  closeTerminal: (tabId: string, paneRuntimeId?: number) => void
 ): MobileCreateTestNotifier {
   return {
     focusTerminal: vi.fn(),
@@ -348,18 +346,14 @@ function createMobileCreateTestNotifier(
   }
 }
 
-function createWorktreeRemovalRuntime(
-  runtimeStore: unknown = store,
-  deps: ConstructorParameters<typeof OrcaRuntimeService>[2] = {}
-): RuntimeService {
+function createWorktreeRemovalRuntime(runtimeStore: unknown = store): RuntimeService {
   const emptyPtyProvider = {
     listProcesses: vi.fn(async () => []),
     shutdown: vi.fn(async () => {})
   }
   return new OrcaRuntimeService(runtimeStore as never, undefined, {
-    ...deps,
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: removal sweeps call only listProcesses and shutdown.
-    getLocalProvider: () => emptyPtyProvider as never
+    getLocalProvider: () => emptyPtyProvider as never,
+    getSshProvider: () => emptyPtyProvider as never
   })
 }
 
@@ -443,16 +437,13 @@ async function reconcileWithToken(runtime: RuntimeService, token: string): Promi
     fetchPromise: Promise.resolve({ ok: true })
   })
 }
-function createSideEffectRuntime(
-  checkHookAgentPresence?: (paneKey: string) => Promise<'live' | 'unverifiable' | 'exited' | null>
-): {
+function createSideEffectRuntime(): {
   runtime: RuntimeService
   batches: TerminalSideEffectBatch[]
 } {
   const batches: TerminalSideEffectBatch[] = []
   const runtime = new OrcaRuntimeService(store, undefined, {
-    onTerminalSideEffects: (batch) => batches.push(batch),
-    checkHookAgentPresence
+    onTerminalSideEffects: (batch) => batches.push(batch)
   })
   return { runtime, batches }
 }

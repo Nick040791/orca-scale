@@ -4,7 +4,7 @@
 // rule (match on normalized user-message content) is unit-testable without React.
 
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
-import { setBoundedScopeCacheEntry } from '../../../../shared/native-chat-scope-cache'
+import { setBoundedScopeCacheEntry } from './native-chat-composer-scope-cache'
 import type { NativeChatLaunchPrompt } from '@/lib/native-chat-launch-prompt'
 import {
   advancedNativeChatUserContentCounts,
@@ -25,10 +25,6 @@ import {
 export type NativeChatPendingSend = {
   /** Renderer-minted id, unique per send, used as the list key. */
   id: string
-  /** Definite send outcome; absent while the send is simply awaiting its transcript row. */
-  delivery?: 'unconfirmed' | 'rejected'
-  /** When a write's acknowledgment was lost, so a remount keeps the original hold deadline. */
-  writeUnconfirmedAt?: number
   /** The exact draft text the user submitted. */
   text: string
   /** Image paths that were sent through the TUI image attachment paste path. */
@@ -40,9 +36,6 @@ export type NativeChatPendingSend = {
   afterMessageId?: string | null
   /** Timestamp of that boundary in the transcript host's clock domain. */
   afterMessageTimestamp?: number | null
-  /** The provider session whose transcript had been read empty when this was sent, so every
-   *  row of that session is after it. Unset for a read still loading or no session yet. */
-  afterEmptyTranscriptSessionId?: string
   /** 1-based occurrence among identical sends sharing the same boundary. */
   matchingOccurrence?: number
   /** Shared time boundary when that message boundary is unavailable. */
@@ -87,11 +80,7 @@ export function appendPendingSendCache(
   scope: NativeChatPendingSendScope,
   entry: NativeChatPendingSend
 ): NativeChatPendingSend[] {
-  const contentKey = nativeChatPendingContentKey(entry)
-  // Why: a resend replaces its failed copy; kept, that copy would claim the resend's row and pin it.
-  const existing = readPendingSendCache(scope).filter(
-    (candidate) => !candidate.delivery || nativeChatPendingContentKey(candidate) !== contentKey
-  )
+  const existing = readPendingSendCache(scope)
   const next = assignNativeChatPendingOccurrence(existing, entry)
   return writePendingSendCache(scope, [...existing, next])
 }
@@ -109,10 +98,7 @@ function messagesAfterPendingBoundary(
     return messages
   }
   if (pending.afterMessageId === null) {
-    // Why: the send time is this client's clock and row timestamps are the host's (#11519).
-    return pending.afterEmptyTranscriptSessionId
-      ? messages
-      : messages.filter((message) => messageIsAfterPendingTimestamp(message, pending))
+    return messages.filter((message) => messageIsAfterPendingTimestamp(message, pending))
   }
   const boundaryIndex = messages.findIndex((message) => message.id === pending.afterMessageId)
   if (boundaryIndex !== -1) {
@@ -121,35 +107,6 @@ function messagesAfterPendingBoundary(
   // A bounded authoritative read can page the boundary out. Fall back to the
   // send time instead of matching an arbitrary older identical prompt.
   return messages.filter((message) => messageIsAfterPendingTimestamp(message, pending))
-}
-
-/**
- * Drop the empty-transcript claim from sends made in another provider session: that claim
- * describes one transcript, and a resumed one can hold an older identical turn.
- */
-export function releaseEmptyTranscriptClaims(
-  pending: NativeChatPendingSend[],
-  sessionId: string | null
-): NativeChatPendingSend[] {
-  if (
-    !pending.some(
-      (entry) =>
-        entry.afterEmptyTranscriptSessionId !== undefined &&
-        entry.afterEmptyTranscriptSessionId !== sessionId
-    )
-  ) {
-    return pending
-  }
-  return pending.map((entry) => {
-    if (
-      entry.afterEmptyTranscriptSessionId === undefined ||
-      entry.afterEmptyTranscriptSessionId === sessionId
-    ) {
-      return entry
-    }
-    const { afterEmptyTranscriptSessionId: _released, ...rest } = entry
-    return rest
-  })
 }
 
 function messageIsAfterPendingTimestamp(
@@ -226,10 +183,9 @@ export function prunePendingSends(
     const contentKey = nativeChatPendingContentKey(entry)
     const key = nativeChatPendingMatchKey(entry)
     const available =
-      advancedNativeChatUserContentCounts(
-        messagesAfterPendingBoundary(messages, entry),
-        entry.imagePaths
-      ).get(contentKey) ?? 0
+      advancedNativeChatUserContentCounts(messagesAfterPendingBoundary(messages, entry)).get(
+        contentKey
+      ) ?? 0
     const used = consumed.get(key) ?? 0
     const occurrence = nativeChatPendingOccurrence(entry, used)
     consumed.set(key, Math.max(used, occurrence))
@@ -272,8 +228,7 @@ export function pendingSendsAsMessages(
     const key = nativeChatPendingMatchKey(entry)
     const represented =
       matchingNativeChatUserContentCounts(
-        messagesAfterPendingBoundary(existingMessages, entry),
-        entry.imagePaths
+        messagesAfterPendingBoundary(existingMessages, entry)
       ).get(contentKey) ?? 0
     const used = consumed.get(key) ?? 0
     const occurrence = nativeChatPendingOccurrence(entry, used)

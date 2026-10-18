@@ -6,7 +6,8 @@ import {
 import { constants } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { classifyImportSource } from './filesystem-import-source-stat'
+import { authorizeExternalPath } from './filesystem-auth'
+import { isENOENT } from './filesystem-path-containment'
 import type {
   StagedExternalImportEntry,
   StagedExternalImportSource
@@ -35,11 +36,38 @@ export async function stageOneSourceForRuntimeUpload(
 ): Promise<StagedExternalImportSource> {
   const resolvedSource = resolve(sourcePath)
 
-  const classified = await classifyImportSource(sourcePath, resolvedSource)
-  if ('rejection' in classified) {
-    return classified.rejection
+  // Why: runtime uploads read client-local paths in the client main process;
+  // authorize before lstat just like local copy imports.
+  authorizeExternalPath(resolvedSource)
+
+  let sourceStat: Awaited<ReturnType<typeof lstat>>
+  try {
+    sourceStat = await lstat(resolvedSource)
+  } catch (error) {
+    if (isENOENT(error)) {
+      return { sourcePath, status: 'skipped', reason: 'missing' }
+    }
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      ((error as NodeJS.ErrnoException).code === 'EACCES' ||
+        (error as NodeJS.ErrnoException).code === 'EPERM')
+    ) {
+      return { sourcePath, status: 'skipped', reason: 'permission-denied' }
+    }
+    return {
+      sourcePath,
+      status: 'failed',
+      reason: error instanceof Error ? error.message : String(error)
+    }
   }
-  const sourceStat = classified.stat
+
+  if (sourceStat.isSymbolicLink()) {
+    return { sourcePath, status: 'skipped', reason: 'symlink' }
+  }
+  if (!sourceStat.isFile() && !sourceStat.isDirectory()) {
+    return { sourcePath, status: 'skipped', reason: 'unsupported' }
+  }
   try {
     const entries = sourceStat.isDirectory()
       ? await stageDirectoryEntries(resolvedSource, totalBytesBefore)

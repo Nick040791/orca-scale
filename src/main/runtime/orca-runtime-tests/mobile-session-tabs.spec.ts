@@ -235,7 +235,6 @@ describe('OrcaRuntimeService', () => {
 
   it('closes the matching mobile terminal UUID leaf without closing the whole tab', async () => {
     const closeTerminal = vi.fn()
-    const closeTerminalPane = vi.fn()
     const kill = vi.fn(() => true)
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
@@ -254,7 +253,6 @@ describe('OrcaRuntimeService', () => {
       renameTerminal: vi.fn(),
       focusTerminal: vi.fn(),
       closeTerminal,
-      closeTerminalPane,
       sleepWorktree: vi.fn(),
       terminalFitOverrideChanged: vi.fn(),
       terminalDriverChanged: vi.fn()
@@ -315,8 +313,6 @@ describe('OrcaRuntimeService', () => {
     await runtime.closeMobileSessionTab(`id:${TEST_WORKTREE_ID}`, `tab-1::${rightLeafId}`)
 
     expect(kill).toHaveBeenCalledWith('pty-right')
-    // Only the leaf-addressed notice for the closed pane; never a whole-tab close.
-    expect(closeTerminalPane).toHaveBeenCalledExactlyOnceWith('tab-1', rightLeafId)
     expect(closeTerminal).not.toHaveBeenCalled()
   })
 

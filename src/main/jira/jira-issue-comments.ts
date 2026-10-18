@@ -1,10 +1,4 @@
-import { requireStrictJiraSite } from './jira-read-failure'
 import type { JiraComment } from '../../shared/jira-types'
-import {
-  JIRA_IMAGE_MAX_BYTES,
-  JIRA_IMAGE_MAX_REFERENCES,
-  type JiraMediaFormat
-} from '../../shared/jira-attachment-image'
 import { acquire, release } from './request-queue'
 import { apiBasePath, jiraRequest, type JiraClientForSite } from './authenticated-request'
 import { clearToken, getClients, isAuthError } from './client'
@@ -44,8 +38,7 @@ function mapComment(raw: JiraRecord, adfOptions?: AdfToMarkdownOptions): JiraCom
 async function collectCommentMediaRequest(
   client: JiraClientForSite,
   key: string,
-  comments: JiraRecord[],
-  mediaFormat?: JiraMediaFormat
+  comments: JiraRecord[]
 ): Promise<MediaRequest | undefined> {
   const htmlIds: string[] = []
   const seen = new Set<string>()
@@ -86,8 +79,7 @@ async function collectCommentMediaRequest(
   const selection = selectPreferredAttachmentIds({
     renderedHtmlIds: htmlIds,
     attachmentField,
-    mediaAttrs,
-    ...(mediaFormat ? { maxBytes: JIRA_IMAGE_MAX_BYTES, maxImages: JIRA_IMAGE_MAX_REFERENCES } : {})
+    mediaAttrs
   })
   if (selection.needCount === 0 && selection.preferredIds.length === 0) {
     return undefined
@@ -103,13 +95,9 @@ async function collectCommentMediaRequest(
 
 export async function getIssueComments(
   key: string,
-  siteId?: string | null,
-  strict = false,
-  mediaFormat?: JiraMediaFormat
+  siteId?: string | null
 ): Promise<JiraComment[]> {
-  const entries = getClients(siteId)
-  requireStrictJiraSite(entries, siteId, strict)
-  const entry = entries[0]
+  const entry = getClients(siteId)[0]
   if (!entry) {
     return []
   }
@@ -129,16 +117,13 @@ export async function getIssueComments(
       })
       return `${apiBasePath(entry.site)}/issue/${encodeURIComponent(key)}/comment?${params.toString()}`
     })
-    mediaRequest = await collectCommentMediaRequest(entry, key, comments, mediaFormat)
+    mediaRequest = await collectCommentMediaRequest(entry, key, comments)
   } catch (error) {
     if (isAuthError(error)) {
       clearToken(entry.site.id)
       throw error
     }
     console.warn('[jira] getIssueComments failed:', error)
-    if (strict) {
-      throw error
-    }
     return []
   } finally {
     if (held) {
@@ -148,9 +133,7 @@ export async function getIssueComments(
   }
 
   try {
-    const prepared = mediaRequest
-      ? await prepareMediaResolver(entry, mediaRequest, mediaFormat)
-      : undefined
+    const prepared = mediaRequest ? await prepareMediaResolver(entry, mediaRequest) : undefined
     const mapped = comments.map((comment) => mapComment(comment, prepared?.options))
     if (prepared) {
       flushMediaResolutionWarn(entry, prepared)

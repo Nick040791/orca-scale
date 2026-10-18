@@ -63,7 +63,7 @@ describe('saved structured session restoration targets', () => {
     expect(collectSavedStructuredAgentSessionIds(saved)).toEqual(['session-local'])
   })
 
-  it('restores a saved Claude chat like any other structured chat', () => {
+  it('skips explicitly Claude-owned structured tabs', () => {
     const saved = session(
       [
         tab({
@@ -80,9 +80,6 @@ describe('saved structured session restoration targets', () => {
       'claude-tab'
     )
 
-    expect(collectSavedStructuredAgentSessionIds(saved)).toEqual([
-      'session-claude',
-      'session-codex'
-    ])
+    expect(collectSavedStructuredAgentSessionIds(saved)).toEqual(['session-codex'])
   })
 })

@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setWebRuntimeTabProps } from './web-runtime-terminal-actions'
+import { setWebRuntimeTabProps } from './web-runtime-session'
 import { resetWebSessionCloseIntentForTests } from './web-session-close-intent'
 import { ENVIRONMENT_ID, WORKTREE_ID } from './web-runtime-session-test-harness'
-import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -22,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   trackTerminalPaneSplit: vi.fn(),
   deliverLaunchPromptToAgentTab: vi.fn(),
   seedNativeChatLaunchDraftForAgentTab: vi.fn(),
+  getRuntimeEnvironmentIdForWorktree: vi.fn(),
   hasMaterializedWebRuntimeBrowserPage: vi.fn()
 }))
 
@@ -33,29 +33,25 @@ vi.mock('../store', () => ({
   }
 }))
 
-vi.mock('./web-session-tabs-sync/tracking-lifecycle', () => ({
+vi.mock('./web-session-tabs-sync', () => ({
   acceptReplayedWebSessionTabsSnapshot: mocks.acceptReplayedWebSessionTabsSnapshot,
-  getWebSessionTabsTrackingGeneration: mocks.getWebSessionTabsTrackingGeneration
-}))
-vi.mock('./web-session-tabs-sync/snapshot-api', () => ({
-  applyWebSessionTabsSnapshot: mocks.applyWebSessionTabsSnapshot
-}))
-vi.mock('./web-session-tabs-sync/tracking-decisions', () => ({
-  decideWebSessionTabsSnapshot: mocks.decideWebSessionTabsSnapshot
-}))
-vi.mock('./web-session-tabs-sync/store-patch', () => ({
+  applyWebSessionTabsSnapshot: mocks.applyWebSessionTabsSnapshot,
+  decideWebSessionTabsSnapshot: mocks.decideWebSessionTabsSnapshot,
+  getWebSessionTabsTrackingGeneration: mocks.getWebSessionTabsTrackingGeneration,
   applyWebSessionTabsStorePatch: (buildPatch: (state: unknown) => unknown) => {
     mocks.setState(buildPatch)
     // The production caller invokes the returned settle receipt.
     return () => {}
-  }
-}))
-vi.mock('./web-session-tabs-sync/tracking-mappings', () => ({
+  },
   resolveHostSessionTabIdForWebSessionTab: mocks.resolveHostSessionTabIdForWebSessionTab
 }))
 
 vi.mock('@/lib/feature-education-telemetry', () => ({
   trackTerminalPaneSplit: mocks.trackTerminalPaneSplit
+}))
+
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: mocks.getRuntimeEnvironmentIdForWorktree
 }))
 
 vi.mock('@/lib/agent-launch-prompt-delivery', () => ({
@@ -69,22 +65,6 @@ vi.mock('./web-runtime-browser-materialization', () => ({
 
 afterEach(() => resetWebSessionCloseIntentForTests())
 
-const REPO_ID = 'repo'
-type OwnerRow = { hostId: 'local' | `runtime:${string}`; runtimeOwnerEnvironmentId?: string }
-const RUNTIME_ROW: OwnerRow = {
-  hostId: `runtime:${ENVIRONMENT_ID}`,
-  runtimeOwnerEnvironmentId: ENVIRONMENT_ID
-}
-
-function ownedBy(...rows: OwnerRow[]): Record<string, unknown> {
-  return {
-    repos: rows.map((row) => ({ id: REPO_ID, executionHostId: row.hostId })),
-    worktreesByRepo: {
-      [REPO_ID]: rows.map((row) => ({ id: WORKTREE_ID, repoId: REPO_ID, ...row }))
-    }
-  }
-}
-
 describe('setWebRuntimeTabProps', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -93,9 +73,10 @@ describe('setWebRuntimeTabProps', () => {
 
   it('pushes pin to the host via session.tabs.setTabProps for a remote tab', async () => {
     vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    mocks.getState.mockReturnValue(ownedBy(RUNTIME_ROW))
+    mocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue(ENVIRONMENT_ID)
+    mocks.getState.mockReturnValue({})
     const runtimeCall = vi.fn().mockResolvedValue({ id: 'p', ok: true, result: { updated: true } })
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeCall } } })
 
     expect(
       setWebRuntimeTabProps({
@@ -120,13 +101,14 @@ describe('setWebRuntimeTabProps', () => {
 
   it('maps mirrored browser/editor unified ids before setting host tab props', async () => {
     vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    mocks.getState.mockReturnValue(ownedBy(RUNTIME_ROW))
+    mocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue(ENVIRONMENT_ID)
+    mocks.getState.mockReturnValue({})
     mocks.resolveHostSessionTabIdForWebSessionTab.mockImplementation(
       (_state, args: { tabId: string }) =>
         args.tabId === 'local-browser-unified' ? 'host-browser-unified' : null
     )
     const runtimeCall = vi.fn().mockResolvedValue({ id: 'p', ok: true, result: { updated: true } })
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeCall } } })
 
     expect(
       setWebRuntimeTabProps({
@@ -151,46 +133,13 @@ describe('setWebRuntimeTabProps', () => {
 
   it('no-ops for a worktree with no runtime environment (local tab)', () => {
     vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    mocks.getState.mockReturnValue(ownedBy({ hostId: 'local' }))
+    mocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue(null)
+    mocks.getState.mockReturnValue({})
     const runtimeCall = vi.fn()
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeCall } } })
 
     expect(
       setWebRuntimeTabProps({ worktreeId: WORKTREE_ID, tabId: 'local-tab', color: '#fff' })
-    ).toBe(false)
-    expect(runtimeCall).not.toHaveBeenCalled()
-  })
-
-  it('refuses a local twin of the paired server instead of pushing to either host', () => {
-    vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    mocks.getState.mockReturnValue(ownedBy({ hostId: 'local' }, RUNTIME_ROW))
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const runtimeCall = vi.fn()
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
-
-    expect(
-      setWebRuntimeTabProps({ worktreeId: WORKTREE_ID, tabId: 'twin-tab', isPinned: true })
-    ).toBe(false)
-    expect(runtimeCall).not.toHaveBeenCalled()
-    expect(warn).toHaveBeenCalledOnce()
-    expect(warn.mock.calls[0]).toContain(WORKTREE_ID)
-    warn.mockRestore()
-  })
-
-  it('does not push an unstamped row to the focused server', () => {
-    vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    mocks.getState.mockReturnValue({
-      settings: { activeRuntimeEnvironmentId: ENVIRONMENT_ID },
-      runtimeEnvironments: [{ id: ENVIRONMENT_ID }],
-      runtimeEnvironmentCatalogHydrated: true,
-      repos: [{ id: REPO_ID }],
-      worktreesByRepo: { [REPO_ID]: [{ id: WORKTREE_ID, repoId: REPO_ID }] }
-    })
-    const runtimeCall = vi.fn()
-    stubRuntimeEnvironmentBridge({ call: runtimeCall })
-
-    expect(
-      setWebRuntimeTabProps({ worktreeId: WORKTREE_ID, tabId: 'local-tab', isPinned: true })
     ).toBe(false)
     expect(runtimeCall).not.toHaveBeenCalled()
   })

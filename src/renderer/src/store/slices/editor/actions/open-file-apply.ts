@@ -5,7 +5,6 @@ import { getRecentlyClosedTabPosition, pushRecentlyClosedTabKind } from '../../r
 import type { AppState } from '../../../types'
 import {
   type ClosedEditorTabSnapshot,
-  type EditorTabSelection,
   MAX_RECENT_CLOSED_EDITOR_TABS,
   type OpenFile
 } from '../types/open-file'
@@ -46,7 +45,6 @@ export function applyOpenFileToState(
         forceContentReload?: boolean
         focusEditor?: boolean
         reopenId?: string
-        selection?: EditorTabSelection
       }
     | undefined,
   scratch: OpenFileApplyScratch
@@ -101,15 +99,12 @@ export function applyOpenFileToState(
   const targetGroupId =
     resolveEditorOpenTargetGroupId(s, worktreeId, options?.targetGroupId) ?? undefined
   scratch.editorItemTargetGroupId = targetGroupId
-  const activeResult =
-    options?.selection === 'none' ? {} : buildEditorActiveResult(s, worktreeId, id)
+  const activeResult = buildEditorActiveResult(s, worktreeId, id)
   if (existing) {
     // If opening as non-preview, also pin the existing tab
     const updatedPreview = isPreview ? existing.isPreview : false
     const nextExternalSshTargetId = file.externalSshTargetId ?? existing.externalSshTargetId
     const refreshExternalSshProvenance = file.externalSshTargetId !== undefined
-    // Why: a re-click mints a fresh grant; the old one may have expired.
-    const nextGrantId = file.terminalArtifactGrantId ?? existing.terminalArtifactGrantId
     const fileContentReloadNonce = shouldRequestExistingFileContentReload(
       existing,
       file.mode,
@@ -137,7 +132,6 @@ export function applyOpenFileToState(
       existing.worktreeId !== file.worktreeId ||
       existing.runtimeEnvironmentId !== runtimeEnvironmentId ||
       existing.externalSshTargetId !== nextExternalSshTargetId ||
-      existing.terminalArtifactGrantId !== nextGrantId ||
       refreshExternalSshProvenance ||
       existing.fileContentReloadNonce !== fileContentReloadNonce ||
       existing.readOnly !== nextReadOnly ||
@@ -155,7 +149,6 @@ export function applyOpenFileToState(
               language: file.language,
               runtimeEnvironmentId,
               externalSshTargetId: nextExternalSshTargetId,
-              terminalArtifactGrantId: nextGrantId,
               operationProvenance: refreshExternalSshProvenance
                 ? operationProvenance
                 : f.operationProvenance,

@@ -149,11 +149,7 @@ export abstract class BrowserManagerDownloadLifecycle extends BrowserManagerDown
     }
   }
 
-  protected cancelDownloadInternal(
-    downloadId: string,
-    reason: string,
-    status: 'canceled' | 'failed' = 'canceled'
-  ): void {
+  protected cancelDownloadInternal(downloadId: string, reason: string): void {
     const download = this.downloadsById.get(downloadId)
     if (!download) {
       return
@@ -166,7 +162,7 @@ export abstract class BrowserManagerDownloadLifecycle extends BrowserManagerDown
       download.cleanup()
       download.cleanup = null
     }
-    const shouldSendFinish = !download.terminalEvent
+    const shouldSendCancel = !download.terminalEvent
 
     try {
       download.item.cancel()
@@ -174,8 +170,8 @@ export abstract class BrowserManagerDownloadLifecycle extends BrowserManagerDown
       // Why: cancel() can throw on an already-finalized item; best-effort since UI state is authoritative.
     }
 
-    if (shouldSendFinish) {
-      this.finishDownloadInternal(downloadId, status, reason || null)
+    if (shouldSendCancel) {
+      this.finishDownloadInternal(downloadId, 'canceled', reason || null)
       return
     }
 

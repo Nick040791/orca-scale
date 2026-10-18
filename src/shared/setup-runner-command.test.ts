@@ -98,6 +98,14 @@ describe('buildSetupRunnerCommand', () => {
       shell: 'windows'
     })
   })
+
+  it('still uses bash for a POSIX runner launched from a POSIX pane', () => {
+    expect(
+      buildSetupRunnerCommand('C:\\repo\\.git\\orca\\setup-runner.sh', 'windows', {
+        family: 'posix'
+      })
+    ).toBe('bash /c/repo/.git/orca/setup-runner.sh')
+  })
 })
 
 describe('buildSetupRunnerCommand cmd metacharacter guard', () => {

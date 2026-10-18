@@ -10,11 +10,10 @@ import {
 import type { RecordingScenario } from './recording-scenario'
 
 /**
- * One golden and the scenarios it is recorded from. Derived here rather than inside the suites so
- * the census and `rpc:record --prune` read the same derivation that records the file: a restated
- * expansion could agree with itself while disagreeing with what was recorded.
- *
- * Every `title` starts with the golden id, so `rpc:record <id>` can select it by test name.
+ * One frozen golden and the scenarios it is recorded from. Derived here rather than inside the
+ * suites so `scenarioSha256` is a function of the same derivation that records the file: a test
+ * that restated how a matrix or schedule expands could agree with itself while disagreeing with
+ * what was recorded.
  */
 export type DerivedGolden = {
   id: string
@@ -53,32 +52,14 @@ function baseScenario(manifest: readonly RecordingScenario[], id: string): Recor
   return found
 }
 
-function omitRetiredInventoryAdmission(scenario: RecordingScenario): RecordingScenario {
-  if (scenario.id !== 'inventory-lifecycle.unmount-before-1') {
-    return scenario
-  }
-  // A late search refusal cannot start an inventory after this owner's unmount.
-  return {
-    ...scenario,
-    steps: scenario.steps.filter(
-      (step) =>
-        !(
-          ('bind' in step &&
-            (step.bind === 'old-inventory' || step.bind === 'lifecycle-old-inventory')) ||
-          ('complete' in step && step.complete === 'lifecycle-old-inventory')
-        )
-    )
-  }
-}
-
 /** The manifest scenario a pilot golden expands from, which its suite also mounts and mutates. */
 export type PilotGolden = DerivedGolden & { scenario: RecordingScenario }
 
-/** One golden per manifest scenario, recorded as written. */
+/** One golden per manifest scenario: frozen main parity for the scenario as written. */
 export function pilotGoldens(manifest: readonly RecordingScenario[]): PilotGolden[] {
   return manifest.map((scenario) => ({
     id: scenario.id,
-    title: `${scenario.id}: replays its recording deterministically`,
+    title: `${scenario.id}: frozen main parity and determinism`,
     family: scenario.family,
     scenario,
     scenarios: () => [scenario]
@@ -106,7 +87,7 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
       ids.add(id)
       goldens.push({
         id,
-        title: `${id}: ${family} reply partitions at ${site}`,
+        title: `${family}: reply partitions at ${site}`,
         family,
         site,
         timeoutMs: 30_000,
@@ -131,7 +112,7 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
     }
     goldens.push({
       id: `schedules-${id}`,
-      title: `schedules-${id}: completion orders and correlated faults`,
+      title: `${id}: completion orders and correlated faults`,
       family: base.family,
       scenarios: () => siblingSchedules(base, first, second)
     })
@@ -140,7 +121,7 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
     const base = baseScenario(manifest, id)
     goldens.push({
       id: `interruptions-${id}`,
-      title: `interruptions-${id}: timeout, disconnect and stable-client cutover`,
+      title: `${id}: timeout, disconnect and stable-client cutover`,
       family: base.family,
       scenarios: () => interruptionSchedules(base)
     })
@@ -154,7 +135,7 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
         : ['reset', 'unmount', 'blur']
     goldens.push({
       id: `lifecycle-${id}`,
-      title: `lifecycle-${id}: lifecycle boundaries`,
+      title: `${id}: lifecycle boundaries`,
       family: base.family,
       scenarios: () =>
         hoistPreludeCheckpoints(
@@ -162,7 +143,7 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
           actions
             .flatMap((action) => lifecycleSchedules(base, action))
             .filter(({ scenario }) => !id.includes('hydration') || !scenario.id.endsWith('-1'))
-        ).map(omitRetiredInventoryAdmission)
+        )
     })
   }
   return goldens

@@ -11,10 +11,9 @@ import type {
 import {
   CodexStructuredSessionAdapter,
   type CodexStructuredLaunch,
+  type CodexStructuredSessionAdapterDeps,
   type CodexStructuredSessionEvent
 } from './codex-structured-session-adapter'
-import type { CodexStructuredSessionAdapterDeps } from './codex-structured-session-state'
-import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 export const THREAD_ID = 'thread-abc'
 
@@ -24,7 +23,7 @@ export function identityFor(sessionId: string): AgentSessionJournalIdentity {
     workspaceId: 'ws-1',
     hostId: 'host-1',
     agent: 'codex',
-    providerHandle: codexProviderHandle(THREAD_ID)
+    providerHandle: { kind: 'codex', threadId: THREAD_ID }
   }
 }
 
@@ -51,7 +50,7 @@ export function fakeCodex(routes: Record<string, Route> = {}): {
   routes: Record<string, Route>
 } {
   const connections: FakeConnection[] = []
-  const openConnection: typeof openCodexAppServerConnection = async (launch, handlers = {}) => {
+  const openConnection = (async (launch, handlers = {}) => {
     const connection: FakeConnection = {
       launch,
       handlers,
@@ -68,21 +67,15 @@ export function fakeCodex(routes: Record<string, Route> = {}): {
       notify: () => {},
       respond: (id, result) => connection.replies.push({ id, result }),
       respondWithError: (id, code, message) => connection.replies.push({ id, code, message }),
-      // As the real connection: the root's exit is reported, once, inside the close that ends it.
       close: async () => {
         connection.closeCount += 1
-        if (!connection.closed) {
-          connection.closed = true
-          handlers.onExit?.(new Error('codex app-server connection ended: killed'), {
-            expected: true
-          })
-        }
+        connection.closed = true
         return true
       }
     }
     connections.push(connection)
     return connection
-  }
+  }) as typeof openCodexAppServerConnection
   routes['thread/start'] ??= () => ({
     thread: { id: THREAD_ID, path: '/rollouts/abc.jsonl' },
     model: 'gpt-live',
@@ -96,25 +89,13 @@ export function fakeCodex(routes: Record<string, Route> = {}): {
   return { connections, openConnection, routes }
 }
 
-/** A `turn/start` route for a Codex that opened the turn before its answer was read. */
-export function answerWithOpenedTurn(
-  codex: Pick<ReturnType<typeof fakeCodex>, 'connections'>,
-  turnId: string
-): Route {
-  return () => {
-    codex.connections
-      .at(-1)
-      ?.handlers.onNotification?.('turn/started', { threadId: THREAD_ID, turn: { id: turnId } })
-    return { turn: { id: turnId } }
-  }
-}
-
 export function adapterFor(
   codex: ReturnType<typeof fakeCodex>,
   launch: Partial<CodexStructuredLaunch> = {},
   events: CodexStructuredSessionEvent[] = [],
-  /** Host wiring the runtime adds, such as the late dispatch settlement. */
-  deps: Partial<CodexStructuredSessionAdapterDeps> = {}
+  processControl: Partial<
+    Pick<CodexStructuredSessionAdapterDeps, 'captureTurnProcesses' | 'terminateTurnProcesses'>
+  > = {}
 ): CodexStructuredSessionAdapter {
   let acquisitionGeneration = 0
   return new CodexStructuredSessionAdapter({
@@ -129,9 +110,11 @@ export function adapterFor(
     onEvent: (event) => events.push(event),
     openConnection: codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
+    captureTurnProcesses: async () => ({ platform: 'win32', identities: new Map() }),
+    terminateTurnProcesses: async () => true,
     now: () => 1_700_000_000_500,
     mintAcquisitionGeneration: () => `generation-${++acquisitionGeneration}`,
-    ...deps
+    ...processControl
   })
 }
 

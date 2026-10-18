@@ -1,8 +1,6 @@
 import { removeStaleDurableWriteTempFiles } from '../../durable-file-write'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { PersistedState } from '../../../shared/persisted-state-types'
-import type { WorkspaceSessionWriteListener } from './workspace-session-write-listeners'
-import type { StateWriteListener } from './write-scheduling'
 import type { ActiveViewPreference } from '../../active-view-preference'
 import {
   getProfileTerminalScrollbackSnapshotRoot,
@@ -10,7 +8,6 @@ import {
 } from '../../terminal-scrollback-snapshots'
 import { ProtectedSecretPersistence } from '../../protected-secret-persistence'
 import { getDataFile, getGithubCacheFile } from './user-data-path'
-import { dirname, join } from 'node:path'
 import { STALE_DURABLE_WRITE_TEMP_AGE_MS } from '../tracking-repos/worktree-metadata-normalization'
 import type { ProjectGroupPersistenceOperations } from '../tracking-repos/project-group-operations'
 import type { FolderWorkspacePersistenceOperations } from '../restoring-sessions/folder-workspace-operations'
@@ -24,8 +21,6 @@ import type {
 } from '../scheduling-automations/automation-owner-projection'
 import type { ProfileStatePersistenceAuthority } from './profile-state-authority'
 import type { AutomationRun } from '../../../shared/automations-types'
-import { resolveNewPaneShellPath } from '../migrating-orcad-catalog/orcad-shell-history-installer'
-import { OrcadTerminalRestoreHintStore } from '../migrating-orcad-catalog/orcad-terminal-restore-hint-store'
 
 export type DurableProfileStateMutation<T> = {
   value: T
@@ -38,8 +33,6 @@ export type StoreRuntimeOptions = {
   dataFile?: string
   storageAuthority?: AutomationStorageAuthority
   profileStateAuthority?: ProfileStatePersistenceAuthority
-  /** The shell a new pane on this host runs, given its default-shell setting; tests pass a fake. */
-  paneShellPath?: (defaultShell: string | undefined) => string
 }
 
 /** Mutable coordination state shared only with this Store's private collaborators. */
@@ -48,18 +41,9 @@ export class StoreRuntimeState {
   readonly dataFile: string
   readonly storageAuthority: AutomationStorageAuthority
   readonly profileStateAuthority: ProfileStatePersistenceAuthority | undefined
-  readonly paneShellPath: (defaultShell: string | undefined) => string
-  /** Worktrees whose moved shell history waits for their live shells to exit. */
-  readonly deferredShellHistoryWorktreeIds = new Set<string>()
   automationListProjectionCache: AutomationListProjectionCache | null = null
   activeViewPreference!: ActiveViewPreference
   readonly terminalScrollbackSnapshotStorage: TerminalScrollbackSnapshotStorage
-  /** Staged and received migration blobs (see orcad-migration-blob-staging.ts). */
-  readonly orcadMigrationBlobRoot: string
-  /** Shared so project removal can drop hints for panes this host no longer owns. */
-  readonly orcadTerminalRestoreHints: OrcadTerminalRestoreHintStore
-  /** Scrollback refs each in-flight migration export still reads, keyed by migration id. */
-  readonly retainedScrollbackRefsByMigrationId = new Map<string, ReadonlySet<string>>()
   writeTimer: ReturnType<typeof setTimeout> | null = null
   pendingWrite: Promise<void> | null = null
   pendingSnapshotFileWork: Promise<void> | null = null
@@ -97,10 +81,6 @@ export class StoreRuntimeState {
     ) => void
   >()
   uiChangeListeners = new Set<(ui: PersistedState['ui']) => void>()
-  /** Observers of persisted workspace-session writes; see notifyWorkspaceSessionWritten. */
-  readonly workspaceSessionWriteListeners = new Set<WorkspaceSessionWriteListener>()
-  /** Observers of every write; see WriteSchedulingOperations.onStateWritten. */
-  readonly stateWriteListeners = new Set<StateWriteListener>()
   projectHostOperations: ProjectHostPersistenceOperations | null = null
   projectGroupOperations: ProjectGroupPersistenceOperations | null = null
   folderWorkspaceOperations: FolderWorkspacePersistenceOperations | null = null
@@ -112,7 +92,6 @@ export class StoreRuntimeState {
     this.dataFile = options.dataFile ?? getDataFile()
     this.storageAuthority = options.storageAuthority ?? 'desktop'
     this.profileStateAuthority = options.profileStateAuthority
-    this.paneShellPath = options.paneShellPath ?? resolveNewPaneShellPath
     this.staleProfileStateTempCleanup = this.profileStateAuthority
       ? removeStaleDurableWriteTempFiles(this.dataFile, {
           minimumAgeMs: STALE_DURABLE_WRITE_TEMP_AGE_MS
@@ -128,7 +107,5 @@ export class StoreRuntimeState {
       snapshotRoot: profileSnapshotRoot,
       fallbackSnapshotRoot: legacySnapshotRoot === profileSnapshotRoot ? null : legacySnapshotRoot
     }
-    this.orcadMigrationBlobRoot = join(dirname(this.dataFile), 'orcad-migration-blobs')
-    this.orcadTerminalRestoreHints = new OrcadTerminalRestoreHintStore(this.orcadMigrationBlobRoot)
   }
 }

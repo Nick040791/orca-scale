@@ -9,9 +9,6 @@ import {
   type RuntimeEnvironmentCallRequest
 } from '@/runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-
-const LOCAL: RuntimeClientTarget = { kind: 'local' }
 
 describe('createUntitledMarkdownFile', () => {
   afterEach(() => {
@@ -20,7 +17,7 @@ describe('createUntitledMarkdownFile', () => {
 
   it('rejects captured ownership without a current-generation assertion', async () => {
     await expect(
-      createUntitledMarkdownFile('/repo', 'wt-1', undefined, LOCAL, {
+      createUntitledMarkdownFile('/repo', 'wt-1', undefined, undefined, {
         operationProvenance: {} as never
       })
     ).rejects.toThrow("Couldn't verify which host owns this file")
@@ -50,7 +47,7 @@ describe('createUntitledMarkdownFile', () => {
       }
     })
 
-    await expect(createUntitledMarkdownFile('/repo', 'wt-1', undefined, LOCAL)).resolves.toEqual({
+    await expect(createUntitledMarkdownFile('/repo', 'wt-1')).resolves.toEqual({
       filePath: '/repo/untitled-3.md',
       relativePath: 'untitled-3.md',
       worktreeId: 'wt-1',
@@ -84,7 +81,7 @@ describe('createUntitledMarkdownFile', () => {
       }
     })
 
-    await expect(createUntitledMarkdownFile('/repo', 'wt-1', undefined, LOCAL)).rejects.toThrow(
+    await expect(createUntitledMarkdownFile('/repo', 'wt-1')).rejects.toThrow(
       'Unable to create untitled markdown file after 100 attempts.'
     )
 
@@ -104,9 +101,7 @@ describe('createUntitledMarkdownFile', () => {
       }
     })
 
-    await expect(
-      createUntitledMarkdownFile('/repo', 'wt-1', 'conn-1', LOCAL)
-    ).resolves.toMatchObject({
+    await expect(createUntitledMarkdownFile('/repo', 'wt-1', 'conn-1')).resolves.toMatchObject({
       filePath: '/repo/untitled.md'
     })
 
@@ -141,7 +136,7 @@ describe('createUntitledMarkdownFile', () => {
     })
 
     await expect(
-      createUntitledMarkdownFile('/repo', 'wt-1', undefined, LOCAL, {
+      createUntitledMarkdownFile('/repo', 'wt-1', undefined, undefined, {
         now: new Date(2026, 4, 29, 7, 5),
         template: {
           id: '.orca/templates/daily.md',
@@ -211,7 +206,7 @@ describe('createUntitledMarkdownFile', () => {
 
     try {
       await expect(
-        createUntitledMarkdownFileWithTemplateSelection('/repo', 'wt-1', undefined, LOCAL)
+        createUntitledMarkdownFileWithTemplateSelection('/repo', 'wt-1')
       ).resolves.toMatchObject({
         filePath: '/repo/untitled.md',
         relativePath: 'untitled.md',
@@ -261,8 +256,7 @@ describe('createUntitledMarkdownFile', () => {
 
     await expect(
       createUntitledMarkdownFile('/remote/repo', 'wt-1', undefined, {
-        kind: 'environment',
-        environmentId: 'env-1'
+        activeRuntimeEnvironmentId: 'env-1'
       })
     ).resolves.toMatchObject({
       filePath: '/remote/repo/untitled.md',

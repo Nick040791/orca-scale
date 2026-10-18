@@ -1,14 +1,11 @@
-import type { RemoteInstallTransport } from '../managed-server/install/remote-install-transport'
+import type { SshConnection } from './ssh-connection'
 import {
   getProcessOutputFields,
   iterateProcessOutputLines
 } from '../../shared/process-output-field-scanner'
-import { parseUnameToRelayPlatform, type RelayPlatform } from './remote-exec/remote-frame-protocol'
-import {
-  execCommand,
-  isSshExecTimeout,
-  isUnconfirmedSshCommandTermination
-} from './remote-exec/remote-exec-command'
+import { parseUnameToRelayPlatform, type RelayPlatform } from './relay-protocol'
+import { execCommand } from './ssh-relay-deploy-helpers'
+import { isSshExecTimeout, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { isSshSessionLimitError } from './ssh-session-limit-error'
 import { getRemoteHostPlatform, type RemoteHostPlatform } from './ssh-remote-platform'
 import { powerShellCommand } from './ssh-remote-powershell'
@@ -25,7 +22,7 @@ type PlatformProbeOutcome =
   | { kind: 'failed'; error: unknown }
 
 export async function detectRemoteHostPlatform(
-  conn: RemoteInstallTransport,
+  conn: SshConnection,
   options?: { signal?: AbortSignal }
 ): Promise<RemoteHostPlatform | null> {
   const uname = await detectUnamePlatform(conn, options?.signal)
@@ -126,7 +123,7 @@ function summarizeProbeOutput(output: string, maxChars: number): string {
 }
 
 async function detectUnamePlatform(
-  conn: RemoteInstallTransport,
+  conn: SshConnection,
   signal?: AbortSignal
 ): Promise<PlatformProbeOutcome> {
   try {
@@ -143,7 +140,7 @@ async function detectUnamePlatform(
 }
 
 async function detectWindowsPlatform(
-  conn: RemoteInstallTransport,
+  conn: SshConnection,
   signal?: AbortSignal
 ): Promise<PlatformProbeOutcome> {
   try {

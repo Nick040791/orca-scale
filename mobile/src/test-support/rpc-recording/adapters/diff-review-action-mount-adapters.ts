@@ -31,9 +31,6 @@ export function diffReviewActionMountAdapters(
       const useInteractions = modules.load<
         typeof import('../../../session/use-mobile-diff-review-interactions')
       >('mobile/src/session/use-mobile-diff-review-interactions.ts').useMobileDiffReviewInteractions
-      const reviewSheets = modules.load<
-        typeof import('../../../session/mobile-diff-review-sheets')
-      >('mobile/src/session/mobile-diff-review-sheets.ts')
       const staleInput = modules.load<
         typeof import('../../../session/mobile-native-chat-stale-input')
       >('mobile/src/session/mobile-native-chat-stale-input.ts')
@@ -78,23 +75,13 @@ export function diffReviewActionMountAdapters(
       }
       let actionError: string | null = null
       let busyAction: string | null = null
-      let sheets = reviewSheets.NO_REVIEW_SHEETS
-      const sheetIntents = reviewSheets.reviewSheetIntents((action) => {
-        sheets = reviewSheets.reduceReviewSheets(sheets, action)
-      })
-      const sendSheet = (): SendSheetState | null =>
-        sheets.requested?.kind === 'send' ? sheets.requested.load : null
+      let sendSheet: SendSheetState | null = null
       let interactions: ReturnType<typeof useInteractions>
       const hook = hookMount(() => {
         interactions = useInteractions(
           mountFixture<Parameters<typeof useInteractions>[0]>({
             client,
             connState: 'connected',
-            hostCapabilities: [
-              'agent.launch.v2',
-              'agent.launch.replay.v1',
-              'agent.launch.replay-required.v1'
-            ],
             hostId: HOST,
             worktreeId: WORKSPACE,
             screenState,
@@ -114,6 +101,7 @@ export function diffReviewActionMountAdapters(
             setFilter: () => {},
             setCurrentIndex: () => {},
             setActiveHunkIndex: () => {},
+            setComposer: () => {},
             setComposerBody: () => {},
             setActionError: (update) => {
               actionError = typeof update === 'function' ? update(actionError) : update
@@ -121,7 +109,10 @@ export function diffReviewActionMountAdapters(
             setBusyAction: (update) => {
               busyAction = typeof update === 'function' ? update(busyAction) : update
             },
-            sheets: sheetIntents,
+            setSendSheet: (update) => {
+              sendSheet = typeof update === 'function' ? update(sendSheet) : update
+            },
+            setShowCompletion: () => {},
             loadReviewData: () => {
               effect('load-review-data', {})
               return Promise.resolve()
@@ -172,7 +163,7 @@ export function diffReviewActionMountAdapters(
             throw new Error(`Unknown review action: ${name}${String(args.unused ?? '')}`)
           })
         },
-        state: () => ({ screenState, actionError, busyAction, sendSheet: sendSheet() }),
+        state: () => ({ screenState, actionError, busyAction, sendSheet }),
         dispose: () => {
           staleInput.resetMobileNativeChatStaleInputForTests()
           hook.unmount()

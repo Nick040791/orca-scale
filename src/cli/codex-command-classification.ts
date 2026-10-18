@@ -62,7 +62,6 @@ const CODEX_GLOBAL_BOOLEAN_FLAGS = new Set([
   '--dangerously-bypass-approvals-and-sandbox',
   '--search',
   '--no-alt-screen',
-  '--no-daemon',
   '--help',
   '-h',
   '--version',

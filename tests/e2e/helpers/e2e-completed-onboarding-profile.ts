@@ -1,7 +1,4 @@
-import {
-  ONBOARDING_FINAL_STEP,
-  ONBOARDING_FLOW_VERSION
-} from '../../../src/shared/onboarding-defaults'
+import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../../../src/shared/constants'
 import { FEATURE_INTERACTION_IDS } from '../../../src/shared/feature-interactions'
 import { FEATURE_TIP_IDS } from '../../../src/shared/feature-tips'
 
@@ -47,8 +44,7 @@ export function getE2ECompletedOnboardingProfile() {
       browserImportHintHidden: true,
       // Why: E2E profiles model completed existing users and should not be
       // interrupted by the usage-display change toast covering the UI under test.
-      usagePercentageDisplayChangeNoticeDismissed: true,
-      statusBarCompactChangeNoticeDismissed: true
+      usagePercentageDisplayChangeNoticeDismissed: true
     }
   }
 }

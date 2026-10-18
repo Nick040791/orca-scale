@@ -102,6 +102,11 @@ export type AutomationsListPanelProps = {
     action: ExternalAutomationAction,
     scope: ExternalAutomationScope
   ) => void
+  openEditExternalDialog: (
+    manager: ExternalAutomationManager,
+    job: ExternalAutomationJob,
+    scope: ExternalAutomationScope
+  ) => void
   openCreateDialog: (template?: AutomationTemplate) => void
   canCreateAutomation: boolean
   onOpenDetail: () => void
@@ -150,6 +155,7 @@ export function AutomationsListPanel(props: AutomationsListPanelProps): React.JS
     toggleAutomation,
     requestDeleteAutomation,
     requestExternalAction,
+    openEditExternalDialog,
     openCreateDialog,
     canCreateAutomation,
     onOpenDetail,
@@ -353,6 +359,7 @@ export function AutomationsListPanel(props: AutomationsListPanelProps): React.JS
                       onOpenDetail()
                     }}
                     onRequestAction={requestExternalAction}
+                    onEdit={openEditExternalDialog}
                   />
                 )
               )}

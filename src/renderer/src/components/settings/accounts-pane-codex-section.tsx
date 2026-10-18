@@ -25,7 +25,7 @@ export function renderCodexAccountsSection(model: AccountsPaneSectionModel): Rea
     isRemoteAccountScope,
     remoteAccountScopeNotice,
     runCodexAccountAction,
-    accountOwner,
+    settings,
     systemCodexActive,
     systemCodexIdentity,
     systemCodexMissingSignIn,
@@ -205,7 +205,7 @@ export function renderCodexAccountsSection(model: AccountsPaneSectionModel): Rea
             type="button"
             onClick={() =>
               void runCodexAccountAction('select:system', () =>
-                selectCodexProviderAccount(accountOwner, {
+                selectCodexProviderAccount(settings, {
                   accountId: null,
                   runtime: accountRuntime.runtime,
                   wslDistro: accountRuntime.wslDistro

@@ -305,13 +305,7 @@ export function RuntimePairingGeneratorForm({
             )}
           </div>
         ) : null}
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            {translate(
-              'auto.components.settings.RuntimePairingUrlGenerator.pairedRunsAsYou',
-              'A paired client can run commands as you on this computer.'
-            )}
-          </p>
+        <div className="flex justify-end">
           <Button
             type="button"
             size="sm"

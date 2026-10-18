@@ -16,7 +16,6 @@ export type ProfileStateStartupAuthorityOptions = Omit<
   runtime: ProfileStateStartupRuntime
   storageAuthority: AutomationStorageAuthority
   onPersistenceFailure?: (error: Error) => void
-  onPersistenceSaveDelayChanged?: (delayed: boolean) => void
 }
 
 export class ProfileStateStartupAuthorityError extends Error {
@@ -24,7 +23,7 @@ export class ProfileStateStartupAuthorityError extends Error {
 
   constructor() {
     super(
-      'orcad requires SQLite database and backup support. Launch it through its pinned Node runtime.'
+      'orcad requires SQLite database and backup support. Launch through its bundled Bun runtime.'
     )
     this.name = 'ProfileStateStartupAuthorityError'
   }
@@ -38,7 +37,6 @@ export async function createProfileStateStoreForStartup(
     throw new ProfileStateStartupAuthorityError()
   }
   return createLiveProfileStateStore(options, {
-    onSaveDelayChanged: options.onPersistenceSaveDelayChanged,
     onFailure:
       options.onPersistenceFailure ??
       ((error) =>

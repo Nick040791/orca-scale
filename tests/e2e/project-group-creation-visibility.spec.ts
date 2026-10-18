@@ -1,9 +1,9 @@
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from './helpers/orca-app'
 import { waitForSessionReady } from './helpers/store'
-import { runProcess } from '@orca/process-host'
+import { runProcess } from '../../src/shared/child-process/run-process'
 
 test.use({ seedTestRepo: false })
 
@@ -26,11 +26,7 @@ for (const delayCreateResponse of [false, true]) {
     const paths = Array.from({ length: 30 }, (_, index) =>
       path.join(root, `repo-${String(index).padStart(2, '0')}`)
     )
-    const templatePath = paths[0]
-    if (!templatePath) {
-      throw new Error('Repository fixture requires a first path')
-    }
-    for (const repoPath of [templatePath]) {
+    for (const repoPath of paths) {
       mkdirSync(repoPath)
       writeFileSync(path.join(repoPath, 'seed.txt'), 'seed\n')
       for (const args of [
@@ -51,9 +47,6 @@ for (const delayCreateResponse of [false, true]) {
         const result = await runProcess({ program: 'git', args, cwd: repoPath, timeoutMs: 10_000 })
         expect(result.code, result.stderr).toBe(0)
       }
-    }
-    for (const repoPath of paths.slice(1)) {
-      cpSync(templatePath, repoPath, { recursive: true, force: false, errorOnExist: true })
     }
     const repoIds = await orcaPage.evaluate(async (paths) => {
       const store = window.__store!
@@ -94,7 +87,7 @@ for (const delayCreateResponse of [false, true]) {
       })
     }
     const creation = orcaPage.evaluate(() =>
-      window.__store!.getState().createProjectGroup('Crowded group', 'local')
+      window.__store!.getState().createProjectGroup('Crowded group')
     )
     if (delayCreateResponse) {
       try {
@@ -170,11 +163,7 @@ for (const delayCreateResponse of [false, true]) {
       }
     }
     await expect(group).toHaveCount(1)
-    await orcaPage.evaluate(() =>
-      window
-        .__store!.getState()
-        .fetchProjectGroups({ runtimeEnvironmentId: null, throwOnError: true })
-    )
+    await orcaPage.evaluate(() => window.__store!.getState().fetchProjectGroups())
     await expect(group).toHaveCount(1)
     await group.click()
     for (const repo of groupedRepos) {

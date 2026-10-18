@@ -1,5 +1,4 @@
 import type { BrowserGrabRect } from './browser-grab-types'
-import { isValidBrowserGrabRect } from './browser-annotation-viewport-report'
 
 export type BrowserAnnotationViewportBridgeMarker = {
   id: string
@@ -14,7 +13,6 @@ export type BrowserSetAnnotationViewportBridgeArgs = {
   enabled: boolean
   emitViewport: boolean
   markers: BrowserAnnotationViewportBridgeMarker[]
-  selectionId?: string
   token: string
 }
 
@@ -22,17 +20,33 @@ export type BrowserAnnotationViewportBridgeOptions = {
   enabled: boolean
   emitViewport: boolean
   markers: BrowserAnnotationViewportBridgeMarker[]
-  selectionId?: string
   token: string
 }
 
 export const BROWSER_ANNOTATION_VIEWPORT_BRIDGE_WORLD_ID = 1207
 export const BROWSER_ANNOTATION_VIEWPORT_MESSAGE_PREFIX = '__orca_annotation_viewport__:'
-// Set by the grab overlay on the element it froze on, so the isolated bridge can measure it.
-export const BROWSER_GRAB_SELECTED_ATTRIBUTE = 'data-orca-grab-selected'
 
 export function isValidBrowserAnnotationViewportBridgeToken(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{16,80}$/.test(value)
+}
+
+function isValidBrowserGrabRect(value: unknown): value is BrowserGrabRect {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const rect = value as Record<string, unknown>
+  return (
+    typeof rect.x === 'number' &&
+    Number.isFinite(rect.x) &&
+    typeof rect.y === 'number' &&
+    Number.isFinite(rect.y) &&
+    typeof rect.width === 'number' &&
+    Number.isFinite(rect.width) &&
+    rect.width >= 0 &&
+    typeof rect.height === 'number' &&
+    Number.isFinite(rect.height) &&
+    rect.height >= 0
+  )
 }
 
 export function isValidBrowserAnnotationViewportBridgeMarkers(
@@ -67,7 +81,6 @@ export function buildBrowserAnnotationViewportBridgeScript({
   emitViewport,
   enabled,
   markers,
-  selectionId,
   token
 }: BrowserAnnotationViewportBridgeOptions): string {
   return `(() => {
@@ -76,12 +89,10 @@ export function buildBrowserAnnotationViewportBridgeScript({
   const enabled = ${JSON.stringify(enabled)};
   const emitViewportMessages = ${JSON.stringify(emitViewport)};
   const markers = ${JSON.stringify(markers)};
-  const selectionId = ${JSON.stringify(selectionId ?? null)};
   const token = ${JSON.stringify(token)};
   const prefix = ${JSON.stringify(BROWSER_ANNOTATION_VIEWPORT_MESSAGE_PREFIX)};
   const stateKey = '__orcaBrowserAnnotationViewportBridge';
   const hostAttribute = 'data-orca-browser-annotation-overlay';
-  const selectedAttribute = ${JSON.stringify(BROWSER_GRAB_SELECTED_ATTRIBUTE)};
   const markerSize = 24;
 
   const removeOverlay = (state) => {
@@ -99,12 +110,6 @@ export function buildBrowserAnnotationViewportBridgeScript({
       window.removeEventListener('scroll', state.requestUpdate, true);
       document.removeEventListener('scroll', state.requestUpdate, true);
       window.removeEventListener('resize', state.requestUpdate, true);
-    }
-    if (state.onBeforeUnload) {
-      window.removeEventListener('beforeunload', state.onBeforeUnload);
-    }
-    if (state.targetObserver) {
-      state.targetObserver.disconnect();
     }
     removeOverlay(state);
   };
@@ -124,50 +129,10 @@ export function buildBrowserAnnotationViewportBridgeScript({
     scrollY: toNumber(window.scrollY, toNumber(window.pageYOffset, 0))
   });
 
-  // Why: the card must follow the element itself, not a click-time copy; the grab overlay
-  // marks it in the shared DOM because this world cannot see the page's objects.
-  const trackTarget = (state) => {
-    const current = state.target;
-    let next = null;
-    if (emitViewportMessages && selectionId) {
-      for (const candidate of document.querySelectorAll('[' + selectedAttribute + ']')) {
-        if (candidate.getAttribute(selectedAttribute) !== selectionId) continue;
-        if (next) {
-          next = null;
-          break;
-        }
-        next = candidate;
-      }
-    }
-    if (next !== current) {
-      state.target = next;
-      if (state.targetObserver) {
-        state.targetObserver.disconnect();
-        if (next) {
-          state.targetObserver.observe(next, { box: 'border-box' });
-          if (next !== document.documentElement) {
-            state.targetObserver.observe(document.documentElement);
-          }
-        }
-      }
-    }
-    return next;
-  };
-
-  const readTarget = (target) => {
-    if (!target) return null;
-    const rect = target.getBoundingClientRect();
-    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-  };
-
-  const emitViewport = (state) => {
-    const target = trackTarget(state);
+  const emitViewport = () => {
     if (!emitViewportMessages) return;
     try {
-      const report = readViewport();
-      report.viewportWidth = toNumber(window.innerWidth, 0);
-      report.target = readTarget(target);
-      console.debug(prefix + token + ':' + JSON.stringify(report));
+      console.debug(prefix + token + ':' + JSON.stringify(readViewport()));
     } catch (e) {}
   };
 
@@ -269,10 +234,7 @@ export function buildBrowserAnnotationViewportBridgeScript({
     markerElements: new Map(),
     markers: [],
     shadowRoot: null,
-    requestUpdate: null,
-    onBeforeUnload: null,
-    target: null,
-    targetObserver: null
+    requestUpdate: null
   };
 
   state.requestUpdate = () => {
@@ -280,24 +242,14 @@ export function buildBrowserAnnotationViewportBridgeScript({
     state.raf = requestAnimationFrame(() => {
       state.raf = 0;
       positionMarkers(state);
-      state.emitViewport(state);
+      state.emitViewport();
     });
-  };
-  if (typeof ResizeObserver === 'function') {
-    state.targetObserver = new ResizeObserver(state.requestUpdate);
-  }
-
-  // Navigation can hold IPC cleanup until the next document finishes loading.
-  state.onBeforeUnload = () => {
-    cleanup(state);
-    delete globalThis[stateKey];
   };
 
   updateMarkers(state, markers);
   window.addEventListener('scroll', state.requestUpdate, true);
   document.addEventListener('scroll', state.requestUpdate, true);
   window.addEventListener('resize', state.requestUpdate, true);
-  window.addEventListener('beforeunload', state.onBeforeUnload);
   globalThis[stateKey] = state;
   state.requestUpdate();
   return true;

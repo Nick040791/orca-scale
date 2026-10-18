@@ -16,8 +16,7 @@ import {
   structuredAgentSessionCreate,
   structuredAgentSupportProbe
 } from './mobile-session-launch-operations'
-import { randomV4Uuid } from '../platform/random-v4-uuid'
-import { rememberMobileCreatedStructuredSession } from './mobile-created-structured-sessions'
+import { structuredSessionRandomUuid } from './structured-session-operation-id'
 
 type StructuredCreateSupport = {
   supported?: boolean
@@ -42,10 +41,10 @@ function createParamsFor(
   worktree: string
 ): StructuredAgentSessionCreateParams {
   return structuredAgentSessionCreateParams({
-    sessionId: createStructuredAgentSessionId(agent, randomV4Uuid),
+    sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
     worktree,
     agent,
-    randomUuid: randomV4Uuid
+    randomUuid: structuredSessionRandomUuid
   })
 }
 
@@ -123,7 +122,6 @@ export async function createMobileStructuredAgentSession(
   }
 
   const params = createParamsFor(agent, worktree)
-  rememberMobileCreatedStructuredSession(params.envelope.sessionId, worktree)
   let response
   try {
     response = await structuredAgentSessionCreate.request(client, params, {

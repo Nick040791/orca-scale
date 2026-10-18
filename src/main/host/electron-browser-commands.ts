@@ -1,9 +1,6 @@
-import { RuntimeBrowserCommands } from '../runtime/browser/browser-commands'
-import { setRuntimeBrowserCommandsFactory } from '../runtime/runtime-browser-commands-factory'
+import { RuntimeBrowserCommands } from '../runtime/orca-runtime-browser'
+import type { RuntimeBrowserCommandsFactory } from '../runtime/runtime-browser-commands-factory'
 
 /** The desktop factory. Importing this file is what pulls in the Chromium browser cluster. */
-export function installElectronBrowserCommands(): void {
-  setRuntimeBrowserCommandsFactory((host) => new RuntimeBrowserCommands(host), {
-    clientHosting: true
-  })
-}
+export const electronRuntimeBrowserCommandsFactory: RuntimeBrowserCommandsFactory = (host) =>
+  new RuntimeBrowserCommands(host)

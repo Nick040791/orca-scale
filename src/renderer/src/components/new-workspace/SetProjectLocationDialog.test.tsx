@@ -105,7 +105,7 @@ describe('SetProjectLocationDialog', () => {
       kind: 'git',
       displayName: 'orca'
     })
-    expect(onReady).toHaveBeenCalledWith(JSON.stringify(['setup-openclaw', 'ssh:openclaw']))
+    expect(onReady).toHaveBeenCalledWith('setup-openclaw')
     expect(onClose).not.toHaveBeenCalled()
   })
 
@@ -125,7 +125,7 @@ describe('SetProjectLocationDialog', () => {
       destination: '/remote/orca',
       displayName: 'orca'
     })
-    expect(onReady).toHaveBeenCalledWith(JSON.stringify(['setup-openclaw-clone', 'ssh:openclaw']))
+    expect(onReady).toHaveBeenCalledWith('setup-openclaw-clone')
   })
 
   it('hides clone for folder projects', () => {
@@ -230,7 +230,7 @@ describe('SetProjectLocationDialog', () => {
     await user.type(screen.getByPlaceholderText('/path/to/project/on/host'), '/remote/orca')
     await user.click(screen.getByRole('button', { name: 'Set location' }))
 
-    expect(onReady).toHaveBeenCalledWith(JSON.stringify(['setup-openclaw', 'ssh:openclaw']))
+    expect(onReady).toHaveBeenCalledWith('setup-openclaw')
   })
 
   it('notifies the parent when dismissed', async () => {

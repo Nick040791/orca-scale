@@ -16,7 +16,6 @@ export type ComposerSourceState = {
     | 'uploadComposerPaths'
     | 'handleAddAttachment'
     | 'applyLocalComposerDrop'
-    | 'applyNativeDrop'
   >
   targetChangeActions: Pick<
     ComposerModel,
@@ -47,6 +46,9 @@ export type ComposerSourceState = {
   >
   composerNavigationActions: Pick<
     ComposerModel,
-    'handleOpenAgentSettings' | 'handleOpenJiraSettings' | 'folderCreateDisabled'
+    | 'handleOpenAgentSettings'
+    | 'handleOpenJiraSettings'
+    | 'applyWorktreeMeta'
+    | 'folderCreateDisabled'
   >
 }

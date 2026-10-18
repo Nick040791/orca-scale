@@ -1,5 +1,3 @@
-import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
-import { annotateWorktreeLocksFromAdmin } from '../../shared/git-worktree-admin'
 import { stat } from 'node:fs/promises'
 import type { GitWorktreeInfo } from '../../shared/worktree/types'
 import { toWslExecutionSpace } from '../../shared/wsl-paths'
@@ -25,23 +23,22 @@ import { gitExecFileAsync } from './runner'
 
 const PRUNABLE_EXISTENCE_PROBE_CONCURRENCY = 8
 
-type RepoLocation = { topLevel: string; commonDir: string; gitDir: string }
+type RepoLocation = { topLevel: string; commonDir: string }
 
 function parseRepoLocation(repoPath: string, output: string): RepoLocation | undefined {
   // Old git echoes the unrecognized `--path-format` flag and exits 0, so drop `-`-prefixed lines and
-  // read the last three path lines (toplevel, git-common-dir, git-dir); strip only trailing CR — paths may have edge spaces.
+  // read the last two path lines (toplevel, git-common-dir); strip only trailing CR — paths may have edge spaces.
   const lines = output
     .split('\n')
     .map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
     .filter((line) => line.length > 0 && !line.startsWith('-'))
-  if (lines.length < 3) {
+  if (lines.length < 2) {
     return undefined
   }
-  const [topLevel, commonDir, gitDir] = lines.slice(-3)
+  const [topLevel, commonDir] = lines.slice(-2)
   return {
     topLevel: resolveRevParsePath(repoPath, topLevel),
-    commonDir: resolveRevParsePath(repoPath, commonDir),
-    gitDir: resolveRevParsePath(repoPath, gitDir)
+    commonDir: resolveRevParsePath(repoPath, commonDir)
   }
 }
 
@@ -58,13 +55,7 @@ export async function readRepoLocation(
           'rev-parse-path-format',
           async () => {
             const { stdout } = await gitExecFileAsync(
-              [
-                'rev-parse',
-                '--path-format=absolute',
-                '--show-toplevel',
-                '--git-common-dir',
-                '--git-dir'
-              ],
+              ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
               gitExecOptions(repoPath, options)
             )
             if (hasUnsupportedRevParsePathFormatEcho(stdout)) {
@@ -75,7 +66,7 @@ export async function readRepoLocation(
           },
           async () => {
             const { stdout } = await gitExecFileAsync(
-              ['rev-parse', '--show-toplevel', '--git-common-dir', '--git-dir'],
+              ['rev-parse', '--show-toplevel', '--git-common-dir'],
               gitExecOptions(repoPath, options)
             )
             return parseRepoLocation(resolveBasePath, stdout)
@@ -194,11 +185,6 @@ async function normalizeMainWorktreePath(
   if (!areWorktreePathsEqual(mainWorktree.path, location.commonDir)) {
     return worktrees
   }
-  // Why: a linked worktree of a bare/separate-git-dir repo passes the gate above too, but its toplevel
-  // is its own folder; relabelling would give the main row that folder's path and repeat it (#23631).
-  if (!areWorktreePathsEqual(location.gitDir, location.commonDir)) {
-    return worktrees
-  }
 
   const normalized = [...worktrees]
   normalized[mainIndex] = { ...mainWorktree, path: location.topLevel }
@@ -243,11 +229,7 @@ export async function readWorktreeList(
           )
           // Why: Git <2.31 emits no `prunable`, so probe each linked path for existence instead of trusting
           // stale registrations; a harmless backstop on 2.31–2.35 where parseWorktreeList already set it (#8389).
-          return annotatePrunableByExistence(
-            await annotateWorktreeLocksFromAdmin(repoPath, normalized, options),
-            repoPath,
-            options
-          )
+          return annotatePrunableByExistence(normalized, repoPath, options)
         },
         isUnsupportedWorktreeListZError
       )
@@ -264,11 +246,11 @@ async function annotatePrunableByExistence(
 
   async function probeNext(): Promise<void> {
     while (nextIndex < worktrees.length) {
-      throwIfSignalAborted(options.signal)
       const index = nextIndex
       nextIndex += 1
       const worktree = worktrees[index]
-      // Git only prunes linked worktrees, never locked ones (a lock shields a missing directory). A missing main worktree is handled by the repo-level ENOENT paths.
+      // Git only prunes linked worktrees, never locked ones (a lock shields a missing dir; `locked`
+      // parses only on Git >=2.31). A missing main worktree is handled by the repo-level ENOENT paths.
       if (
         !worktree ||
         worktree.isMainWorktree ||
@@ -289,11 +271,7 @@ async function annotatePrunableByExistence(
   }
 
   const workerCount = Math.min(PRUNABLE_EXISTENCE_PROBE_CONCURRENCY, worktrees.length)
-  await waitForPromiseWithSignal(
-    Promise.all(Array.from({ length: workerCount }, () => probeNext())),
-    options.signal
-  )
-  throwIfSignalAborted(options.signal)
+  await Promise.all(Array.from({ length: workerCount }, () => probeNext()))
   return annotated
 }
 

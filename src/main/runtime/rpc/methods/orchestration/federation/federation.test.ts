@@ -1,5 +1,5 @@
-import '../../../unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RuntimeRpcResponse } from '../../../../../../shared/runtime-rpc-envelope'
 import {
   ORCHESTRATION_CONTRACT_VERSION,
   ORCHESTRATION_FEDERATION_CONTROL_MAIL_RUNTIME_CAPABILITY
@@ -55,14 +55,15 @@ describe('orchestration federation', () => {
             _meta: { runtimeId: workerRuntime.getRuntimeId() }
           }
         }
-        const response = await workerDispatcher.dispatch({
+        const response = (await workerDispatcher.dispatch({
           id: `remote_${method}`,
           authToken: 'run-home-device-token',
           method,
           params,
           orchestrationContractVersion: envelope?.orchestrationContractVersion,
-          orchestrationRequestId: envelope?.orchestrationRequestId
-        })
+          orchestrationRequestId: envelope?.orchestrationRequestId,
+          orchestrationCapability: envelope?.orchestrationCapability
+        })) as RuntimeRpcResponse<unknown>
         if (method === 'orchestration.federationAck' && loseNextAckResponse) {
           loseNextAckResponse = false
           throw new Error('connection lost after acknowledgment')
@@ -280,12 +281,16 @@ describe('orchestration federation', () => {
     const started = await homeDispatcher.dispatch(startRequest(task.id))
     expect(started.ok).toBe(true)
     const dispatch = homeDb.getDispatchContext(task.id)!
+    const prompt = vi.mocked(workerRuntime.sendTerminalAgentPrompt).mock.calls[0]?.[1] ?? ''
+    const capability = prompt.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1]
+    expect(capability).toBeTruthy()
 
     const sent = await workerDispatcher.dispatch({
       id: 'rpc_worker_done',
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'worker_done_request',
+      orchestrationCapability: capability,
       method: 'orchestration.send',
       params: {
         from: 'term_windows_worker',
@@ -329,11 +334,14 @@ describe('orchestration federation', () => {
     const task = createHomeTask()
     await homeDispatcher.dispatch(startRequest(task.id))
     const dispatch = homeDb.getDispatchContext(task.id)!
+    const prompt = vi.mocked(workerRuntime.sendTerminalAgentPrompt).mock.calls[0]?.[1] ?? ''
+    const capability = prompt.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1]
     const ask = workerDispatcher.dispatch({
       id: 'rpc_remote_ask',
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'remote_question_request',
+      orchestrationCapability: capability,
       method: 'orchestration.ask',
       params: {
         from: 'term_windows_worker',
@@ -395,11 +403,14 @@ describe('orchestration federation', () => {
   it('keeps a timed-out remote question resumable', async () => {
     const task = createHomeTask()
     await homeDispatcher.dispatch(startRequest(task.id))
+    const prompt = vi.mocked(workerRuntime.sendTerminalAgentPrompt).mock.calls[0]?.[1] ?? ''
+    const capability = prompt.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1]
     const timedOut = await workerDispatcher.dispatch({
       id: 'rpc_remote_ask_timeout',
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'remote_question_timeout_request',
+      orchestrationCapability: capability,
       method: 'orchestration.ask',
       params: {
         from: 'term_windows_worker',
@@ -430,6 +441,7 @@ describe('orchestration federation', () => {
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'remote_question_resume_request',
+      orchestrationCapability: capability,
       method: 'orchestration.ask',
       params: { from: 'term_windows_worker', resume: questionId, timeoutMs: 5_000 }
     })
@@ -445,11 +457,14 @@ describe('orchestration federation', () => {
     const task = createHomeTask()
     await homeDispatcher.dispatch(startRequest(task.id))
     homeRuntime.stopOrchestrationFederationRelay()
+    const prompt = vi.mocked(workerRuntime.sendTerminalAgentPrompt).mock.calls[0]?.[1] ?? ''
+    const capability = prompt.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1]
     await workerDispatcher.dispatch({
       id: 'rpc_remote_status',
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'remote_status_request',
+      orchestrationCapability: capability,
       method: 'orchestration.send',
       params: {
         from: 'term_windows_worker',
@@ -560,12 +575,15 @@ describe('orchestration federation', () => {
     const task = createHomeTask()
     await homeDispatcher.dispatch(startRequest(task.id))
     const dispatch = homeDb.getDispatchContext(task.id)!
+    const prompt = vi.mocked(workerRuntime.sendTerminalAgentPrompt).mock.calls[0]?.[1] ?? ''
+    const capability = prompt.match(/--dispatch-capability (dcap_[A-Za-z0-9_-]+)/)?.[1]
     homeRuntime.stopOrchestrationFederationRelay()
     await workerDispatcher.dispatch({
       id: 'rpc_restart_status',
       authToken: 'worker-local-token',
       orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
       orchestrationRequestId: 'restart_status_request',
+      orchestrationCapability: capability,
       method: 'orchestration.send',
       params: {
         from: 'term_windows_worker',

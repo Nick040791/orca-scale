@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as RunProcess from '@orca/process-host'
 
 const {
   childSpawnMock,
@@ -19,21 +18,8 @@ const {
   startBackfillRecoveryMock: vi.fn(() => Promise.resolve(null))
 }))
 
-// The probe's child runs in-process here; the worker transport has its own suite.
-vi.mock(
-  '../worker-thread-child-process/worker-thread-child-process',
-  () =>
-    import('../worker-thread-child-process/worker-thread-child-process-in-process.test-fixtures')
-)
 vi.mock('node:child_process', () => ({
   spawn: childSpawnMock
-}))
-
-// The chokepoint is the seam: assertions see what the fetcher asked for, before shim resolution.
-vi.mock('@orca/process-host', async (importOriginal) => ({
-  ...(await importOriginal<typeof RunProcess>()),
-  spawnProcess: (spec: { program: string; args?: readonly string[] }) =>
-    childSpawnMock(spec.program, spec.args ?? [], spec)
 }))
 
 vi.mock('node:fs/promises', () => ({
@@ -44,9 +30,6 @@ vi.mock('../codex-cli/command', () => ({
   resolveCodexCommand: resolveCodexCommandMock
 }))
 
-vi.mock('../wsl-interop-spawn-directory', () => ({
-  resolveWslInteropSpawnCwd: () => 'C:\\Windows'
-}))
 vi.mock('node-pty', () => ({
   spawn: ptySpawnMock
 }))
@@ -67,7 +50,13 @@ vi.mock('./codex-auth-presence', () => ({
 
 import { fetchCodexRateLimits } from './codex-fetcher'
 import { probeCodexAuthPresence } from './codex-auth-presence'
+import { getActiveHiddenRateLimitPtyCount } from './hidden-pty-cleanup'
+import { getCmdExePath } from '../win32-utils'
 import { CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS } from '../codex-cli/codex-read-only-app-server-args'
+
+function makeDisposable() {
+  return { dispose: vi.fn() }
+}
 
 function makeRpcChild() {
   const child = new EventEmitter() as EventEmitter & {
@@ -120,24 +109,23 @@ function respondToRpcRateLimitRead(
   })
 }
 
-function mockBackendUsage(): void {
-  readFileMock.mockResolvedValue(
-    JSON.stringify({ tokens: { access_token: 'access-token', account_id: 'account-id' } })
-  )
-  // A Response body reads once; usage and reset credits each fetch.
-  vi.mocked(fetch).mockImplementation(
-    async () =>
-      new Response(
-        JSON.stringify({
-          plan_type: 'plus',
-          rate_limit: {
-            primary_window: { used_percent: 7, limit_window_seconds: 5 * 60 * 60 },
-            secondary_window: { used_percent: 12, limit_window_seconds: 7 * 24 * 60 * 60 }
-          },
-          rate_limit_reset_credits: { available_count: 0, credits: [] }
-        })
-      )
-  )
+function makePtyTerm() {
+  let dataHandler: ((data: string) => void) | null = null
+  let exitHandler: (() => void) | null = null
+  return {
+    onData: vi.fn((callback: (data: string) => void) => {
+      dataHandler = callback
+      return makeDisposable()
+    }),
+    onExit: vi.fn((callback: () => void) => {
+      exitHandler = callback
+      return makeDisposable()
+    }),
+    write: vi.fn(),
+    kill: vi.fn(),
+    emitData: (data: string) => dataHandler?.(data),
+    emitExit: () => exitHandler?.()
+  }
 }
 
 describe('fetchCodexRateLimits', () => {
@@ -173,7 +161,9 @@ describe('fetchCodexRateLimits', () => {
   it('does not let a quota probe steal an incomplete state-DB backfill lease', async () => {
     isBackfillPendingMock.mockReturnValue(true)
 
-    await expect(fetchCodexRateLimits({ codexHomePath: '/managed-home' })).resolves.toMatchObject({
+    await expect(
+      fetchCodexRateLimits({ codexHomePath: '/managed-home', allowPtyFallback: false })
+    ).resolves.toMatchObject({
       status: 'error',
       error: expect.stringContaining('session index')
     })
@@ -222,11 +212,38 @@ describe('fetchCodexRateLimits', () => {
     }
   )
 
+  it('disposes node-pty listeners before killing the PTY fallback on timeout', async () => {
+    const onDataDisposable = makeDisposable()
+    const onExitDisposable = makeDisposable()
+    const killMock = vi.fn()
+
+    childSpawnMock.mockImplementation(() => {
+      throw new Error('rpc unavailable')
+    })
+    ptySpawnMock.mockReturnValue({
+      onData: vi.fn(() => onDataDisposable),
+      onExit: vi.fn(() => onExitDisposable),
+      write: vi.fn(),
+      kill: killMock
+    })
+
+    const resultPromise = fetchCodexRateLimits()
+    await vi.advanceTimersByTimeAsync(15_000)
+    await resultPromise
+
+    expect(onDataDisposable.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      killMock.mock.invocationCallOrder[0]
+    )
+    expect(onExitDisposable.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      killMock.mock.invocationCallOrder[0]
+    )
+  })
+
   it('spawns the RPC rate-limit reader in a bounded non-root cwd', async () => {
     const rpcChild = makeRpcChild()
     childSpawnMock.mockReturnValue(rpcChild)
 
-    const resultPromise = fetchCodexRateLimits()
+    const resultPromise = fetchCodexRateLimits({ allowPtyFallback: false })
     await vi.advanceTimersByTimeAsync(0)
 
     const spawnCwd = childSpawnMock.mock.calls[0]?.[2]?.cwd as string
@@ -238,7 +255,26 @@ describe('fetchCodexRateLimits', () => {
     await resultPromise
   })
 
-  it('kills the RPC child and skips the HTTP fallback when the fetch signal aborts', async () => {
+  it('spawns the PTY fallback in a bounded non-root cwd', async () => {
+    const term = makePtyTerm()
+    childSpawnMock.mockImplementation(() => {
+      throw new Error('rpc unavailable')
+    })
+    ptySpawnMock.mockReturnValue(term)
+
+    const resultPromise = fetchCodexRateLimits()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const spawnCwd = ptySpawnMock.mock.calls[0]?.[2]?.cwd as string
+    expect(spawnCwd).toContain('rate-limit-pty-cwd')
+    expect(spawnCwd).not.toBe('/')
+    expect(spawnCwd).not.toMatch(/^[A-Za-z]:\\?$/)
+
+    term.emitExit()
+    await resultPromise
+  })
+
+  it('kills the RPC child and skips PTY fallback when the fetch signal aborts', async () => {
     const rpcChild = makeRpcChild()
     childSpawnMock.mockReturnValue(rpcChild)
     const controller = new AbortController()
@@ -254,40 +290,77 @@ describe('fetchCodexRateLimits', () => {
       error: 'Rate-limit fetch aborted'
     })
     expect(rpcChild.kill).toHaveBeenCalledTimes(1)
-    expect(fetch).not.toHaveBeenCalled()
     expect(ptySpawnMock).not.toHaveBeenCalled()
   })
 
-  it('reads usage over HTTP, never through the Codex TUI, when RPC exits before returning usage', async () => {
+  it('kills and unregisters the PTY fallback when the fetch signal aborts', async () => {
+    const term = makePtyTerm()
+    childSpawnMock.mockImplementation(() => {
+      throw new Error('rpc unavailable')
+    })
+    ptySpawnMock.mockReturnValue(term)
+    const controller = new AbortController()
+    const killMock = term.kill
+
+    const resultPromise = fetchCodexRateLimits({ signal: controller.signal })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(getActiveHiddenRateLimitPtyCount()).toBe(1)
+
+    controller.abort()
+
+    await expect(resultPromise).resolves.toMatchObject({
+      provider: 'codex',
+      status: 'error',
+      error: 'Rate-limit fetch aborted'
+    })
+    expect(killMock).toHaveBeenCalledTimes(1)
+    expect(getActiveHiddenRateLimitPtyCount()).toBe(0)
+  })
+
+  it('falls back to the PTY status reader when RPC exits before returning usage', async () => {
     const rpcChild = makeRpcChild()
+    const ptyHandlers: { onData?: (data: string) => void } = {}
+
     childSpawnMock.mockReturnValue(rpcChild)
-    mockBackendUsage()
+    ptySpawnMock.mockReturnValue({
+      onData: vi.fn((callback) => {
+        ptyHandlers.onData = callback
+        return makeDisposable()
+      }),
+      onExit: vi.fn(() => makeDisposable()),
+      write: vi.fn(),
+      kill: vi.fn()
+    })
 
     const resultPromise = fetchCodexRateLimits()
     await vi.advanceTimersByTimeAsync(0)
     rpcChild.emit('close')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(ptySpawnMock).toHaveBeenCalled()
+    const onPtyData = ptyHandlers.onData
+    if (!onPtyData) {
+      throw new Error('PTY data handler was not registered')
+    }
+    onPtyData('>')
+    onPtyData('5h limit: 7%\nWeekly limit: 12%\n')
+    await vi.advanceTimersByTimeAsync(500)
 
     await expect(resultPromise).resolves.toMatchObject({
       provider: 'codex',
-      session: { usedPercent: 7, windowMinutes: 300 },
-      weekly: { usedPercent: 12, windowMinutes: 10080 },
+      session: { usedPercent: 7 },
+      weekly: { usedPercent: 12 },
       status: 'ok',
       error: null
     })
-    expect(fetch).toHaveBeenCalledWith(
-      'https://chatgpt.com/backend-api/wham/usage',
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer access-token' })
-      })
-    )
-    expect(ptySpawnMock).not.toHaveBeenCalled()
   })
 
-  it('keeps the RPC error when the HTTP fallback has no usage to offer', async () => {
+  it('does not start the PTY fallback when disabled for background account previews', async () => {
     const rpcChild = makeRpcChild()
     childSpawnMock.mockReturnValue(rpcChild)
 
-    const resultPromise = fetchCodexRateLimits()
+    const resultPromise = fetchCodexRateLimits({ allowPtyFallback: false })
     await vi.advanceTimersByTimeAsync(0)
     rpcChild.emit('close')
     await vi.advanceTimersByTimeAsync(0)
@@ -299,28 +372,6 @@ describe('fetchCodexRateLimits', () => {
       status: 'error'
     })
     expect(rpcChild.stdin.listenerCount('error')).toBe(0)
-    expect(fetch).not.toHaveBeenCalled()
-    expect(ptySpawnMock).not.toHaveBeenCalled()
-  })
-
-  it('shows the RPC exit reason when the HTTP fallback is rejected', async () => {
-    const rpcChild = makeRpcChild()
-    childSpawnMock.mockReturnValue(rpcChild)
-    mockBackendUsage()
-    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }))
-
-    const resultPromise = fetchCodexRateLimits()
-    await vi.advanceTimersByTimeAsync(0)
-    rpcChild.emit('close', 1, null)
-
-    await expect(resultPromise).resolves.toMatchObject({
-      provider: 'codex',
-      session: null,
-      weekly: null,
-      status: 'error',
-      error: expect.stringContaining('exit code 1')
-    })
-    expect(fetch).toHaveBeenCalledTimes(1)
     expect(ptySpawnMock).not.toHaveBeenCalled()
   })
 
@@ -328,7 +379,7 @@ describe('fetchCodexRateLimits', () => {
     const rpcChild = makeRpcChild()
     childSpawnMock.mockReturnValue(rpcChild)
 
-    const resultPromise = fetchCodexRateLimits()
+    const resultPromise = fetchCodexRateLimits({ allowPtyFallback: false })
     // Why: without an initialize response only the 30s boot deadline fires.
     await vi.advanceTimersByTimeAsync(30_000)
 
@@ -681,7 +732,7 @@ describe('fetchCodexRateLimits', () => {
       expect(shellCommand).not.toContain('wsl-codex-path')
       expect(spawnOptions).toEqual(
         expect.objectContaining({
-          cwd: 'C:\\Windows',
+          cwd: expect.stringContaining('rate-limit-pty-cwd'),
           env: expect.not.objectContaining({ CODEX_HOME: expect.anything() })
         })
       )
@@ -736,9 +787,13 @@ describe('fetchCodexRateLimits', () => {
       await resultPromise
 
       const [spawnFile, spawnArgs, spawnOptions] = childSpawnMock.mock.calls[0]
-      // Pre-wrapping in cmd.exe would hide the npm shim from spawnProcess's resolver.
-      expect(spawnFile).toBe(codexCommand)
-      expect(spawnArgs).toEqual([...CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS])
+      expect(spawnFile).toBe(getCmdExePath())
+      expect(spawnArgs).toEqual([
+        '/d',
+        '/c',
+        codexCommand,
+        ...CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS
+      ])
       expect(spawnOptions).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({ CODEX_HOME: 'C:\\Users\\alice\\.codex' })
@@ -752,18 +807,27 @@ describe('fetchCodexRateLimits', () => {
     }
   })
 
-  it('does not retry HTTP after RPC fails for a WSL home, since WSL already tried HTTP first', async () => {
+  it('runs rate-limit PTY fallback through WSL when RPC cannot read usage', async () => {
     const originalPlatform = process.platform
+    const originalCodexHome = process.env.CODEX_HOME
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: 'win32'
     })
+    process.env.CODEX_HOME = 'C:\\Users\\alice\\.codex'
+
     const rpcChild = makeRpcChild()
+    const ptyHandlers: { onData?: (data: string) => void } = {}
     childSpawnMock.mockReturnValue(rpcChild)
-    readFileMock.mockResolvedValue(
-      JSON.stringify({ tokens: { access_token: 'access-token', account_id: 'account-id' } })
-    )
-    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 503 }))
+    ptySpawnMock.mockReturnValue({
+      onData: vi.fn((callback) => {
+        ptyHandlers.onData = callback
+        return makeDisposable()
+      }),
+      onExit: vi.fn(() => makeDisposable()),
+      write: vi.fn(),
+      kill: vi.fn()
+    })
 
     try {
       const resultPromise = fetchCodexRateLimits({
@@ -771,12 +835,53 @@ describe('fetchCodexRateLimits', () => {
       })
       await vi.advanceTimersByTimeAsync(0)
       rpcChild.emit('close')
+      await vi.advanceTimersByTimeAsync(0)
 
-      await expect(resultPromise).resolves.toMatchObject({ status: 'error' })
-      expect(fetch).toHaveBeenCalledTimes(1)
-      expect(childSpawnMock).toHaveBeenCalledTimes(1)
-      expect(ptySpawnMock).not.toHaveBeenCalled()
+      const [spawnFile, spawnArgs, spawnOptions] = ptySpawnMock.mock.calls[0]
+      expect(spawnFile).toBe('wsl.exe')
+      expect(spawnArgs.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--exec', 'sh', '-c'])
+      const shellCommand = spawnArgs.at(-1) as string
+      expect(shellCommand).toContain('_orca_wsl_shell=$(getent passwd')
+      expect(shellCommand).toContain('bash|zsh|ksh|mksh|ash) exec "$_orca_wsl_shell" -ilc')
+      expect(shellCommand).not.toContain('exec 3<&0')
+      expect(shellCommand).not.toContain('exec </dev/null')
+      expect(shellCommand).not.toContain('exec >/dev/null')
+      expect(shellCommand).not.toContain('<&3 >&4 3<&- 4>&-')
+      expect(shellCommand).toContain('mkdir -p "$orca_rate_limit_cwd"')
+      expect(shellCommand).toContain('cd "$orca_rate_limit_cwd"')
+      expect(shellCommand).toContain(
+        "export CODEX_HOME='\\''/home/alice/.local/share/orca/account/home'\\''"
+      )
+      expect(shellCommand).toContain('exec codex ')
+      expect(shellCommand).toContain('features.plugins=false')
+      expect(shellCommand).not.toContain('_orca_codex')
+      expect(shellCommand).not.toContain('wsl-codex-path')
+      expect(spawnOptions).toEqual(
+        expect.objectContaining({
+          cwd: expect.stringContaining('rate-limit-pty-cwd'),
+          env: expect.not.objectContaining({ CODEX_HOME: expect.anything() })
+        })
+      )
+
+      const onPtyData = ptyHandlers.onData
+      if (!onPtyData) {
+        throw new Error('PTY data handler was not registered')
+      }
+      onPtyData('>')
+      onPtyData('5h limit: 17%\nWeekly limit: 23%\n')
+      await vi.advanceTimersByTimeAsync(500)
+
+      await expect(resultPromise).resolves.toMatchObject({
+        session: { usedPercent: 17 },
+        weekly: { usedPercent: 23 },
+        status: 'ok'
+      })
     } finally {
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME
+      } else {
+        process.env.CODEX_HOME = originalCodexHome
+      }
       Object.defineProperty(process, 'platform', {
         configurable: true,
         value: originalPlatform

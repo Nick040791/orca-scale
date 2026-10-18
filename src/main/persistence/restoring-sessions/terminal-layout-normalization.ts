@@ -4,16 +4,6 @@ import type {
   TerminalPaneLayoutNode
 } from '../../../shared/terminal-tab-types'
 import { isTerminalLeafId } from '../../../shared/stable-pane-id'
-import {
-  collectLayoutLeafIdsInOrder,
-  firstLayoutLeafId
-} from '../../../shared/workspace-layout/terminal-pane-tree'
-
-export {
-  collectLayoutLeafIdsInOrder,
-  firstLayoutLeafId,
-  layoutContainsLeafId
-} from '../../../shared/workspace-layout/terminal-pane-tree'
 
 export type LayoutLeafNormalization = {
   snapshot: TerminalLayoutSnapshot
@@ -32,6 +22,35 @@ export function collectLayoutLeafCounts(
   collectLayoutLeafCounts(node.first, counts)
   collectLayoutLeafCounts(node.second, counts)
   return counts
+}
+
+export function collectLayoutLeafIdsInOrder(
+  node: TerminalPaneLayoutNode | null | undefined
+): string[] {
+  if (!node) {
+    return []
+  }
+  if (node.type === 'leaf') {
+    return [node.leafId]
+  }
+  return [...collectLayoutLeafIdsInOrder(node.first), ...collectLayoutLeafIdsInOrder(node.second)]
+}
+
+export function firstLayoutLeafId(node: TerminalPaneLayoutNode | null): string | null {
+  if (!node) {
+    return null
+  }
+  return node.type === 'leaf' ? node.leafId : firstLayoutLeafId(node.first)
+}
+
+export function layoutContainsLeafId(node: TerminalPaneLayoutNode | null, leafId: string): boolean {
+  if (!node) {
+    return false
+  }
+  if (node.type === 'leaf') {
+    return node.leafId === leafId
+  }
+  return layoutContainsLeafId(node.first, leafId) || layoutContainsLeafId(node.second, leafId)
 }
 
 export function cloneLayoutNode(node: TerminalPaneLayoutNode): TerminalPaneLayoutNode {
@@ -116,11 +135,37 @@ export function normalizeTerminalLayoutSnapshotForPersistence(
   snapshot: TerminalLayoutSnapshot,
   preferredLayout?: TerminalLayoutSnapshot
 ): LayoutLeafNormalization {
-  const inputRoot = snapshot.root
+  let inputSnapshot = snapshot
+  let changed = false
+  if (!inputSnapshot.root) {
+    if (!preferredLayout?.root) {
+      return { snapshot, changed: false, leafIdByInputLeafId: new Map() }
+    }
+    const root = cloneLayoutNode(preferredLayout.root)
+    const rootLeafIds = new Set(collectLayoutLeafIdsInOrder(root))
+    const activeLeafId =
+      (inputSnapshot.activeLeafId && rootLeafIds.has(inputSnapshot.activeLeafId)
+        ? inputSnapshot.activeLeafId
+        : null) ??
+      (preferredLayout.activeLeafId && rootLeafIds.has(preferredLayout.activeLeafId)
+        ? preferredLayout.activeLeafId
+        : null) ??
+      firstLayoutLeafId(root)
+    const expandedLeafId =
+      (inputSnapshot.expandedLeafId && rootLeafIds.has(inputSnapshot.expandedLeafId)
+        ? inputSnapshot.expandedLeafId
+        : null) ??
+      (preferredLayout.expandedLeafId && rootLeafIds.has(preferredLayout.expandedLeafId)
+        ? preferredLayout.expandedLeafId
+        : null)
+    inputSnapshot = { ...inputSnapshot, root, activeLeafId, expandedLeafId }
+    // Why: a debounced renderer writer can still hold the createTab-era empty layout after the UUID root was sync-flushed.
+    changed = true
+  }
+  const inputRoot = inputSnapshot.root
   if (!inputRoot) {
     return { snapshot, changed: false, leafIdByInputLeafId: new Map() }
   }
-  let changed = false
   const counts = collectLayoutLeafCounts(inputRoot)
   const duplicatedInputLeafIds = new Set(
     Array.from(counts.entries())
@@ -164,48 +209,48 @@ export function normalizeTerminalLayoutSnapshotForPersistence(
     ? cloneLayoutWithLeafIds(inputRoot, leafIdByInputLeafId, duplicatedInputLeafIds)
     : inputRoot
   const activeLeafId =
-    snapshot.activeLeafId && !duplicatedInputLeafIds.has(snapshot.activeLeafId)
-      ? (leafIdByInputLeafId.get(snapshot.activeLeafId) ?? firstLayoutLeafId(root))
-      : snapshot.activeLeafId === null
+    inputSnapshot.activeLeafId && !duplicatedInputLeafIds.has(inputSnapshot.activeLeafId)
+      ? (leafIdByInputLeafId.get(inputSnapshot.activeLeafId) ?? firstLayoutLeafId(root))
+      : inputSnapshot.activeLeafId === null
         ? null
         : firstLayoutLeafId(root)
   const expandedLeafId =
-    snapshot.expandedLeafId && !duplicatedInputLeafIds.has(snapshot.expandedLeafId)
-      ? (leafIdByInputLeafId.get(snapshot.expandedLeafId) ?? null)
+    inputSnapshot.expandedLeafId && !duplicatedInputLeafIds.has(inputSnapshot.expandedLeafId)
+      ? (leafIdByInputLeafId.get(inputSnapshot.expandedLeafId) ?? null)
       : null
   const chatLeafId =
-    snapshot.chatLeafId && !duplicatedInputLeafIds.has(snapshot.chatLeafId)
-      ? (leafIdByInputLeafId.get(snapshot.chatLeafId) ?? null)
+    inputSnapshot.chatLeafId && !duplicatedInputLeafIds.has(inputSnapshot.chatLeafId)
+      ? (leafIdByInputLeafId.get(inputSnapshot.chatLeafId) ?? null)
       : null
   const ptyIdsByLeafId = remapLeafRecordForPersistence(
-    snapshot.ptyIdsByLeafId,
+    inputSnapshot.ptyIdsByLeafId,
     leafIdByInputLeafId,
     duplicatedInputLeafIds
   )
   const buffersByLeafId = remapLeafRecordForPersistence(
-    snapshot.buffersByLeafId,
+    inputSnapshot.buffersByLeafId,
     leafIdByInputLeafId,
     duplicatedInputLeafIds
   )
   const scrollbackRefsByLeafId = remapLeafRecordForPersistence(
-    snapshot.scrollbackRefsByLeafId,
+    inputSnapshot.scrollbackRefsByLeafId,
     leafIdByInputLeafId,
     duplicatedInputLeafIds
   )
   const titlesByLeafId = remapLeafRecordForPersistence(
-    snapshot.titlesByLeafId,
+    inputSnapshot.titlesByLeafId,
     leafIdByInputLeafId,
     duplicatedInputLeafIds
   )
   const recordsChanged =
-    !leafRecordEquivalent(snapshot.ptyIdsByLeafId, ptyIdsByLeafId) ||
-    !leafRecordEquivalent(snapshot.buffersByLeafId, buffersByLeafId) ||
-    !leafRecordEquivalent(snapshot.scrollbackRefsByLeafId, scrollbackRefsByLeafId) ||
-    !leafRecordEquivalent(snapshot.titlesByLeafId, titlesByLeafId)
+    !leafRecordEquivalent(inputSnapshot.ptyIdsByLeafId, ptyIdsByLeafId) ||
+    !leafRecordEquivalent(inputSnapshot.buffersByLeafId, buffersByLeafId) ||
+    !leafRecordEquivalent(inputSnapshot.scrollbackRefsByLeafId, scrollbackRefsByLeafId) ||
+    !leafRecordEquivalent(inputSnapshot.titlesByLeafId, titlesByLeafId)
   const metadataChanged =
-    activeLeafId !== snapshot.activeLeafId ||
-    expandedLeafId !== snapshot.expandedLeafId ||
-    chatLeafId !== (snapshot.chatLeafId ?? null)
+    activeLeafId !== inputSnapshot.activeLeafId ||
+    expandedLeafId !== inputSnapshot.expandedLeafId ||
+    chatLeafId !== (inputSnapshot.chatLeafId ?? null)
   if (!changed && !recordsChanged && !metadataChanged) {
     return { snapshot, changed: false, leafIdByInputLeafId }
   }
@@ -216,7 +261,7 @@ export function normalizeTerminalLayoutSnapshotForPersistence(
     titlesByLeafId: _oldTitlesByLeafId,
     chatLeafId: _oldChatLeafId,
     ...snapshotWithoutLeafRecords
-  } = snapshot
+  } = inputSnapshot
   return {
     snapshot: {
       ...snapshotWithoutLeafRecords,

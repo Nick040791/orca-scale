@@ -27,7 +27,6 @@ export type SystemTrayOptions = {
 // Why: Electron's Tray is GC-collected and its icon vanishes if no live
 // reference is kept, so hold it at module scope for the app's lifetime.
 let tray: Tray | null = null
-let trayOptions: SystemTrayOptions | null = null
 
 // Why: hold the plain (dot-free) icon so we can toggle the attention dot on and
 // off with tray.setImage without rebuilding the icon from the app-icon PNG.
@@ -252,31 +251,14 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
   // Why: reflect any attention event that fired before the tray existed.
   applyTrayImage()
 
-  trayOptions = opts
-  tray.setContextMenu(buildTrayMenu(opts))
-  if (process.platform === 'win32') {
-    tray.setToolTip(baseTooltip())
-    // Why: a left-click on the tray icon is the conventional Windows gesture to
-    // restore a minimized-to-tray app; macOS opens the attached menu instead.
-    tray.on(
-      'click',
-      safeMenuAction(() => opts.onOpen())
-    )
-  } else {
-    watchMacAppearance()
-  }
-  return tray
-}
-
-function buildTrayMenu(opts: SystemTrayOptions): Menu {
-  return Menu.buildFromTemplate([
+  const menu = Menu.buildFromTemplate([
     ...(devIndicator
       ? ([
           // Why: several dev instances (one per worktree) can show trays at
           // once; the disabled header ties this one to its worktree/branch.
           { label: baseTooltip(), enabled: false },
           { type: 'separator' }
-        ] satisfies Electron.MenuItemConstructorOptions[])
+        ] as Electron.MenuItemConstructorOptions[])
       : []),
     {
       label: translateMain('tray.openOrca', 'Open Orca'),
@@ -295,22 +277,23 @@ function buildTrayMenu(opts: SystemTrayOptions): Menu {
             click: safeMenuAction(() => opts.onCheckForUpdates())
           },
           { type: 'separator' }
-        ] satisfies Electron.MenuItemConstructorOptions[])
+        ] as Electron.MenuItemConstructorOptions[])
       : []),
     { label: translateMain('tray.quit', 'Quit'), click: safeMenuAction(() => opts.onQuit()) }
   ])
-}
-
-/** Refreshes translated labels without recreating the tray or its actions. */
-export function rebuildSystemTrayMenu(): void {
-  // Native tray writes must run outside AppKit callbacks.
-  deferAppKitSceneMutation(() => {
-    if (!tray || tray.isDestroyed() || !trayOptions) {
-      return
-    }
-    tray.setContextMenu(buildTrayMenu(trayOptions))
-    applyTrayImage()
-  })
+  tray.setContextMenu(menu)
+  if (process.platform === 'win32') {
+    tray.setToolTip(baseTooltip())
+    // Why: a left-click on the tray icon is the conventional Windows gesture to
+    // restore a minimized-to-tray app; macOS opens the attached menu instead.
+    tray.on(
+      'click',
+      safeMenuAction(() => opts.onOpen())
+    )
+  } else {
+    watchMacAppearance()
+  }
+  return tray
 }
 
 /** Applies the persisted macOS visibility preference without affecting Windows. */
@@ -348,7 +331,6 @@ export function destroySystemTray(): void {
     tray.destroy()
   }
   tray = null
-  trayOptions = null
   baseTrayImage = null
   // Why: attention is owned by the notification/visibility flow, and must
   // survive the macOS hide/show toggle so a re-shown icon keeps its dot.

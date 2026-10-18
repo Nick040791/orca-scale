@@ -35,6 +35,7 @@ type ChecksPanelAiAcknowledgementInput = Pick<
   | 'setCommentResolutionAckBusyNow'
   | 'setComments'
   | 'setCommentsSelectionClearRequest'
+  | 'settings'
   | 'commentResolutionLaunchAcceptedRef'
 > &
   Pick<ChecksPanelReviewDataState, 'fetchComments'> &
@@ -55,6 +56,7 @@ export function useChecksPanelAiAcknowledgement(model: ChecksPanelAiAcknowledgem
     setCommentResolutionAckBusyNow,
     setComments,
     setCommentsSelectionClearRequest,
+    settings,
     commentResolutionLaunchAcceptedRef
   } = model
   const clearSentCommentSelection = useCallback(
@@ -107,7 +109,8 @@ export function useChecksPanelAiAcknowledgement(model: ChecksPanelAiAcknowledgem
         githubResolveTarget: resolution.githubResolveTarget,
         gitlabTarget: resolution.gitlabTarget,
         resolveReviewThread,
-        resolveGitLabDiscussion: resolveGitLabMRDiscussionForChecks,
+        resolveGitLabDiscussion: (args) =>
+          resolveGitLabMRDiscussionForChecks({ ...args, settings }),
         isPanelStillOnLaunchReview,
         onResolvedOptimistically: (threadId) => {
           setComments((prev) => markPRCommentThreadResolved(prev, threadId, true))
@@ -254,6 +257,7 @@ export function useChecksPanelAiAcknowledgement(model: ChecksPanelAiAcknowledgem
       clearSentCommentSelection,
       refreshCommentsAfterBulkResolve,
       resolveReviewThread,
+      settings,
       commentsRef,
       setComments,
       asyncResultKeyRef

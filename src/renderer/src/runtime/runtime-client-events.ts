@@ -6,7 +6,6 @@ import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { isRuntimeSubscriptionReplayResponse } from '../../../shared/runtime-subscription-replay'
 import { admitSshConnectionState } from '../../../shared/ssh-retained-payload-admission'
 import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
-import { subscribeRuntimeEnvironment } from './runtime-environment-pairing-refresh'
 
 export type RuntimeClientEventSubscription = {
   unsubscribe: () => void
@@ -22,7 +21,7 @@ export async function subscribeRuntimeClientEvents(
   // per-environment SSH bucket) may have missed transitions and must resync.
   onReplayedAfterReconnect?: () => void
 ): Promise<RuntimeClientEventSubscription> {
-  const handle = await subscribeRuntimeEnvironment(
+  const handle = await window.api.runtimeEnvironments.subscribe(
     {
       selector: environmentId,
       method: 'runtime.clientEvents.subscribe',

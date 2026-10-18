@@ -7,7 +7,7 @@ export function canContinueAiVaultSessionInNewSession(
 ): boolean {
   return Boolean(
     targetWorktreeId &&
-    (vaultTranscriptPath(session) || session.previewMessages.some((message) => message.text.trim()))
+    (session.filePath.trim() || session.previewMessages.some((message) => message.text.trim()))
   )
 }
 
@@ -23,7 +23,7 @@ export function prepareAiVaultSessionContinuation(args: {
       sourceAgent: session.agent,
       sourceTitle: session.title,
       sourceWorkingDirectory: session.cwd,
-      transcriptPath: vaultTranscriptPath(session),
+      transcriptPath: session.filePath.trim() || null,
       // Why: preview user entries can be tool results or injected skill text; only provider-authenticated prompts are safe hints.
       lastPrompt: session.lastUserPrompt ?? null,
       lastAssistantMessage: latestAssistantPreview(session)
@@ -45,12 +45,4 @@ function previewTranscript(session: AiVaultSession): string {
     .filter((message) => message.text.trim())
     .map((message) => `${message.role}: ${message.text.trim()}`)
     .join('\n\n')
-}
-
-function vaultTranscriptPath(session: AiVaultSession): string | null {
-  // OpenCode vault paths identify its database or storage metadata, not a full transcript.
-  if (session.agent === 'opencode' || session.agent === 'opencode2') {
-    return null
-  }
-  return session.filePath.trim() || null
 }

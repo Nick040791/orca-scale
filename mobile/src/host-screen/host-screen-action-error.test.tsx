@@ -82,7 +82,6 @@ async function runRemoval(rejection: unknown): Promise<RemovalWrites> {
       embedded: false,
       fetchWorktrees: () => Promise.resolve(),
       forgetHostClient: () => {},
-      hostCapabilities: [],
       hostId: 'host-a',
       pathname: '/h/host-a',
       router: useRouter(),

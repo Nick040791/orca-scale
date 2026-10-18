@@ -1,9 +1,7 @@
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
 import { waitForTerminalReplayWritesParsed } from '../replay-guard'
 import {
   POST_REPLAY_MODE_RESET,
-  RESET_GRAPHIC_RENDITION,
-  RELEASE_SYNCHRONIZED_OUTPUT
+  RESET_GRAPHIC_RENDITION
 } from '../../../../../shared/terminal-mode-reset-profiles'
 import {
   buildMainModelSnapshotReplayWrites,
@@ -13,7 +11,9 @@ import {
   shouldSkipAltFrameForWidthMismatch
 } from '../terminal-snapshot-replay-paint'
 
+import { isRemoteRuntimePtyId } from './paired-parked-terminal-restore'
 import { restoredSnapshotPaintsPrintableContent } from '../restored-snapshot-coverage'
+import { resolveSshReconnectModelPaint } from './resolve-ssh-reconnect-model-paint'
 import { fitReattachedPaneToGrid, noteReattachAltFrameSkip } from './reattach-grid-fit'
 
 import type { ReattachPayloadContext } from './reattach-payload-context'
@@ -60,9 +60,7 @@ export function createReattachPayloadHandlers(
           session.suppressStructuralReplayPtyResize = false
         }
       }
-      session.writeReplayData(
-        `${RELEASE_SYNCHRONIZED_OUTPUT}${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`
-      )
+      session.writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`)
       // Why: re-arm the kitty keyboard mirror from the snapshot preamble so Option chords keep their encoding after a window reload.
       session.applySnapshotKittyKeyboardModes(daemonSnapshotReplay, {
         kittyKeyboardFlags: ctx.connectResult.snapshotKittyKeyboardFlags,
@@ -93,8 +91,8 @@ export function createReattachPayloadHandlers(
             : daemonSnapshotReplay
         }`
       )
-      session.writeReplayEpilogue(
-        session.chooseReattachReplayReset(
+      session.writeReplayData(
+        session.reattachReplayResetSequence(
           daemonSnapshotReplay,
           Boolean(ctx.connectResult.coldRestore),
           ctx.connectResult.isAlternateScreen,
@@ -119,10 +117,33 @@ export function createReattachPayloadHandlers(
           window.api.pty.ackColdRestore(ctx.ptyId)
         }
       }
-    } else if (ctx.connectResult?.replay || ctx.prefetchedParkModelSnapshot) {
-      // Why scoped to a park-reveal: an in-place reattach (network reconnect,
-      // wake, reload) already has its replay in hand.
-      const modelSnapshot = ctx.revealFollowsTerminalPark ? ctx.prefetchedParkModelSnapshot : null
+    } else if (
+      ctx.connectResult?.replay ||
+      ctx.prefetchedParkModelSnapshot ||
+      ctx.reconnectMayUseModel
+    ) {
+      // Why scoped to a park-reveal: the 100KiB relay tail loses scrollback the
+      // model still holds, but an in-place reattach (network reconnect, wake,
+      // reload) already has that replay in hand, so probing would only delay its
+      // paint by the timeout. Memoized, so this is never a second probe.
+      // An SSH reconnect may use the model only under sshReconnectPaintsFromModel: the reconnect
+      // replay reaches the renderer without passing through main's model (forwardReattachReplay
+      // and the inline attach replay both bypass onPtyData), so the model is stale by exactly
+      // the outage and the replay is the only witness to it. A park has no such hole, so it
+      // keeps using the model either way.
+      const revealSnapshot = ctx.revealFollowsTerminalPark
+        ? (ctx.prefetchedParkModelSnapshot ??
+          (isRemoteRuntimePtyId(ctx.ptyId) ? null : await ctx.fetchSshMainModelReattachSnapshot()))
+        : null
+      const reconnectPaint = await resolveSshReconnectModelPaint({
+        reconnectMayUseModel: !revealSnapshot && ctx.reconnectMayUseModel,
+        replay: ctx.connectResult?.replay,
+        fetchSnapshot: ctx.fetchSshMainModelReattachSnapshot,
+        readTargetCols: () => readProposedTerminalCols(session.pane)
+      })
+      const paintsReconnectFromModel = reconnectPaint.paintsFromModel
+      const modelSnapshot =
+        revealSnapshot ?? (paintsReconnectFromModel ? reconnectPaint.snapshot : null)
       if (!ctx.isCurrentReattachPayload()) {
         return
       }
@@ -151,6 +172,13 @@ export function createReattachPayloadHandlers(
           kittyKeyboardFlags: modelSnapshot.kittyKeyboardFlags,
           snapshotSeq: modelSnapshot.seq
         })
+        if (paintsReconnectFromModel && ctx.connectResult?.replay) {
+          // Why after the snapshot: painting the model discards the replay, but the app's kitty
+          // pushes during the outage exist ONLY there. Snapshot first for the pre-outage
+          // baseline, then the replay layers the outage on top — otherwise Option/Alt chords
+          // encode against a stale flag stack.
+          session.kittyKeyboardModes.scanReplay(ctx.connectResult.replay)
+        }
         // Why shared: park+reveal of an alt-screen TUI needs the same
         // ?1049l/?1049h rebuild as applyMainBufferSnapshot (main strips
         // the ?1049h marker when splitting scrollbackAnsi) — inlined here
@@ -158,15 +186,20 @@ export function createReattachPayloadHandlers(
         for (const replayChunk of buildMainModelSnapshotReplayWrites(modelSnapshot, {
           skipAltFrame: noteReattachAltFrameSkip(
             ctx,
-            shouldSkipAltFrameForWidthMismatch(modelCols, readProposedTerminalCols(session.pane)),
+            paintsReconnectFromModel
+              ? reconnectPaint.altFrameWouldBeSkipped
+              : shouldSkipAltFrameForWidthMismatch(
+                  modelCols,
+                  readProposedTerminalCols(session.pane)
+                ),
             modelCols
           ),
           paneOnAlternateScreen: session.isPaneOnAlternateScreen()
         })) {
           session.writeReplayData(replayChunk)
         }
-        session.writeReplayEpilogue(
-          session.chooseReattachReplayReset(
+        session.writeReplayData(
+          session.reattachReplayResetSequence(
             modelData,
             Boolean(ctx.connectResult?.coldRestore),
             modelSnapshot.alternateScreen ?? ctx.connectResult?.isAlternateScreen,
@@ -193,9 +226,7 @@ export function createReattachPayloadHandlers(
           fullScreenReplay: true
         })
         // Relay replay may overlap xterm's pre-disconnect content; clear first to avoid duplication.
-        session.writeReplayData(
-          `${RELEASE_SYNCHRONIZED_OUTPUT}${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`
-        )
+        session.writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`)
         // Why: raw relay replay may contain the app's own kitty pushes; re-arm with set semantics so redelivery can't grow the stack.
         // A constructor-fresh mirror (window reload) first demotes to unproven:
         // the replay window proves nothing about negotiations that predate it.
@@ -206,8 +237,8 @@ export function createReattachPayloadHandlers(
         session.writeReplayData(
           `${ctx.connectResult.coldRestore ? RESET_GRAPHIC_RENDITION : ''}${ctx.connectResult.replay}`
         )
-        session.writeReplayEpilogue(
-          session.chooseReattachReplayReset(
+        session.writeReplayData(
+          session.reattachReplayResetSequence(
             ctx.connectResult.replay,
             Boolean(ctx.connectResult.coldRestore),
             ctx.connectResult.isAlternateScreen
@@ -235,9 +266,7 @@ export function createReattachPayloadHandlers(
         // The current xterm grid remains a safe lower bound for blanking.
       }
       // Why: shrinking first would promote clipped stale viewport rows into scrollback, beyond the reach of a later viewport-only clear.
-      session.writeReplayData(
-        `${RELEASE_SYNCHRONIZED_OUTPUT}${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[H`
-      )
+      session.writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[H`)
       await waitForTerminalReplayWritesParsed(session.pane.terminal)
       if (!ctx.isCurrentReattachPayload()) {
         return
@@ -276,7 +305,9 @@ export function createReattachPayloadHandlers(
         session.clearSleepingRecordAfterColdRestoreSpawn(preparedStartup)
       }
       // Why: cold-restore spawned a fresh shell; reset mode bytes a crashed TUI (e.g. Claude's \e[?1004h) left in scrollback that no live TUI now consumes.
-      session.writeInputModeGround(POST_REPLAY_MODE_RESET)
+      session.writeReplayData(POST_REPLAY_MODE_RESET)
+      // Why: the dead run's kitty flags died with it and its scrollback was never scanned — the fresh shell starts at zero.
+      session.kittyKeyboardModes.reset()
       session.consumeRestoredViewportBlankingMarker()
       // Why: a taller destination fit must not pull recovered rows back into the fresh shell's viewport after source-grid replay.
       session.writeFreshShellViewportBlanking(Math.max(destinationRows, session.pane.terminal.rows))

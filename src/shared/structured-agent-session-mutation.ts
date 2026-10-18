@@ -1,6 +1,4 @@
 import { sha256 } from './sha256'
-import type { StructuredAgentSessionFirstMessage, StructuredAgentSessionResumeSource } from './structured-agent-session-create'
-import type { StructuredAgentId } from './agent-session-provider-handle'
 
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -43,11 +41,9 @@ export function structuredAgentSessionDomainFingerprint(input: {
 export function structuredAgentSessionCreateFingerprint(input: {
   sessionId: string
   worktree: string
-  agent: StructuredAgentId
-  resumeFrom?: StructuredAgentSessionResumeSource
+  agent: 'claude' | 'codex'
+  resumeFrom?: { providerSessionId: string }
   tabId?: string
-  firstMessage?: StructuredAgentSessionFirstMessage
-  options?: Readonly<Record<string, string>>
 }): string {
   return structuredAgentSessionPayloadFingerprint({
     method: 'agentSession.create',
@@ -60,11 +56,21 @@ export function structuredAgentSessionCreateFingerprint(input: {
       resumeFrom: input.resumeFrom,
       // The host digests the same field; a retry naming another tab still replays with the
       // recorded one, since the host owns the id.
-      tabId: input.tabId,
-      firstMessage: input.firstMessage,
-      options: input.options
+      tabId: input.tabId
     }
   })
+}
+
+export function showStructuredAgentSessionChoice(input: {
+  hostCapability: boolean
+  workspaceSupport: boolean
+  agent: string
+}): boolean {
+  return (
+    input.hostCapability &&
+    input.workspaceSupport &&
+    (input.agent === 'claude' || input.agent === 'codex')
+  )
 }
 
 export function createStructuredAgentSessionOperationId(

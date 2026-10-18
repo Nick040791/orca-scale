@@ -8,9 +8,9 @@ import { normalizeEmptyListItems } from './rich-markdown-normalize'
 import { syncSlashMenu, type SlashMenuState } from './rich-markdown-slash-commands'
 import {
   createRichMarkdownImageResolverContext,
-  setRichMarkdownImageResolverContext
+  setRichMarkdownImageResolverContext,
+  type RichMarkdownImageResolverSettings
 } from './rich-markdown-image-context'
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RichMarkdownEditorCodec } from './rich-markdown-source-transport'
 
 type RichMarkdownProgrammaticSyncOptions = {
@@ -27,7 +27,8 @@ type RichMarkdownProgrammaticSyncOptions = {
   baseCanonicalRef: MutableRefObject<string>
   markdownDocuments?: MarkdownDocument[]
   rootRef: MutableRefObject<HTMLDivElement | null>
-  runtimeTarget: RuntimeClientTarget | null
+  runtimeEnvironmentId?: string | null
+  settings: RichMarkdownImageResolverSettings
   slashMenuSetter: Dispatch<SetStateAction<SlashMenuState | null>>
   worktreeId: string
   worktreeRoot: string | null
@@ -53,7 +54,8 @@ export function useRichMarkdownProgrammaticSync({
   baseCanonicalRef,
   markdownDocuments,
   rootRef,
-  runtimeTarget,
+  runtimeEnvironmentId,
+  settings,
   slashMenuSetter,
   worktreeId,
   worktreeRoot
@@ -69,7 +71,8 @@ export function useRichMarkdownProgrammaticSync({
         createRichMarkdownImageResolverContext({
           filePath,
           externalSshTargetId,
-          runtimeTarget,
+          runtimeEnvironmentId,
+          settings,
           worktreeId,
           worktreeRoot
         })
@@ -82,7 +85,8 @@ export function useRichMarkdownProgrammaticSync({
     externalSshTargetId,
     filePath,
     isApplyingProgrammaticUpdateRef,
-    runtimeTarget,
+    runtimeEnvironmentId,
+    settings,
     worktreeId,
     worktreeRoot
   ])

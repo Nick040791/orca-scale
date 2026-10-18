@@ -26,8 +26,7 @@ vi.mock('react-native', () => ({
     create: (styles: unknown) => styles,
     absoluteFillObject: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }
   },
-  Text: 'Text',
-  View: 'View'
+  Text: 'Text'
 }))
 
 const { ShellPageCover } = await import('./ShellWaitingFrame')

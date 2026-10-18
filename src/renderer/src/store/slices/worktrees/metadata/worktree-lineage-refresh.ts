@@ -5,17 +5,17 @@ import type {
   WorktreeLineage
 } from '../../../../../../shared/worktree/lineage-types'
 import type { Worktree } from '../../../../../../shared/worktree/types'
-import { callRuntimeRpc } from '../../../../runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
-import { getRuntimeTargetHostId } from '../../../../runtime/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '../../../../runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '../../../../runtime/runtime-worktree-selector'
 import { worktreeWorkspaceKey } from '../../../../../../shared/workspace-scope'
-import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import {
+  getSettingsFocusedExecutionHostId,
+  type ExecutionHostId
+} from '../../../../../../shared/execution-host'
 import { getRepoIdFromWorktreeId } from '../../worktree-helpers'
 import { replaceWorktreeInRepoLists } from '../listing/worktree-owner-settings'
 import { repoHostId, withRepoHostOwnership } from '../listing/worktree-host-ownership'
 import { mergeLineageForHost, mergeWorkspaceLineageForHost } from './worktree-lineage-host-merge'
-import { beginWorktreeLineageRefresh } from './worktree-lineage-readiness'
 import type {
   BackgroundRuntimeRefreshOptions,
   WorktreeLineageUpdateResult,
@@ -38,12 +38,13 @@ function captureLineageAtRequestStart(
 }
 
 export async function listWorktreeLineageForRuntime(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   options: BackgroundRuntimeRefreshOptions = {}
 ): Promise<{
   worktreeLineageById: Readonly<Record<string, WorktreeLineage>>
   workspaceLineageByChildKey: Readonly<Record<string, WorkspaceLineage>>
 }> {
+  const target = getActiveRuntimeTarget(settings)
   type LineageListResponse = {
     lineage?: Record<string, WorktreeLineage>
     workspaceLineage?: Record<string, WorkspaceLineage>
@@ -104,10 +105,11 @@ export function projectWorktreeLineageToWorkspaceLineage(
 }
 
 export async function setWorktreeLineageForRuntime(
-  target: RuntimeClientTarget,
+  settings: AppState['settings'],
   worktreeId: string,
   args: { parentWorktreeId?: string; noParent?: boolean }
 ): Promise<WorktreeLineageUpdateResult> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'local') {
     return {
       target,
@@ -247,36 +249,41 @@ export function applyHostLineageRefresh(
   })
 }
 
-export async function refreshWorktreeLineageForTarget(
-  target: RuntimeClientTarget,
+export async function refreshWorktreeLineageForSettings(
+  settings: AppState['settings'],
   set: Parameters<StateCreator<AppState>>[0],
   getState: () => Pick<AppState, 'worktreeLineageById' | 'workspaceLineageByChildKey'>,
   options: BackgroundRuntimeRefreshOptions = {}
 ): Promise<void> {
-  const finish = beginWorktreeLineageRefresh(getState, target)
-  let succeeded = false
-  try {
-    const lineageAtRequestStart = captureLineageAtRequestStart(getState())
-    const lineage = await listWorktreeLineageForRuntime(target, options)
-    applyHostLineageRefresh(set, getRuntimeTargetHostId(target), lineage, lineageAtRequestStart)
-    succeeded = true
-  } finally {
-    finish(succeeded)
-  }
+  const lineageAtRequestStart = captureLineageAtRequestStart(getState())
+  const lineage = await listWorktreeLineageForRuntime(settings, options)
+  applyHostLineageRefresh(
+    set,
+    getSettingsFocusedExecutionHostId(settings),
+    lineage,
+    lineageAtRequestStart
+  )
 }
 
 export async function refreshRemoteWorktreeLineageBestEffort(
-  target: RuntimeClientTarget | null,
+  settings: AppState['settings'],
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
   getState: () => Pick<AppState, 'worktreeLineageById' | 'workspaceLineageByChildKey'>
 ): Promise<void> {
-  if (target?.kind !== 'environment') {
+  if (getActiveRuntimeTarget(settings).kind === 'local') {
     return
   }
   try {
-    await refreshWorktreeLineageForTarget(target, set, getState, {
+    const lineageAtRequestStart = captureLineageAtRequestStart(getState())
+    const lineage = await listWorktreeLineageForRuntime(settings, {
       reuseRecentCompatibilityFailure: true
     })
+    applyHostLineageRefresh(
+      set,
+      getSettingsFocusedExecutionHostId(settings),
+      lineage,
+      lineageAtRequestStart
+    )
   } catch (err) {
     // Why: lineage is supplemental, so a remote timeout here must not discard a successful worktree refresh.
     console.error('Failed to fetch worktree lineage:', err)

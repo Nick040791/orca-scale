@@ -8,8 +8,7 @@ import { requestGuestOpenCodeOverlayDir } from './wsl-guest-plugin-install'
 import { installWslGuestHooks } from './wsl-hook-fs-adapter'
 import { REINSTALL_MIN_INTERVAL_MS, type WslHookRelayManagerDeps } from './wsl-hook-relay-deps'
 import type { SshChannelMultiplexer } from '../ssh/ssh-channel-multiplexer'
-import { openCodePluginSettingsKey } from './opencode-plugin-settings'
-import type { PluginSources } from '../../wsl-guest/plugin-overlay'
+import type { PluginSources } from '../../relay/plugin-overlay'
 
 /** Structural slice of WslHookRelayManagerDeps — only what an install pass uses. */
 type GuestInstallDeps = {
@@ -31,10 +30,6 @@ type GuestInstallState = {
   piAgentDir?: string
   ompStatusExtension?: string
   lastInstallAt?: number
-  lastOpenCodeSettings?: string
-  // Failed attempts throttle retries without claiming the guest accepted those settings.
-  lastAttemptOpenCodeSettings?: string
-  lastInstallMux?: SshChannelMultiplexer
   launchKinds?: Set<'pi' | 'omp'>
   installation?: Promise<void>
 }
@@ -57,17 +52,11 @@ export async function runWslRelayGuestInstall(
   if (state.installation) {
     return state.installation
   }
-  // Publish ownership before an installer can re-enter the ensure path.
-  const installation = Promise.resolve().then(() =>
-    installGuestHooksAndPlugins(deps, state, mux, guestHome)
-  )
-  state.installation = installation
+  state.installation = installGuestHooksAndPlugins(deps, state, mux, guestHome)
   try {
-    await installation
+    await state.installation
   } finally {
-    if (state.installation === installation) {
-      state.installation = undefined
-    }
+    state.installation = undefined
   }
 }
 
@@ -77,15 +66,7 @@ async function installGuestHooksAndPlugins(
   mux: SshChannelMultiplexer,
   guestHome: string
 ): Promise<void> {
-  if (state.mux !== mux || mux.isDisposed()) {
-    return
-  }
-  if (state.lastInstallMux !== mux) {
-    state.lastOpenCodeSettings = undefined
-  }
-  state.lastInstallMux = mux
   state.lastInstallAt = Date.now()
-  state.lastAttemptOpenCodeSettings = openCodePluginSettingsKey(deps.managedHookSettings())
   await installWslGuestHooks({
     mux,
     guestHome,
@@ -100,27 +81,11 @@ async function installGuestHooksAndPlugins(
   // PTY env points OPENCODE_CONFIG_DIR at; identity-guarded against teardown.
   const kinds = requestedKinds(state)
   for (const kind of kinds) {
-    if (state.mux !== mux || mux.isDisposed()) {
-      return
-    }
-    const currentSettings = deps.managedHookSettings()
-    const settings = currentSettings && {
-      ...currentSettings,
-      disabledTuiAgents: currentSettings.disabledTuiAgents?.slice()
-    }
-    const settingsKey = openCodePluginSettingsKey(settings)
-    state.lastAttemptOpenCodeSettings = settingsKey
-    const overlay = await requestGuestOpenCodeOverlayDir(
-      mux,
-      { ...deps, managedHookSettings: () => settings },
-      state.distro,
-      kind
-    )
-    if (state.mux !== mux || mux.isDisposed()) {
+    const overlay = await requestGuestOpenCodeOverlayDir(mux, deps, state.distro, kind)
+    if (state.mux !== mux) {
       return
     }
     if (overlay.kind !== 'unavailable') {
-      state.lastOpenCodeSettings = settingsKey
       state.opencodeOverlayDir = overlay.kind === 'dir' ? overlay.dir : undefined
       state.opencode2OverlayDir = overlay.kind === 'dir' ? overlay.dir2 : undefined
       if (kind === 'pi') {
@@ -137,34 +102,25 @@ export async function maybeRerunWslRelayGuestInstall(
   deps: GuestInstallDeps,
   state: GuestInstallState
 ): Promise<void> {
-  let waited = false
-  // Every settled pass can expose newer settings or another waiter's task.
-  for (;;) {
-    try {
-      if (state.installation) {
-        waited = true
-        await state.installation
-        continue
-      }
-      const mux = state.mux
-      const guestHome = state.guestHome
-      const settingsKey = openCodePluginSettingsKey(deps.managedHookSettings())
-      if (
-        !mux ||
-        !guestHome ||
-        mux.isDisposed() ||
-        (state.lastInstallMux === mux &&
-          (waited || Date.now() - (state.lastInstallAt ?? 0) < REINSTALL_MIN_INTERVAL_MS) &&
-          (state.lastOpenCodeSettings === settingsKey ||
-            state.lastAttemptOpenCodeSettings === settingsKey))
-      ) {
-        return
-      }
-      waited = true
-      await runWslRelayGuestInstall(deps, state, mux, guestHome)
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      deps.warn(`[agent-hooks] WSL hook reinstall for '${state.distro}' failed: ${detail}`)
-    }
+  if (state.installation) {
+    await state.installation
+    return
+  }
+  const mux = state.mux
+  const guestHome = state.guestHome
+  if (
+    !mux ||
+    !guestHome ||
+    mux.isDisposed() ||
+    Date.now() - (state.lastInstallAt ?? 0) < REINSTALL_MIN_INTERVAL_MS
+  ) {
+    return
+  }
+  try {
+    // Why: the pass also re-ships the plugin source, so a mid-session Orca upgrade refreshes it.
+    await runWslRelayGuestInstall(deps, state, mux, guestHome)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    deps.warn(`[agent-hooks] WSL hook reinstall for '${state.distro}' failed: ${detail}`)
   }
 }

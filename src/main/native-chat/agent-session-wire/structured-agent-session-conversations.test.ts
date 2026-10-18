@@ -1,23 +1,20 @@
-import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import { createTrackedJournalOpener } from '../agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
 import { StructuredAgentSessionConversations } from './structured-agent-session-conversations'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import { hostTestAttachParams } from './structured-agent-session-host-test-data'
-import { recordingStructuredAgentSessionLogger } from './structured-agent-session-logger-test-support'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 
 const IDENTITY: AgentSessionJournalIdentity = {
   sessionId: 'session-1',
   workspaceId: 'workspace-1',
   hostId: 'host-1',
   agent: 'codex',
-  providerHandle: codexProviderHandle('thread-1')
+  providerHandle: { kind: 'codex', threadId: 'thread-1' }
 }
 
 const journals = createTrackedJournalOpener()
@@ -33,14 +30,17 @@ afterEach(async () => {
 
 async function openJournal(name: string): Promise<AgentSessionJournal> {
   root ??= await mkdtemp(join(tmpdir(), 'orca-conversations-'))
-  return journals.open({ identity: IDENTITY, stateDirectory: join(root, name) })
+  return journals.open({ identity: IDENTITY, journalDir: join(root, name) })
 }
 
 function session(journal: AgentSessionJournal) {
   return {
     journal,
     params: hostTestAttachParams(null),
-    child: null
+    fence: 0,
+    hasProviderChild: false,
+    providerChildPhase: 'ready' as const,
+    acquisitionGeneration: null
   }
 }
 
@@ -48,7 +48,7 @@ function appendStatus(journal: AgentSessionJournal, text: string) {
   return journal.appendItem(
     { provider: 'orca', clientMessageId: text },
     { kind: 'status', text },
-    { fence: 0, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+    { fence: 0 }
   )
 }
 
@@ -57,8 +57,7 @@ describe('a conversation delivers what its journal commits', () => {
     const deliver = vi.fn()
     const conversations = new StructuredAgentSessionConversations({
       deliver,
-      logger: recordingStructuredAgentSessionLogger().logger,
-      now: () => 0
+      onDeliveryError: vi.fn()
     })
     const journal = await openJournal('a')
     conversations.set('session-1', session(journal))
@@ -74,11 +73,7 @@ describe('a conversation delivers what its journal commits', () => {
     const deliver = vi.fn()
     // Collaborators hold the host's map as a plain `Map`; `set` still reaches the binding.
     const sessions: Map<string, StructuredAgentSessionHostSession> =
-      new StructuredAgentSessionConversations({
-        deliver,
-        logger: recordingStructuredAgentSessionLogger().logger,
-        now: () => 0
-      })
+      new StructuredAgentSessionConversations({ deliver, onDeliveryError: vi.fn() })
     const journal = await openJournal('a')
     sessions.set('session-1', session(journal))
 
@@ -91,8 +86,7 @@ describe('a conversation delivers what its journal commits', () => {
     const deliver = vi.fn()
     const conversations = new StructuredAgentSessionConversations({
       deliver,
-      logger: recordingStructuredAgentSessionLogger().logger,
-      now: () => 0
+      onDeliveryError: vi.fn()
     })
     const journal = await openJournal('a')
     conversations.set('session-1', session(journal))
@@ -106,8 +100,7 @@ describe('a conversation delivers what its journal commits', () => {
     const deliver = vi.fn()
     const conversations = new StructuredAgentSessionConversations({
       deliver,
-      logger: recordingStructuredAgentSessionLogger().logger,
-      now: () => 0
+      onDeliveryError: vi.fn()
     })
     const replaced = await openJournal('a')
     const current = await openJournal('b')
@@ -125,8 +118,7 @@ describe('a conversation delivers what its journal commits', () => {
     const deliver = vi.fn()
     const conversations = new StructuredAgentSessionConversations({
       deliver,
-      logger: recordingStructuredAgentSessionLogger().logger,
-      now: () => 0
+      onDeliveryError: vi.fn()
     })
     const journal = await openJournal('a')
     conversations.set('session-1', session(journal))
@@ -139,13 +131,12 @@ describe('a conversation delivers what its journal commits', () => {
 
   it('reports a reader failure without failing the durable write', async () => {
     const failure = new Error('reader failed')
-    const log = recordingStructuredAgentSessionLogger()
+    const onDeliveryError = vi.fn()
     const conversations = new StructuredAgentSessionConversations({
       deliver: () => {
         throw failure
       },
-      logger: log.logger,
-      now: () => 0
+      onDeliveryError
     })
     const journal = await openJournal('a')
     conversations.set('session-1', session(journal))
@@ -154,9 +145,7 @@ describe('a conversation delivers what its journal commits', () => {
       itemId: expect.any(String)
     })
 
-    expect(log.entries.map((entry) => entry.fields)).toEqual([
-      { scope: 'journal-delivery', sessionId: 'session-1', error: failure }
-    ])
+    expect(onDeliveryError).toHaveBeenCalledExactlyOnceWith('session-1', failure)
     expect(journal.snapshot().items.map((item) => item.body)).toContainEqual({
       kind: 'status',
       text: 'durable'

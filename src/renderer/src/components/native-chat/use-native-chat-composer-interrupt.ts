@@ -11,18 +11,13 @@ const ESC = '\x1b'
 /** Stop the hosted agent: the structured lane's own stop when a turn is running,
  *  else the ESC keystroke the TUI reads as its interrupt. */
 export function useNativeChatComposerInterrupt(args: {
-  /** A prompt card owns the input: Escape must not reach the agent as Deny. */
-  inert?: boolean
   cancelPendingSends: () => void
   isWorking: boolean
   onStop?: () => void
   resolveTarget: () => NativeChatResolvedTarget | null
 }): () => void {
-  const { inert, cancelPendingSends, isWorking, onStop, resolveTarget } = args
+  const { cancelPendingSends, isWorking, onStop, resolveTarget } = args
   return useCallback(() => {
-    if (inert) {
-      return
-    }
     cancelPendingSends()
     if (isWorking && onStop) {
       onStop()
@@ -30,7 +25,7 @@ export function useNativeChatComposerInterrupt(args: {
     }
     const target = resolveTarget()
     if (target) {
-      sendRuntimePtyInput(target.ptyId, ESC, 'driving')
+      sendRuntimePtyInput(target.settings, target.ptyId, ESC)
     }
-  }, [inert, cancelPendingSends, isWorking, onStop, resolveTarget])
+  }, [cancelPendingSends, isWorking, onStop, resolveTarget])
 }

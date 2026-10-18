@@ -4,7 +4,6 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { Switch } from '../ui/switch'
-import { SettingsDisabledControlTooltip } from './SettingsDisabledControlTooltip'
 import { normalizeColor } from '@/lib/terminal-theme'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -132,7 +131,6 @@ type SettingsSegmentedControlProps<T extends string | number> = {
   ariaLabel?: string
   size?: 'sm' | 'md'
   equalWidth?: boolean
-  wrap?: boolean
 }
 
 /** Canonical segmented control for theme/ligatures/cursor/shell/etc. */
@@ -142,8 +140,7 @@ export function SettingsSegmentedControl<T extends string | number>({
   options,
   ariaLabel,
   size = 'md',
-  equalWidth = false,
-  wrap = false
+  equalWidth = false
 }: SettingsSegmentedControlProps<T>): React.JSX.Element {
   return (
     <div
@@ -151,8 +148,7 @@ export function SettingsSegmentedControl<T extends string | number>({
       aria-label={ariaLabel}
       className={cn(
         'inline-flex items-center rounded-md border border-border bg-background/50 p-0.5',
-        equalWidth && 'w-full',
-        wrap && 'flex-wrap'
+        equalWidth && 'w-full'
       )}
     >
       {options.map((opt) => {
@@ -279,9 +275,6 @@ type NumberFieldProps = {
   placeholder?: string
   suffix?: string
   className?: string
-  disabled?: boolean
-  /** Hover explanation shown only while the field is disabled. */
-  disabledReason?: string
 }
 
 export function ColorField({
@@ -330,9 +323,7 @@ export function NumberField({
   onClear,
   placeholder,
   suffix,
-  className,
-  disabled = false,
-  disabledReason
+  className
 }: NumberFieldProps): React.JSX.Element {
   const [draft, setDraft] = useState(Number.isFinite(value) ? String(value) : '')
   const [prevValue, setPrevValue] = useState(value)
@@ -344,9 +335,6 @@ export function NumberField({
   }
 
   const commit = (): void => {
-    if (disabled) {
-      return
-    }
     const trimmed = draft.trim()
     if (trimmed === '') {
       if (onClear) {
@@ -386,26 +374,23 @@ export function NumberField({
       }
       control={
         <div className="flex items-center gap-2">
-          <SettingsDisabledControlTooltip reason={disabled ? disabledReason : undefined}>
-            <Input
-              type="number"
-              disabled={disabled}
-              min={min}
-              max={max}
-              step={step}
-              aria-label={label}
-              placeholder={placeholder}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  commit()
-                }
-              }}
-              className="number-input-clean w-24 tabular-nums"
-            />
-          </SettingsDisabledControlTooltip>
+          <Input
+            type="number"
+            min={min}
+            max={max}
+            step={step}
+            aria-label={label}
+            placeholder={placeholder}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commit()
+              }
+            }}
+            className="number-input-clean w-24 tabular-nums"
+          />
           {suffix ? <span className="shrink-0 text-xs text-muted-foreground">{suffix}</span> : null}
         </div>
       }

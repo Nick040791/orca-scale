@@ -3,7 +3,7 @@ import type { AppState } from '@/store/types'
 import {
   buildRuntimeMobileAgentStatusProjectionForTests,
   resetRuntimeMobileAgentStatusProjectionCacheForTests
-} from './sync-runtime-graph/agent-status-projection'
+} from './sync-runtime-graph'
 
 function makeEntry(index: number, overrides: Record<string, unknown> = {}): never {
   return {

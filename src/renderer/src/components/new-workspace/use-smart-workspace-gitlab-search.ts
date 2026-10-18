@@ -6,9 +6,9 @@ import {
 import { parseGitLabIssueOrMRLink } from '@/lib/gitlab-links'
 import type { GitLabWorkItem } from '../../../../shared/gitlab-types'
 import { RESULT_LIMIT } from './smart-workspace-name-field-model'
-import type { useWorkItemSourceFoundation } from './use-work-item-source-foundation'
+import type { useSmartWorkspaceNameFieldFoundation } from './use-smart-workspace-name-field-foundation'
 
-type Foundation = ReturnType<typeof useWorkItemSourceFoundation>
+type Foundation = ReturnType<typeof useSmartWorkspaceNameFieldFoundation>
 
 export function useSmartWorkspaceGitlabSearch({
   foundation,
@@ -22,7 +22,7 @@ export function useSmartWorkspaceGitlabSearch({
   const {
     debouncedQuery,
     disabled,
-    gitlabEnabled,
+    onGitLabItemSelect,
     mode,
     repoBackedSearchTargets,
     mrStateFilter,
@@ -36,7 +36,7 @@ export function useSmartWorkspaceGitlabSearch({
   )
 
   useEffect(() => {
-    if (!shouldQueryGitlab || disabled || gitlabEnabled === false) {
+    if (!shouldQueryGitlab || disabled || !onGitLabItemSelect) {
       // Why: the list effect below is the sole writer in GitLab mode without a URL.
       if (!shouldQueryGitlab || (parsedGlLink === null && mode !== 'gitlab')) {
         setGitlabItems([])
@@ -89,7 +89,7 @@ export function useSmartWorkspaceGitlabSearch({
   }, [
     disabled,
     mode,
-    gitlabEnabled,
+    onGitLabItemSelect,
     parsedGlLink,
     repoBackedSearchTargets,
     setGitlabItems,
@@ -99,7 +99,7 @@ export function useSmartWorkspaceGitlabSearch({
 
   // Why: state chips mirror GitLab's default opened-MR list when no URL is pasted.
   useEffect(() => {
-    if (!shouldQueryGitlab || disabled || gitlabEnabled === false) {
+    if (!shouldQueryGitlab || disabled || !onGitLabItemSelect) {
       if (!shouldQueryGitlab) {
         setGitlabItems([])
         setGitlabLoading(false)
@@ -163,7 +163,7 @@ export function useSmartWorkspaceGitlabSearch({
     disabled,
     mode,
     mrStateFilter,
-    gitlabEnabled,
+    onGitLabItemSelect,
     parsedGlLink,
     repoBackedSearchTargets,
     setGitlabItems,

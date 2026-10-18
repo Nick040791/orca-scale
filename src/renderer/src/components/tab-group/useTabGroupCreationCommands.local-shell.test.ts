@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stubHeadlessReact } from '../tab-bar/tab-bar-windows-shell-launch-render-stubs'
-import { stubRuntimeEnvironmentBridge } from '../../runtime/runtime-environment-bridge-fixture'
 
 const mocks = vi.hoisted(() => ({
   createTab: vi.fn(),
@@ -21,9 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('react', async () => await stubHeadlessReact())
 
 vi.mock('@/lib/worktree-runtime-owner', () => ({
-  getRuntimeEnvironmentIdForWorktree: mocks.getRuntimeEnvironmentIdForWorktree
-}))
-vi.mock('@/lib/runtime-session-mirror-owners', () => ({
+  getRuntimeEnvironmentIdForWorktree: mocks.getRuntimeEnvironmentIdForWorktree,
   getRuntimeSessionMirrorEnvironmentIds: () => []
 }))
 
@@ -77,7 +74,8 @@ describe('tab group "+" menu shell launch on a locally-owned workspace', () => {
     vi.clearAllMocks()
     storeState.activeWorkspaceExecutionHostId = 'local'
     mocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue(null)
-    stubRuntimeEnvironmentBridge({ call: mocks.runtimeCall })
+    mocks.createTab.mockReturnValue({ id: 'local-tab-1' })
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: mocks.runtimeCall } } })
   })
 
   afterEach(() => {
@@ -96,10 +94,8 @@ describe('tab group "+" menu shell launch on a locally-owned workspace', () => {
     await vi.waitFor(() => expect(mocks.createTab).toHaveBeenCalled())
 
     expect(mocks.runtimeCall).not.toHaveBeenCalled()
-    expect(mocks.createTab).toHaveBeenCalledWith(WORKTREE_ID, GROUP_ID, 'powershell.exe', {
-      id: expect.any(String)
-    })
-    expect(mocks.setActiveTab).toHaveBeenCalledWith(mocks.createTab.mock.calls[0][3].id)
+    expect(mocks.createTab).toHaveBeenCalledWith(WORKTREE_ID, GROUP_ID, 'powershell.exe')
+    expect(mocks.setActiveTab).toHaveBeenCalledWith('local-tab-1')
   })
 
   it('leaves the workspace on its own execution host', async () => {

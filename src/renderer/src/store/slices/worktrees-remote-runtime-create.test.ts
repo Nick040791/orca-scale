@@ -1,11 +1,10 @@
-import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../types'
 import {
   createCompatibleRuntimeStatusResponse,
   type RuntimeEnvironmentCallRequest
 } from '../../runtime/runtime-compatibility-test-fixture'
-import { TEST_REPO, makeWorktree } from './worktrees-slice-test-fixtures'
+import { makeWorktree } from './worktrees-slice-test-fixtures'
 import {
   createTestStore,
   mockApi,
@@ -40,7 +39,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('creates worktrees through the active remote runtime environment', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/feature',
       repoId: 'repo1',
@@ -53,16 +52,9 @@ describe('worktree remote runtime mutations', () => {
       _meta: { runtimeId: 'runtime-remote' }
     })
     store.setState({
-      settings: {
-        ...store.getState().settings!,
-        activeRuntimeEnvironmentId: 'env-1',
-        nestWorkspaces: false,
-        refreshLocalBaseRefOnWorktreeCreate: true,
-        localBaseRefSuggestionDismissed: false
-      },
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
-    })
-    seedRepoHost(store, 'runtime:env-1')
+    } as Partial<AppState>)
 
     const result = await store
       .getState()
@@ -89,9 +81,6 @@ describe('worktree remote runtime mutations', () => {
         baseBranch: 'origin/main',
         setupDecision: 'skip',
         sparseCheckout: { directories: ['src'], presetId: 'preset-1' },
-        nestWorkspaces: false,
-        refreshLocalBaseRefOnWorktreeCreate: true,
-        localBaseRefSuggestionDismissed: false,
         telemetrySource: 'sidebar',
         displayName: 'Feature title',
         linkedIssue: 123,
@@ -111,7 +100,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('forwards generated-name provenance through paired-runtime create', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({ id: 'repo1::/path/nautilus', repoId: 'repo1' })
     runtimeEnvironmentCall.mockResolvedValue({
       id: 'rpc-create',
@@ -123,7 +112,6 @@ describe('worktree remote runtime mutations', () => {
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
     const createWorktree = store.getState().createWorktree
     const args: Parameters<typeof createWorktree> = ['repo1', 'nautilus']
     args[25] = { nameWasGenerated: true }
@@ -139,7 +127,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('persists Jira item and source context through paired-runtime create', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/jira-link',
       repoId: 'repo1',
@@ -155,7 +143,6 @@ describe('worktree remote runtime mutations', () => {
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
     const linkedWorkItem = {
       provider: 'jira' as const,
       type: 'issue' as const,
@@ -200,12 +187,11 @@ describe('worktree remote runtime mutations', () => {
     runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) =>
       args.method === 'status.get' ? oldRuntimeStatus : runtimeEnvironmentCall(args)
     )
-    const store = createRepoTestStore()
+    const store = createTestStore()
     store.setState({
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
     const createWorktree = store.getState().createWorktree
     const args: Parameters<typeof createWorktree> = ['repo1', 'jira-link']
     args[25] = {
@@ -224,7 +210,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('passes startup commands through remote runtime worktree creation', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/agent-startup',
       repoId: 'repo1',
@@ -240,7 +226,6 @@ describe('worktree remote runtime mutations', () => {
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
 
     await store
       .getState()
@@ -296,7 +281,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('passes task startup drafts only to the owning remote runtime', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/task-draft',
       repoId: 'repo1',
@@ -312,7 +297,6 @@ describe('worktree remote runtime mutations', () => {
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
     const createWorktree = store.getState().createWorktree
     const args: Parameters<typeof createWorktree> = ['repo1', 'task-draft', undefined, 'inherit']
     args[10] = 'codex'
@@ -333,7 +317,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('passes startup commands through local worktree creation IPC', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/local-agent-startup',
       repoId: 'repo1',
@@ -400,7 +384,7 @@ describe('worktree remote runtime mutations', () => {
   })
 
   it('retries a suffixed branchNameOverride when runtime create reports a branch conflict', async () => {
-    const store = createRepoTestStore()
+    const store = createTestStore()
     const wt = makeWorktree({
       id: 'repo1::/path/feature-something-2',
       repoId: 'repo1',
@@ -418,7 +402,6 @@ describe('worktree remote runtime mutations', () => {
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
       worktreesByRepo: { repo1: [] }
     } as Partial<AppState>)
-    seedRepoHost(store, 'runtime:env-1')
 
     await store
       .getState()
@@ -459,14 +442,3 @@ describe('worktree remote runtime mutations', () => {
     )
   })
 })
-
-// Creation routes by the project row's own host, so every test seeds that row.
-function seedRepoHost(store: ReturnType<typeof createTestStore>, hostId: ExecutionHostId): void {
-  store.setState({ repos: [{ ...TEST_REPO, executionHostId: hostId }] })
-}
-
-function createRepoTestStore(): ReturnType<typeof createTestStore> {
-  const store = createTestStore()
-  seedRepoHost(store, 'local')
-  return store
-}

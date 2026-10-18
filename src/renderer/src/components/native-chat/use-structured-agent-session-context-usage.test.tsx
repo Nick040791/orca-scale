@@ -33,15 +33,14 @@ vi.mock('./use-structured-agent-session-read', () => ({
   })
 }))
 
-vi.mock('./structured-agent-session-operation-id', () => ({
-  structuredSessionOperationId: vi.fn()
-}))
-vi.mock('./use-structured-agent-session-sends', () => ({
-  useStructuredAgentSessionSends: () => ({
-    pending: [],
+vi.mock('./use-structured-agent-session-outbox', () => ({
+  structuredSessionOperationId: vi.fn(),
+  useStructuredAgentSessionOutbox: () => ({
+    outbox: [],
+    blockedClientMessageId: null,
     error: null,
     send: vi.fn(),
-    stopSends: vi.fn()
+    retry: vi.fn()
   })
 }))
 

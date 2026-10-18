@@ -9,12 +9,10 @@ function createLayoutFixture() {
   document.body.append(textarea)
   textarea.focus()
   const terminal = { focus: vi.fn(() => textarea.focus()) }
-  const pane = { terminal, container: document.createElement('div') }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fitAndFocusPanes reads only these members, and the focus path reads only a pane's terminal and container.
   const manager = {
     fitAllPanes: vi.fn(),
-    getActivePane: () => pane,
-    getPanes: () => [pane]
+    getActivePane: () => ({ terminal }),
+    getPanes: () => [{ terminal }]
   } as unknown as PaneManager
   return { manager, terminal, textarea }
 }

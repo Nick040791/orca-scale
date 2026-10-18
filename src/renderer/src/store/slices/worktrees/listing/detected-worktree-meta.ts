@@ -1,4 +1,3 @@
-import type { WorkspaceAttachmentMutation } from '../../../../../../shared/workspace-attachment-mutation'
 import type { AppState } from '../../../types'
 import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 import type { WorktreeMeta } from '../../../../../../shared/worktree/meta-types'
@@ -6,14 +5,11 @@ import type { DetectedWorktreeListResult, Worktree } from '../../../../../../sha
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import {
   LOCAL_EXECUTION_HOST_ID,
-  getRepoExecutionHostId
+  parseExecutionHostId,
+  toSshExecutionHostId
 } from '../../../../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../../../../shared/workspace-scope'
 import { folderWorkspaceToWorktree } from '../../../../../../shared/folder-workspace-worktree'
-import {
-  floatingWorkspaceToWorktree,
-  isFloatingWorkspaceId
-} from '../../../../../../shared/floating-workspace-worktree'
 import {
   findIndexedDetectedWorktrees,
   findIndexedWorktreeOwnerForHost
@@ -22,13 +18,9 @@ import { findWorktreeById, withoutErasedRequiredWorktreeFields } from '../../wor
 import { worktreeMatchesHost } from './worktree-host-ownership'
 
 const folderWorkspaceWorktreeCache = new WeakMap<FolderWorkspace, Worktree>()
-// Why a one-slot cache: the floating workspace is a singleton; retained selectors only need the
-// row's identity to hold while the resolved directory is unchanged.
-let floatingWorkspaceWorktreeCache: { path: string; worktree: Worktree } | null = null
 
 import { worktreeRowMatchesMetaHost } from './worktree-meta-host-match'
 import { branchName } from '@/lib/git-utils'
-import { normalizeWorkspaceAttachmentUpdate } from '../../../../../../shared/workspace-attachments'
 
 export function applyDetectedWorktreeUpdates(
   detectedWorktreesByRepo: AppState['detectedWorktreesByRepo'],
@@ -49,7 +41,7 @@ export function applyDetectedWorktreeUpdates(
       }
       repoChanged = true
       changed = true
-      const next = { ...worktree, ...normalizeWorkspaceAttachmentUpdate(worktree, updates) }
+      const next = { ...worktree, ...updates }
       if (updates.displayNameIsPinned !== undefined) {
         next.displayNameMode = updates.displayNameIsPinned ? 'fixed' : 'automatic'
         if (updates.displayNameIsPinned === false && !updates.displayName?.trim()) {
@@ -69,40 +61,19 @@ export function folderWorkspaceMatchesHost(
   workspace: Pick<FolderWorkspace, 'connectionId' | 'executionHostId'>,
   executionHostId: ExecutionHostId
 ): boolean {
-  return getRepoExecutionHostId(workspace) === executionHostId
-}
-
-/** Stable synthetic row per folder workspace object, so selectors keep referential equality. */
-export function getFolderWorkspaceWorktree(folderWorkspace: FolderWorkspace): Worktree {
-  const cached = folderWorkspaceWorktreeCache.get(folderWorkspace)
-  if (cached) {
-    return cached
-  }
-  const worktree = folderWorkspaceToWorktree(folderWorkspace)
-  folderWorkspaceWorktreeCache.set(folderWorkspace, worktree)
-  return worktree
+  return (
+    (parseExecutionHostId(workspace.executionHostId)?.id ??
+      (workspace.connectionId?.trim()
+        ? toSshExecutionHostId(workspace.connectionId)
+        : LOCAL_EXECUTION_HOST_ID)) === executionHostId
+  )
 }
 
 export function findKnownWorktreeById(
-  state: Pick<
-    AppState,
-    'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces' | 'floatingWorkspacePath'
-  >,
+  state: Pick<AppState, 'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces'>,
   worktreeId: string,
   executionHostId?: ExecutionHostId
 ): Worktree | DetectedWorktreeListResult['worktrees'][number] | undefined {
-  if (isFloatingWorkspaceId(worktreeId)) {
-    // The floating workspace has no repo/folder row; mint the same synthetic row the host resolves
-    // with, from the host-resolved directory. Before resolution there is no path to answer with.
-    const path = state.floatingWorkspacePath
-    if (!path || (executionHostId && executionHostId !== LOCAL_EXECUTION_HOST_ID)) {
-      return undefined
-    }
-    if (floatingWorkspaceWorktreeCache?.path !== path) {
-      floatingWorkspaceWorktreeCache = { path, worktree: floatingWorkspaceToWorktree(path) }
-    }
-    return floatingWorkspaceWorktreeCache.worktree
-  }
   const workspaceScope = parseWorkspaceKey(worktreeId)
   if (workspaceScope?.type === 'folder') {
     const folderWorkspace = state.folderWorkspaces.find(
@@ -110,7 +81,16 @@ export function findKnownWorktreeById(
         workspace.id === workspaceScope.folderWorkspaceId &&
         (!executionHostId || folderWorkspaceMatchesHost(workspace, executionHostId))
     )
-    return folderWorkspace ? getFolderWorkspaceWorktree(folderWorkspace) : undefined
+    if (!folderWorkspace) {
+      return undefined
+    }
+    const cached = folderWorkspaceWorktreeCache.get(folderWorkspace)
+    if (cached) {
+      return cached
+    }
+    const worktree = folderWorkspaceToWorktree(folderWorkspace)
+    folderWorkspaceWorktreeCache.set(folderWorkspace, worktree)
+    return worktree
   }
   const visible = executionHostId
     ? (findIndexedWorktreeOwnerForHost(
@@ -144,45 +124,84 @@ export function findKnownWorktreeById(
 }
 
 export function getFolderWorkspaceMetaUpdates(
-  updates: Partial<WorktreeMeta> & WorkspaceAttachmentMutation
-) {
-  const next: Partial<FolderWorkspace> & WorkspaceAttachmentMutation = Object.fromEntries(
-    (
-      [
-        'comment',
-        'isArchived',
-        'isUnread',
-        'isPinned',
-        'sortOrder',
-        'manualOrder',
-        'lastActivityAt',
-        'workspaceStatus',
-        'createdWithAgent',
-        'pendingFirstAgentMessageRename',
-        'firstAgentMessageRenameError',
-        'diffComments',
-        'linkedItems',
-        'linkedItemsBase',
-        'linkedItemsSelectionChanged',
-        'linkedTaskSourceContext'
-      ] as const
-    )
-      .filter((field) => updates[field] !== undefined)
-      .map((field) => [field, updates[field]])
-  )
+  updates: Partial<WorktreeMeta>
+): Partial<
+  Pick<
+    FolderWorkspace,
+    | 'name'
+    | 'comment'
+    | 'isArchived'
+    | 'isUnread'
+    | 'isPinned'
+    | 'sortOrder'
+    | 'manualOrder'
+    | 'lastActivityAt'
+    | 'workspaceStatus'
+    | 'createdWithAgent'
+    | 'pendingFirstAgentMessageRename'
+    | 'firstAgentMessageRenameError'
+    | 'diffComments'
+  >
+> {
+  const next: Partial<
+    Pick<
+      FolderWorkspace,
+      | 'name'
+      | 'comment'
+      | 'isArchived'
+      | 'isUnread'
+      | 'isPinned'
+      | 'sortOrder'
+      | 'manualOrder'
+      | 'lastActivityAt'
+      | 'workspaceStatus'
+      | 'createdWithAgent'
+      | 'pendingFirstAgentMessageRename'
+      | 'firstAgentMessageRenameError'
+      | 'diffComments'
+    >
+  > = {}
   if (updates.displayName !== undefined) {
     next.name = updates.displayName
-    next.pendingFirstAgentMessageRename = updates.pendingFirstAgentMessageRename ?? false
-    next.firstAgentMessageRenameError =
-      updates.firstAgentMessageRenameError === undefined
-        ? null
-        : updates.firstAgentMessageRenameError
+    next.pendingFirstAgentMessageRename = false
+    next.firstAgentMessageRenameError = null
   }
-  if (updates.comment !== undefined && updates.lastActivityAt === undefined) {
+  if (updates.comment !== undefined) {
+    next.comment = updates.comment
     next.lastActivityAt = Date.now()
   }
-  if (updates.linkedWorkItem !== undefined) {
-    next.linkedTask = updates.linkedWorkItem
+  if (updates.isArchived !== undefined) {
+    next.isArchived = updates.isArchived
+  }
+  if (updates.isUnread !== undefined) {
+    next.isUnread = updates.isUnread
+  }
+  if (updates.isPinned !== undefined) {
+    next.isPinned = updates.isPinned
+  }
+  if (updates.sortOrder !== undefined) {
+    next.sortOrder = updates.sortOrder
+  }
+  if (updates.manualOrder !== undefined) {
+    next.manualOrder = updates.manualOrder
+  }
+  if (updates.lastActivityAt !== undefined) {
+    next.lastActivityAt = updates.lastActivityAt
+  }
+  if (updates.workspaceStatus !== undefined) {
+    next.workspaceStatus = updates.workspaceStatus
+  }
+  if (updates.createdWithAgent !== undefined) {
+    next.createdWithAgent = updates.createdWithAgent
+  }
+  if (updates.pendingFirstAgentMessageRename !== undefined) {
+    next.pendingFirstAgentMessageRename = updates.pendingFirstAgentMessageRename
+  }
+  if (updates.firstAgentMessageRenameError !== undefined) {
+    next.firstAgentMessageRenameError = updates.firstAgentMessageRenameError
+  }
+  if (updates.diffComments !== undefined) {
+    next.diffComments = updates.diffComments
   }
   return next
 }

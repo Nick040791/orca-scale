@@ -81,10 +81,7 @@ async function buildEngineJs() {
     },
     bundle: true,
     format: 'iife',
-    // esbuild 0.25 syntax folding drops xterm's local DECRQM enum declaration.
-    minifyWhitespace: true,
-    minifyIdentifiers: true,
-    minifySyntax: false,
+    minify: true,
     platform: 'browser',
     target,
     legalComments: 'none',

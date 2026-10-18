@@ -1,8 +1,10 @@
 import type { TuiAgent } from '../../../../shared/tui-agent'
-import type { QuickSubmitOptions } from './quick-creation-request'
 import type { GitPushTarget } from '../../../../shared/worktree/types'
 import type { SetupDecision } from '../../../../shared/worktree/create-types'
+import type { Repo } from '../../../../shared/repo-types'
 import type { WorkspaceIntentName } from '../../../../shared/workspace-name'
+import type { AgentStartupPlan } from '../../../../shared/tui-agent-startup'
+import type { AgentStartedTelemetry } from '@/lib/worktree-startup-payload'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
@@ -10,6 +12,40 @@ import type { PendingSmartGitHubSubmitResolution } from './source-selection-deci
 type SmartCreateNames = {
   workspaceName: string
   displayName: string | undefined
+}
+
+export type FullSubmitSource = {
+  submitLinkedWorkItem: LinkedWorkItemSummary | null
+  submitLinkedIssueNumber: number | null
+  submitLinkedPR: number | null
+  submitTitleName: WorkspaceIntentName | null
+  nameIsAutoManaged: boolean
+  smartGitHubCreateNames: SmartCreateNames
+  workspaceName: string
+  nameWasGenerated: boolean
+  submitBaseBranch: string | undefined
+  submitCompareBaseRef: string | undefined
+  submitPushTarget: GitPushTarget | undefined
+  submitBranchNameOverride: string | undefined
+  submitLinkedWorkItemProvider: LinkedWorkItemSummary['provider'] | null
+  submitStartupPrompt: string
+  submitShouldRunIssueAutomation: boolean
+}
+
+export type PreparedFullSubmit = FullSubmitSource & {
+  effectiveSetupDecision: SetupDecision
+  issueCommandTrustDecision: 'run' | 'skip'
+  confirmedIssueCommandTemplate: string
+  linkedLinearIssue: string | undefined
+  linkedLinearIssueWorkspaceId: string | undefined
+  linkedLinearIssueOrganizationUrlKey: string | undefined
+  effectiveBranchNameOverride: string | undefined
+  createDisplayName: string | undefined
+  pendingFirstAgentMessageRename: boolean
+  startupPlan: AgentStartupPlan | null
+  shouldSeedInitialAgentStatus: boolean
+  composerTelemetry: AgentStartedTelemetry
+  backendStartup: WorktreeCreationRequest['startup']
 }
 
 export type QuickSubmitSource = {
@@ -30,7 +66,7 @@ export type QuickSubmitSource = {
 
 export type PreparedQuickSubmit = QuickSubmitSource & {
   effectiveSetupDecision: SetupDecision
-  hookPreparation: WorktreeCreationRequest['hookPreparation']
+  issueCommand: WorktreeCreationRequest['issueCommand']
   linkedLinearIssue: string | undefined
   linkedLinearIssueWorkspaceId: string | undefined
   linkedLinearIssueOrganizationUrlKey: string | undefined
@@ -42,14 +78,24 @@ export type PreparedQuickSubmit = QuickSubmitSource & {
 }
 
 export type ComposerSubmitModel = {
+  executeFullCreation: (
+    resolution: PendingSmartGitHubSubmitResolution,
+    repoId: string
+  ) => Promise<void>
   executeQuickCreation: (
     resolution: PendingSmartGitHubSubmitResolution,
     requestedAgent: TuiAgent | null,
     workspaceNameSeed: string,
     workspaceRunContext: WorktreeCreationRequest['workspaceRunContext'],
     repoId: string,
-    options?: QuickSubmitOptions
+    selectedRepo: Repo
   ) => Promise<void>
+  prepareFullSubmit: (
+    resolution: PendingSmartGitHubSubmitResolution
+  ) => Promise<PreparedFullSubmit | null>
+  prepareFullSubmitSource: (
+    resolution: PendingSmartGitHubSubmitResolution
+  ) => FullSubmitSource | null
   prepareQuickSubmit: (
     resolution: PendingSmartGitHubSubmitResolution,
     requestedAgent: TuiAgent | null,
@@ -61,6 +107,7 @@ export type ComposerSubmitModel = {
     workspaceNameSeed: string
   ) => QuickSubmitSource | null
   resetForNextCreate: () => void
-  submitQuick: (agent: TuiAgent | null, options?: QuickSubmitOptions) => Promise<void>
+  submit: () => Promise<void>
+  submitQuick: (agent: TuiAgent | null) => Promise<void>
   submitFolderTarget: (requestedAgent: TuiAgent | null) => Promise<void>
 }

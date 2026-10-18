@@ -9,8 +9,7 @@ import {
   shouldSkipSingleInstanceLock,
   SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE,
   SINGLE_INSTANCE_LOCK_BYPASS_MESSAGE,
-  SINGLE_INSTANCE_LOCK_FAILURE_MESSAGE,
-  singleInstanceLockFailureMessage
+  SINGLE_INSTANCE_LOCK_FAILURE_MESSAGE
 } from './single-instance-lock'
 
 type Listener = (...args: unknown[]) => void
@@ -118,23 +117,18 @@ describe('SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE', () => {
 })
 
 describe('shouldSkipSingleInstanceLock', () => {
-  const E2E = { ORCA_E2E_USER_DATA_DIR: '/tmp/orca-e2e-userdata-1' }
-
-  it('takes the lock for dev desktop, packaged and serve launches alike', () => {
-    expect(shouldSkipSingleInstanceLock({ isDev: true, isServeMode: false, env: {} })).toBe(false)
-    expect(shouldSkipSingleInstanceLock({ isDev: false, isServeMode: false, env: {} })).toBe(false)
+  it('keeps ordinary dev multi-instance behavior but never skips for serve', () => {
+    expect(shouldSkipSingleInstanceLock({ isDev: true, isServeMode: false, env: {} })).toBe(true)
     expect(shouldSkipSingleInstanceLock({ isDev: true, isServeMode: true, env: {} })).toBe(false)
-    expect(shouldSkipSingleInstanceLock({ isDev: false, isServeMode: true, env: E2E })).toBe(false)
-    expect(shouldSkipSingleInstanceLock({ isDev: true, isServeMode: true, env: E2E })).toBe(false)
+    expect(shouldSkipSingleInstanceLock({ isDev: false, isServeMode: false, env: {} })).toBe(false)
   })
 
-  it('skips only an E2E launch on its own profile that did not ask for the lock', () => {
-    expect(shouldSkipSingleInstanceLock({ isDev: true, isServeMode: false, env: E2E })).toBe(true)
+  it('lets isolated E2E exercise the production single-instance path', () => {
     expect(
       shouldSkipSingleInstanceLock({
         isDev: true,
         isServeMode: false,
-        env: { ...E2E, ORCA_E2E_ENFORCE_SINGLE_INSTANCE_LOCK: '1' }
+        env: { ORCA_E2E_ENFORCE_SINGLE_INSTANCE_LOCK: '1' }
       })
     ).toBe(false)
   })
@@ -144,26 +138,10 @@ describe('logSingleInstanceLockFailure', () => {
   it('emits a production-visible synchronous diagnostic for the early quit path', () => {
     const write = vi.fn()
 
-    logSingleInstanceLockFailure({ isDevDesktop: false, userDataPath: '/profile' }, write)
+    logSingleInstanceLockFailure(write)
 
     expect(write).toHaveBeenCalledWith(2, `${SINGLE_INSTANCE_LOCK_FAILURE_MESSAGE}\n`)
     expect(write.mock.calls[0]?.[1]).toContain('Electron/macOS single-instance lock failure')
-  })
-
-  it('tells a second dev launch which profile is taken and how to run another copy', () => {
-    const write = vi.fn()
-    const userDataPath = '/Users/dev/Library/Application Support/orca-dev'
-
-    logSingleInstanceLockFailure({ isDevDesktop: true, userDataPath }, write)
-
-    expect(write).toHaveBeenCalledOnce()
-    const line = String(write.mock.calls[0]?.[1])
-    expect(line).toBe(`${singleInstanceLockFailureMessage({ isDevDesktop: true, userDataPath })}\n`)
-    expect(line.trimEnd()).not.toContain('\n')
-    expect(line).toContain(`the profile at ${userDataPath}`)
-    expect(line).toContain('ORCA_DEV_USER_DATA_PATH=')
-    // A background or serve instance shows no window, so the line claims none.
-    expect(line).not.toMatch(/focus|window/i)
   })
 })
 

@@ -5,7 +5,6 @@ import { canContinueAgentSessionInNewSession } from './terminal-agent-session-co
 import type { TerminalPaneController } from './use-terminal-pane-controller'
 import { useAppStore } from '@/store'
 import { resolvePaneAgentSessionId } from './pane-agent-session-id'
-import { NativeChatPaneCover } from './NativeChatPaneCover'
 
 export function TerminalPaneNativeChatPortal({
   controller
@@ -25,7 +24,6 @@ export function TerminalPaneNativeChatPortal({
     isActive,
     isRendererVisible,
     managedPanes,
-    paneTitles,
     readNativeChatTerminalScreen,
     resolveAgentForLeaf,
     switchNativeChatToTerminal,
@@ -55,11 +53,7 @@ export function TerminalPaneNativeChatPortal({
       contextMenu.runForPane(chatPane.id, contextMenu.onContinueAgentSessionInNewSession),
     onForkAgentSession: () =>
       void contextMenu.runForPane(chatPane.id, contextMenu.onForkAgentSession),
-    onCopyAgentSessionContext: () =>
-      void contextMenu.runForPane(chatPane.id, contextMenu.onCopyAgentSessionContext),
     onSetTitle: () => contextMenu.runForPane(chatPane.id, contextMenu.onSetTitle),
-    canClearPaneTitle: Boolean(paneTitles[chatPane.id]),
-    onClearPaneTitle: () => contextMenu.runForPane(chatPane.id, contextMenu.onClearPaneTitle),
     onCopyTerminalId: () => void contextMenu.runForPane(chatPane.id, contextMenu.onCopyTerminalId),
     onCopyPaneId: () => void contextMenu.runForPane(chatPane.id, contextMenu.onCopyPaneId),
     canCopyAgentSessionId: chatPaneSessionId !== null,
@@ -70,7 +64,7 @@ export function TerminalPaneNativeChatPortal({
   }
 
   return createPortal(
-    <NativeChatPaneCover pane={chatPane}>
+    <div className="native-chat-pane-shell absolute inset-0 z-10 flex min-h-0 min-w-0 bg-background">
       <NativeChatView
         terminalTabId={tabId}
         isVisible={isRendererVisible}
@@ -84,7 +78,7 @@ export function TerminalPaneNativeChatPortal({
         readTerminalScreen={readNativeChatTerminalScreen}
         contextMenuActions={contextMenuActions}
       />
-    </NativeChatPaneCover>,
+    </div>,
     chatPane.container,
     `native-chat-${tabId}-${chatPane.leafId}`
   )

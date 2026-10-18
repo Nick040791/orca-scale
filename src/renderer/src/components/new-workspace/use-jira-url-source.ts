@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
-import { getJiraAccountLabel } from '@/lib/jira-account-label'
 import { assertRuntimeEnvironmentCapability } from '@/runtime/runtime-rpc-client'
 import {
   getMatchingJiraSites,
@@ -89,7 +88,7 @@ export function bindJiraIssueSourceContext(
       siteUrl: site.siteUrl,
       projectKey: issue.project.key
     },
-    accountLabel: getJiraAccountLabel(site)
+    accountLabel: site.email || site.displayName
   })
 }
 

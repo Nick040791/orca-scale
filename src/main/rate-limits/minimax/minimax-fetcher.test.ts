@@ -1,29 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Session } from 'electron'
-import { setMainHttpClient } from '../../network/http-client'
 
-const { clearStorageDataMock, cookiesSetMock, fetchMock, sessionFromPartitionMock } = vi.hoisted(
+const { clearStorageDataMock, cookiesSetMock, netFetchMock, sessionFromPartitionMock } = vi.hoisted(
   () => {
-    const fetchMock = vi.fn()
+    const netFetchMock = vi.fn()
     const cookiesSetMock = vi.fn(() => Promise.resolve())
     const clearStorageDataMock = vi.fn(() => Promise.resolve())
     const sessionFromPartitionMock = vi.fn(() => ({
       clearStorageData: clearStorageDataMock,
       cookies: { set: cookiesSetMock },
-      fetch: fetchMock
+      fetch: netFetchMock
     }))
-    return { clearStorageDataMock, cookiesSetMock, fetchMock, sessionFromPartitionMock }
+    return { clearStorageDataMock, cookiesSetMock, netFetchMock, sessionFromPartitionMock }
   }
 )
 
-import { fetchMiniMaxRateLimits } from './minimax-fetcher'
+vi.mock('electron', () => ({
+  net: { fetch: netFetchMock },
+  session: { fromPartition: sessionFromPartitionMock }
+}))
 
-setMainHttpClient({
-  fetch: fetchMock,
-  proxySession: () => null,
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the code under test only calls clearStorageData, cookies.set and fetch, which the fake provides.
-  partitionSession: sessionFromPartitionMock as unknown as (partition: string) => Session
-})
+import {
+  extractMiniMaxCookieValue,
+  fetchMiniMaxRateLimits,
+  normalizeMiniMaxCookieHeader,
+  redactMiniMaxSecret
+} from './minimax-fetcher'
 
 const MINIMAX_URL = 'https://platform.minimax.io/v1/api/openplatform/coding_plan/remains'
 
@@ -67,12 +68,12 @@ describe('fetchMiniMaxRateLimits', () => {
     vi.setSystemTime(new Date('2026-07-04T12:00:00.000Z'))
     clearStorageDataMock.mockClear()
     cookiesSetMock.mockClear()
-    fetchMock.mockReset()
+    netFetchMock.mockReset()
     sessionFromPartitionMock.mockClear()
     sessionFromPartitionMock.mockImplementation(() => ({
       clearStorageData: clearStorageDataMock,
       cookies: { set: cookiesSetMock },
-      fetch: fetchMock
+      fetch: netFetchMock
     }))
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
@@ -85,14 +86,14 @@ describe('fetchMiniMaxRateLimits', () => {
   it.each([null, [], 'invalid', 42])(
     'rejects invalid payload %j as a parse error',
     async (payload) => {
-      fetchMock.mockResolvedValueOnce(makeResponse(payload))
+      netFetchMock.mockResolvedValueOnce(makeResponse(payload))
       const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
       expect(result.usageMetadata?.failureKind).toBe('parse')
     }
   )
 
   it('skips malformed usage entries without losing valid usage', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         model_remains: [
           null,
@@ -118,14 +119,14 @@ describe('fetchMiniMaxRateLimits', () => {
     expect(result.session).toBeNull()
     expect(result.weekly).toBeNull()
     expect(result.error).toMatch(/not configured/i)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
     expect(cookiesSetMock).not.toHaveBeenCalled()
   })
 
   it('returns unavailable when cookie is only whitespace', async () => {
     const result = await fetchMiniMaxRateLimits({ cookie: '   ' })
     expect(result.status).toBe('unavailable')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
     expect(cookiesSetMock).not.toHaveBeenCalled()
   })
 
@@ -135,12 +136,12 @@ describe('fetchMiniMaxRateLimits', () => {
     })
     expect(result.status).toBe('error')
     expect(result.error).toMatch(/MiniMax auth cookie not found/)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
     expect(cookiesSetMock).not.toHaveBeenCalled()
   })
 
   it('classifies 401 as stale-token', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse({}, 401))
+    netFetchMock.mockResolvedValueOnce(makeResponse({}, 401))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('error')
     expect(result.usageMetadata?.failureKind).toBe('stale-token')
@@ -148,14 +149,14 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('classifies 403 as stale-token', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse({}, 403))
+    netFetchMock.mockResolvedValueOnce(makeResponse({}, 403))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('error')
     expect(result.usageMetadata?.failureKind).toBe('stale-token')
   })
 
   it('classifies 500 as server', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse({}, 500))
+    netFetchMock.mockResolvedValueOnce(makeResponse({}, 500))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('error')
     expect(result.usageMetadata?.failureKind).toBe('server')
@@ -168,7 +169,7 @@ describe('fetchMiniMaxRateLimits', () => {
     vi.spyOn(AbortSignal, 'timeout').mockReturnValue(
       AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError'))
     )
-    fetchMock.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
+    netFetchMock.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
       return new Promise((_resolve, reject) => {
         const abort = (): void => {
           const error = new Error('The operation timed out.')
@@ -190,20 +191,20 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('falls back to a manual Cookie header when the session cookie jar fetch throws', async () => {
-    fetchMock
+    netFetchMock
       .mockRejectedValueOnce(new Error('cookie jar transport boom'))
       .mockResolvedValueOnce(makeResponse(makeOkPayload(70)))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('ok')
     expect(result.session?.usedPercent).toBe(30)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(netFetchMock).toHaveBeenCalledTimes(2)
     // First (session-cookie-jar) transport sends no Cookie header; the fallback does.
-    expect(fetchMock.mock.calls[0][1].headers.Cookie).toBeUndefined()
-    expect(fetchMock.mock.calls[1][1].headers.Cookie).toContain('_token=')
+    expect(netFetchMock.mock.calls[0][1].headers.Cookie).toBeUndefined()
+    expect(netFetchMock.mock.calls[1][1].headers.Cookie).toContain('_token=')
   })
 
   it('returns ok with session window mapping remaining to usedPercent', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(35)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(35)))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('ok')
     expect(result.provider).toBe('minimax')
@@ -215,7 +216,7 @@ describe('fetchMiniMaxRateLimits', () => {
   it('reports a fixed 5-hour session window regardless of API interval drift', async () => {
     const startTime = 1_700_000_000_000
     const endTime = startTime + 295 * 60_000
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 0, status_msg: 'ok' },
         model_remains: [
@@ -238,7 +239,7 @@ describe('fetchMiniMaxRateLimits', () => {
   it('does not derive the windowMinutes label from the raw start/end interval', async () => {
     const startTime = 1_700_000_000_000
     const endTime = startTime + 4 * 60 * 60_000
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 0, status_msg: 'ok' },
         model_remains: [
@@ -260,7 +261,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('sets the cookie jar and sends browser-like request headers', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
     await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(sessionFromPartitionMock).toHaveBeenCalledWith('orca-minimax-rate-limit-fetch')
     expect(clearStorageDataMock).toHaveBeenCalledWith({
@@ -273,8 +274,8 @@ describe('fetchMiniMaxRateLimits', () => {
       'minimax_group_id_v2',
       'platform_cookie_consent'
     ])
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0]
+    expect(netFetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = netFetchMock.mock.calls[0]
     expect(url).toBe(MINIMAX_URL)
     expect(init.method).toBe('GET')
     expect(init.headers.Cookie).toBeUndefined()
@@ -290,18 +291,18 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('accepts quoted MiniMax cookie storage syntax', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
     await fetchMiniMaxRateLimits({
       cookie: '_token:"jwt-token" minimax_group_id_v2:"42"'
     })
-    const [, init] = fetchMock.mock.calls[0]
+    const [, init] = netFetchMock.mock.calls[0]
     expect(getCookieJarSetNames()).toEqual(['_token', 'minimax_group_id_v2'])
     expect(init.headers.Cookie).toBeUndefined()
     expect(init.headers['X-Group-Id']).toBe('42')
   })
 
   it('preserves the complete browser Cookie header', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
     const fullBrowserCookie = [
       'platform_cookie_consent=3',
       '_ga=analytics',
@@ -317,7 +318,7 @@ describe('fetchMiniMaxRateLimits', () => {
     await fetchMiniMaxRateLimits({
       cookie: fullBrowserCookie
     })
-    const [, init] = fetchMock.mock.calls[0]
+    const [, init] = netFetchMock.mock.calls[0]
     expect(getCookieJarSetNames()).toEqual([
       'platform_cookie_consent',
       '_ga',
@@ -334,19 +335,19 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('prefers explicit groupId over cookie value', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
     await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE, groupId: 'override-id' })
-    expect(fetchMock.mock.calls[0][1].headers['X-Group-Id']).toBe('override-id')
+    expect(netFetchMock.mock.calls[0][1].headers['X-Group-Id']).toBe('override-id')
   })
 
   it('falls back to cookie minimax_group_id_v2 when groupId is empty', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(80)))
     await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE, groupId: '' })
-    expect(fetchMock.mock.calls[0][1].headers['X-Group-Id']).toBe('12345')
+    expect(netFetchMock.mock.calls[0][1].headers['X-Group-Id']).toBe('12345')
   })
 
   it('surfaces base_resp status_code != 0 as usage-unavailable', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({ base_resp: { status_code: 401, status_msg: 'unauth' } })
     )
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
@@ -358,7 +359,7 @@ describe('fetchMiniMaxRateLimits', () => {
   // Why: the live API answers an expired cookie/key with HTTP 200 + status_code 1004,
   // never 401/403, so this is the only signal that reaches the stale-credential path.
   it('classifies status_code 1004 on the cookie path as an expired session cookie', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 1004, status_msg: 'cookie is missing, log in again' }
       })
@@ -370,7 +371,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('classifies status_code 1004 on the API key path as an expired API key', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 1004, status_msg: 'cookie is missing, log in again' }
       })
@@ -382,13 +383,13 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('classifies malformed MiniMax JSON responses as parse failures', async () => {
-    fetchMock.mockResolvedValueOnce({
+    netFetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => {
         throw new SyntaxError('Unexpected token <')
       }
-    })
+    } as unknown as Response)
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('error')
     expect(result.usageMetadata?.failureKind).toBe('parse')
@@ -396,7 +397,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('returns error when model_remains is empty', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({ base_resp: { status_code: 0 }, model_remains: [] })
     )
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
@@ -406,7 +407,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('returns error when configured model is not in response', async () => {
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({ base_resp: { status_code: 0 }, model_remains: [] })
     )
     const result = await fetchMiniMaxRateLimits({
@@ -418,7 +419,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('falls back to the lone snapshot when no configured model matches', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(40)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(40)))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       models: 'unrelated-model'
@@ -445,7 +446,7 @@ describe('fetchMiniMaxRateLimits', () => {
         remains_time: 5 * 60 * 60 * 1000
       }
     ]
-    fetchMock.mockResolvedValueOnce(makeResponse(payload))
+    netFetchMock.mockResolvedValueOnce(makeResponse(payload))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       models: 'general'
@@ -472,7 +473,7 @@ describe('fetchMiniMaxRateLimits', () => {
         remains_time: 5 * 60 * 60 * 1000
       }
     ]
-    fetchMock.mockResolvedValueOnce(makeResponse(payload))
+    netFetchMock.mockResolvedValueOnce(makeResponse(payload))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       models: '   '
@@ -483,7 +484,7 @@ describe('fetchMiniMaxRateLimits', () => {
 
   it('redacts _token in any error path that includes payload text', async () => {
     const payload = { base_resp: { status_code: 7, status_msg: FULL_COOKIE } }
-    fetchMock.mockResolvedValueOnce(makeResponse(payload))
+    netFetchMock.mockResolvedValueOnce(makeResponse(payload))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.error).not.toContain('eyJh')
     expect(result.error).not.toContain('minimax_group_id_v2=12345')
@@ -492,7 +493,7 @@ describe('fetchMiniMaxRateLimits', () => {
 
   it('logs MiniMax failures with cookie names but without cookie values', async () => {
     const warn = vi.mocked(console.warn)
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({ base_resp: { status_code: 7, status_msg: FULL_COOKIE } })
     )
     await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
@@ -506,7 +507,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('routes CN + API key to the bearer transport and hits www.minimaxi.com', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(72)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(72)))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       apiKey: 'sk-test-1234567890',
@@ -514,7 +515,7 @@ describe('fetchMiniMaxRateLimits', () => {
     })
     expect(result.status).toBe('ok')
     expect(result.session?.usedPercent).toBe(28)
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = netFetchMock.mock.calls[0]
     expect(url).toBe('https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains')
     expect(init.headers.Authorization).toBe('Bearer sk-test-1234567890')
     // Why: the API key path must not set browser-shaped headers — they're
@@ -530,13 +531,13 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('falls back to the cookie transport when no API key is provided', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(60)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(60)))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       endpointMode: 'cn'
     })
     expect(result.status).toBe('ok')
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = netFetchMock.mock.calls[0]
     expect(url).toBe('https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains')
     expect(init.headers.Authorization).toBeUndefined()
     expect(init.headers.Cookie).toBeUndefined()
@@ -548,14 +549,14 @@ describe('fetchMiniMaxRateLimits', () => {
   it('routes to API key on the overseas endpoint when both are configured', async () => {
     // Why: the API key path is a Bearer header — endpoint-agnostic, the
     // endpoint only picks the host URL. Either auth works on either endpoint.
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(50)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(50)))
     const result = await fetchMiniMaxRateLimits({
       cookie: FULL_COOKIE,
       apiKey: 'sk-overseas-key',
       endpointMode: 'overseas'
     })
     expect(result.status).toBe('ok')
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = netFetchMock.mock.calls[0]
     expect(url).toBe('https://platform.minimax.io/v1/api/openplatform/coding_plan/remains')
     expect(init.headers.Authorization).toBe('Bearer sk-overseas-key')
     // Why: API key path skips the cookie jar — cookiesSetMock is never called.
@@ -563,7 +564,7 @@ describe('fetchMiniMaxRateLimits', () => {
   })
 
   it('classifies a 401 on the API key path as a stale API key error', async () => {
-    fetchMock.mockResolvedValueOnce(makeResponse({}, 401))
+    netFetchMock.mockResolvedValueOnce(makeResponse({}, 401))
     const result = await fetchMiniMaxRateLimits({
       apiKey: 'sk-stale',
       endpointMode: 'cn'
@@ -575,7 +576,7 @@ describe('fetchMiniMaxRateLimits', () => {
 
   it('parses the 7-day weekly window alongside the 5-hour session', async () => {
     const now = Date.now()
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 0, status_msg: 'ok' },
         model_remains: [
@@ -609,7 +610,7 @@ describe('fetchMiniMaxRateLimits', () => {
   it('returns weekly = null when the API omits weekly fields', async () => {
     // Why: matches the existing makeOkPayload (no weekly fields) — guards
     // against the case where the upstream rolls back to the 5h-only schema.
-    fetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(50)))
+    netFetchMock.mockResolvedValueOnce(makeResponse(makeOkPayload(50)))
     const result = await fetchMiniMaxRateLimits({ cookie: FULL_COOKIE })
     expect(result.status).toBe('ok')
     expect(result.session?.usedPercent).toBe(50)
@@ -621,7 +622,7 @@ describe('fetchMiniMaxRateLimits', () => {
     // status bar falls back to the "wk" label via formatWindowLabel in that
     // case. Don't drop the percent just because resetsAt is unknown.
     const now = Date.now()
-    fetchMock.mockResolvedValueOnce(
+    netFetchMock.mockResolvedValueOnce(
       makeResponse({
         base_resp: { status_code: 0, status_msg: 'ok' },
         model_remains: [
@@ -643,5 +644,56 @@ describe('fetchMiniMaxRateLimits', () => {
       windowMinutes: 10080,
       resetsAt: null
     })
+  })
+})
+
+describe('normalizeMiniMaxCookieHeader', () => {
+  it('preserves all cookie pairs from a browser Cookie header', () => {
+    const normalized = normalizeMiniMaxCookieHeader(
+      '_token=tok; session=other; ak_bmsc=ak; minimax_group_id_v2=42; random=xyz'
+    )
+    expect(normalized).toBe(
+      '_token=tok; session=other; ak_bmsc=ak; minimax_group_id_v2=42; random=xyz'
+    )
+  })
+
+  it('normalizes quoted MiniMax cookie storage syntax', () => {
+    expect(normalizeMiniMaxCookieHeader('_token:"tok" minimax_group_id_v2:"42"')).toBe(
+      '_token=tok; minimax_group_id_v2=42'
+    )
+  })
+
+  it('accepts a copied Cookie header line', () => {
+    expect(normalizeMiniMaxCookieHeader('Cookie: session=abc; other=xyz')).toBe(
+      'session=abc; other=xyz'
+    )
+  })
+})
+
+describe('extractMiniMaxCookieValue', () => {
+  it('returns the value for a given cookie name', () => {
+    expect(extractMiniMaxCookieValue(FULL_COOKIE, 'minimax_group_id_v2')).toBe('12345')
+  })
+  it('returns null when the name is absent', () => {
+    expect(extractMiniMaxCookieValue('_token=tok', 'minimax_group_id_v2')).toBeNull()
+  })
+})
+
+describe('redactMiniMaxSecret', () => {
+  it('redacts _token values', () => {
+    expect(redactMiniMaxSecret('cookie _token=eyJhABCDEF')).toContain('_token=[REDACTED]')
+    expect(redactMiniMaxSecret('cookie _token=eyJhABCDEF')).not.toContain('eyJhABCDEF')
+  })
+  it('redacts minimax_group_id_v2 values', () => {
+    expect(redactMiniMaxSecret('minimax_group_id_v2=99999 trailing')).not.toContain('99999')
+  })
+  it('redacts MiniMax anti-bot cookie values', () => {
+    const redacted = redactMiniMaxSecret('ak_bmsc=secret bm_sv:"secret2"')
+    expect(redacted).not.toContain('secret')
+    expect(redacted).toContain('ak_bmsc=[REDACTED]')
+    expect(redacted).toContain('bm_sv:[REDACTED]')
+  })
+  it('redacts Cookie: header lines', () => {
+    expect(redactMiniMaxSecret('X-Cookie: _token=secret')).toContain('[REDACTED]')
   })
 })

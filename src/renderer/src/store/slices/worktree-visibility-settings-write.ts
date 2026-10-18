@@ -1,5 +1,4 @@
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { defaultScopeHost } from '@/lib/default-creation-host'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import {
   LOCAL_EXECUTION_HOST_ID,
   toRuntimeExecutionHostId
@@ -23,8 +22,7 @@ export async function persistVisibilityAwareSettings(args: {
     shouldPublish = () => true,
     set
   } = args
-  // Why: the write lands on the default scope host whose defaults the store mirrors.
-  const target = defaultScopeHost(currentSettings)
+  const target = getActiveRuntimeTarget(currentSettings)
   if ('worktreeVisibilityDefaults' in normalizedUpdates && target.kind === 'environment') {
     const { worktreeVisibilityDefaults, ...localUpdates } = normalizedUpdates
     if (target.environmentId !== supportedRuntimeEnvironmentId) {
@@ -55,7 +53,7 @@ export async function persistVisibilityAwareSettings(args: {
       } catch (error) {
         if (localSettings && shouldPublish()) {
           set((state) => {
-            const currentTarget = defaultScopeHost(state.settings)
+            const currentTarget = getActiveRuntimeTarget(state.settings)
             const stillFocused =
               currentTarget.kind === 'environment' &&
               currentTarget.environmentId === target.environmentId
@@ -82,7 +80,7 @@ export async function persistVisibilityAwareSettings(args: {
       return
     }
     set((state) => {
-      const currentTarget = defaultScopeHost(state.settings)
+      const currentTarget = getActiveRuntimeTarget(state.settings)
       const stillFocused =
         currentTarget.kind === 'environment' && currentTarget.environmentId === target.environmentId
       return {

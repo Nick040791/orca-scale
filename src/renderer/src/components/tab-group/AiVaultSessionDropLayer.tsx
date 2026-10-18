@@ -1,4 +1,3 @@
-import { getAiVaultResumeWorkspaceWslDistro } from '@/lib/ai-vault-resume-shell'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner'
 import {
@@ -18,12 +17,12 @@ import {
   getAiVaultAgentProviderSession
 } from '@/lib/ai-vault-resume-command'
 import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
-import { prepareAiVaultTerminalResumeRequest } from '@/lib/ai-vault-session-resume-preparation'
-import { describeAiVaultResumeFailure } from '@/lib/ai-vault-resume-refusal'
+import { aiVaultSessionNeedsResumePreparation } from '@/lib/ai-vault-session-resume-preparation'
 import { useAppStore } from '@/store'
 import { resolveDropZone } from './tab-drop-zone'
 import type { TabDropZone } from './useTabDragSplit'
 import { translate } from '@/i18n/i18n'
+import type { AiVaultPrepareSessionResumeResult } from '../../../../shared/ai-vault-resume-preparation'
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
 
 type PaneDropTarget = {
@@ -201,8 +200,7 @@ export default function AiVaultSessionDropLayer({
           sessionFilePath: payload.sessionFilePath ?? null,
           sessionExecutionHostId: payload.sessionExecutionHostId ?? null,
           targetStatus,
-          targetExecutionHostId,
-          targetWslDistro: getAiVaultResumeWorkspaceWslDistro(state, worktreeId)
+          targetExecutionHostId
         })
       ) {
         toast.error(
@@ -222,22 +220,23 @@ export default function AiVaultSessionDropLayer({
           )
         )
       }
-      if (!payload.sessionFilePath || !payload.sessionExecutionHostId) {
-        toast.error(
-          translate(
-            'auto.components.tab.group.AiVaultSessionDropLayer.oldPayload',
-            'This session was dragged from an older Orca window. Resume it from Session History instead.'
-          )
-        )
-        return true
-      }
-      const preparation = prepareAiVaultTerminalResumeRequest({
-        agent: payload.agent,
-        sessionId: payload.sessionId,
-        filePath: payload.sessionFilePath,
-        executionHostId: payload.sessionExecutionHostId,
-        codexHome: payload.codexHome ?? null
-      })
+      const preparation =
+        payload.sessionFilePath &&
+        payload.sessionExecutionHostId &&
+        payload.codexHome !== undefined &&
+        aiVaultSessionNeedsResumePreparation({
+          agent: payload.agent,
+          codexHome: payload.codexHome,
+          executionHostId: payload.sessionExecutionHostId
+        })
+          ? window.api.aiVault.prepareSessionResume({
+              agent: payload.agent,
+              sessionId: payload.sessionId,
+              filePath: payload.sessionFilePath,
+              executionHostId: payload.sessionExecutionHostId,
+              codexHome: payload.codexHome
+            })
+          : Promise.resolve<AiVaultPrepareSessionResumeResult>({ useRealCodexHome: false })
       void preparation
         .then((result) => {
           const startup = result.useRealCodexHome
@@ -281,9 +280,7 @@ export default function AiVaultSessionDropLayer({
             void launchResult.runtimeLaunch.then((outcome) => {
               if (outcome.status === 'failed') {
                 toast.error(
-                  (outcome.message
-                    ? describeAiVaultResumeFailure(new Error(outcome.message), payload.agent)
-                    : null) ||
+                  outcome.message ||
                     translate(
                       'auto.lib.launch.agent.in.new.tab.11cce5cc77',
                       'Could not launch {{value0}} in a new terminal.',
@@ -299,7 +296,14 @@ export default function AiVaultSessionDropLayer({
           showQueuedToast()
         })
         .catch((error: unknown) => {
-          toast.error(describeAiVaultResumeFailure(error, payload.agent))
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : translate(
+                  'auto.components.right.sidebar.AiVaultPanel.prepareSessionResumeFailed',
+                  'Could not prepare this session for resume.'
+                )
+          )
         })
       return true
     },

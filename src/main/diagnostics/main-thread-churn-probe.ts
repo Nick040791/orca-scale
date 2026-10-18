@@ -76,8 +76,8 @@ export function classifySubprocessCommand(command: string, args: readonly string
 
 export type SubprocessSpawnStats = {
   count: number
-  // Cumulative and worst main-thread block: the spawn initiation (uv_spawn →
-  // posix_spawn) for async launches, the whole run for runProcessSync.
+  // Cumulative and worst synchronous cost of initiating the spawn (the
+  // uv_spawn → posix_spawn call runs on the main thread before returning).
   blockMsTotal: number
   blockMsMax: number
 }
@@ -86,7 +86,7 @@ const spawnStatsByCommand = new Map<string, SubprocessSpawnStats>()
 
 /**
  * Record one subprocess spawn from the main process. `blockMs` is how long
- * the spawn call held the main thread (until exit for synchronous launches).
+ * the synchronous spawn/execFile initiation call held the main thread.
  * No-op unless ORCA_MAIN_THREAD_DIAGNOSTICS=1.
  */
 export function recordSubprocessSpawn(

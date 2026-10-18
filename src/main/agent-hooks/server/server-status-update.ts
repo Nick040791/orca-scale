@@ -1,4 +1,3 @@
-import { transitionHookPresence } from '../../../shared/agent-hook-presence-transition'
 import {
   reconcileRemoteCodexState,
   markCodexLeadTurnInterrupted
@@ -10,8 +9,6 @@ import {
 import type { EnrichedAgentHookEventPayload } from './server-types'
 import type { AgentHookEventPayload } from '../../../shared/agent-hook-listener/listener-event'
 import type { AgentStatusObservationOrigin } from '../../../shared/agent-status-observation'
-import { ClaudeOwedNotificationExpiryTimers } from '../../../shared/claude-owed-notification-expiry-timers'
-import { setClaudeMainAgentTurnState } from '../../../shared/agent-hook-listener/providers/claude-roster-state'
 import {
   attachClaudePermissionToolUseId,
   pairedClaudeNonAgentWork,
@@ -21,29 +18,8 @@ import {
 import { isStaleGrokTurnEnd } from './server-grok-status-rules'
 import { resolveCancelVerdictLatch } from './server-cancel-verdict-latch'
 import { AgentHookServerStatusApplication } from './server-status-application'
-import { claimsPaneAfterExit } from './agent-exit-evidence'
 
 export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusApplication {
-  protected readonly claudeOwedNotificationExpiry = new ClaudeOwedNotificationExpiryTimers(
-    this.state
-  )
-
-  // Why here: every stored row passes through, including a cancel inference and a pane move.
-  protected override commitStatusRowMutation(
-    before: EnrichedAgentHookEventPayload | null | undefined,
-    after: EnrichedAgentHookEventPayload | null | undefined,
-    emit = true
-  ): boolean {
-    if (after) {
-      this.claudeOwedNotificationExpiry.arm(after.paneKey, (row) => {
-        if (this.server) {
-          this.applyNormalizedStatus(row)
-        }
-      })
-    }
-    return super.commitStatusRowMutation(before, after, emit)
-  }
-
   protected applyNormalizedStatus(
     incoming: AgentHookEventPayload & { authorityRestartId?: string },
     onAccepted?: () => void,
@@ -51,33 +27,13 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     observedAt?: number,
     mutationBefore?: EnrichedAgentHookEventPayload
   ): EnrichedAgentHookEventPayload | undefined {
-    const transitioned = transitionHookPresence(
-      incoming,
-      this.state.lastStatusByPaneKey.get(incoming.paneKey)
-    )
-    if (!transitioned) {
-      return undefined
-    }
-    const { authorityRestartId, ...payload } = { ...incoming, ...transitioned }
+    const { authorityRestartId, ...payload } = incoming
     if (!this.canWriteLegacyStatusRow(payload)) {
       return undefined
     }
-    if (payload.agentPresence?.ended) {
-      this.reconcileEndedProcessForPaneKeys([payload.paneKey], {
-        preserveResumeIdentity: true,
-        endedPresence: payload.agentPresence
-      })
-      return undefined
-    }
-    const priorExit =
-      this.agentExitedAtByPaneKey.get(this.resolvePaneKeyAlias(payload.paneKey)) ??
-      this.agentExitedAtByPaneKey.get(payload.paneKey)
-    // Why the incoming presence: the transition may stamp a stale owner over the sender's own identity.
-    if (
-      priorExit &&
-      claimsPaneAfterExit({ ...payload, agentPresence: incoming.agentPresence }, priorExit)
-    ) {
-      this.forgetAgentExit(payload.paneKey)
+    if (payload.hookEventName === 'UserPromptSubmit') {
+      // Why: the prompt boundary is authoritative even when text is unchanged; its next OSC working row must not inherit the prior cron/background turn stamp.
+      this.activeHookTurnCompletedAtByPaneKey.delete(payload.paneKey)
     }
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Main admits enriched legacy rows; the shared view declares their base event type.
     const previous = this.state.lastStatusByPaneKey.get(payload.paneKey) as
@@ -99,40 +55,13 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     const connectionClearWatermark = terminalOwnedPayload.connectionId
       ? this.connectionTimestampWatermarkById.get(terminalOwnedPayload.connectionId)
       : undefined
+    // Why: renderer ordering rejects older rows; live evidence must sort after reconnect clears and restored rows across clock rollback.
     const restoredStatusWatermark = previous?.restoredUnconfirmed ? previous.receivedAt : undefined
-    // Delivery ordering and identity freshness must use the same clock across rollback.
     const now = Math.max(
       Date.now(),
       (connectionClearWatermark ?? -1) + 1,
       (restoredStatusWatermark ?? -1) + 1
     )
-    const identity = resolveAgentStatusIdentity({
-      existing:
-        previous && this.sameTerminalOwner(previous, terminalOwnedPayload)
-          ? {
-              agentType: previous.payload.agentType,
-              state: previous.payload.state,
-              updatedAt: previous.receivedAt,
-              restoredUnconfirmed: previous.restoredUnconfirmed,
-              agentPresence: previous.providerSessionOnly ? undefined : previous.agentPresence
-            }
-          : undefined,
-      incoming: terminalOwnedPayload.payload.agentType,
-      now
-    })
-    if (
-      previous &&
-      shouldSuppressInheritedTerminalStatus({
-        inheritedFromActivePane: identity.inheritedFromActivePane
-      })
-    ) {
-      this.commitStatusRowMutation(rowBefore, previous)
-      return previous
-    }
-    if (payload.hookEventName === 'UserPromptSubmit') {
-      // Why: the prompt boundary is authoritative even when text is unchanged; its next OSC working row must not inherit the prior cron/background turn stamp.
-      this.activeHookTurnCompletedAtByPaneKey.delete(payload.paneKey)
-    }
     if (terminalOwnedPayload.connectionId) {
       this.connectionTimestampWatermarkById.set(terminalOwnedPayload.connectionId, now)
     }
@@ -155,9 +84,9 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       return enriched
     }
     const stateReconciledPayload =
-      (terminalOwnedPayload.connectionId || !terminalOwnedPayload.hookEventName) &&
+      terminalOwnedPayload.connectionId &&
       terminalOwnedPayload.payload.agentType === 'codex' &&
-      (terminalOwnedPayload.hookEventName || terminalOwnedPayload.payload.mainAgent)
+      terminalOwnedPayload.hookEventName
         ? {
             ...terminalOwnedPayload,
             payload: reconcileRemoteCodexState(
@@ -193,6 +122,28 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
               : stateReconciledPayload.payload
           }
         : stateReconciledPayload
+    const identity = resolveAgentStatusIdentity({
+      existing: previous
+        ? {
+            agentType: previous.payload.agentType,
+            state: previous.payload.state,
+            updatedAt: previous.receivedAt,
+            restoredUnconfirmed: previous.restoredUnconfirmed
+          }
+        : undefined,
+      incoming: rootContextPreservingPayload.payload.agentType,
+      now
+    })
+    if (
+      previous &&
+      shouldSuppressInheritedTerminalStatus({
+        inheritedFromActivePane: identity.inheritedFromActivePane,
+        incomingState: rootContextPreservingPayload.payload.state
+      })
+    ) {
+      this.commitStatusRowMutation(rowBefore, previous)
+      return previous
+    }
     const identityResolvedPayload =
       identity.agentType === rootContextPreservingPayload.payload.agentType
         ? rootContextPreservingPayload
@@ -205,16 +156,6 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     // restatement of a main agent the desktop cancelled must not replace the cancel.
     const latch = resolveCancelVerdictLatch(previous, attachedPayload, Date.now())
     if (latch.hold) {
-      if (
-        attachedPayload.connectionId === null &&
-        attachedPayload.payload.agentType === 'claude' &&
-        previous?.connectionId === null &&
-        previous.payload.mainAgent?.state === 'done' &&
-        this.sameTerminalOwner(previous, attachedPayload)
-      ) {
-        // A refused late hook already mutated the local producer; keep its idle lease clock.
-        setClaudeMainAgentTurnState(this.state, attachedPayload.paneKey, previous.payload.mainAgent)
-      }
       if (
         attachedPayload.payload.agentType === 'codex' &&
         attachedPayload.payload.state === 'working'
@@ -257,12 +198,7 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     }
     // Why carried forward only within one host: main's OSC parse resolves the handle, so a later
     // hook must not erase its terminal join; a connection change must not inherit another host's.
-    // Why drop the settled list: it vouches for this replay's transition only, not for the stored row.
-    const {
-      claudeRunningNonAgentTask: _unpaired,
-      claudeSettledRequests: _settled,
-      ...unpairedPayload
-    } = effectivePayload
+    const { claudeRunningNonAgentTask: _unpaired, ...unpairedPayload } = effectivePayload
     const runningNonAgentTask = pairedClaudeNonAgentWork(previous, effectivePayload)
     const pairedPayload =
       runningNonAgentTask === undefined

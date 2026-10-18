@@ -7,6 +7,7 @@ import {
   getSshTargetDraftConnectionFields,
   hasAdvancedConnectionValues,
   isSshTargetFormDirty,
+  parseRelayGracePeriodSeconds,
   parseSshHostInput,
   type EditingTarget
 } from './ssh-target-draft'
@@ -158,6 +159,12 @@ describe('getSshTargetDraftConnectionFields', () => {
 })
 
 describe('getEditingTargetForSshTarget', () => {
+  it('defaults new SSH targets to keep terminals alive until reset', () => {
+    expect(EMPTY_FORM.relayKeepAliveUntilReset).toBe(true)
+    expect(EMPTY_FORM.relayGracePeriodSeconds).toBe('86400')
+    expect(parseRelayGracePeriodSeconds(EMPTY_FORM)).toBe(0)
+  })
+
   it('recomputes implicit configHost when a manual target host is edited', () => {
     const draft = getEditingTargetForSshTarget({
       id: 'ssh-1',
@@ -211,6 +218,34 @@ describe('getEditingTargetForSshTarget', () => {
     })
 
     expect(draft.systemSshConnectionReuse).toBe(false)
+  })
+
+  it('uses the default persistence for targets without an explicit grace period', () => {
+    const draft = getEditingTargetForSshTarget({
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'server.example.com',
+      port: 22,
+      username: 'deploy'
+    })
+
+    expect(draft.relayKeepAliveUntilReset).toBe(true)
+    expect(draft.relayGracePeriodSeconds).toBe('86400')
+    expect(parseRelayGracePeriodSeconds(draft)).toBe(0)
+  })
+
+  it('preserves explicit bounded relay grace periods when editing', () => {
+    const draft = getEditingTargetForSshTarget({
+      id: 'ssh-1',
+      label: 'Bounded server',
+      host: 'server.example.com',
+      port: 22,
+      username: 'deploy',
+      relayGracePeriodSeconds: 600
+    })
+
+    expect(draft.relayKeepAliveUntilReset).toBe(false)
+    expect(draft.relayGracePeriodSeconds).toBe('600')
   })
 })
 
@@ -288,7 +323,9 @@ describe('isSshTargetFormDirty', () => {
     { gssapiAuthentication: true },
     { proxyCommand: 'nc %h %p' },
     { jumpHost: 'bastion' },
-    { systemSshConnectionReuse: false }
+    { systemSshConnectionReuse: false },
+    { relayGracePeriodSeconds: '600' },
+    { relayKeepAliveUntilReset: false }
   ])('detects %o against the open-session baseline', (change) => {
     expect(isSshTargetFormDirty({ ...EMPTY_FORM, ...change }, EMPTY_FORM)).toBe(true)
   })

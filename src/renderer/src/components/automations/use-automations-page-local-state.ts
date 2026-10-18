@@ -6,7 +6,7 @@ import type {
 } from '../../../../shared/automations-types'
 import type { OrcaHooks } from '../../../../shared/orca-yaml-hook-types'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
-import type { AutomationDraft } from './AutomationEditorDialog'
+import type { AutomationCreateTarget, AutomationDraft } from './AutomationEditorDialog'
 import { AUTOMATION_DEFAULT_TIME } from './automation-draft-model'
 import type { AutomationActionNotice } from './automation-row-action-dispatch'
 import type { AutomationHostCatalogEntry } from './automation-host-catalog-types'
@@ -20,7 +20,8 @@ import {
 import type {
   AutomationPaneTab,
   AutomationRunPageOrigin,
-  AutomationsPageView
+  AutomationsPageView,
+  SelectedExternalRunPage
 } from './automation-page-state'
 import type { ExternalAutomationScope } from './external-automation-scope-client'
 import type { SelectedAutomationRunHistoryOutcome } from './use-selected-automation-run-history'
@@ -59,6 +60,7 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
   const [listFilter, setListFilter] = useState<AutomationListFilter>(EMPTY_AUTOMATION_LIST_FILTER)
   const [listSort, setListSort] = useState<AutomationListSort | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [createTarget, setCreateTarget] = useState<AutomationCreateTarget>('orca')
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null)
   const [editingRowKey, setEditingRowKey] = useState<string | null>(null)
   const [editingDestination, setEditingDestination] = useState<{
@@ -76,6 +78,8 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
   )
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null)
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null)
+  const [selectedExternalRunPage, setSelectedExternalRunPage] =
+    useState<SelectedExternalRunPage | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const selectedExternalKeyRef = useRef<string | null>(null)
   useEffect(() => {
@@ -91,6 +95,7 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     [setSelectedId]
   )
   const selectExternalKey = useCallback((externalKey: string | null): void => {
+    setSelectedExternalRunPage(null)
     setSelectedExternalKey(externalKey)
   }, [])
   const [draftAtOpen, setDraftAtOpen] = useState<AutomationDraft | null>(null)
@@ -105,6 +110,11 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     !isLoading && !createOpen && !deleteTarget && !externalDeleteTarget,
     'automations_open'
   )
+  const [editingExternalTarget, setEditingExternalTarget] = useState<{
+    manager: ExternalAutomationManager
+    job: ExternalAutomationJob
+    scope: ExternalAutomationScope
+  } | null>(null)
   const [dontAskDeleteAgain, setDontAskDeleteAgain] = useState(false)
   const editRequestRef = useRef(0)
   const deleteConfirmButtonRef = useRef<HTMLButtonElement>(null)
@@ -124,7 +134,6 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     name: '',
     prompt: '',
     agentId: defaultAgent,
-    extraAgentArgs: '',
     projectId: '',
     workspaceMode: 'existing',
     workspaceId: '',
@@ -179,6 +188,8 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     setListSort,
     createOpen,
     setCreateOpen,
+    createTarget,
+    setCreateTarget,
     editingAutomationId,
     setEditingAutomationId,
     editingRowKey,
@@ -202,6 +213,8 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     setSelectedRowKey,
     selectedExternalKey,
     setSelectedExternalKey,
+    selectedExternalRunPage,
+    setSelectedExternalRunPage,
     isDetailOpen,
     setIsDetailOpen,
     selectedExternalKeyRef,
@@ -213,6 +226,8 @@ export function useAutomationsPageLocalState(store: AutomationsPageStoreState) {
     setDeleteTarget,
     externalDeleteTarget,
     setExternalDeleteTarget,
+    editingExternalTarget,
+    setEditingExternalTarget,
     dontAskDeleteAgain,
     setDontAskDeleteAgain,
     editRequestRef,

@@ -118,8 +118,8 @@ export function createAgentCompletionProcessMonitor({
               : {})
           }
           const result = await (Object.keys(inspectOptions).length > 0
-            ? options.inspectProcess(ptyId, inspectOptions)
-            : options.inspectProcess(ptyId))
+            ? options.inspectProcess(options.getSettings(), ptyId, inspectOptions)
+            : options.inspectProcess(options.getSettings(), ptyId))
           if (
             !state.disposed &&
             generationAtRequest === state.inspectionGeneration &&
@@ -184,11 +184,6 @@ export function createAgentCompletionProcessMonitor({
     requestInspection,
     scheduleNextPoll,
     clearPollTimer,
-    observeRecognizedProcess: (process: RecognizedAgentProcess) => {
-      if (!state.disposed) {
-        handleRecognizedProcess(process)
-      }
-    },
     start: () => {
       state.pollTrackingStarted = true
       scheduleNextPoll()

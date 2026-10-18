@@ -1,5 +1,6 @@
 import { ipcMain, type WebContents } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
+import type { Store } from '../persistence'
 import type {
   LocalLogTailChangedPayload,
   LocalLogTailReadArgs,
@@ -7,8 +8,7 @@ import type {
   LocalLogTailWatchArgs
 } from '../../shared/local-log-tail-types'
 import { readLocalLogTailRange } from '../ai-vault/local-log-tail-reader'
-import type { Store } from '../persistence'
-import { resolveUserNamedRegularFile } from './local-file-access-resolution'
+import { resolveAuthorizedPath } from './filesystem-auth'
 import { abortWhenRendererGone } from './renderer-lifetime-abort'
 
 type TailSenderOwner = {
@@ -109,7 +109,7 @@ async function startWatch(
   const pending = Symbol(subscriptionId)
   owner.pending.set(key, pending)
   try {
-    const filePath = await resolveUserNamedRegularFile(args.filePath, store)
+    const filePath = await resolveAuthorizedPath(args.filePath, store)
     if (
       sender.isDestroyed() ||
       owner.signal.aborted ||
@@ -147,7 +147,7 @@ export function registerLocalLogTailHandlers(store: Store): void {
   ipcMain.handle(
     'fs:readLocalLogTail',
     async (_event, args: LocalLogTailReadArgs): Promise<LocalLogTailReadResult> => {
-      const filePath = await resolveUserNamedRegularFile(args.filePath, store)
+      const filePath = await resolveAuthorizedPath(args.filePath, store)
       return readLocalLogTailRange(filePath, args.fromByteOffset, args.expectedIdentity)
     }
   )

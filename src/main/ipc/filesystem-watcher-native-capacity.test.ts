@@ -21,8 +21,7 @@ vi.mock('../providers/ssh-filesystem-dispatch', () => ({
   onSshFilesystemProviderRegistered: () => () => {}
 }))
 
-import { closeAllWatchers } from './filesystem-watcher-shutdown'
-import { registerFilesystemWatcherHandlers } from './filesystem-watcher-handlers'
+import { closeAllWatchers, registerFilesystemWatcherHandlers } from './filesystem-watcher'
 import {
   MAX_PHYSICAL_WATCHER_CHILDREN,
   reserveWatcherChild,

@@ -21,7 +21,6 @@ export type WorktreeBaseCollectedChanges = {
   gitStatusRepoIds: string[]
   headIdentityRepoIds: string[]
   headIdentityScope: WorktreeHeadIdentityScope
-  gitStatusScope: WorktreeHeadIdentityScope
 }
 
 export function hasCollectedWorktreeBaseChanges(changes: WorktreeBaseCollectedChanges): boolean {
@@ -35,7 +34,6 @@ type ChangeBuckets = {
   gitStatusRepoIds: Set<string>
   headIdentityRepoIds: Set<string>
   headIdentityScope: WorktreeHeadIdentityScope
-  gitStatusScope: WorktreeHeadIdentityScope
 }
 
 function emptyBuckets(): ChangeBuckets {
@@ -43,8 +41,7 @@ function emptyBuckets(): ChangeBuckets {
     structureRepoIds: new Set<string>(),
     gitStatusRepoIds: new Set<string>(),
     headIdentityRepoIds: new Set<string>(),
-    headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE,
-    gitStatusScope: EMPTY_HEAD_IDENTITY_SCOPE
+    headIdentityScope: EMPTY_HEAD_IDENTITY_SCOPE
   }
 }
 
@@ -57,8 +54,7 @@ function overflowChanges(): WorktreeBaseCollectedChanges {
     structureRepoIds: [],
     gitStatusRepoIds: [],
     headIdentityRepoIds: [],
-    headIdentityScope: FULL_HEAD_IDENTITY_SCOPE,
-    gitStatusScope: FULL_HEAD_IDENTITY_SCOPE
+    headIdentityScope: FULL_HEAD_IDENTITY_SCOPE
   }
 }
 
@@ -81,7 +77,6 @@ function addMatchingChange(
     buckets.headIdentityScope,
     change.headIdentityScope
   )
-  buckets.gitStatusScope = mergeHeadIdentityScopes(buckets.gitStatusScope, change.gitStatusScope)
 }
 
 function toCollectedChanges(buckets: ChangeBuckets): WorktreeBaseCollectedChanges {
@@ -90,8 +85,7 @@ function toCollectedChanges(buckets: ChangeBuckets): WorktreeBaseCollectedChange
     structureRepoIds: [...buckets.structureRepoIds],
     gitStatusRepoIds: [...buckets.gitStatusRepoIds],
     headIdentityRepoIds: [...buckets.headIdentityRepoIds],
-    headIdentityScope: buckets.headIdentityScope,
-    gitStatusScope: buckets.gitStatusScope
+    headIdentityScope: buckets.headIdentityScope
   }
 }
 

@@ -3,11 +3,8 @@ import { createFolderWorktree } from '../repo-worktrees'
 import type { Repo } from '../../shared/repo-types'
 import type { Worktree } from '../../shared/worktree/types'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
-import {
-  FOLDER_WORKSPACE_INSTANCE_SEPARATOR,
-  getRepoMainWorktreeId
-} from '../../shared/worktree/id'
-import { mergeWorktree } from './worktree-metadata-merge'
+import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree/id'
+import { mergeWorktree } from './worktree-logic'
 import { getRepoOwnedWorktreeMeta } from '../worktree-metadata-ownership'
 
 export function listWorkspaceCleanupFolderWorkspaces(
@@ -15,7 +12,7 @@ export function listWorkspaceCleanupFolderWorkspaces(
   repo: Repo,
   repoOwnerCount: number
 ): Worktree[] {
-  const rootId = getRepoMainWorktreeId(repo)
+  const rootId = `${repo.id}::${repo.path}`
   const instancePrefix = `${rootId}${FOLDER_WORKSPACE_INSTANCE_SEPARATOR}`
   const allMeta: Readonly<Record<string, WorktreeMeta>> = store.getAllWorktreeMeta()
   const worktreeIds = [

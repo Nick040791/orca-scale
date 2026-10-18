@@ -1,4 +1,3 @@
-import '../../../unused-default-rpc-methods.test-fixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ORCHESTRATION_CONTRACT_VERSION } from '../../../../../../shared/protocol-version'
 import { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -39,7 +38,7 @@ describe('orchestration federated message targeting', () => {
         payloadHash: 'attach_payload'
       }
     })
-    db.prepareRemoteAttachmentAuthority({
+    const capability = db.prepareRemoteAttachmentAuthority({
       dispatchId,
       paneKey,
       processIncarnation,
@@ -51,22 +50,22 @@ describe('orchestration federated message targeting', () => {
     db.markRemoteAttachmentReady(dispatchId)
     const dispatcher = new RpcDispatcher({ runtime, methods: ORCHESTRATION_METHODS })
     const requests: RpcRequest[] = [
-      request('send_to', 'orchestration.send', {
+      request('send_to', capability, 'orchestration.send', {
         from: 'term_remote_worker',
         to: 'run:explicit',
         subject: 'Wrong explicit target'
       }),
-      request('send_run', 'orchestration.send', {
+      request('send_run', capability, 'orchestration.send', {
         from: 'term_remote_worker',
         run: 'run_explicit',
         subject: 'Wrong explicit Run'
       }),
-      request('ask_to', 'orchestration.ask', {
+      request('ask_to', capability, 'orchestration.ask', {
         from: 'term_remote_worker',
         to: 'run:explicit',
         question: 'Wrong explicit target?'
       }),
-      request('ask_run', 'orchestration.ask', {
+      request('ask_run', capability, 'orchestration.ask', {
         from: 'term_remote_worker',
         run: 'run_explicit',
         question: 'Wrong explicit Run?'
@@ -90,6 +89,7 @@ describe('orchestration federated message targeting', () => {
 
 function request(
   id: string,
+  capability: string,
   method: 'orchestration.send' | 'orchestration.ask',
   params: Record<string, unknown>
 ): RpcRequest {
@@ -98,6 +98,7 @@ function request(
     authToken: 'worker-token',
     orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
     orchestrationRequestId: `request_${id}`,
+    orchestrationCapability: capability,
     method,
     params
   }

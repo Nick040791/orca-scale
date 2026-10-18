@@ -102,7 +102,6 @@ export type TerminalDocumentTerminal = {
   onLineFeed?: (listener: () => void) => TerminalDocumentDisposable
   onScroll?: (listener: () => void) => TerminalDocumentDisposable
   onWriteParsed?: (listener: () => void) => TerminalDocumentDisposable
-  onRender?: (listener: () => void) => TerminalDocumentDisposable
   resize: (cols: number, rows: number) => void
   refresh: (start: number, end: number) => void
   dispose: () => void

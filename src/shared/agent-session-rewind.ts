@@ -1,9 +1,5 @@
 import { z } from 'zod'
-import {
-  AgentJournalItemBodySchema,
-  AgentJournalProducerLinkageFields,
-  AgentJournalTurnScopeSchema
-} from './agent-session-journal-schemas'
+import { AgentJournalItemBodySchema } from './agent-session-journal-schemas'
 import { parseAgentJournalItemKey } from './agent-session-journal-item-key'
 import type { AgentSessionMutationEnvelope } from './agent-session-wire'
 
@@ -27,11 +23,7 @@ export type AgentSessionRewindParams = {
   itemId: string
   expectedEpoch: string
 }
-export type AgentSessionRewindResult = {
-  itemId: string
-  epoch: string
-  sequence?: number
-}
+export type AgentSessionRewindResult = { itemId: string; epoch: string }
 
 const Key = z.string().min(1).max(4096)
 export const AgentSessionRewindRecordSchema = z.object({
@@ -40,28 +32,17 @@ export const AgentSessionRewindRecordSchema = z.object({
   itemId: Key,
   providerItemId: Key.optional(),
   expectedEpoch: Key,
-  contextClearOperationId: Key.optional(),
-  contextClearSequence: z.number().int().positive().optional(),
   phase: z.enum(['prepared', 'provider-succeeded', 'completed', 'refused']),
   epoch: Key.optional(),
-  sequence: z.number().int().nonnegative().optional(),
   hydrationVerified: z.boolean().optional(),
+  providerApplied: z.boolean().optional(),
   reason: z.string().min(1).max(512).optional(),
   retained: z
     .array(
       z.object({
         itemId: Key.refine((key) => parseAgentJournalItemKey(key) !== null),
         body: AgentJournalItemBodySchema,
-        observedAt: z.number().finite(),
-        // Absent on records written before rows stated them: the rebuild then places the row by position.
-        turnScope: AgentJournalTurnScopeSchema.optional(),
-        // The row's execution provenance, carried into the rebuilt epoch. Absent on records written
-        // before rows carried it.
-        ownerFence: z.number().int().nonnegative().optional(),
-        // The run executing a reusable child's row, kept apart from `ownerFence`. Absent on records
-        // written before rows carried it.
-        executionOwner: z.number().int().nonnegative().optional(),
-        ...AgentJournalProducerLinkageFields
+        observedAt: z.number().finite()
       })
     )
     .max(10_000)

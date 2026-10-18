@@ -8,9 +8,7 @@ export function antigravityConversationIdFromTranscriptPath(filePath: string): s
   const segments = pathSegments(filePath)
   const transcriptIndex = segments.length - 1
   if (
-    ![ANTIGRAVITY_TRANSCRIPT_FILE, 'transcript_full.jsonl'].includes(
-      segments[transcriptIndex] ?? ''
-    ) ||
+    segments[transcriptIndex] !== ANTIGRAVITY_TRANSCRIPT_FILE ||
     segments[transcriptIndex - 1] !== ANTIGRAVITY_LOGS_DIR ||
     segments[transcriptIndex - 2] !== ANTIGRAVITY_SYSTEM_DIR
   ) {

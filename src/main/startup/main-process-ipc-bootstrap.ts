@@ -2,11 +2,7 @@ import { ipcMain } from 'electron'
 import { recoverLegacyWorkerTerminalsForRendererStartup } from './legacy-worker-renderer-recovery'
 import { logStartupMilestone } from './startup-diagnostics'
 import { mainProcessState as state } from './main-process-state'
-import { resolveOsOpenedDocuments } from './os-opened-documents'
-import {
-  onStructuredAgentSessionsHeldChanged,
-  structuredAgentSessionsHeld
-} from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { resolveOpenedMarkdownDocuments } from './os-opened-markdown-files'
 
 export function registerMainProcessIpcHandlers(): void {
   ipcMain.handle('app:awaitFirstWindowStartupServices', async () => {
@@ -28,15 +24,6 @@ export function registerMainProcessIpcHandlers(): void {
       state.managedWslCliStartupBarrierReady
     ])
     await state.runtime?.prepareStructuredAgentSessionStartupRestoration()
-  })
-  // Whether this runtime holds a structured chat (a saved record or one a client created here), which
-  // is when the renderer has chats of this machine's to mirror. Many non-chat paths build the host.
-  ipcMain.handle('app:holdsStructuredAgentSessions', () => structuredAgentSessionsHeld())
-  onStructuredAgentSessionsHeldChanged((held) => {
-    const window = state.mainWindow
-    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-      window.webContents.send('app:structuredAgentSessionsHeldChanged', held)
-    }
   })
   ipcMain.handle('app:recoverLegacyWorkerTerminalsForRendererStartup', () =>
     recoverLegacyWorkerTerminalsForRendererStartup({
@@ -61,13 +48,13 @@ export function registerMainProcessIpcHandlers(): void {
   // cold-start "Open With" queued before mount still opens. The pull doubles as the proof
   // that the listener is live, which is what lets main start pushing.
   ipcMain.handle('ui:consumePendingMarkdownFileOpens', async () => {
-    state.osDocumentOpenListenerReady = true
-    const filePaths = state.osOpenedDocuments.consume()
+    state.markdownFileOpenListenerReady = true
+    const filePaths = state.osOpenedMarkdownFiles.consume()
     try {
-      return await resolveOsOpenedDocuments(filePaths)
+      return await resolveOpenedMarkdownDocuments(filePaths)
     } catch (error) {
       // Why restored: the renderer never received these, so a later mount must still get them.
-      state.osOpenedDocuments.restore(filePaths)
+      state.osOpenedMarkdownFiles.restore(filePaths)
       throw error
     }
   })

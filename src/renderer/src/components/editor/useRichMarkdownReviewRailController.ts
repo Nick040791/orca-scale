@@ -13,7 +13,6 @@ import {
 import type { RichMarkdownReviewNotePosition } from './rich-markdown-review-note-layout'
 import { measureRichMarkdownReviewNotePositions } from './rich-markdown-review-note-positioning'
 import type { DiffComment } from '../../../../shared/diff-comment-types'
-import { motionSafeScrollBehavior } from '@/hooks/usePrefersReducedMotion'
 
 type UseRichMarkdownReviewRailControllerOptions = {
   canAnnotateRichMarkdown: boolean
@@ -183,7 +182,7 @@ export function useRichMarkdownReviewRailController({
       setActiveReviewCommentId(comment.id)
       container.scrollTo({
         top: Math.max(0, (sourceTop + sourceBottom) / 2 - container.clientHeight / 2),
-        behavior: motionSafeScrollBehavior()
+        behavior: 'smooth'
       })
       pulseRichMarkdownSourceRange({ from: bounds.from, to: bounds.to })
     },
@@ -258,5 +257,5 @@ function centerReviewNoteCard(
     return
   }
   const targetTop = cardTop - Math.max(0, (container.clientHeight - cardHeight) / 2)
-  container.scrollTo({ top: Math.max(0, targetTop), behavior: motionSafeScrollBehavior() })
+  container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
 }

@@ -22,8 +22,7 @@ import {
   observeHibernationPtyBindings
 } from './agent-hibernation-pane-age'
 import { mergePendingTerminalInputActivity } from './terminal-input-activity-coalescing'
-import { resolveRuntimeOwnerForWorktree } from './worktree-runtime-owner'
-import { toAgentHibernationRuntimeOwner } from './agent-hibernation-runtime-owner'
+import { getRuntimeEnvironmentIdForWorktree } from './worktree-runtime-owner'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import type {
@@ -108,27 +107,20 @@ function snapshotFromState(
   }
 }
 
-function resolveAgentHibernationRuntimeOwner(state: AppState, worktreeId: string) {
-  const tabs = state.tabsByWorktree[worktreeId] ?? []
-  const ptyIds = tabs.flatMap((tab) => state.ptyIdsByTabId[tab.id] ?? [])
-  return toAgentHibernationRuntimeOwner(resolveRuntimeOwnerForWorktree(state, worktreeId), ptyIds)
-}
-
-/** Worktree → owning runtime; `null` means liveness is required but no host can be asked. */
 function getRuntimeLivenessTargetWorktrees(
   state: AppState,
   targetWorktreeId?: string
-): Map<string, string | null> {
-  const targets = new Map<string, string | null>()
+): Map<string, string> {
+  const targets = new Map<string, string>()
   const worktreeIds = targetWorktreeId
     ? Object.hasOwn(state.tabsByWorktree, targetWorktreeId)
       ? [targetWorktreeId]
       : []
     : Object.keys(state.tabsByWorktree)
   for (const worktreeId of worktreeIds) {
-    const owner = resolveAgentHibernationRuntimeOwner(state, worktreeId)
-    if (owner.kind !== 'non-runtime') {
-      targets.set(worktreeId, owner.kind === 'runtime' ? owner.environmentId : null)
+    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+    if (runtimeEnvironmentId) {
+      targets.set(worktreeId, runtimeEnvironmentId)
     }
   }
   return targets
@@ -164,10 +156,7 @@ async function collectRuntimePtyLiveness(
   }
   await Promise.all(
     [...targets].map(async ([worktreeId, runtimeEnvironmentId]) => {
-      if (
-        !runtimeEnvironmentId ||
-        !state.tabsByWorktree[worktreeId]?.some((tab) => completedTabIds.has(tab.id))
-      ) {
+      if (!state.tabsByWorktree[worktreeId]?.some((tab) => completedTabIds.has(tab.id))) {
         // Skipped owners still require host evidence if an agent completes during this pass.
         return
       }
@@ -221,11 +210,11 @@ async function currentCandidates(now: number, targetWorktreeId?: string) {
     snapshotFromState(freshState, now, runtimeLiveness, targetWorktreeId)
   )
     .filter((candidate) => {
-      const owner = resolveAgentHibernationRuntimeOwner(freshState, candidate.worktreeId)
-      return (
-        owner.kind === 'non-runtime' ||
-        (owner.kind === 'runtime' && candidate.expectedRuntimePtyIds.length === 1)
+      const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
+        freshState,
+        candidate.worktreeId
       )
+      return !runtimeEnvironmentId || candidate.expectedRuntimePtyIds.length === 1
     })
     .map((candidate) => ({
       ...candidate,
@@ -255,13 +244,13 @@ async function hibernatePaneIfStillEligible(
   coordinator.shuttingDownCandidateIds.add(id)
   try {
     const state = useAppStore.getState()
-    const owner = resolveAgentHibernationRuntimeOwner(state, worktreeId)
+    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
     await state.shutdownCompletedAgentPaneForHibernation(worktreeId, {
       paneKey: confirmedCandidate.paneKey,
       tabId: confirmedCandidate.tabId,
       leafId: confirmedCandidate.leafId,
       ptyId: confirmedCandidate.targetPtyIds[0],
-      ...(owner.kind === 'runtime'
+      ...(runtimeEnvironmentId
         ? { expectedRuntimePtyId: confirmedCandidate.expectedRuntimePtyIds[0] }
         : {})
     })

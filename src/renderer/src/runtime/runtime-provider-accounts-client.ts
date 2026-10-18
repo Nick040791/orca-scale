@@ -1,12 +1,11 @@
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type {
   ClaudeRateLimitAccountsState,
   CodexRateLimitAccountsState
 } from '../../../shared/managed-account-types'
 import type { RateLimitState } from '../../../shared/rate-limit-types'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
-import { callRuntimeRpc } from './runtime-rpc-client'
-import { RuntimeRpcCallError } from './runtime-rpc-result'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget, RuntimeRpcCallError } from './runtime-rpc-client'
 
 // Mirrors OrcaRuntime.getAccountsSnapshot() / the accounts.subscribe payload.
 export type ProviderAccountsSnapshot = {
@@ -36,10 +35,19 @@ const REMOTE_ACCOUNTS_FIRST_SNAPSHOT_TIMEOUT_MS = 15_000
 const REMOTE_ACCOUNT_MUTATION_TIMEOUT_MS = 30_000
 const pendingProviderAccountsSnapshots = new Map<string, Promise<ProviderAccountsSnapshot>>()
 
-export function getProviderAccountsOwnerKey(target: RuntimeClientTarget): string {
+function getProviderAccountsOwnerKey(
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
+): string {
+  const target = getActiveRuntimeTarget(settings)
   // Why: environment ids are user-controlled strings; prefix the target kind
   // so a remote id such as “local” cannot share the desktop's pending read.
   return target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
+}
+
+export function hasRemoteProviderAccountOwner(
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
+): boolean {
+  return getActiveRuntimeTarget(settings).kind === 'environment'
 }
 
 export type ProviderAccountsWatcher = {
@@ -67,14 +75,13 @@ function providerAccountsLoadError(provider: 'Claude' | 'Codex', cause: unknown)
 // deliberately avoided: it blocks behind provider usage refreshes on the
 // server and can hang for minutes behind broken auth.
 export function watchProviderAccounts(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   handlers: {
     onSnapshot: (snapshot: ProviderAccountsSnapshot) => void
     onError: (error: unknown) => void
-    /** Remote only: the stream ended after its first snapshot, so later usage is unverifiable. */
-    onClosedAfterSnapshot?: () => void
   }
 ): ProviderAccountsWatcher {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'local') {
     let closed = false
     void Promise.allSettled([
@@ -168,13 +175,8 @@ export function watchProviderAccounts(
           }
         },
         onClose: () => {
-          if (closed) {
-            return
-          }
-          if (!receivedSnapshot) {
+          if (!closed && !receivedSnapshot) {
             handlers.onError(new Error('Remote provider account subscription closed.'))
-          } else {
-            handlers.onClosedAfterSnapshot?.()
           }
         }
       }
@@ -203,16 +205,16 @@ export function watchProviderAccounts(
 // One-shot convenience over watchProviderAccounts for surfaces that only need
 // the current snapshot (status-bar switcher menus).
 export function fetchProviderAccountsSnapshot(
-  target: RuntimeClientTarget
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 ): Promise<ProviderAccountsSnapshot> {
-  const ownerKey = getProviderAccountsOwnerKey(target)
+  const ownerKey = getProviderAccountsOwnerKey(settings)
   const pending = pendingProviderAccountsSnapshots.get(ownerKey)
   if (pending) {
     return pending
   }
 
   const request = new Promise<ProviderAccountsSnapshot>((resolve, reject) => {
-    const watcher = watchProviderAccounts(target, {
+    const watcher = watchProviderAccounts(settings, {
       onSnapshot: (snapshot) => {
         watcher.close()
         resolve(snapshot)
@@ -236,9 +238,10 @@ export function fetchProviderAccountsSnapshot(
 }
 
 export async function selectClaudeProviderAccount(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   selection: ProviderAccountSelection
 ): Promise<ClaudeRateLimitAccountsState> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'environment') {
     return callRuntimeRpc<ClaudeRateLimitAccountsState>(
       target,
@@ -251,9 +254,10 @@ export async function selectClaudeProviderAccount(
 }
 
 export async function selectCodexProviderAccount(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   selection: ProviderAccountSelection
 ): Promise<CodexRateLimitAccountsState> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'environment') {
     return callRuntimeRpc<CodexRateLimitAccountsState>(
       target,
@@ -266,9 +270,10 @@ export async function selectCodexProviderAccount(
 }
 
 export async function removeClaudeProviderAccount(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   accountId: string
 ): Promise<ClaudeRateLimitAccountsState> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'environment') {
     return callRuntimeRpc<ClaudeRateLimitAccountsState>(
       target,
@@ -281,9 +286,10 @@ export async function removeClaudeProviderAccount(
 }
 
 export async function removeCodexProviderAccount(
-  target: RuntimeClientTarget,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   accountId: string
 ): Promise<CodexRateLimitAccountsState> {
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind === 'environment') {
     return callRuntimeRpc<CodexRateLimitAccountsState>(
       target,

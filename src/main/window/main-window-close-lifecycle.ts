@@ -7,7 +7,6 @@ import type { CreateMainWindowOptions } from './main-window-contracts'
 import type { MainWindowFocusLifecycle } from './main-window-focus-lifecycle'
 import type { MainWindowStateLifecycle } from './main-window-state-lifecycle'
 import { syncTrafficLightPosition } from './main-window-visual-lifecycle'
-import { consumeUserQuitWindowClose } from './user-quit-window-close'
 
 export const WINDOW_QUIT_RENDERER_ACK_TIMEOUT_MS = QUIT_RENDERER_ACK_TIMEOUT_MS
 
@@ -91,9 +90,8 @@ export function installMainWindowCloseLifecycle(args: {
   }
 
   mainWindow.on('close', (e) => {
-    const userQuitClose = consumeUserQuitWindowClose(mainWindow)
     // Why: Alt+F4/programmatic closes hit the native event; apply the same minimize-to-tray guard the renderer-drawn X uses.
-    if (!windowCloseConfirmed && !userQuitClose && hideToTrayIfEnabled()) {
+    if (!windowCloseConfirmed && hideToTrayIfEnabled()) {
       e.preventDefault()
       return
     }
@@ -117,8 +115,7 @@ export function installMainWindowCloseLifecycle(args: {
     e.preventDefault()
     const isQuitting = opts?.getIsQuitting?.() ?? false
     const requestId = ++closeRequestSequence
-    // Why userQuitClose: a serve host's user Quit only closes windows, yet a frozen renderer must not trap it.
-    if (isQuitting || userQuitClose) {
+    if (isQuitting) {
       armQuitRendererAckTimer(requestId)
     }
     // Why: renderer owns the close decision; the always-mounted App root subscription lets even pre-workspace states reply (#5144).

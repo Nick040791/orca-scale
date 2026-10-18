@@ -2,8 +2,6 @@ import { createElement } from 'react'
 import { act, create } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 
-// The desktop's server-list feed loads react-native; its timer never runs without a subscriber.
-vi.mock('react-native', () => ({}))
 vi.mock('expo-router', () => ({ useFocusEffect: () => {} }))
 vi.mock('../cache/worktree-cache', () => ({ setCachedWorktrees: () => {} }))
 vi.mock('../storage/preferences', () => ({ savePinnedIds: async () => {} }))
@@ -34,7 +32,6 @@ function catalogHook(fetched: unknown, actionErrors: string[], catalogErrors: (s
     setLastKnownWorktrees: () => {},
     setOptimisticActiveWorktreeIdentity: () => {},
     setPinnedIds: (apply: (previous: Set<string>) => Set<string>) => apply(new Set()),
-    setServerWorkspaces: () => {},
     setSleptIds: (apply: (previous: Set<string>) => Set<string>) => apply(new Set()),
     setWorktrees: () => {},
     setWorktreesLoaded: () => {},
@@ -47,7 +44,6 @@ function catalogHook(fetched: unknown, actionErrors: string[], catalogErrors: (s
     connState: 'connected',
     embedded: true,
     fetchRepoMetadata: async () => {},
-    hostCapabilities: [],
     hostId: 'host-1',
     state,
     syncViewSettingsFromDesktop: async () => {}

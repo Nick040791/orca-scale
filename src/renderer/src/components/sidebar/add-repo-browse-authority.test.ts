@@ -9,7 +9,8 @@ describe('routeAddRepoBrowse', () => {
 
     routeAddRepoBrowse(parseExecutionHostId('runtime:paired-host'), {
       browseLocal: pickFolders,
-      browseRuntime
+      browseRuntime,
+      browseSsh: vi.fn()
     })
 
     expect(browseRuntime).toHaveBeenCalledOnce()
@@ -21,28 +22,22 @@ describe('routeAddRepoBrowse', () => {
 
     routeAddRepoBrowse(parseExecutionHostId('local'), {
       browseLocal: pickFolders,
-      browseRuntime: vi.fn()
+      browseRuntime: vi.fn(),
+      browseSsh: vi.fn()
     })
 
     expect(pickFolders).toHaveBeenCalledOnce()
   })
 
-  it('opens nothing for an SSH host, which holds projects only through its server', () => {
-    const actions = { browseLocal: vi.fn(), browseRuntime: vi.fn() }
+  it('preserves SSH host browsing', () => {
+    const browseSsh = vi.fn()
 
-    routeAddRepoBrowse(parseExecutionHostId('ssh:builder'), actions)
+    routeAddRepoBrowse(parseExecutionHostId('ssh:builder'), {
+      browseLocal: vi.fn(),
+      browseRuntime: vi.fn(),
+      browseSsh
+    })
 
-    expect(actions.browseLocal).not.toHaveBeenCalled()
-    expect(actions.browseRuntime).not.toHaveBeenCalled()
-  })
-
-  it('opens the Windows folder picker for a WSL host instead of the in-app browser', () => {
-    const actions = { browseLocal: vi.fn(), browseRuntime: vi.fn(), browseWslHost: vi.fn() }
-
-    routeAddRepoBrowse(parseExecutionHostId('runtime:wsl%3AUbuntu'), actions)
-
-    expect(actions.browseWslHost).toHaveBeenCalledOnce()
-    expect(actions.browseRuntime).not.toHaveBeenCalled()
-    expect(actions.browseLocal).not.toHaveBeenCalled()
+    expect(browseSsh).toHaveBeenCalledWith('builder')
   })
 })

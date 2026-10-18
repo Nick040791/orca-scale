@@ -14,7 +14,7 @@ import {
   readHostKeyType,
   type KnownHostsEntry,
   type KnownHostsOutcome
-} from './config/ssh-known-hosts'
+} from './ssh-known-hosts'
 import { decideHostKey, type HostKeyDecision } from './ssh-host-key-decision'
 
 export type TrustedHostKeyLookup = (query: {

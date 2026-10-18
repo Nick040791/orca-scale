@@ -1,10 +1,8 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { basename } from '@/lib/path'
-import { downloadRuntimeFile } from '@/runtime/runtime-file-read-client'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import { downloadRuntimeFile, type RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
 
 /**
  * Remote counterpart of "Open with default app": the OS can only launch a local
@@ -23,7 +21,7 @@ export async function downloadAndOpenRemoteTerminalFile(
     if (result.canceled) {
       return
     }
-    await window.api.shell.openFilePath(result.destinationPath, LOCAL_EXECUTION_HOST_ID)
+    await window.api.shell.openFilePath(result.destinationPath)
   } catch (error) {
     toast.error(
       extractIpcErrorMessage(

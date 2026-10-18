@@ -1,4 +1,3 @@
-import type { CliStatusCaller } from '../shared/orchestration-caller-status'
 import type { CliStatusResult } from '../shared/runtime-types'
 import { prepareComputerCliJsonResult } from './computer-format'
 import type { RuntimeRpcSuccess } from './runtime-client'
@@ -49,7 +48,6 @@ export {
   formatAutomationRemoved,
   formatAutomationRun,
   formatAutomationRuns,
-  formatAutomationRunsPage,
   formatAutomationShow
 } from './automation-format'
 export type { AutomationListPayload, AutomationShowPayload } from './automation-format'
@@ -138,16 +136,8 @@ export function formatCliStatus(status: CliStatusResult): string {
     `runtimeReachable: ${status.runtime.reachable}`,
     `runtimeConnectionState: ${status.runtime.connectionState ?? 'unknown'}`,
     `runtimeId: ${status.runtime.runtimeId ?? 'none'}`,
-    `graphState: ${status.graph.state}`,
-    ...(status.caller === undefined ? [] : [`orcaSessionId: ${formatStatusCaller(status.caller)}`])
+    `graphState: ${status.graph.state}`
   ].join('\n')
-}
-
-function formatStatusCaller(caller: CliStatusCaller): string {
-  if ('refusal' in caller) {
-    return `none (refused: ${caller.refusal.code})`
-  }
-  return `${caller.orcaSessionId}${caller.live ? '' : ' (not live)'}`
 }
 
 export function formatStatus(status: CliStatusResult): string {

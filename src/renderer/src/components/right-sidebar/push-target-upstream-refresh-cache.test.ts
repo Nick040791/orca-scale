@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
 import {
   clearGitStatusRefreshOrderingForTests,
   refreshGitStatusForWorktree,
@@ -70,7 +69,7 @@ async function refreshAutomatically(options: {
   pushTarget?: GitPushTarget
 }): Promise<void> {
   await refreshGitStatusForWorktree({
-    target: runtimeTargetForOwnerEnvironment(options.runtimeEnvironmentId ?? null),
+    settings: { activeRuntimeEnvironmentId: options.runtimeEnvironmentId ?? null },
     worktreeId: 'wt-1',
     worktreePath: '/repo',
     connectionId: options.connectionId,
@@ -129,7 +128,7 @@ describe('push-target upstream refresh cache', () => {
 
     await refreshAutomatically({ deps })
     invalidateAutomaticPushTargetUpstreamStatusCache({
-      target: { kind: 'local' as const },
+      settings: { activeRuntimeEnvironmentId: null },
       worktreeId: 'wt-1',
       worktreePath: '/repo',
       pushTarget
@@ -205,7 +204,7 @@ describe('push-target upstream refresh cache', () => {
 
     storeCachedAutomaticPushTargetUpstreamStatus(
       {
-        target: { kind: 'environment' as const, environmentId: 'runtime-1' },
+        settings: { activeRuntimeEnvironmentId: 'runtime-1' },
         worktreeId: 'wt-1',
         worktreePath: '/repo',
         pushTarget,
@@ -216,7 +215,7 @@ describe('push-target upstream refresh cache', () => {
 
     expect(
       getCachedAutomaticPushTargetUpstreamStatus({
-        target: { kind: 'environment' as const, environmentId: 'runtime-2' },
+        settings: { activeRuntimeEnvironmentId: 'runtime-2' },
         worktreeId: 'wt-1',
         worktreePath: '/repo',
         pushTarget,
@@ -231,7 +230,6 @@ describe('push-target upstream refresh cache', () => {
 
     await refreshAutomatically({ deps })
     await refreshGitStatusForWorktreeStrict({
-      target: { kind: 'local' },
       worktreeId: 'wt-1',
       worktreePath: '/repo',
       pushTarget,

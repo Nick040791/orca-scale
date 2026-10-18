@@ -91,7 +91,9 @@ const LINEAR_ITEM = {
 
 /**
  * One model in, an actions object out, every setter recorded as an effect: the shape this domain's
- * hooks share.
+ * hooks share. Copied per module rather than shared, because an adapter may not import another file
+ * in this directory: a golden pins the one module it was recorded through, so plumbing reaching
+ * across the seam would drive recordings its header does not cover.
  */
 type ModelHookSpec<Actions> = {
   /** Called inside the render body, so a hook that throws is recorded as a mount failure. */
@@ -196,7 +198,6 @@ export function taskItemMetadataMountAdapters(
         githubMode: 'items',
         githubPreset: 'issues',
         hostedRepos: [HOSTED_REPO],
-        jiraFilter: 'assigned',
         linearConnected: true,
         linearFilter: 'all',
         linearMetadataItem: null,
@@ -206,7 +207,6 @@ export function taskItemMetadataMountAdapters(
         loadTasks: async () => {},
         persistTaskResumeState: () => {},
         provider: 'linear',
-        refreshJiraConnection: async () => {},
         query: '',
         refreshTasks: () => {},
         selectGitHubProject: async () => {},

@@ -18,8 +18,7 @@ function runningRecord(overrides: Partial<CommitMessageGenerationRecord> = {}) {
       worktreeId: 'wt-a',
       worktreePath: '/repo/a',
       connectionId: 'conn-a',
-      requestId: 3,
-      runtimeTarget: { kind: 'local' as const }
+      requestId: 3
     },
     status: 'running' as const,
     message: null,
@@ -118,7 +117,7 @@ describe('SourceControl commit message generation records', () => {
         worktreePath: '/repo/a',
         connectionId: 'conn-a',
         requestId,
-        runtimeTarget: { kind: 'environment' as const, environmentId: 'runtime-a' }
+        runtimeTargetSettings: { activeRuntimeEnvironmentId: 'runtime-a' }
       })
     )
 
@@ -127,7 +126,7 @@ describe('SourceControl commit message generation records', () => {
         requestId,
         worktreeId: 'wt-a',
         worktreePath: '/repo/a',
-        runtimeTarget: { kind: 'environment' as const, environmentId: 'runtime-a' }
+        runtimeTargetSettings: { activeRuntimeEnvironmentId: 'runtime-a' }
       },
       status: 'running'
     })
@@ -140,8 +139,7 @@ describe('SourceControl commit message generation records', () => {
       createRunningCommitMessageGenerationRecord({
         worktreeId: 'wt-a',
         worktreePath: '/repo/a',
-        requestId: 1,
-        runtimeTarget: { kind: 'local' as const }
+        requestId: 1
       })
     )
     store.getState().setCommitMessageGenerationRecord(
@@ -149,8 +147,7 @@ describe('SourceControl commit message generation records', () => {
       createRunningCommitMessageGenerationRecord({
         worktreeId: 'wt-b',
         worktreePath: '/repo/b',
-        requestId: 2,
-        runtimeTarget: { kind: 'local' as const }
+        requestId: 2
       })
     )
 

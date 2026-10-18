@@ -1,8 +1,24 @@
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { rowLessSourceTarget, type RowLessSource } from '@/lib/default-creation-host'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
+import {
+  getTaskSourceRuntimeSettings,
+  type TaskSourceContext
+} from '../../../shared/task-source-context'
+import { getActiveRuntimeTarget } from './runtime-rpc-client'
 
-export type RuntimeJiraSettings = RowLessSource
+export type RuntimeJiraSettings =
+  | Pick<GlobalSettings, 'activeRuntimeEnvironmentId'>
+  | TaskSourceContext
+  | null
+  | undefined
 
-export function getJiraRuntimeTarget(source: RuntimeJiraSettings): RuntimeClientTarget {
-  return rowLessSourceTarget(source)
+function isTaskSourceRuntimeSettings(settings: RuntimeJiraSettings): settings is TaskSourceContext {
+  return settings !== null && settings !== undefined && 'kind' in settings
+}
+
+export function getJiraRuntimeTarget(
+  settings: RuntimeJiraSettings
+): ReturnType<typeof getActiveRuntimeTarget> {
+  return getActiveRuntimeTarget(
+    isTaskSourceRuntimeSettings(settings) ? getTaskSourceRuntimeSettings(settings) : settings
+  )
 }

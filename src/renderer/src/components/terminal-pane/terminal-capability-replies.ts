@@ -22,11 +22,6 @@ type TerminalCapabilityRepliesDeps = {
   da1Response?: string
   // Resolved per query so a live inline-images toggle changes what the next DA1 advertises.
   sixelSupported?: () => boolean
-  /** Why a thunk, like sixelSupported: the pane's launch agent may not be registered
-   *  in the store yet when the handlers are installed, so a boolean captured here
-   *  answers jcode's burst anyway. Why skip at all: jcode themes itself, and the reply
-   *  can land before its composer is ready and render as pre-typed text. */
-  skipOscColorQueryReplies?: () => boolean
 }
 
 // Adds Sixel to a DA1 response so DA1-detecting image tools emit Sixel; idempotent.
@@ -170,7 +165,7 @@ export function installTerminalCapabilityReplyHandlers(
         if (!slots) {
           return false
         }
-        if (deps.isReplaying() || deps.skipOscColorQueryReplies?.() === true) {
+        if (deps.isReplaying()) {
           return true
         }
         return sendTerminalOscColorQueryRepliesForSlots(slots, deps.terminal, deps.sendInput)
@@ -183,7 +178,7 @@ export function installTerminalCapabilityReplyHandlers(
         if (!slots) {
           return false
         }
-        if (deps.isReplaying() || deps.skipOscColorQueryReplies?.() === true) {
+        if (deps.isReplaying()) {
           return true
         }
         return sendTerminalOscColorQueryRepliesForSlots(slots, deps.terminal, deps.sendInput)

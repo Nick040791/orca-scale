@@ -8,7 +8,6 @@ import {
   type CustomPet
 } from '../../../../../shared/pet-types'
 import { clampPetSize } from './ui-slice-hydration-sanitizers'
-import { readPersistedFloatingTerminalPanelViewState } from '../../../components/floating-terminal/floating-terminal-panel-view-state'
 
 export function createUiSurfaceActions(set: UISliceSet, _get: UISliceGet): Partial<UISlice> {
   return {
@@ -149,51 +148,31 @@ export function createUiSurfaceActions(set: UISliceSet, _get: UISliceGet): Parti
 
     pendingRevealWorktree: null,
     pendingRevealSidebarRow: null,
-    // Why skipped rather than queued: the worktree list is unmounted in the activity view, and a
-    // reveal that switched bodies would kick the user out on every incidental activation.
+    // Why sidebarBody here: the worktree list (and its reveal consumer) is unmounted while the
+    // Agents body is showing, so a reveal that does not switch bodies silently no-ops.
     revealWorktreeInSidebar: (worktreeId, options) =>
-      set((state) =>
-        state.sidebarBody === 'agents'
-          ? state
-          : {
-              pendingRevealWorktree: {
-                worktreeId,
-                ...(options?.executionHostId ? { executionHostId: options.executionHostId } : {}),
-                behavior: options?.behavior ?? 'smooth',
-                ...(options?.highlight ? { highlight: true } : {}),
-                ...(options?.beginRename ? { beginRename: true } : {})
-              }
-            }
-      ),
+      set({
+        sidebarBody: 'workspaces',
+        pendingRevealWorktree: {
+          worktreeId,
+          ...(options?.executionHostId ? { executionHostId: options.executionHostId } : {}),
+          behavior: options?.behavior ?? 'smooth',
+          ...(options?.highlight ? { highlight: true } : {}),
+          ...(options?.beginRename ? { beginRename: true } : {})
+        }
+      }),
     revealSidebarRow: (rowKey, options) =>
-      set((state) =>
-        state.sidebarBody === 'agents'
-          ? state
-          : {
-              pendingRevealSidebarRow: {
-                rowKey,
-                behavior: options?.behavior ?? 'smooth',
-                ...(options?.highlight === false ? {} : { highlight: true })
-              }
-            }
-      ),
+      set({
+        sidebarBody: 'workspaces',
+        pendingRevealSidebarRow: {
+          rowKey,
+          behavior: options?.behavior ?? 'smooth',
+          ...(options?.highlight === false ? {} : { highlight: true })
+        }
+      }),
     clearPendingRevealWorktreeId: () => set({ pendingRevealWorktree: null }),
     clearPendingRevealSidebarRow: () => set({ pendingRevealSidebarRow: null }),
     scrollToDiffCommentId: null,
-    setScrollToDiffCommentId: (id) => set({ scrollToDiffCommentId: id }),
-    floatingWorkspacePath: null,
-    setFloatingWorkspacePath: (path) =>
-      set((state) =>
-        state.floatingWorkspacePath === (path || null)
-          ? state
-          : { floatingWorkspacePath: path || null }
-      ),
-    // Why restored: leaving the panel closed forces the user to reopen and re-maximize it,
-    // and that size jump reflows a live TUI's buffer (see floating-terminal-panel-view-state).
-    floatingWorkspacePanelOpen: readPersistedFloatingTerminalPanelViewState()?.open === true,
-    setFloatingWorkspacePanelOpen: (open) =>
-      set((state) =>
-        state.floatingWorkspacePanelOpen === open ? state : { floatingWorkspacePanelOpen: open }
-      )
+    setScrollToDiffCommentId: (id) => set({ scrollToDiffCommentId: id })
   }
 }

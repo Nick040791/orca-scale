@@ -1,4 +1,3 @@
-import { isImeOwnedKeyboardEvent } from './ime-composition-keyboard-event'
 import { getShortcutPlatform } from './shortcut-platform'
 
 type ScreenSubmitShortcutEvent = {
@@ -7,16 +6,14 @@ type ScreenSubmitShortcutEvent = {
   ctrlKey?: boolean
   metaKey?: boolean
   shiftKey?: boolean
-  keyCode?: number
   isComposing?: boolean
   nativeEvent?: {
-    keyCode?: number
     isComposing?: boolean
   }
 }
 
 export function isScreenSubmitShortcut(event: ScreenSubmitShortcutEvent): boolean {
-  if (isImeOwnedKeyboardEvent(event)) {
+  if (event.isComposing || event.nativeEvent?.isComposing) {
     return false
   }
   if (event.key !== 'Enter' || event.altKey || event.shiftKey) {

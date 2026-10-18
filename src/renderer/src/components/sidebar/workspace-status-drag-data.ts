@@ -24,7 +24,17 @@ export function writeWorkspaceDragData(
 
 export function readWorkspaceDragData(dataTransfer: DataTransfer): string | null {
   const typed = readWorkspaceStatusDragPayload(dataTransfer, WORKSPACE_STATUS_DRAG_TYPE)
-  return typed.status === 'ok' ? typed.value : null
+  if (typed.status === 'ok') {
+    return typed.value
+  }
+  if (typed.status === 'too-large') {
+    return null
+  }
+  const plain = readWorkspaceStatusDragPayload(dataTransfer, 'text/plain')
+  if (plain.status === 'ok') {
+    return plain.value
+  }
+  return null
 }
 
 export function readWorkspaceDragDataIds(dataTransfer: DataTransfer): string[] {
@@ -64,7 +74,8 @@ export function hasWorkspaceDragData(dataTransfer: DataTransfer): boolean {
   const types = Array.from(dataTransfer.types)
   return (
     hasBoundedWorkspaceStatusDragPayload(dataTransfer, types, WORKSPACE_STATUS_DRAG_IDS_TYPE) ||
-    hasBoundedWorkspaceStatusDragPayload(dataTransfer, types, WORKSPACE_STATUS_DRAG_TYPE)
+    hasBoundedWorkspaceStatusDragPayload(dataTransfer, types, WORKSPACE_STATUS_DRAG_TYPE) ||
+    hasBoundedWorkspaceStatusDragPayload(dataTransfer, types, 'text/plain')
   )
 }
 

@@ -13,9 +13,10 @@ import {
 import { ORCA_BROWSER_BLANK_URL } from '../../../../../shared/constants'
 import { closeRemoteBrowserPageInOwningEnvironment } from './browser-remote-close'
 import { releaseDocPreviewGrant } from '@/lib/doc-preview-grants'
-import { admitBrowserPageMount } from '@/components/browser-pane/host-guest/browser-page-mount-admission'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../shared/layout-owner-switch'
-import { recordLayoutApply } from '@/runtime/layout-apply-send'
+import {
+  admitBrowserPageMount,
+  releaseBrowserPageMount
+} from '@/components/browser-pane/host-guest/browser-page-mount-admission'
 
 export function createBrowserPageCreateActions(
   set: BrowserSliceSet,
@@ -87,14 +88,6 @@ export function createBrowserPageCreateActions(
         }
       })
 
-      // Switch point: main records the page under its id before any later command names it.
-      if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-        recordLayoutApply(get(), workspace.worktreeId, {
-          type: 'openBrowserPage',
-          browserTabId: workspaceId,
-          pageId: page.id
-        })
-      }
       const nextWorkspace = findWorkspace(get().browserTabsByWorktree, workspaceId)
       if (nextWorkspace?.activePageId === page.id) {
         const item = Object.values(get().unifiedTabsByWorktree)
@@ -108,6 +101,7 @@ export function createBrowserPageCreateActions(
     },
 
     closeBrowserPage: (pageId) => {
+      releaseBrowserPageMount(pageId)
       let closedWorkspaceIdForLabel: string | null = null
       let docPageIdToRelease: string | null = null
       const remotePagesToClose: { worktreeId: string; handle: RemoteBrowserPageHandle }[] = []
@@ -146,9 +140,7 @@ export function createBrowserPageCreateActions(
         }
         delete nextRemoteBrowserPageHandlesByPageId[pageId]
         const nextBrowserAnnotationsByPageId = { ...s.browserAnnotationsByPageId }
-        const nextBrowserAnnotationMarkerIdsByPageId = { ...s.browserAnnotationMarkerIdsByPageId }
         delete nextBrowserAnnotationsByPageId[pageId]
-        delete nextBrowserAnnotationMarkerIdsByPageId[pageId]
         const nextBrowserCertificateFailuresByPageId = {
           ...s.browserCertificateFailuresByPageId
         }
@@ -186,8 +178,7 @@ export function createBrowserPageCreateActions(
           ),
           remoteBrowserPageHandlesByPageId: nextRemoteBrowserPageHandlesByPageId,
           browserCertificateFailuresByPageId: nextBrowserCertificateFailuresByPageId,
-          browserAnnotationsByPageId: nextBrowserAnnotationsByPageId,
-          browserAnnotationMarkerIdsByPageId: nextBrowserAnnotationMarkerIdsByPageId
+          browserAnnotationsByPageId: nextBrowserAnnotationsByPageId
         }
       })
 
@@ -208,14 +199,6 @@ export function createBrowserPageCreateActions(
         return
       }
       const workspace = findWorkspace(get().browserTabsByWorktree, closedWorkspaceId)
-      // Switch point: main drops the page from its tab.
-      if (ORCA_LAYOUT_OWNER_IS_MAIN && workspace) {
-        recordLayoutApply(get(), workspace.worktreeId, {
-          type: 'closeBrowserPage',
-          browserTabId: closedWorkspaceId,
-          pageId
-        })
-      }
       const item = Object.values(get().unifiedTabsByWorktree)
         .flat()
         .find((entry) => entry.contentType === 'browser' && entry.entityId === closedWorkspaceId)

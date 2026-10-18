@@ -1,6 +1,6 @@
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react'
 import { Package } from 'lucide-react'
-import { NativeChatPromptPill } from './NativeChatPromptPill'
+import { Badge } from '@/components/ui/badge'
 
 function skillLabel(token: string): string {
   return token
@@ -15,12 +15,14 @@ export function NativeChatSkillPill({ node, selected }: NodeViewProps): React.JS
   const token = String(node.attrs.token)
   return (
     <NodeViewWrapper as="span" className="inline" contentEditable={false}>
-      <NativeChatPromptPill
-        icon={Package}
-        label={skillLabel(token)}
-        selected={selected}
+      <Badge
+        variant="secondary"
         data-native-chat-skill={token}
-      />
+        className={`border-border px-1.5 py-0 text-muted-foreground align-baseline ${selected ? 'ring-1 ring-ring' : ''}`}
+      >
+        <Package aria-hidden="true" />
+        {skillLabel(token)}
+      </Badge>
     </NodeViewWrapper>
   )
 }

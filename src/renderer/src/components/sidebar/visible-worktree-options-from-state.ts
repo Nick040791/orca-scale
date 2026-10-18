@@ -6,8 +6,8 @@ import { getWorktreeIdsWithStructuredChat } from './visible-worktree-activity-in
 import {
   EMPTY_PAIRED_DEVICE_IDS_BY_ENVIRONMENT,
   getPairedDeviceIdsByEnvironment
-} from '../../../../shared/workspace-creator-visibility'
-import type { VisibleWorktreeOptions } from './compute-visible-worktrees'
+} from './workspace-creator-visibility'
+import type { VisibleWorktreeOptions } from './visible-worktrees'
 
 /**
  * Read the store into the filter inputs `computeVisibleWorktrees` decides from.
@@ -48,7 +48,6 @@ export function buildVisibleWorktreeOptionsFromState(
     workspaceHostScope: state.workspaceHostScope,
     visibleWorkspaceHostIds: state.visibleWorkspaceHostIds,
     defaultHostId: getSettingsFocusedExecutionHostId(state.settings),
-    worktreeLineageById: state.worktreeLineageById,
-    preserveLineageParentOrder: state.sortBy === 'manual'
+    worktreeLineageById: state.worktreeLineageById
   }
 }

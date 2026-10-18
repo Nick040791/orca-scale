@@ -4,8 +4,7 @@ import {
   resolveOpenCodeGoApiKey,
   type OpenCodeGoApiKeyResolution
 } from './opencode-go-api-key-source'
-import { makeOpenCodeGoZenBalance, type OpenCodeGoUsageWindows } from './opencode-go-status-parsing'
-import type { OpenCodeCredentialBackend } from '../opencode/opencode-credential-backend'
+import type { OpenCodeGoUsageWindows } from './opencode-go-status-parsing'
 import {
   fetchOpenCodeGoUsageWithApiKey,
   type OpenCodeGoUsageApiOutcome
@@ -15,9 +14,6 @@ import { fetchOpenCodeGoRateLimits, normalizeCookieInput } from './opencode-go-u
 export type OpenCodeGoUsageSourceInput = {
   /** Explicit Orca override; the highest-precedence key tier. */
   settingsApiKey?: string
-  environment?: NodeJS.ProcessEnv
-  backend?: OpenCodeCredentialBackend
-  cwd?: string
   cookie: string
   workspaceIdOverride?: string
   networkProxySettings?: NetworkProxySettings
@@ -52,7 +48,6 @@ function usageResult(
     session: windows.session,
     weekly: windows.weekly,
     monthly: windows.monthly,
-    extraUsage: makeOpenCodeGoZenBalance(null, 'api-key-source'),
     updatedAt: Date.now(),
     error: null,
     status: 'ok',
@@ -84,7 +79,7 @@ function apiFailureResult(
   return emptyResult(outcome.message, 'error', {
     source: 'web',
     credentialSource,
-    failureKind: outcome.failureKind ?? 'server'
+    failureKind: 'server'
   })
 }
 
@@ -101,27 +96,12 @@ function apiFailureResult(
 export async function fetchOpenCodeGoUsage(
   input: OpenCodeGoUsageSourceInput
 ): Promise<ProviderRateLimits> {
-  const context = input.settingsApiKey?.trim()
-    ? {}
-    : {
-        ...(input.environment ? { environment: input.environment } : {}),
-        ...(input.backend ? { backend: input.backend } : {}),
-        ...(input.cwd ? { cwd: input.cwd } : {})
-      }
   const apiKeyResolution = await resolveOpenCodeGoApiKey({
-    settingsOverride: input.settingsApiKey,
-    ...context
+    settingsOverride: input.settingsApiKey
   })
   input.onApiKeyResolved?.(apiKeyResolution)
   const hasCookie = Boolean(normalizeCookieInput(input.cookie))
-  if (apiKeyResolution.status === 'credential-database-unreadable' && !hasCookie) {
-    return emptyResult(
-      "Could not read OpenCode's credential database, so OPENCODE_API_KEY was not used; it may be a Zen key. Add your OpenCode Go key in Settings, or retry.",
-      'error',
-      { failureKind: 'usage-unavailable' }
-    )
-  }
-  if (apiKeyResolution.status !== 'found') {
+  if (apiKeyResolution.status === 'missing') {
     return hasCookie
       ? fetchOpenCodeGoRateLimits(
           input.cookie,

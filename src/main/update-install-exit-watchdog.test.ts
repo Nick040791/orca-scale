@@ -1,19 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { appMock, recordUpdaterLifecycleMock, recordAgentSessionRuntimeEndMock } = vi.hoisted(
-  () => ({
-    appMock: { exit: vi.fn() },
-    recordUpdaterLifecycleMock: vi.fn(),
-    recordAgentSessionRuntimeEndMock: vi.fn()
-  })
-)
+const { appMock, recordUpdaterLifecycleMock } = vi.hoisted(() => ({
+  appMock: { exit: vi.fn() },
+  recordUpdaterLifecycleMock: vi.fn()
+}))
 
 vi.mock('electron', () => ({ app: appMock }))
 vi.mock('./updater-lifecycle-diagnostics', () => ({
   recordUpdaterLifecycle: recordUpdaterLifecycleMock
-}))
-vi.mock('./runtime/agent-session-runtime-end-record', () => ({
-  recordAgentSessionRuntimeEnd: recordAgentSessionRuntimeEndMock
 }))
 
 import {
@@ -27,7 +21,6 @@ describe('update install exit watchdog', () => {
     vi.useFakeTimers()
     appMock.exit.mockClear()
     recordUpdaterLifecycleMock.mockClear()
-    recordAgentSessionRuntimeEndMock.mockClear()
   })
 
   afterEach(() => {
@@ -43,8 +36,6 @@ describe('update install exit watchdog', () => {
 
     vi.advanceTimersByTime(1)
     expect(appMock.exit).toHaveBeenCalledExactlyOnceWith(0)
-    // A wedged teardown may not have reached its own record of the update.
-    expect(recordAgentSessionRuntimeEndMock).toHaveBeenCalledExactlyOnceWith('update')
     expect(recordUpdaterLifecycleMock).toHaveBeenCalledWith(
       'install_exit_watchdog_fired',
       { timeoutMs: UPDATE_INSTALL_EXIT_TIMEOUT_MS },

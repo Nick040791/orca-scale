@@ -4,7 +4,7 @@ import { boundSnapshot } from './daemon-durable-history-snapshot'
 import { DaemonPtySessionControl } from './daemon-pty-session-control'
 import { DAEMON_SESSION_SCROLLBACK_ROWS } from './daemon-session-scrollback-window'
 import type { GetSnapshotResult } from './types'
-import type { PtyProviderBufferSnapshot } from '../providers/pty-provider-contract'
+import type { PtyProviderBufferSnapshot } from '../providers/types'
 
 const DURABLE_HISTORY_OVERLAY_DEADLINE_MS = 5_000
 
@@ -181,11 +181,6 @@ export abstract class DaemonPtyBufferSnapshots extends DaemonPtySessionControl {
 
   async clearBuffer(id: string): Promise<void> {
     await this.client.request('clearScrollback', { sessionId: id })
-    this.markSessionDirty(id)
-  }
-
-  async resetInputModes(id: string): Promise<void> {
-    await this.client.request('resetInputModes', { sessionId: id })
     this.markSessionDirty(id)
   }
 

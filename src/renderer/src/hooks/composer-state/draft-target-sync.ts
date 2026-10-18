@@ -20,7 +20,6 @@ export type DraftTargetSyncInput = Pick<
   | 'name'
   | 'note'
   | 'persistDraft'
-  | 'pendingInitialWorkspaceTarget'
   | 'repoId'
   | 'selectedProjectGroup'
   | 'selectedRepo'
@@ -52,7 +51,6 @@ export function useDraftTargetSync(state: DraftTargetSyncInput): void {
     name,
     note,
     persistDraft,
-    pendingInitialWorkspaceTarget,
     repoId,
     selectedProjectGroup,
     selectedRepo,
@@ -129,13 +127,13 @@ export function useDraftTargetSync(state: DraftTargetSyncInput): void {
 
   // Auto-pick the first eligible repo if we somehow start with none selected.
   useEffect(() => {
-    if (isProjectGroupTarget || pendingInitialWorkspaceTarget) {
+    if (isProjectGroupTarget) {
       return
     }
     if (!repoId && eligibleRepos[0]?.id) {
       setRepoId(eligibleRepos[0].id)
     }
-  }, [eligibleRepos, isProjectGroupTarget, pendingInitialWorkspaceTarget, repoId, setRepoId])
+  }, [eligibleRepos, isProjectGroupTarget, repoId, setRepoId])
 
   useEffect(() => {
     if (!selectedProjectGroup) {

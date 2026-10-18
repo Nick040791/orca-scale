@@ -1,6 +1,6 @@
-import type { TaskPageJiraSummaryGenerationModel } from './use-task-page-jira-summary-generation'
+import type { TaskPageJiraIssueCreationModel } from './use-task-page-jira-issue-creation'
 import { useEffect } from 'react'
-export function useTaskPageGlobalEffects(model: TaskPageJiraSummaryGenerationModel) {
+export function useTaskPageGlobalEffects(model: TaskPageJiraIssueCreationModel) {
   const {
     closeTaskPage,
     activeModal,

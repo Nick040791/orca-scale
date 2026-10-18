@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import {
   filterWorkspaceSpaceRows,
+  getLargestWorkspaceSpaceRowSize,
   isWorkspaceSpaceRowReadyToDelete,
   pruneWorkspaceSpaceSelectedIds,
   resolveWorkspaceSpaceInspectedWorktreeId,
@@ -69,16 +70,11 @@ export function useWorkspaceSpaceManagerProjection(args: {
   const rows = useMemo(
     () =>
       sortWorkspaceSpaceRows(
-        filterWorkspaceSpaceRows(sourceRows, query, onlyDeletable).filter(
-          (row) =>
-            !onlyDeletable ||
-            decisionDetailsByWorktreeId.get(getWorkspaceSpaceWorktreeIdentity(row))
-              ?.canOpenWorkspace === true
-        ),
+        filterWorkspaceSpaceRows(sourceRows, query, onlyDeletable),
         sortKey,
         sortDirection
       ),
-    [decisionDetailsByWorktreeId, onlyDeletable, query, sortDirection, sortKey, sourceRows]
+    [onlyDeletable, query, sortDirection, sortKey, sourceRows]
   )
 
   const nextInspectedWorktreeId = resolveWorkspaceSpaceInspectedWorktreeId(
@@ -171,6 +167,7 @@ export function useWorkspaceSpaceManagerProjection(args: {
       (row) =>
         getWorkspaceSpaceWorktreeIdentity(row) === nextTreemapZoomWorktreeId && row.status === 'ok'
     ) ?? null
+  const maxSize = getLargestWorkspaceSpaceRowSize(rows)
   const selectedDeletableRows = useMemo(
     () => getSelectedDeletableWorkspaceRows(rows, nextSelectedIds, isWorktreeUnavailableForDelete),
     [isWorktreeUnavailableForDelete, nextSelectedIds, rows]
@@ -216,6 +213,7 @@ export function useWorkspaceSpaceManagerProjection(args: {
     nextTreemapZoomWorktreeId,
     inspectedWorktree,
     zoomedWorktree,
+    maxSize,
     selectedDeletableRows,
     selectedDeletableIdentities,
     visibleDeletableIdentities,

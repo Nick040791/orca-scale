@@ -5,8 +5,10 @@ import type {
 } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { createJournalReducerState } from '../native-chat/agent-session-journal/journal-reducer'
-import { JournalLifecycleBatchAppender } from '../native-chat/agent-session-journal/journal-lifecycle-batch-appender'
-import type { JournalLifecycleMutationInput } from '../native-chat/agent-session-journal/journal-row-builders'
+import {
+  journalLifecycleBatchRowBuilder,
+  type JournalLifecycleMutationInput
+} from '../native-chat/agent-session-journal/journal-row-builders'
 import {
   journalRowByteLength,
   MAX_JOURNAL_LIFECYCLE_BATCH_BYTES,
@@ -14,7 +16,8 @@ import {
 } from '../native-chat/agent-session-journal/journal-row-schema'
 import {
   createDeferredStructuredAgentSessionEventSink,
-  type StructuredAgentSessionEventSink
+  type StructuredAgentSessionEventSink,
+  type StructuredAgentSessionEventTarget
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { createCodexJournalTranslator } from './codex-structured-journal-translation'
 import {
@@ -22,8 +25,6 @@ import {
   CODEX_USER_INPUT_METHOD
 } from './codex-structured-prompt-replies'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-adapter'
-import { deferredTarget } from './codex-deferred-sink-target-test-support'
-import { testEventSinkLogging } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 
 const SESSION_ID = 'session-1'
 const THREAD_ID = 'thread-abc'
@@ -97,9 +98,37 @@ function translatorWith(tap = recorder(), window = manualWindow()) {
   return { translator, tap, window }
 }
 
+function deferredTarget(
+  log: AgentJournalItemBody[],
+  publishes: string[] = []
+): StructuredAgentSessionEventTarget {
+  return {
+    fence: 7,
+    journal: {
+      appendItem: vi.fn(async (_identity: AgentJournalItemIdentity, body: AgentJournalItemBody) => {
+        log.push(body)
+        return { cursor: { epoch: 'e', sequence: log.length } }
+      }),
+      appendTombstone: vi.fn(async () => ({ epoch: 'e', sequence: log.length })),
+      appendLifecycleBatch: vi.fn(
+        async (input: { mutations: readonly JournalLifecycleMutationInput[] }) => {
+          for (const mutation of input.mutations) {
+            if (mutation.kind === 'item') {
+              log.push(mutation.body)
+            }
+          }
+          return { epoch: 'e', sequence: log.length }
+        }
+      )
+    } as unknown as StructuredAgentSessionEventTarget['journal'],
+    publish: vi.fn(() => {
+      publishes.push('publish')
+    })
+  }
+}
+
 function hardWatermarkDeferred() {
   return createDeferredStructuredAgentSessionEventSink({
-    ...testEventSinkLogging(),
     watermarks: {
       pauseQueuedBytes: 1,
       maxQueuedBytes: 1,
@@ -149,25 +178,13 @@ function terminalExitBatches(count: number, outputBytes: number): LifecycleBatch
 }
 
 function expectLifecycleBatchBounds(batches: readonly LifecycleBatch[]): void {
-  const state = createJournalReducerState(SESSION_ID, 'epoch-test')
-  const appender = new JournalLifecycleBatchAppender({
-    state: () => state,
-    cursor: () => ({ epoch: state.epoch, sequence: state.lastSequence }),
-    enqueueRows: async () => []
-  })
-  for (const batch of batches) {
-    const builders = appender.planResolved({
-      settlementId: batch.settlementId,
-      fence: 7,
-      resolve: () => batch.mutations
-    })
-    for (const [index, build] of builders.entries()) {
-      const row = build(index + 1, index + 1)
-      if (row.kind === 'lifecycle-batch') {
-        expect(row.mutations.length).toBeLessThanOrEqual(MAX_JOURNAL_LIFECYCLE_BATCH_MUTATIONS)
-        expect(journalRowByteLength(row)).toBeLessThanOrEqual(MAX_JOURNAL_LIFECYCLE_BATCH_BYTES)
-      }
-    }
+  for (const [index, batch] of batches.entries()) {
+    expect(batch.mutations.length).toBeLessThanOrEqual(MAX_JOURNAL_LIFECYCLE_BATCH_MUTATIONS)
+    const state = createJournalReducerState(SESSION_ID, 'epoch-test')
+    const row = journalLifecycleBatchRowBuilder(() => state, batch.settlementId, batch.mutations, {
+      fence: 7
+    })(index + 1, index + 1)
+    expect(journalRowByteLength(row)).toBeLessThanOrEqual(MAX_JOURNAL_LIFECYCLE_BATCH_BYTES)
   }
 }
 
@@ -315,13 +332,8 @@ describe('codex journal translation', () => {
     const mutations = batches.at(-1)?.mutations ?? []
     expect(mutations).toEqual(
       expect.arrayContaining([
-        // The host saw the child go, so the call it was running was cut short.
         expect.objectContaining({
-          body: expect.objectContaining({
-            kind: 'tool-call',
-            state: 'failed',
-            endedAs: 'interrupted'
-          })
+          body: expect.objectContaining({ kind: 'tool-call', state: 'failed' })
         }),
         expect.objectContaining({
           body: expect.objectContaining({
@@ -389,12 +401,17 @@ describe('codex journal translation', () => {
     expect(JSON.stringify(batches)).toContain('output truncated')
   })
 
-  it('hands many large terminal items to the journal in one settlement', () => {
+  it('splits many large terminal items before the lifecycle row byte boundary', () => {
     const batches = terminalExitBatches(120, 20_000)
     const flattened = batches.flatMap((batch) => batch.mutations)
 
-    expect(batches).toHaveLength(1)
-    expect(batches[0]?.settlementId).toBe(`provider-exit:${SESSION_ID}:7:generation-1`)
+    expect(batches.length).toBeGreaterThan(1)
+    expect(batches.map((batch) => batch.settlementId)).toEqual(
+      batches.map(
+        (_batch, index) =>
+          `provider-exit:${SESSION_ID}:7:generation-1:${index + 1}/${batches.length}`
+      )
+    )
     expect(flattened).toHaveLength(121)
     expect(flattened.at(-1)).toMatchObject({
       kind: 'item',
@@ -403,10 +420,13 @@ describe('codex journal translation', () => {
     expectLifecycleBatchBounds(batches)
   })
 
-  it('leaves partitioning by byte and mutation bounds to the journal', () => {
+  it('partitions large terminal settlements by both byte and mutation bounds', () => {
     const batches = terminalExitBatches(240, 20_000)
-    expect(batches).toHaveLength(1)
-    expect(batches[0]?.mutations).toHaveLength(241)
+    const mutationOnlyChunkCount = Math.ceil(
+      batches.flatMap((batch) => batch.mutations).length / MAX_JOURNAL_LIFECYCLE_BATCH_MUTATIONS
+    )
+
+    expect(batches.length).toBeGreaterThan(mutationOnlyChunkCount)
     expectLifecycleBatchBounds(batches)
   })
 
@@ -531,42 +551,10 @@ describe('codex journal translation', () => {
               userItemId: `codex:${THREAD_ID}:${TURN_ID}:0`,
               startedAt: expect.any(Number),
               completedAt: expect.any(Number)
-            },
-            turnScope: { kind: 'thread' }
+            }
           }
         ]
       }
-    ])
-    // A completed turn proves no interruption.
-    expect(batches[0]?.mutations[0]).not.toHaveProperty('body.endedAs')
-  })
-
-  it('cuts short an active tool when Codex reports its turn interrupted', () => {
-    const tap = recorder()
-    const bodies: unknown[] = []
-    tap.sink.appendLifecycleBatch = (_settlementId, mutations) => {
-      bodies.push(
-        ...mutations.flatMap((mutation) => (mutation.kind === 'item' ? [mutation.body] : []))
-      )
-    }
-    const translator = createCodexJournalTranslator({
-      sink: tap.sink,
-      primaryThreadId: () => THREAD_ID
-    })
-
-    translator.handle(TURN_STARTED)
-    translator.handle(
-      notification('item/started', {
-        item: { type: 'commandExecution', id: 'exec-active', command: 'run', status: 'inProgress' }
-      })
-    )
-    translator.handle(
-      notification('turn/completed', { turn: { id: TURN_ID, status: 'interrupted' } })
-    )
-
-    expect(bodies).toEqual([
-      expect.objectContaining({ kind: 'tool-call', state: 'failed', endedAs: 'interrupted' }),
-      expect.objectContaining({ kind: 'turn', turnId: TURN_ID, state: 'interrupted' })
     ])
   })
 
@@ -805,8 +793,7 @@ describe('codex journal translation', () => {
     expect(reduced.get('orca:codex-item%3Athread-abc%3Ar-1')).toEqual({
       kind: 'message',
       role: 'reasoning',
-      blocks: [{ type: 'text', text: 'thinking' }],
-      state: 'running'
+      blocks: [{ type: 'text', text: 'thinking' }]
     })
     expect(reduced.get('orca:codex-item%3Athread-abc%3Apatch-1')).toMatchObject({
       kind: 'diff',

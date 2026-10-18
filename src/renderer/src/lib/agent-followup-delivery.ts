@@ -7,18 +7,22 @@ import {
   isExpectedAgentProcess
 } from '../../../shared/agent-process-recognition'
 import { isShellProcess } from '../../../shared/shell-process-detection'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
+
+type RuntimeOwnerSettings = Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 
 export async function sendFollowupPromptWhenAgentReady(args: {
   ptyId: string
   expectedProcess: string
   prompt: string
+  settings: RuntimeOwnerSettings
 }): Promise<boolean> {
-  const { ptyId, expectedProcess, prompt } = args
-  if (!(await waitForAgentForeground(ptyId, expectedProcess))) {
+  const { ptyId, expectedProcess, prompt, settings } = args
+  if (!(await waitForAgentForeground(ptyId, expectedProcess, settings))) {
     return false
   }
   try {
-    return await sendRuntimePtyInputVerified(ptyId, `${prompt}\r`, 'launch')
+    return await sendRuntimePtyInputVerified(settings, ptyId, `${prompt}\r`)
   } catch {
     return false
   }
@@ -26,13 +30,17 @@ export async function sendFollowupPromptWhenAgentReady(args: {
 
 // Why: delayed follow-ups must not type into an arbitrary shell. Require a
 // positive readiness signal before writing user/task text to the PTY.
-async function waitForAgentForeground(ptyId: string, expectedProcess: string): Promise<boolean> {
+async function waitForAgentForeground(
+  ptyId: string,
+  expectedProcess: string,
+  settings: RuntimeOwnerSettings
+): Promise<boolean> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (attempt > 0) {
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150))
     }
     try {
-      const process = await inspectRuntimeTerminalProcess(ptyId)
+      const process = await inspectRuntimeTerminalProcess(settings, ptyId)
       const foreground = process.foregroundProcess?.toLowerCase() ?? ''
       if (isExpectedAgentProcess(foreground, expectedProcess)) {
         return true

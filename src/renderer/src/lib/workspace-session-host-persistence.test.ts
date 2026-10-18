@@ -8,6 +8,7 @@ import {
   buildWorkspaceSessionHostSnapshots,
   patchWorkspaceSessionByHost,
   persistWorkspaceSessionByHost,
+  persistWorkspaceSessionByHostSync,
   type HostPersistenceState
 } from './workspace-session-host-persistence'
 import {
@@ -190,7 +191,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       {
         tabsByWorktree: {
           [folderKey]: [
@@ -214,7 +215,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
           [folderKey]: 'runtime:env-1'
         }
       }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(expect.objectContaining({ tabsByWorktree: {} }))
     expect(patch).toHaveBeenCalledWith(
@@ -232,7 +233,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       {
         tabsByWorktree: {
           [folderKey]: [
@@ -258,7 +259,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
           [folderKey]: 'runtime:stale-env'
         }
       }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledTimes(1)
     expect(patch.mock.calls[0][0]).toEqual(
@@ -276,7 +277,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       {
         tabsByWorktree: {
           [worktreeId]: [
@@ -305,7 +306,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
           'remote-repo': [{ id: worktreeId, repoId: 'remote-repo' }]
         }
       }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(expect.objectContaining({ tabsByWorktree: {} }))
     expect(patch).toHaveBeenCalledWith(
@@ -324,7 +325,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       {
         tabsByWorktree: {
           [localWorktreeId]: [
@@ -373,7 +374,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
           ]
         }
       }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -422,7 +423,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     expect(owner(worktreeWorkspaceKey(worktreeId))).toBe('runtime:env-1')
   })
 
-  it('builds local-first host snapshots', () => {
+  it('builds local-first host snapshots reused by synchronous persistence', () => {
     const localWorktreeId = 'local-repo::C:\\src\\local'
     const remoteWorktreeId = 'remote-repo::/srv/remote'
     const makeTab = (id: string, worktreeId: string) => ({
@@ -472,29 +473,13 @@ describe('fetchWorkspaceSessionFromHosts', () => {
     expect(snapshots[1].state.tabsByWorktree).toEqual({
       [remoteWorktreeId]: [expect.objectContaining({ id: 'remote-tab' })]
     })
-  })
-})
 
-describe('patchWorkspaceSessionByHost write outcome', () => {
-  it('rejects `written` when a host partition fails, while the local write still resolves', async () => {
-    const folderKey = folderWorkspaceKey('folder-1')
-    const patch = vi.fn(async (_slice: unknown, hostId?: string) => {
-      if (hostId) {
-        throw new Error('runtime down')
-      }
-    })
-    const result = patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
-      { activeWorktreeId: folderKey, tabsByWorktree: { [folderKey]: [] } },
-      {
-        repos: [],
-        worktreesByRepo: {},
-        restoredRuntimeHostIdByWorkspaceSessionKey: { [folderKey]: 'runtime:env-1' }
-      }
+    const setSync = vi.fn()
+    persistWorkspaceSessionByHostSync({ get: vi.fn(), patch: vi.fn(), setSync }, payload, state)
+
+    expect(setSync.mock.calls).toEqual(
+      snapshots.map((snapshot) => [snapshot.state, snapshot.hostId])
     )
-    await expect(result.localWrite).resolves.toBeUndefined()
-    await expect(result.written).rejects.toThrow('runtime down')
-    expect(patch).toHaveBeenCalledWith(expect.anything(), 'runtime:env-1')
   })
 })
 
@@ -535,10 +520,10 @@ describe('patchWorkspaceSessionByHost tab-keyed routing', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       { terminalLayoutsByTabId: { 'remote-tab': parkedLayout } },
       { ...catalog, tabsByWorktree: { [remoteWorktreeId]: [remoteTab] } }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(
       { terminalLayoutsByTabId: { 'remote-tab': parkedLayout } },
@@ -551,10 +536,10 @@ describe('patchWorkspaceSessionByHost tab-keyed routing', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       { remoteSessionIdsByTabId: { 'remote-tab': 'sess-1' } },
       { ...catalog, tabsByWorktree: { [remoteWorktreeId]: [remoteTab] } }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(
       { remoteSessionIdsByTabId: { 'remote-tab': 'sess-1' } },
@@ -567,7 +552,7 @@ describe('patchWorkspaceSessionByHost tab-keyed routing', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       { terminalLayoutsByTabId: { 'remote-tab': parkedLayout } },
       {
         ...catalog,
@@ -575,7 +560,7 @@ describe('patchWorkspaceSessionByHost tab-keyed routing', () => {
           [remoteWorktreeId]: [{ id: 'remote-tab', worktreeId: remoteWorktreeId }]
         }
       }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledWith(
       { terminalLayoutsByTabId: { 'remote-tab': parkedLayout } },
@@ -589,13 +574,13 @@ describe('patchWorkspaceSessionByHost tab-keyed routing', () => {
     const patch = vi.fn().mockResolvedValue(undefined)
 
     await patchWorkspaceSessionByHost(
-      { get: vi.fn(), patch },
+      { get: vi.fn(), patch, setSync: vi.fn() },
       {
         tabsByWorktree: { [localWorktreeId]: [{ ...remoteTab, worktreeId: localWorktreeId }] },
         terminalLayoutsByTabId: { 'remote-tab': parkedLayout }
       },
       { ...catalog, tabsByWorktree: { [remoteWorktreeId]: [remoteTab] } }
-    ).written
+    )
 
     expect(patch).toHaveBeenCalledTimes(1)
     expect(patch).toHaveBeenCalledWith(
@@ -667,33 +652,36 @@ describe('persistWorkspaceSessionByHost', () => {
     const set = vi.fn().mockResolvedValue(undefined)
     const flush = vi.fn().mockResolvedValue(undefined)
 
-    await persistWorkspaceSessionByHost({ get: vi.fn(), set, patch: vi.fn(), flush }, payload, {
-      repos: [
-        { id: 'local-repo', connectionId: null, executionHostId: 'local' },
-        {
-          id: 'remote-repo',
-          connectionId: null,
-          executionHostId: 'runtime:env-1'
-        }
-      ],
-      worktreesByRepo: {
-        'local-repo': [{ id: localWorktreeId, repoId: 'local-repo' }],
-        'remote-repo': [
+    await persistWorkspaceSessionByHost(
+      { get: vi.fn(), set, patch: vi.fn(), flush, setSync: vi.fn() },
+      payload,
+      {
+        repos: [
+          { id: 'local-repo', connectionId: null, executionHostId: 'local' },
           {
-            id: remoteWorktreeId,
-            repoId: 'remote-repo',
-            hostId: 'runtime:env-1'
+            id: 'remote-repo',
+            connectionId: null,
+            executionHostId: 'runtime:env-1'
           }
-        ]
+        ],
+        worktreesByRepo: {
+          'local-repo': [{ id: localWorktreeId, repoId: 'local-repo' }],
+          'remote-repo': [
+            {
+              id: remoteWorktreeId,
+              repoId: 'remote-repo',
+              hostId: 'runtime:env-1'
+            }
+          ]
+        }
       }
-    })
+    )
 
     expect(set).toHaveBeenCalledTimes(2)
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         tabsByWorktree: { [localWorktreeId]: expect.any(Array) }
-      }),
-      undefined
+      })
     )
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({

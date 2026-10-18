@@ -1,13 +1,10 @@
 import type { IssueInfo } from '../../../../shared/github/pull-request-types'
 import type {
-  Worktree,
-  WorkspaceAttachment,
   AutomationWorkspaceProvenance,
   CliWorkspaceProvenance
 } from '../../../../shared/worktree/types'
 import type { WorktreeCardPrDisplay } from './worktree-card-pr-display'
 import type { WorktreeCardDetailsHoverControl } from './worktree-card-details-hover-state'
-import type { WorkspaceReferenceDetailsMap } from './workspace-reference-details'
 
 export type WorktreeCardIssueDisplay =
   | IssueInfo
@@ -24,7 +21,6 @@ export type WorktreeCardLinearIssueDisplay = {
   title: string
   url?: string
   stateName?: string
-  stateType?: string
   labels?: string[]
 }
 
@@ -35,9 +31,6 @@ export type WorktreeCardJiraIssueDisplay = {
 }
 
 export type WorktreeCardMetaBadgesProps = {
-  referenceItems?: readonly WorkspaceAttachment[]
-  referenceDetails?: WorkspaceReferenceDetailsMap
-  linkedItemCount?: number
   issue: WorktreeCardIssueDisplay | null
   linearIssue: WorktreeCardLinearIssueDisplay | null
   jiraIssue?: WorktreeCardJiraIssueDisplay | null
@@ -51,8 +44,6 @@ export type WorktreeCardMetaBadgesRootProps = WorktreeCardMetaBadgesProps &
   React.HTMLAttributes<HTMLDivElement>
 
 export type WorktreeCardDetailsHoverProps = WorktreeCardMetaBadgesProps & {
-  workspace?: Worktree
-  onManageLinks?: (event: React.MouseEvent) => void
   children: React.ReactElement
   branchName?: string
   workspaceTitle?: string

@@ -56,9 +56,14 @@ vi.mock('@/lib/worktree-runtime-owner', () => ({
 }))
 
 vi.mock('@/runtime/runtime-rpc-client', async () => {
+  const actual = await import('@/runtime/runtime-client-target')
   return {
+    getActiveRuntimeTarget: actual.getActiveRuntimeTarget,
     callRuntimeRpc: vi.fn(),
-    assertRuntimeEnvironmentCapability: vi.fn()
+    assertRuntimeEnvironmentCapability: vi.fn(),
+    RuntimeRpcCallError: class RuntimeRpcCallError extends Error {
+      code?: string
+    }
   }
 })
 

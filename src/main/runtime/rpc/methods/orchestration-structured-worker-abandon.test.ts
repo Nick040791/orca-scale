@@ -7,12 +7,13 @@ const released: string[] = []
 vi.mock('./orchestration-structured-worker-session', () => ({
   releaseStructuredWorkerSession: (dispatchId: string) => released.push(dispatchId),
   createStructuredWorkerSession: vi.fn(),
-  sendStructuredWorkerPreamble: vi.fn()
+  sendStructuredWorkerPreamble: vi.fn(),
+  structuredWorkerHoldId: (dispatchId: string) => `orchestration:dispatch:${dispatchId}`
 }))
 
 const harness = createOrchestrationRpcHarness()
 
-describe('workerAbandon settles the structured worker session', () => {
+describe('workerAbandon settles the structured hold', () => {
   let state: OrchestrationRpcState
 
   beforeEach(() => {
@@ -36,10 +37,10 @@ describe('workerAbandon settles the structured worker session', () => {
     return started.dispatch.id
   }
 
-  it('releases the worker session when the dispatch actually settles', async () => {
+  it('releases the hold when the dispatch actually settles', async () => {
     const dispatchId = await startedDispatch()
-    // Without this, the redrive subscription outlives settlement and keeps nudging a session no
-    // dispatch owns.
+    // Without this, the resume-capable hold outlives settlement: the provider child can never be
+    // evicted and host crash recovery keeps respawning an abandoned worker.
     await harness.call('orchestration.workerAbandon', { dispatch: dispatchId }, state.ctx)
     expect(released).toEqual([dispatchId])
   })

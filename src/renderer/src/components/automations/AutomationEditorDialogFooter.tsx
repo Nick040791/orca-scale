@@ -4,6 +4,8 @@ import { translate } from '@/i18n/i18n'
 
 type AutomationEditorDialogFooterProps = {
   isEditing: boolean
+  isEditingExternal: boolean
+  isHermesCreate: boolean
   isSaving: boolean
   canSave: boolean
   hasProjects: boolean
@@ -13,17 +15,20 @@ type AutomationEditorDialogFooterProps = {
 
 export function AutomationEditorDialogFooter({
   isEditing,
+  isEditingExternal,
+  isHermesCreate,
   isSaving,
   canSave,
   hasProjects,
   onOpenChange,
   onSave
 }: AutomationEditorDialogFooterProps): React.JSX.Element {
-  const saveLabel = isEditing
-    ? translate('auto.components.automations.AutomationEditorDialog.777548c2d6', 'Save Changes')
-    : isSaving
-      ? translate('auto.components.automations.AutomationEditorDialog.a9d9dccf77', 'Save')
-      : translate('auto.components.automations.AutomationEditorDialog.e46c1aa9ad', 'Create')
+  const saveLabel =
+    isEditing || isEditingExternal
+      ? translate('auto.components.automations.AutomationEditorDialog.777548c2d6', 'Save Changes')
+      : isSaving || isHermesCreate
+        ? translate('auto.components.automations.AutomationEditorDialog.a9d9dccf77', 'Save')
+        : translate('auto.components.automations.AutomationEditorDialog.e46c1aa9ad', 'Create')
 
   return (
     <div className="flex items-center justify-between gap-3 border-t border-border/50 px-5 py-3">

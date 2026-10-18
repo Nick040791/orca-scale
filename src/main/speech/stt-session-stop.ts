@@ -189,7 +189,6 @@ export function cleanupActiveSttWorkerLifecycleListeners(state: SttSessionState)
 }
 
 function clearSttWorkerState(state: SttSessionState): void {
-  clearSttIdleTeardownTimer(state)
   state.worker = null
   state.activeModelId = null
   state.activeHotwordsFilePath = undefined

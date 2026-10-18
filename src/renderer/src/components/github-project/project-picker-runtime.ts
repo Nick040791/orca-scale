@@ -1,5 +1,4 @@
-import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { githubProjectHost } from '../../../../shared/github/project-identity'
 import type { GitHubProjectOwnerType } from '../../../../shared/github/project-types'
 import type {
@@ -8,8 +7,10 @@ import type {
   ResolveProjectRefResult
 } from '../../../../shared/github/project-result-types'
 
-/** `target` is the board's row-less source host, never the focused server. */
-export function getProjectPickerRuntimeScope(target: RuntimeClientTarget, host: string): string {
+type RuntimeSettings = Parameters<typeof getActiveRuntimeTarget>[0]
+
+export function getProjectPickerRuntimeScope(settings: RuntimeSettings, host: string): string {
+  const target = getActiveRuntimeTarget(settings)
   const runtimeScope = target.kind === 'environment' ? `runtime:${target.environmentId}` : 'local'
   return `${runtimeScope}\0${host.toLowerCase()}`
 }
@@ -19,9 +20,10 @@ export function getProjectPickerBrowseHost(activeProject: { host?: string } | nu
 }
 
 export async function listAccessibleProjectsForRuntime(
-  target: RuntimeClientTarget,
+  settings: RuntimeSettings,
   host: string
 ): Promise<ListAccessibleProjectsResult> {
+  const target = getActiveRuntimeTarget(settings)
   const args = { host }
   return target.kind === 'environment'
     ? callRuntimeRpc<ListAccessibleProjectsResult>(target, 'github.project.listAccessible', args, {
@@ -31,7 +33,7 @@ export async function listAccessibleProjectsForRuntime(
 }
 
 export async function listProjectViewsForRuntime(
-  target: RuntimeClientTarget,
+  settings: RuntimeSettings,
   args: {
     owner: string
     ownerType: GitHubProjectOwnerType
@@ -39,6 +41,7 @@ export async function listProjectViewsForRuntime(
     host?: string
   }
 ): Promise<ListProjectViewsResult> {
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'environment'
     ? callRuntimeRpc<ListProjectViewsResult>(target, 'github.project.listViews', args, {
         timeoutMs: 30_000
@@ -47,10 +50,11 @@ export async function listProjectViewsForRuntime(
 }
 
 export async function resolveProjectRefForRuntime(
-  target: RuntimeClientTarget,
+  settings: RuntimeSettings,
   input: string,
   host?: string
 ): Promise<ResolveProjectRefResult> {
+  const target = getActiveRuntimeTarget(settings)
   return target.kind === 'environment'
     ? callRuntimeRpc<ResolveProjectRefResult>(
         target,

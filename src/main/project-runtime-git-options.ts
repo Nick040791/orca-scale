@@ -1,3 +1,4 @@
+import type { Store } from './persistence'
 import type { Repo } from '../shared/repo-types'
 import { isFolderRepo } from '../shared/repo-kind'
 import {
@@ -25,7 +26,7 @@ export type LocalProjectGhExecOptions = LocalProjectWorktreeGitOptions & {
 }
 
 export function getLocalProjectGitExecOptions(
-  store: ProjectRuntimeResolutionStore,
+  store: Store,
   repo: Repo
 ): LocalProjectGitExecOptions {
   // Why: local git must run in the same resolved project runtime as agents,
@@ -55,7 +56,7 @@ function getLocalProjectGitExecOptionsForRuntime(
 }
 
 export function getLocalProjectWorktreeGitOptions(
-  store: ProjectRuntimeResolutionStore,
+  store: Store,
   repo: Repo
 ): LocalProjectWorktreeGitOptions {
   const { wslDistro } = getLocalProjectGitExecOptions(store, repo)
@@ -68,10 +69,7 @@ export function getLocalProjectWorktreeGitOptions(
  * Why: every gh call site must resolve options through here — one that reaches for
  * `getLocalProjectWorktreeGitOptions` instead silently runs as the ambient login.
  */
-export function getLocalProjectGhExecOptions(
-  store: ProjectRuntimeResolutionStore,
-  repo: Repo
-): LocalProjectGhExecOptions {
+export function getLocalProjectGhExecOptions(store: Store, repo: Repo): LocalProjectGhExecOptions {
   return {
     ...getLocalProjectWorktreeGitOptions(store, repo),
     ...(repo.ghAccount ? { ghAccount: repo.ghAccount } : {})
@@ -87,7 +85,7 @@ export function getLocalProjectGhExecOptions(
  * routing existed.
  */
 export function getWorktreeCreatePrefetchGitOptions(
-  store: ProjectRuntimeResolutionStore,
+  store: Store,
   repo: Repo
 ): LocalProjectWorktreeGitOptions {
   if (isFolderRepo(repo)) {

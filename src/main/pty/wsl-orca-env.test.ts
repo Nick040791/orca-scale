@@ -8,23 +8,6 @@ import {
 import { addOrcaWslInteropEnv, stampWslOrchestrationCompatibilityHost } from './wsl-orca-env'
 
 describe('addOrcaWslInteropEnv', () => {
-  it.each(['1', '0'])(
-    'forwards Claude image override %s to WSL without path translation',
-    (value) => {
-      const env: Record<string, string> = { CLAUDE_CODE_FORCE_TERMINAL_IMAGES: value }
-
-      addOrcaWslInteropEnv(env)
-      addOrcaWslInteropEnv(env)
-
-      expect(env.CLAUDE_CODE_FORCE_TERMINAL_IMAGES).toBe(value)
-      expect(
-        env.WSLENV.split(':').filter((entry) =>
-          entry.startsWith('CLAUDE_CODE_FORCE_TERMINAL_IMAGES')
-        )
-      ).toEqual(['CLAUDE_CODE_FORCE_TERMINAL_IMAGES/u'])
-    }
-  )
-
   it('marks the Orca terminal handle for Windows to WSL env import', () => {
     const env: Record<string, string> = { ORCA_TERMINAL_HANDLE: 'term_wsl' }
 
@@ -81,7 +64,6 @@ describe('addOrcaWslInteropEnv', () => {
       ORCA_CLI_COMMAND: 'orca-ide',
       ORCA_WSL_CLI_DIR: 'C:\\Users\\jin\\AppData\\Roaming\\Orca\\wsl-managed-cli\\hash',
       ORCA_CODEX_LAUNCH_PREFLIGHT: 'C:\\Program Files\\Orca\\resources\\bin\\orca.exe',
-      ORCA_CODEX_ISOLATE: '0',
       ORCA_OMP_FRESH_CONFIG: 'C:\\Orca\\fresh-session.yml',
       ORCA_OMP_STATUS_EXTENSION: 'C:\\Users\\jin\\.omp\\agent\\extensions\\orca-agent-status.ts',
       ORCA_PRIME_AGENT_STATUS_EXTENSION: 'C:\\stale\\orca-agent-status.ts',
@@ -98,10 +80,7 @@ describe('addOrcaWslInteropEnv', () => {
       ORCA_WSL_HOOK_INSTANCE: 'testinstance',
       ORCA_ORCHESTRATION_COMPATIBILITY_HOST_KIND: 'wsl',
       ORCA_ORCHESTRATION_COMPATIBILITY_HOST_ID: 'local',
-      ORCA_ORCHESTRATION_COMPATIBILITY_HOST_INCARNATION: 'Ubuntu',
-      ORCA_RUNTIME_SOURCE_ID: '11111111-1111-4111-8111-111111111111',
-      ORCA_RUNTIME_SOURCE_INCARNATION: 'runtime-a',
-      ORCA_RUNTIME_SOURCE_PROFILE_PATH: 'C:\\Users\\a\\AppData\\Roaming\\orca'
+      ORCA_ORCHESTRATION_COMPATIBILITY_HOST_INCARNATION: 'Ubuntu'
     }
 
     addOrcaWslInteropEnv(env)
@@ -111,7 +90,6 @@ describe('addOrcaWslInteropEnv', () => {
     expect(env.WSLENV).toContain('ORCA_CLI_COMMAND/u')
     expect(env.WSLENV).toContain('ORCA_WSL_CLI_DIR/p')
     expect(env.WSLENV).toContain('ORCA_CODEX_LAUNCH_PREFLIGHT/p')
-    expect(env.WSLENV).toContain('ORCA_CODEX_ISOLATE/u')
     expect(env.WSLENV).toContain('ORCA_OMP_STATUS_EXTENSION/p')
     expect(env.WSLENV).toContain('ORCA_OMP_FRESH_CONFIG/p')
     expect(env.WSLENV).not.toContain('ORCA_PRIME_AGENT_STATUS_EXTENSION')
@@ -129,9 +107,6 @@ describe('addOrcaWslInteropEnv', () => {
     expect(env.WSLENV).toContain('ORCA_ORCHESTRATION_COMPATIBILITY_HOST_KIND/u')
     expect(env.WSLENV).toContain('ORCA_ORCHESTRATION_COMPATIBILITY_HOST_ID/u')
     expect(env.WSLENV).toContain('ORCA_ORCHESTRATION_COMPATIBILITY_HOST_INCARNATION/u')
-    expect(env.WSLENV).toContain('ORCA_RUNTIME_SOURCE_ID/u')
-    expect(env.WSLENV).toContain('ORCA_RUNTIME_SOURCE_INCARNATION/u')
-    expect(env.WSLENV).toContain('ORCA_RUNTIME_SOURCE_PROFILE_PATH/u')
   })
 
   it('overwrites caller host evidence with native runtime WSL authority', () => {
@@ -227,6 +202,14 @@ describe('addOrcaWslInteropEnv', () => {
     addOrcaWslInteropEnv(env)
 
     expect(env.WSLENV).toBe('ORCA_SHELL_READY_ROOT/p:ORCA_WORKSPACE_NAME/u')
+  })
+
+  it('does not register setup vars that are absent from the env', () => {
+    const env: Record<string, string> = { ORCA_TERMINAL_HANDLE: 'term_wsl' }
+
+    addOrcaWslInteropEnv(env)
+
+    expect(env.WSLENV).toBe('ORCA_TERMINAL_HANDLE/u:ORCA_SHELL_READY_ROOT/p')
   })
 
   it('crosses the inline-image protocol hint into the guest untranslated (/u)', () => {

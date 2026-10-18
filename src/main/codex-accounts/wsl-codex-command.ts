@@ -63,11 +63,7 @@ export function buildWslCodexAppServerArgs(
   return buildWslCodexShellArgs(distro, command)
 }
 
-export function buildWslCodexLoginArgs(
-  distro: string,
-  linuxHomePath: string,
-  options: { orcaOpensSignInLink?: boolean } = {}
-): string[] {
+export function buildWslCodexLoginArgs(distro: string, linuxHomePath: string): string[] {
   const command = [
     buildCodexPathLookup(),
     'if [ -z "$resolved" ]; then',
@@ -75,8 +71,6 @@ export function buildWslCodexLoginArgs(
     '  exit 127',
     'fi',
     `export CODEX_HOME=${quotePosixShell(linuxHomePath)}`,
-    // Why: Orca opens the printed link itself; a distro opener would open a second tab.
-    ...(options.orcaOpensSignInLink ? ['export BROWSER=true'] : []),
     'exec "$resolved" login'
   ].join('\n')
   return buildWslCodexShellArgs(distro, command)

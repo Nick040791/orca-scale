@@ -30,7 +30,6 @@ import {
 } from './profile-storage-paths'
 import { copyLegacyStateToProfile } from './profile-legacy-state-import'
 import { profileStateJsonExportPaths } from '../persistence/profile-state/legacy-json/profile-state-export-path'
-import { hasProfileStateAuthorityMarker } from '../persistence/profile-state/profile-state-authority-marker'
 import { profileStateDatabaseBackups } from '../persistence/profile-state/profile-state-backup-path'
 
 export {
@@ -198,20 +197,19 @@ export function ensureActiveOrcaProfile(
   mkdirSync(profileDirectory, { recursive: true })
   const profileDatabaseFile = getOrcaProfileStateDatabaseFile(activeProfile.id, userDataPath)
   const profileDataFile = getOrcaProfileDataFile(activeProfile.id, userDataPath)
-  let hasRetainedProfileStateAuthority = false
+  let hasRetainedProfileStateExport = false
   try {
-    hasRetainedProfileStateAuthority =
-      hasProfileStateAuthorityMarker(profileDatabaseFile) ||
+    hasRetainedProfileStateExport =
       profileStateJsonExportPaths(profileDataFile).length > 0 ||
       profileStateDatabaseBackups(profileDatabaseFile).length > 0
   } catch {
     // An unreadable profile directory must never trigger a fallback copy of legacy state.
-    hasRetainedProfileStateAuthority = true
+    hasRetainedProfileStateExport = true
   }
   if (
     activeProfile.id === DEFAULT_LOCAL_ORCA_PROFILE_ID &&
     !hasOrcaProfileStateDatabase(activeProfile.id, userDataPath) &&
-    !hasRetainedProfileStateAuthority
+    !hasRetainedProfileStateExport
   ) {
     copyLegacyStateToProfile(userDataPath, activeProfile.id)
   }

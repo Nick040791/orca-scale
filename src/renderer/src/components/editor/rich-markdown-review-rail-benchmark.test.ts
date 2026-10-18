@@ -48,8 +48,7 @@ function measureBaseline({
         block,
         containerRect,
         container.scrollTop,
-        markdownSourceLineOffset,
-        buildRichMarkdownCommentBlocks(editor)
+        markdownSourceLineOffset
       )
       return top === null ? null : { comment, top }
     })

@@ -1,8 +1,7 @@
 import { useAppStore } from '@/store'
-import type { PtyConnectResult } from '../pty-transport-types'
+import type { PtyConnectResult } from '../pty-transport'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { parseLegacyNumericPaneKey } from '../../../../../shared/stable-pane-id'
-import { neutralTerminalTitle } from '../../../../../shared/terminal-pane-title-reset'
 import { getProviderSessionClaimKey } from '@/lib/sleeping-agent-pane-ownership'
 import {
   agentProviderSessionsEqual,
@@ -157,14 +156,8 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
       if (metadata?.launchAgent) {
         // Why: daemon launch identity can outlive the process while Orca is
         // closed. Use it to request confirmation, never as current byte authority.
-        const state = useAppStore.getState()
-        const current = state.paneForegroundAgentByPaneKey[session.cacheKey]
-        // Why: re-mounting a parked pane must not demote this session's own read of the same agent.
-        const keepsRead =
-          current?.agent === metadata.launchAgent && current.agentEvidence === 'process-read'
-        state.setPaneForegroundAgent(session.cacheKey, {
+        useAppStore.getState().setPaneForegroundAgent(session.cacheKey, {
           agent: metadata.launchAgent,
-          agentEvidence: keepsRead ? 'process-read' : 'launch-record',
           shellForeground: false
         })
       }
@@ -196,7 +189,7 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
     const tab = (state.tabsByWorktree[session.deps.worktreeId] ?? []).find(
       (entry) => entry.id === session.deps.tabId
     )
-    return neutralTerminalTitle(tab?.defaultTitle)
+    return tab?.defaultTitle?.trim() || 'Terminal'
   }
   installCommandInferredPaneAgent(session)
 }

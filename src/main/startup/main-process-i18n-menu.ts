@@ -6,12 +6,10 @@ import {
   getNextDefaultOnAppearanceSettingValue
 } from '../menu/register-app-menu'
 import { zoomDashboardPopoutIfFocused } from '../window/dashboard-popout-window'
-import { zoomWorkspaceSpaceWindowIfFocused } from '../window/workspace-space-window'
 import { recordCrashBreadcrumb } from '../crash-reporting/crash-breadcrumb-store'
 import { mainProcessState as state } from './main-process-state'
 import {
   openSettingsFromSystemMenu,
-  quitFromUserCommand,
   runUserInitiatedUpdateCheck,
   sendOpenCrashReport,
   sendOpenFeatureTour,
@@ -30,7 +28,6 @@ export async function initializeMainProcessI18nAndMenu(): Promise<void> {
   logStartupMilestone('i18n-ready')
   registerAppMenu({
     appMenuLabel: state.devInstanceIdentity?.name ?? app.name,
-    ...(state.isServeMode ? { onQuit: quitFromUserCommand } : {}),
     onCheckForUpdates: (options) => {
       ensureAutoUpdaterConfigured()
       runUserInitiatedUpdateCheck(options)
@@ -58,17 +55,17 @@ export async function initializeMainProcessI18nAndMenu(): Promise<void> {
     // Why: menu zoom must act on the window the user is looking at — routing to
     // the main window while the dashboard pop-out is focused zooms behind it.
     onZoomIn: () => {
-      if (!zoomDashboardPopoutIfFocused('in') && !zoomWorkspaceSpaceWindowIfFocused('in')) {
+      if (!zoomDashboardPopoutIfFocused('in')) {
         state.mainWindow?.webContents.send('terminal:zoom', 'in')
       }
     },
     onZoomOut: () => {
-      if (!zoomDashboardPopoutIfFocused('out') && !zoomWorkspaceSpaceWindowIfFocused('out')) {
+      if (!zoomDashboardPopoutIfFocused('out')) {
         state.mainWindow?.webContents.send('terminal:zoom', 'out')
       }
     },
     onZoomReset: () => {
-      if (!zoomDashboardPopoutIfFocused('reset') && !zoomWorkspaceSpaceWindowIfFocused('reset')) {
+      if (!zoomDashboardPopoutIfFocused('reset')) {
         state.mainWindow?.webContents.send('terminal:zoom', 'reset')
       }
     },

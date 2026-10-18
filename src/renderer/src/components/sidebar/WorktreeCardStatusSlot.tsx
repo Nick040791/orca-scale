@@ -10,11 +10,6 @@ import { useWorktreeActivityStatus } from './use-worktree-activity-status'
 import { useIsSleepingWorktree } from './use-worktree-sleep-state'
 import type { WorktreeCardPrDisplay } from './worktree-card-pr-display'
 import { getReviewLabel, ReviewIcon } from './worktree-review-helpers'
-import type { WorkspaceReviewChecksSummary } from '../../../../shared/workspace-review-checks'
-import {
-  WorkspaceReviewChecksIndicator,
-  workspaceReviewChecksLabel
-} from './WorkspaceReviewChecksIndicator'
 
 type WorktreeCardStatusSlotProps = {
   worktreeId: string
@@ -25,7 +20,6 @@ type WorktreeCardStatusSlotProps = {
   onToggleUnread: React.MouseEventHandler<HTMLButtonElement>
   onPointerDown: React.PointerEventHandler<HTMLButtonElement>
   prDisplay?: WorktreeCardPrDisplay | null
-  reviewChecks?: WorkspaceReviewChecksSummary
   newCardStyle?: boolean
   hasBranchIdentity?: boolean
   branchIdentityLabel?: string
@@ -108,13 +102,11 @@ export function WorktreeCardStatusSlot({
   onToggleUnread,
   onPointerDown,
   prDisplay = null,
-  reviewChecks,
   newCardStyle = false,
   hasBranchIdentity = false,
   branchIdentityLabel,
   className
 }: WorktreeCardStatusSlotProps): React.JSX.Element | null {
-  const collectionChecks = reviewChecks && reviewChecks.total > 1 ? reviewChecks : undefined
   const status = useWorktreeActivityStatus(worktreeId)
   const isSleeping = useIsSleepingWorktree(worktreeId)
   const statusLabel = getWorktreeStatusLabel(status) || status
@@ -126,7 +118,7 @@ export function WorktreeCardStatusSlot({
   const canShowReviewStatus =
     newCardStyle &&
     showStatus &&
-    (prDisplay !== null || Boolean(collectionChecks)) &&
+    prDisplay !== null &&
     !canShowSleepingStatus &&
     QUIET_REVIEW_REPLACEABLE_STATUSES.has(status)
   const canShowBranchStatus =
@@ -134,18 +126,15 @@ export function WorktreeCardStatusSlot({
     showStatus &&
     hasBranchIdentity &&
     prDisplay === null &&
-    !collectionChecks &&
     !canShowSleepingStatus &&
     QUIET_REVIEW_REPLACEABLE_STATUSES.has(status)
   const passiveStatusLabel = canShowSleepingStatus
     ? getSleepingStatusLabel()
-    : canShowReviewStatus && collectionChecks
-      ? workspaceReviewChecksLabel(collectionChecks)
-      : canShowReviewStatus && prDisplay
-        ? getReviewStatusLabel(prDisplay)
-        : canShowBranchStatus
-          ? (branchIdentityLabel ?? getDefaultBranchIdentityLabel())
-          : statusLabel
+    : canShowReviewStatus && prDisplay
+      ? getReviewStatusLabel(prDisplay)
+      : canShowBranchStatus
+        ? (branchIdentityLabel ?? getDefaultBranchIdentityLabel())
+        : statusLabel
   const passiveStatusAnnouncement =
     newCardStyle && isUnread ? `${passiveStatusLabel} · Unread` : passiveStatusLabel
   // Why: working and permission already own the new-card status lane, but
@@ -160,16 +149,9 @@ export function WorktreeCardStatusSlot({
       {sleepingStatusIcon}
       <span className="sr-only">{passiveStatusAnnouncement}</span>
     </span>
-  ) : canShowReviewStatus && (collectionChecks || prDisplay) ? (
+  ) : canShowReviewStatus && prDisplay ? (
     <span className={cn('inline-flex size-5 items-center justify-center p-0.5', className)}>
-      {collectionChecks ? (
-        <WorkspaceReviewChecksIndicator
-          summary={collectionChecks}
-          className={reviewStatusIconClassName}
-        />
-      ) : prDisplay ? (
-        <ReviewIcon review={prDisplay} className={reviewStatusIconClassName} variant="generic" />
-      ) : null}
+      <ReviewIcon review={prDisplay} className={reviewStatusIconClassName} variant="generic" />
       <span className="sr-only">{passiveStatusAnnouncement}</span>
     </span>
   ) : canShowBranchStatus ? (

@@ -41,7 +41,6 @@ export type AgentStatusTabPrefixDropState = Pick<
   | 'retentionSuppressedPaneKeys'
   | 'sortEpoch'
   | 'tabsByWorktree'
-  | 'unifiedTabsByWorktree'
 >
 
 /** Pure form of the dropAgentStatusByTabPrefix reducer: the paired snapshot

@@ -1,4 +1,4 @@
-import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
+import { getActiveMultiplexer } from '../ssh/ssh-target-registry'
 
 export type RemoteWindowsTerminalCapabilities = {
   wslAvailable: boolean
@@ -8,8 +8,23 @@ export type RemoteWindowsTerminalCapabilities = {
   hostPlatform: NodeJS.Platform | null
 }
 
+const EMPTY_REMOTE_WINDOWS_TERMINAL_CAPABILITIES: RemoteWindowsTerminalCapabilities = {
+  wslAvailable: false,
+  wslDistros: [],
+  pwshAvailable: false,
+  gitBashAvailable: false,
+  hostPlatform: null
+}
+
 export async function detectRemoteWindowsTerminalCapabilities(args: {
   connectionId: string
 }): Promise<RemoteWindowsTerminalCapabilities> {
-  throw new SshHostNotServedError(args.connectionId)
+  const mux = getActiveMultiplexer(args.connectionId)
+  if (!mux || mux.isDisposed()) {
+    return EMPTY_REMOTE_WINDOWS_TERMINAL_CAPABILITIES
+  }
+  const result = (await mux.request('preflight.detectWindowsTerminalCapabilities', {})) as
+    | RemoteWindowsTerminalCapabilities
+    | undefined
+  return result ?? EMPTY_REMOTE_WINDOWS_TERMINAL_CAPABILITIES
 }

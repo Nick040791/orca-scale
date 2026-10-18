@@ -563,10 +563,8 @@ async function runSelectedRuntimeAddJourney(
       if (!store) {
         throw new Error('Renderer store unavailable')
       }
-      await store.getState().fetchProjectGroups({ runtimeEnvironmentId: null, throwOnError: true })
-      await store
-        .getState()
-        .fetchFolderWorkspaces({ runtimeEnvironmentId: null, throwOnError: true })
+      await store.getState().fetchProjectGroups()
+      await store.getState().fetchFolderWorkspaces()
       return {
         folderWorkspaces: store.getState().folderWorkspaces,
         projectGroups: store.getState().projectGroups

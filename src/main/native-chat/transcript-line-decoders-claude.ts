@@ -15,7 +15,6 @@ import {
 } from '../ai-vault/session-scanner-values'
 import { imageSourcePathFromText } from '../../shared/native-chat-image-transcript-markers'
 import { claudeContentBlocks } from './transcript-record-blocks'
-import { unwrapClaudePastedContentBlock } from '../../shared/claude-pasted-content'
 import { claudeInterruptedMessageId } from './transcript-turn-markers'
 
 const MAX_EDIT_PATCH_HUNKS = 40
@@ -85,9 +84,6 @@ export function decodeClaudeTranscriptLine(
   }
   const timestamp = parseTimestamp(record.timestamp)
   const recordMessageId = extractString(record.uuid) ?? fallbackId
-  // Why: the row link pairs a local command's reply with its command row.
-  const parentUuid = extractString(record.parentUuid)
-  const parent = parentUuid ? { parentId: parentUuid } : {}
   if (claudeInterruptedMessageId(record)) {
     // Why: keep Claude's injected boilerplate out of the user-bubble path while
     // preserving the interruption as a quiet, replayable conversation status.
@@ -96,8 +92,7 @@ export function decodeClaudeTranscriptLine(
       role: 'system',
       blocks: [{ type: 'text', text: NATIVE_CHAT_INTERRUPTED_STATUS_TEXT }],
       timestamp,
-      source: 'transcript',
-      ...parent
+      source: 'transcript'
     }
   }
   const message = asRecord(record.message)
@@ -129,10 +124,9 @@ export function decodeClaudeTranscriptLine(
   return {
     id: messageId ?? fallbackId,
     role: claudeMessageRole(role, blocks),
-    blocks: role === 'user' ? blocks.map(unwrapClaudePastedContentBlock) : blocks,
+    blocks,
     timestamp,
-    source: 'transcript',
-    ...parent
+    source: 'transcript'
   }
 }
 

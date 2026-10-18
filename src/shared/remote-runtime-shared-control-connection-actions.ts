@@ -14,9 +14,9 @@ export function sendSharedControlRequest(args: {
   requestId: string
   state: Parameters<typeof sharedControlProtocol.sendSharedControlEncryptedSerialized>[0]['state']
   ws: Parameters<typeof sharedControlProtocol.sendSharedControlEncryptedSerialized>[0]['ws']
-  handshake: Parameters<
+  sharedKey: Parameters<
     typeof sharedControlProtocol.sendSharedControlEncryptedSerialized
-  >[0]['handshake']
+  >[0]['sharedKey']
 }): void {
   sharedControlSend.sendSharedControlRequest({
     pendingRequests: args.pendingRequests,
@@ -25,7 +25,7 @@ export function sendSharedControlRequest(args: {
       sharedControlProtocol.sendSharedControlEncryptedSerialized({
         state: args.state,
         ws: args.ws,
-        handshake: args.handshake,
+        sharedKey: args.sharedKey,
         serialized
       }),
     reject: (id, error) =>
@@ -78,4 +78,16 @@ export function closeSharedControlSubscription(args: {
   send: (payload: unknown) => boolean
 }): void {
   closeSharedControlConnectionSubscription(args)
+}
+
+export function closeRuntimeControlSubscription(args: {
+  subscriptions: Map<string, SharedControlLogicalSubscription<unknown>>
+  retiredRequestIds: SharedControlRetiredRequestIds
+  requestId: string
+  deviceToken: string
+  send: (payload: unknown) => boolean
+  clearWhenIdle: (isIdle: boolean) => void
+}): void {
+  closeSharedControlSubscription(args)
+  args.clearWhenIdle(args.subscriptions.size === 0)
 }

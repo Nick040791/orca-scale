@@ -5,7 +5,6 @@ import { translate } from '@/i18n/i18n'
 
 type FileExplorerNameFilterProps = {
   query: string
-  scopeLabel?: string
   loading?: boolean
   onQueryChange: (value: string) => void
   onClear: () => void
@@ -13,7 +12,6 @@ type FileExplorerNameFilterProps = {
 
 export function FileExplorerNameFilter({
   query,
-  scopeLabel,
   loading = false,
   onQueryChange,
   onClear
@@ -31,14 +29,10 @@ export function FileExplorerNameFilter({
           'auto.components.right.sidebar.FileExplorerNameFilter.26fb73c6e3',
           'Find files'
         )}
-        placeholder={
-          scopeLabel
-            ? translate('fileExplorer.root.findInFolder', 'Find in {{path}}', { path: scopeLabel })
-            : translate(
-                'auto.components.right.sidebar.FileExplorerNameFilter.26fb73c6e3',
-                'Find files'
-              )
-        }
+        placeholder={translate(
+          'auto.components.right.sidebar.FileExplorerNameFilter.26fb73c6e3',
+          'Find files'
+        )}
         value={query}
         onChange={(event) => onQueryChange(event.currentTarget.value)}
         spellCheck={false}

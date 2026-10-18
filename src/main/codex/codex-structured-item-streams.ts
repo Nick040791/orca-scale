@@ -1,18 +1,18 @@
-import {
-  AGENT_JOURNAL_THREAD_SCOPE,
-  type AgentJournalRowAttribution
-} from '../../shared/agent-session-journal-types'
+import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { createAgentSessionDeltaCoalescer } from '../native-chat/agent-session-wire/agent-session-delta-coalescer'
 import { CodexItemStreamRetention } from './codex-item-stream-retention'
 import { appendCodexItemAndPublish } from './codex-structured-journal-sink'
-import { codexJournalItem, codexStreamingJournalItem } from './codex-structured-item-translation'
-import { withJournalReasoningLifecycle } from '../native-chat/agent-session-journal/journal-reasoning-row'
+import {
+  codexJournalItem,
+  codexStreamingJournalItem,
+  type CodexThreadItem
+} from './codex-structured-item-translation'
 import {
   codexStructuredItemKey,
   MAX_CODEX_ITEM_STREAM_PENDING_PATCHES,
   MAX_CODEX_ITEM_STREAM_PENDING_PATCH_BYTES,
   MAX_CODEX_ITEM_STREAM_RETAINED_BYTES,
-  codexItemStreamState,
+  boundStreamItem,
   pendingPatchBytes
 } from './codex-structured-item-stream-bounds'
 import {
@@ -51,14 +51,12 @@ export function createCodexStructuredItemStreams(
   const states = new CodexItemStreamRetention(deps.maxMetadataBytes)
   const checkpointLengths = new Map<string, number>()
   const pendingCheckpoints = new Set<string>()
-  // Which thread and turn produced each stream, resolved to its attribution per append
+  // Which thread and turn produced each stream, resolved to linkage per append
   // so a parent learned after the first checkpoint still reaches the row.
   const producers = new Map<string, { threadId: string; turnId: string | null }>()
-  const attributionOf = (key: string): AgentJournalRowAttribution => {
+  const linkageOf = (key: string) => {
     const producer = producers.get(key)
-    return producer
-      ? deps.attributionFor(producer.threadId, producer.turnId)
-      : { turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+    return producer ? deps.linkageFor(producer.threadId, producer.turnId) : {}
   }
   // Patch updates are authoritative item snapshots. Keep the latest rejected
   // snapshot until the journal admits it; unlike streamed deltas, there is no
@@ -114,22 +112,16 @@ export function createCodexStructuredItemStreams(
     if (!translated.body) {
       return true
     }
-    // A stream only ever carries an item that has not completed yet.
-    const body = withJournalReasoningLifecycle(translated.body, { state: 'running' })
-    return appendCodexItemAndPublish(deps.sink, state.identity, body, {
-      ...attributionOf(key),
-      ...(state.startedAt === undefined ? {} : { observedAt: state.startedAt })
+    return appendCodexItemAndPublish(deps.sink, state.identity, translated.body, {
+      coalescingKey: `checkpoint:${agentJournalItemKey(state.identity)}`,
+      ...linkageOf(key)
     }).accepted
   }
 
-  const shouldPersist = (key: string, textLength: number): boolean => {
+  const persist = (key: string, text: string, force: boolean): boolean => {
     const checkpointLength = checkpointLengths.get(key) ?? 0
     const nextLength = Math.max(checkpointLength + 32, Math.ceil(checkpointLength * 1.125))
-    return !(checkpointLength > 0 && textLength < nextLength)
-  }
-
-  const persist = (key: string, text: string, force: boolean): boolean => {
-    if (!force && !shouldPersist(key, text.length)) {
+    if (!force && checkpointLength > 0 && text.length < nextLength) {
       return true
     }
     const state = states.get(key)
@@ -147,7 +139,6 @@ export function createCodexStructuredItemStreams(
     maxTotalRetainedBytes: deps.maxTotalRetainedBytes,
     isProtected: (key) => states.isPersistent(key),
     schedule: deps.schedule,
-    shouldEmit: shouldPersist,
     emit: (key, text) => {
       return persist(key, text, false)
     }
@@ -200,7 +191,7 @@ export function createCodexStructuredItemStreams(
       deps.sink,
       pending.identity,
       pending.body,
-      attributionOf(key)
+      linkageOf(key)
     )
     if (!admission.accepted) {
       return admission
@@ -215,13 +206,13 @@ export function createCodexStructuredItemStreams(
       return states.persistentSize
     },
     canTrack: (threadId, item, identity) =>
-      states.canRetain(
-        codexStructuredItemKey(threadId, item.id),
-        codexItemStreamState(item, identity)
-      ),
-    track: (threadId, turnId, item, identity, startedAt) => {
+      states.canRetain(codexStructuredItemKey(threadId, item.id), {
+        item: boundStreamItem(item) as CodexThreadItem,
+        identity
+      }),
+    track: (threadId, turnId, item, identity) => {
       const key = codexStructuredItemKey(threadId, item.id)
-      if (!states.retain(key, codexItemStreamState(item, identity, startedAt))) {
+      if (!states.retain(key, { item: boundStreamItem(item) as CodexThreadItem, identity })) {
         return false
       }
       producers.set(key, { threadId, turnId })

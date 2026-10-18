@@ -1,5 +1,8 @@
-import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
-import { defaultScopeHost } from '@/lib/default-creation-host'
+import {
+  callRuntimeRpc,
+  getActiveRuntimeTarget,
+  runtimeEnvironmentSupportsCapability
+} from '@/runtime/runtime-rpc-client'
 import {
   LOCAL_EXECUTION_HOST_ID,
   toRuntimeExecutionHostId,
@@ -56,8 +59,7 @@ export async function hydrateOwnerWorktreeVisibilityDefaults(
   supportedRuntimeEnvironmentId: string | null
   sourceDefaultsSupportedRuntimeEnvironmentId: string | null
 }> {
-  // Why: visibility defaults are mirrored from the default scope host until Settings picks one.
-  const target = defaultScopeHost(settings)
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind !== 'environment') {
     return {
       settings,

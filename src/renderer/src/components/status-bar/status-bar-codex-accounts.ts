@@ -172,13 +172,11 @@ function getCodexStatusAccountsFromSettings(
   }
 }
 
-/** `ownerEnvironmentId` is the server owning the shown accounts; `null` is this desktop. */
 export function resolveCodexStatusAccountState(
   settings: GlobalSettings | null | undefined,
-  runtimeState: CodexRateLimitAccountsState,
-  ownerEnvironmentId: string | null
+  runtimeState: CodexRateLimitAccountsState
 ): CodexRateLimitAccountsState {
-  if (ownerEnvironmentId) {
+  if (settings?.activeRuntimeEnvironmentId?.trim()) {
     return runtimeState
   }
   return getCodexStatusAccountsFromSettings(settings) ?? runtimeState

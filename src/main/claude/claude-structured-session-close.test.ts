@@ -10,24 +10,13 @@ import {
   fakeClaude,
   identityFor
 } from './claude-structured-session-test-support'
-import type { AgentChildWorkEvidence } from '../../shared/agent-status-child-work-evidence'
+import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
 import { AgentSessionAcquisitionRootExitObservedError } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { ClaudePromptRegistry } from './claude-structured-prompt-replies'
-import { claudeRootExitObserved, closeClaudeSession } from './claude-structured-session-close'
+import { closeClaudeSession } from './claude-structured-session-close'
 import { ClaudeAcquisitionRegistry } from './claude-structured-session-state'
 
 describe('Claude published session close lifecycle', () => {
-  it('never reads a failed spawn as an observed root exit, whatever checks it first', async () => {
-    const claude = fakeClaude()
-    const adapter = adapterFor(claude)
-    await adapter.acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9' })
-    const connection = claude.connections[0]!
-    connection.exitVerdict = { root: 'exited', tree: 'exited', processless: true }
-    expect(claudeRootExitObserved(connection)).toBe(false)
-    connection.exitVerdict = { root: 'exited', tree: 'unverifiable' }
-    expect(claudeRootExitObserved(connection)).toBe(true)
-  })
-
   it('reports a proven root exit when published-session close cannot prove descendants', async () => {
     const claude = fakeClaude()
     const adapter = adapterFor(claude)
@@ -99,7 +88,7 @@ describe('Claude published session close lifecycle', () => {
       .fn<NonNullable<ClaudeStructuredSessionAdapterDeps['persistHandle']>>()
       .mockRejectedValueOnce(persistenceError)
       .mockResolvedValueOnce(undefined)
-    const childWork: AgentChildWorkEvidence['type'][] = []
+    const backgroundStates: (AgentSessionBackgroundTaskState | null)[] = []
     const adapter = adapterFor(
       claude,
       {},
@@ -107,7 +96,7 @@ describe('Claude published session close lifecycle', () => {
       [],
       undefined,
       persistHandle,
-      (_sessionId, evidence) => childWork.push(...evidence.map((edge) => edge.type))
+      (_sessionId, state) => backgroundStates.push(state)
     )
     const journalSink: StructuredAgentSessionEventSink = {
       appendItem: () => {},
@@ -129,7 +118,15 @@ describe('Claude published session close lifecycle', () => {
       task_type: 'local_agent',
       is_backgrounded: true
     })
-    expect(childWork).toEqual(['live'])
+    expect(backgroundStates).toEqual([
+      {
+        state: 'monitoring',
+        tasks: [
+          { id: 'background-1', kind: 'agent', state: 'working', startedAt: expect.any(Number) }
+        ],
+        supportsTaskStop: true
+      }
+    ])
     const session = (
       adapter as unknown as {
         sessions: Map<string, { translator: { dispose: () => void } | null }>
@@ -137,19 +134,26 @@ describe('Claude published session close lifecycle', () => {
     ).sessions.get('session-1')
     const disposeTranslator = vi.spyOn(session!.translator!, 'dispose')
 
-    // The exit is proven; the failed cursor write after it never reads as an unproven exit.
-    await expect(adapter.closeSession('session-1')).resolves.toBe(true)
-    await vi.waitFor(() => expect(persistHandle).toHaveBeenCalledOnce())
+    await expect(adapter.closeSession('session-1')).rejects.toBe(persistenceError)
     // The child is provably dead; a failed cursor write may not suppress the end.
     expect(events.filter((event) => event.type === 'ended')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'handle')).toHaveLength(0)
     expect(disposeTranslator).toHaveBeenCalledOnce()
-    // A close Orca asked for claims no outcome for the child still running: only the session ends.
-    expect(childWork).toEqual(['live', 'session-ended'])
+    expect(backgroundStates).toEqual([
+      {
+        state: 'monitoring',
+        tasks: [
+          { id: 'background-1', kind: 'agent', state: 'working', startedAt: expect.any(Number) }
+        ],
+        supportsTaskStop: true
+      },
+      null
+    ])
 
-    // Nothing of the dead child stays indexed for a retry.
     await expect(adapter.closeSession('session-1')).resolves.toBe(true)
-    expect(persistHandle).toHaveBeenCalledOnce()
+    expect(persistHandle).toHaveBeenCalledTimes(2)
+    // The retry persists the same cursor without a second lifecycle end.
+    expect(events.filter((event) => event.type === 'handle')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'ended')).toHaveLength(1)
     expect(disposeTranslator).toHaveBeenCalledOnce()
   })

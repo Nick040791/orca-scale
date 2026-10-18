@@ -13,7 +13,6 @@ const directoryStatSlots = new PrioritySemaphore(DIRECTORY_STAT_CONCURRENCY)
 
 export type WatcherProcessEventDeliveryQueue = {
   enqueue(events: readonly ParcelWatcherEvent[]): void
-  flush(): Promise<void>
   close(): void
 }
 
@@ -76,12 +75,6 @@ export function createWatcherProcessEventDeliveryQueue(
   let draining = false
   let pendingOverflow = false
   let pendingEvents: ParcelWatcherEvent[] = []
-  let flushCompletion: ReturnType<typeof Promise.withResolvers<void>> | undefined
-
-  const finishFlush = (): void => {
-    flushCompletion?.resolve()
-    flushCompletion = undefined
-  }
 
   const drain = async (): Promise<void> => {
     if (!active || draining) {
@@ -111,8 +104,6 @@ export function createWatcherProcessEventDeliveryQueue(
       draining = false
       if (active && (pendingOverflow || pendingEvents.length > 0)) {
         void drain()
-      } else {
-        finishFlush()
       }
     }
   }
@@ -132,19 +123,11 @@ export function createWatcherProcessEventDeliveryQueue(
       }
       void drain()
     },
-    flush(): Promise<void> {
-      if (!active || !draining) {
-        return Promise.resolve()
-      }
-      flushCompletion ??= Promise.withResolvers<void>()
-      return flushCompletion.promise
-    },
     close(): void {
       active = false
       controller.abort()
       pendingEvents = []
       pendingOverflow = false
-      finishFlush()
     }
   }
 }

@@ -12,9 +12,8 @@ import type {
 } from '../../../../shared/detected-worktree-provider-contract'
 import type { DetectedWorktree } from '../../../../shared/worktree/types'
 import { isFolderRepo } from '../../../../shared/repo-kind'
-import { projectWorktreeLineageWithHostPeers } from '../../../worktree-lineage-host-peers'
+import { projectResolvedWorktreeLineage } from '../../../../shared/resolved-worktree-lineage'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree/id'
-import { agentHookServer } from '../../../agent-hooks/server'
 import { pruneWorkspaceCleanupScanSnapshots } from '../../../workspace-cleanup-scan-snapshot'
 import { pruneWorkspaceSpaceAnalysisSnapshots } from '../../../workspace-space-analysis-snapshot'
 import { findExactRepoOwner, hasConflictingStoredWorktreeOwner } from './worktree-host-ownership'
@@ -69,7 +68,7 @@ export function registerHostCatalogHandlers(context: WorktreeIpcContext): void {
           worktrees
         }
       })
-      // Folder workspace ids carry instance suffixes, so their existing builder handles them.
+      // Why: folder workspace ids carry an instance suffix the git-worktree synthesizer would read as a directory; build them the way every other listing does.
       if (isFolderRepo(repo)) {
         const folderWorkspaceIds = Object.keys(store.getAllWorktreeMeta()).filter((worktreeId) =>
           isFolderWorkspaceIdForRepo(repo, worktreeId)
@@ -77,21 +76,23 @@ export function registerHostCatalogHandlers(context: WorktreeIpcContext): void {
         return hasConflictingStoredWorktreeOwner(store, repo, folderWorkspaceIds)
           ? rejected()
           : complete(
-              projectWorktreeLineageWithHostPeers(
-                store,
-                repo,
-                buildFolderDetectedWorktrees(store, repo)
+              // Why: match the authoritative folder listing; without lineage these rows render flat and then
+              // reshuffle once the real scan lands.
+              projectResolvedWorktreeLineage(
+                buildFolderDetectedWorktrees(store, repo),
+                store.getAllWorktreeLineage?.() ?? {}
               )
             )
       }
-      const hostMeta = readAllWorktreeMetaForHost(store, requestedExecutionHostId)
-      const metaIndex = createSshWorktreeMetaIndexForRepo(hostMeta, repo.id)
+      const metaIndex = createSshWorktreeMetaIndexForRepo(
+        readAllWorktreeMetaForHost(store, requestedExecutionHostId),
+        repo.id
+      )
       return complete(
         buildDisconnectedDetectedWorktrees(
           store,
           repo,
-          listDisconnectedSshWorktrees(store, repo, metaIndex),
-          { hostMeta }
+          listDisconnectedSshWorktrees(store, repo, metaIndex)
         )
       )
     }
@@ -143,10 +144,6 @@ export function registerHostCatalogHandlers(context: WorktreeIpcContext): void {
           continue
         }
         store.removeWorktreeMeta(worktreeId, requestedExecutionHostId)
-        // Why here too: a scan the host answered is positive evidence of removal, and this is the only
-        // path that ever retires an off-host row — so it owes the status store the same drop the
-        // in-Orca delete does, or the SSH rows stay stranded in `last-status.json`.
-        agentHookServer.dropStatusEntriesForRemovedWorktree(worktreeId, parsedHost.id)
         forgottenWorktreeIds.push(worktreeId)
       }
       if (forgottenWorktreeIds.length > 0) {

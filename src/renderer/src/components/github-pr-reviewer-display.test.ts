@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import {
   GITHUB_PR_REVIEWER_INPUT_MAX_BYTES,
+  appendGitHubPRRequestedReviewers,
   getGitHubPRPrimaryReviewer,
   getGitHubPRReviewerRows,
   getGitHubPRReviewLabel,
@@ -106,6 +107,18 @@ describe('GitHub PR reviewer display', () => {
         avatarUrl: 'avatar-2',
         stateLabel: 'Approved'
       }
+    ])
+  })
+
+  it('appends requested reviewers without duplicating existing logins', () => {
+    expect(
+      appendGitHubPRRequestedReviewers(
+        [{ login: 'ExampleReviewer', name: null, avatarUrl: 'avatar-1' }],
+        ['examplereviewer', '@new-reviewer']
+      )
+    ).toEqual([
+      { login: 'ExampleReviewer', name: null, avatarUrl: 'avatar-1' },
+      { login: 'new-reviewer', name: null, avatarUrl: '' }
     ])
   })
 

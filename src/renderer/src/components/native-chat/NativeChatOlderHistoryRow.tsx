@@ -35,7 +35,7 @@ export function NativeChatOlderHistoryRow({
       className="absolute inset-x-0 top-0 flex h-10 items-center justify-center"
     >
       {olderHistory.isAutoLoadEnabled ? (
-        <span role="status" aria-live="polite" className="text-xs text-chat-foreground-faint">
+        <span role="status" aria-live="polite" className="text-xs text-muted-foreground">
           {loadingEarlier ? <DelayedLoadingLabel /> : null}
         </span>
       ) : (

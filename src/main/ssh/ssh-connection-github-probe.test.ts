@@ -7,40 +7,20 @@ import {
   createTarget
 } from './ssh-connection-test-fixtures'
 import { SshConnection } from './ssh-connection'
-import { resolveWithSshG } from './config/ssh-g-config-resolution'
+import { resolveWithSshG } from './ssh-config-parser'
 
-vi.mock('ssh2', async () =>
-  (await import('./__tests__/ssh-connection-test-client')).createSsh2Module()
-)
-vi.mock('./system-transport/system-ssh-binary', async () =>
+vi.mock('ssh2', async () => (await import('./ssh-connection-test-harness')).createSsh2Module())
+vi.mock('./system-ssh-binary', async () =>
   (await import('./ssh-connection-test-harness')).createSystemSshBinaryModule()
 )
-vi.mock('./system-transport/system-ssh-args', async (importOriginal) =>
-  (await import('./ssh-connection-test-harness')).withSystemSshArgsMocks(await importOriginal())
-)
-vi.mock('./system-transport/system-ssh-command', async (importOriginal) =>
-  (await import('./ssh-connection-test-harness')).withSystemSshCommandMocks(await importOriginal())
-)
-vi.mock('./system-transport/system-ssh-file-binary-transfer', async (importOriginal) =>
-  (await import('./ssh-connection-test-harness')).withSystemSshFileBinaryTransferMocks(
-    await importOriginal()
-  )
-)
-vi.mock('./system-transport/system-ssh-file-transfer', async (importOriginal) =>
-  (await import('./ssh-connection-test-harness')).withSystemSshFileTransferMocks(
-    await importOriginal()
-  )
+vi.mock('./ssh-system-fallback', async () =>
+  (await import('./ssh-connection-test-harness')).createSystemFallbackModule()
 )
 vi.mock('./ssh-control-socket', async () =>
   (await import('./ssh-connection-test-harness')).createControlSocketModule()
 )
-vi.mock('./config/ssh-config-parser', async () =>
+vi.mock('./ssh-config-parser', async () =>
   (await import('./ssh-connection-test-harness')).createSshConfigParserModule()
-)
-vi.mock('./config/ssh-g-config-resolution', async (importOriginal) =>
-  (await import('./ssh-connection-test-harness')).withSshGConfigResolutionMocks(
-    await importOriginal()
-  )
 )
 
 describe('SshConnection', () => {
@@ -185,6 +165,7 @@ describe('SshConnection', () => {
 
     expect(conn.getState().status).toBe('connected')
     expect(conn.usesSystemSshTransport()).toBe(true)
+    expect(conn.getSystemSshResolvedConfig()).toBeNull()
   })
 
   it('rejects non-GitHub SSH probes with GitHub invalid-command text', async () => {

@@ -12,9 +12,9 @@ import type {
   ComposerState,
   ReviewDiffLine,
   ReviewDiffState,
-  ReviewScreenState
+  ReviewScreenState,
+  SendSheetState
 } from './mobile-diff-review-screen-model'
-import type { ReviewSheetIntents } from './mobile-diff-review-sheets'
 import { sourceFileDiffOpenRun } from '../source-control/mobile-source-file-open-operations'
 import { refusedRpcMessageOrFallback } from '../transport/rpc-refusal-message'
 import { useMobileDiffReviewCommentActions } from './use-mobile-diff-review-comment-actions'
@@ -25,7 +25,6 @@ import { connectionRetryAction } from '../transport/connection-retry-action'
 type InteractionInput = {
   client: RpcClient | null
   connState: ConnectionState
-  hostCapabilities: readonly string[]
   hostId: string
   worktreeId: string
   screenState: ReviewScreenState
@@ -43,10 +42,12 @@ type InteractionInput = {
   setFilter: Dispatch<SetStateAction<MobileDiffReviewQueueFilter>>
   setCurrentIndex: Dispatch<SetStateAction<number>>
   setActiveHunkIndex: Dispatch<SetStateAction<number | null>>
+  setComposer: Dispatch<SetStateAction<ComposerState | null>>
   setComposerBody: Dispatch<SetStateAction<string>>
   setActionError: Dispatch<SetStateAction<string | null>>
   setBusyAction: Dispatch<SetStateAction<string | null>>
-  sheets: ReviewSheetIntents
+  setSendSheet: Dispatch<SetStateAction<SendSheetState | null>>
+  setShowCompletion: Dispatch<SetStateAction<boolean>>
   loadReviewData: () => Promise<void>
   onOpenSession: () => void
   onReconnect: ((hostId: string) => void | Promise<void>) | null
@@ -56,7 +57,6 @@ export function useMobileDiffReviewInteractions(input: InteractionInput) {
   const {
     client,
     connState,
-    hostCapabilities,
     hostId,
     worktreeId,
     screenState,
@@ -74,10 +74,12 @@ export function useMobileDiffReviewInteractions(input: InteractionInput) {
     setFilter,
     setCurrentIndex,
     setActiveHunkIndex,
+    setComposer,
     setComposerBody,
     setActionError,
     setBusyAction,
-    sheets,
+    setSendSheet,
+    setShowCompletion,
     loadReviewData,
     onOpenSession,
     onReconnect
@@ -106,9 +108,10 @@ export function useMobileDiffReviewInteractions(input: InteractionInput) {
     composerBody,
     setScreenState,
     setCurrentIndex,
+    setComposer,
     setComposerBody,
     setActionError,
-    sheets
+    setShowCompletion
   })
 
   const { runGitMutation, stageReviewedFiles } = useMobileDiffReviewGitActions({
@@ -125,11 +128,10 @@ export function useMobileDiffReviewInteractions(input: InteractionInput) {
     useMobileDiffReviewSendActions({
       client,
       connState,
-      hostCapabilities,
       worktreeId,
       screenState,
       setActionError,
-      sheets,
+      setSendSheet,
       saveCommentsAndReviewState
     })
 

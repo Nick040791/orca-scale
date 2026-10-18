@@ -22,7 +22,7 @@ const IOS_CHANNEL_COPY: Record<IosChannel, InstallCopy> = {
 
 const ANDROID_COPY: InstallCopy = {
   ctaLabel: 'Download APK',
-  url: 'https://www.onorca.dev/download/android'
+  url: 'https://github.com/stablyai/orca/releases/download/mobile-android-v0.0.48/app-release.apk'
 }
 
 export function getInstallCopy(platform: Platform, iosChannel: IosChannel): InstallCopy {

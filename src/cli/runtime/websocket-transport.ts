@@ -1,4 +1,4 @@
-import type { PairedRuntimeConnection } from '../../shared/paired-runtime-connection'
+import type { PairingOffer } from '../../shared/pairing'
 import type { RuntimeOrchestrationEnvelope } from '../../shared/runtime-rpc-envelope'
 import {
   RemoteRuntimeClientError,
@@ -9,14 +9,14 @@ import type { RuntimeStatus } from '../../shared/runtime-types'
 import { RuntimeClientError, type RuntimeRpcResponse } from './types'
 
 export async function sendWebSocketRequest<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
   envelope?: RuntimeOrchestrationEnvelope
 ): Promise<RuntimeRpcResponse<TResult>> {
   try {
-    return await sendRemoteRuntimeRequest<TResult>(connection, method, params, timeoutMs, envelope)
+    return await sendRemoteRuntimeRequest<TResult>(pairing, method, params, timeoutMs, envelope)
   } catch (error) {
     if (error instanceof RemoteRuntimeClientError) {
       throw new RuntimeClientError(error.code, error.message, error.data)
@@ -26,7 +26,7 @@ export async function sendWebSocketRequest<TResult>(
 }
 
 export async function sendWebSocketRequestWithStatusPreflight<TResult>(
-  connection: PairedRuntimeConnection,
+  pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number,
@@ -35,7 +35,7 @@ export async function sendWebSocketRequestWithStatusPreflight<TResult>(
 ): Promise<RuntimeRpcResponse<TResult>> {
   try {
     return await sendRemoteRuntimeRequestWithStatusPreflight<TResult>(
-      connection,
+      pairing,
       method,
       params,
       timeoutMs,

@@ -1,16 +1,14 @@
-import { NO_WORKSPACE_ROW_FILTERS } from '../../../src/shared/workspace-view/workspace-row-filters'
-import { CREATE_GRACE_MS } from '../../../src/shared/workspace-view/workspace-row-sort'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Worktree } from './workspace-list-sections'
 import {
-  NO_PROJECT_SECTION_CATALOG,
+  CREATE_GRACE_MS,
   buildSections,
   filterWorktrees,
   getWorktreeStatus,
   sortWorktrees
 } from './workspace-list-sections'
-import { DEFAULT_WORKSPACE_STATUSES } from '../../../src/shared/workspace-statuses'
+import { DEFAULT_MOBILE_WORKSPACE_STATUSES } from './mobile-workspace-statuses'
 import { getMobileWorkspaceLineageGroupKey } from './mobile-workspace-lineage'
 
 function worktree(overrides: Partial<Worktree> = {}): Worktree {
@@ -25,6 +23,7 @@ function worktree(overrides: Partial<Worktree> = {}): Worktree {
     path: worktreePath,
     liveTerminalCount: 0,
     hasAttachedPty: false,
+    preview: '',
     unread: false,
     isPinned: false,
     linkedPR: null,
@@ -34,16 +33,8 @@ function worktree(overrides: Partial<Worktree> = {}): Worktree {
   }
 }
 
-// A catalog of [displayName, id] repos with no project rows, as an old desktop answers.
-function catalogOf(repos: readonly (readonly [string, string])[]) {
-  return {
-    ...NO_PROJECT_SECTION_CATALOG,
-    repos: repos.map(([displayName, id]) => ({ id, displayName, path: `/repos/${id}` }))
-  }
-}
-
 function withoutSectionListKeys(sections: ReturnType<typeof buildSections>) {
-  return sections.map(({ repo: _repo, ...section }) => ({
+  return sections.map((section) => ({
     ...section,
     data: section.data.map(
       ({
@@ -52,7 +43,6 @@ function withoutSectionListKeys(sections: ReturnType<typeof buildSections>) {
         lineageChildCount: _lineageChildCount,
         lineageCollapsed: _lineageCollapsed,
         isLastLineageChild: _isLastLineageChild,
-        showProjectName: _showProjectName,
         ...item
       }) => item
     )
@@ -64,9 +54,13 @@ describe('filterWorktrees', () => {
     const visible = worktree({ worktreeId: 'visible' })
     const archived = worktree({ worktreeId: 'archived', isArchived: true })
 
-    expect(filterWorktrees([visible, archived], { ...NO_WORKSPACE_ROW_FILTERS }, '')).toEqual([
-      visible
-    ])
+    expect(
+      filterWorktrees(
+        [visible, archived],
+        { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
+        ''
+      )
+    ).toEqual([visible])
   })
 
   it('uses host sidebar activity for sleeping filtering when available', () => {
@@ -86,7 +80,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [visible, retainedPtyOnly],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true },
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
         ''
       )
     ).toEqual([visible])
@@ -107,7 +101,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [main, featureNamedMain],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideDefaultBranchWorkspace: true },
+        { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: true },
         ''
       )
     ).toEqual([featureNamedMain])
@@ -120,7 +114,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [main, feature],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true },
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
         ''
       )
     ).toEqual([main])
@@ -135,7 +129,11 @@ describe('filterWorktrees', () => {
     })
 
     expect(
-      filterWorktrees([folder], { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true }, '')
+      filterWorktrees(
+        [folder],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
+        ''
+      )
     ).toEqual([folder])
   })
 
@@ -146,9 +144,10 @@ describe('filterWorktrees', () => {
       filterWorktrees(
         [main],
         {
-          ...NO_WORKSPACE_ROW_FILTERS,
-          hideSleepingWorkspaces: true,
-          alwaysShowDefaultBranchWorkspace: false
+          filterRepoIds: new Set(),
+          hideSleeping: true,
+          hideDefaultBranch: false,
+          alwaysShowDefaultBranch: false
         },
         ''
       )
@@ -161,7 +160,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [legacyMain],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true },
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
         ''
       )
     ).toEqual([legacyMain])
@@ -179,7 +178,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [legacyFolder],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true },
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
         ''
       )
     ).toEqual([legacyFolder])
@@ -191,11 +190,7 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [main],
-        {
-          ...NO_WORKSPACE_ROW_FILTERS,
-          hideSleepingWorkspaces: true,
-          hideDefaultBranchWorkspace: true
-        },
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: true },
         ''
       )
     ).toEqual([])
@@ -212,19 +207,10 @@ describe('filterWorktrees', () => {
     expect(
       filterWorktrees(
         [folder],
-        { ...NO_WORKSPACE_ROW_FILTERS, hideDefaultBranchWorkspace: true },
+        { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: true },
         ''
       )
     ).toEqual([folder])
-  })
-
-  it("drops other-client rows only while the desktop's Hide other-client workspaces is on", () => {
-    const mine = worktree({ worktreeId: 'mine' })
-    const other = worktree({ worktreeId: 'other', desktopOtherClient: true })
-    const hiding = { ...NO_WORKSPACE_ROW_FILTERS, hideWorkspacesFromOtherDevices: true }
-
-    expect(filterWorktrees([mine, other], hiding, '')).toEqual([mine])
-    expect(filterWorktrees([mine, other], NO_WORKSPACE_ROW_FILTERS, '')).toEqual([mine, other])
   })
 })
 
@@ -260,7 +246,7 @@ describe('buildSections', () => {
     const sections = buildSections(
       [worktree({ worktreeId, hostId: 'local' }), worktree({ worktreeId, hostId: 'ssh:builder' })],
       'name',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'none',
       new Set()
@@ -291,12 +277,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [low, high, fallback],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections[0]?.data.map((worktree) => worktree.worktreeId)).toEqual([
@@ -337,12 +323,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [mobileFallbackFirst, desktopFirst],
       'smart',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections.flatMap((section) => section.data.map((item) => item.worktreeId))).toEqual([
@@ -523,12 +509,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [unrelatedActive, child, parent],
       'smart',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'repo',
       new Set(),
-      catalogOf([['orca', 'repo-1']]),
-      DEFAULT_WORKSPACE_STATUSES
+      new Map([['orca', 'repo-1']]),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections[0]?.data.map((item) => item.worktreeId)).toEqual(['parent', 'child', 'active'])
@@ -554,11 +540,11 @@ describe('buildSections', () => {
     const sections = buildSections(
       [child, main],
       'smart',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'repo',
       new Set(),
-      catalogOf([['orca', 'repo-1']])
+      new Map([['orca', 'repo-1']])
     )
 
     expect(sections[0]?.data.map((item) => item.worktreeId)).toEqual(['main', 'child'])
@@ -568,11 +554,11 @@ describe('buildSections', () => {
     const sections = buildSections(
       [worktree({ repoId: 'repo-1', repo: 'orca' })],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'repo',
       new Set(),
-      catalogOf([
+      new Map([
         ['orca', 'repo-1'],
         ['zoom-img', 'repo-missing']
       ])
@@ -592,11 +578,11 @@ describe('buildSections', () => {
     const sections = buildSections(
       [],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'none',
       new Set(),
-      catalogOf([['zoom-img', 'repo-missing']])
+      new Map([['zoom-img', 'repo-missing']])
     )
 
     expect(withoutSectionListKeys(sections)).toEqual([])
@@ -606,11 +592,15 @@ describe('buildSections', () => {
     const sections = buildSections(
       [],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS, filterRepoIds: ['repo-matching', 'repo-hidden'] },
+      {
+        filterRepoIds: new Set(['repo-matching', 'repo-hidden']),
+        hideSleeping: false,
+        hideDefaultBranch: false
+      },
       'zoom',
       'repo',
       new Set(),
-      catalogOf([
+      new Map([
         ['zoom-img', 'repo-matching'],
         ['repo', 'repo-hidden'],
         ['zoom-hidden', 'repo-unfiltered']
@@ -631,11 +621,11 @@ describe('buildSections', () => {
     const sections = buildSections(
       [sleeping],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS, hideSleepingWorkspaces: true },
+      { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
       '',
       'repo',
       new Set(),
-      catalogOf([
+      new Map([
         ['sleeping-repo', 'repo-sleeping'],
         ['empty-repo', 'repo-empty']
       ])
@@ -643,26 +633,6 @@ describe('buildSections', () => {
 
     expect(withoutSectionListKeys(sections)).toEqual([
       { key: 'repo:repo-empty', title: 'empty-repo', data: [] }
-    ])
-  })
-
-  it("groups by PR into the desktop's lanes, order and labels", () => {
-    const sections = buildSections(
-      [
-        worktree({ worktreeId: 'none', linkedPR: null }),
-        worktree({ worktreeId: 'open', linkedPR: { number: 1, state: 'open' } }),
-        worktree({ worktreeId: 'merged', linkedPR: { number: 2, state: 'merged' } })
-      ],
-      'name',
-      { ...NO_WORKSPACE_ROW_FILTERS },
-      '',
-      'pr-status',
-      new Set()
-    )
-    expect(sections.map((section) => ({ key: section.key, title: section.title }))).toEqual([
-      { key: 'pr:done', title: 'Done' },
-      { key: 'pr:in-review', title: 'In review' },
-      { key: 'pr:in-progress', title: 'In progress' }
     ])
   })
 
@@ -681,18 +651,17 @@ describe('buildSections', () => {
     const sections = buildSections(
       [progress, review],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections.map((section) => ({ key: section.key, title: section.title }))).toEqual([
-      // The desktop's default catalog order.
-      { key: 'workspace-status:in-progress', title: 'In progress' },
-      { key: 'workspace-status:in-review', title: 'In review' }
+      { key: 'workspace-status:in-review', title: 'In review' },
+      { key: 'workspace-status:in-progress', title: 'In progress' }
     ])
   })
 
@@ -706,11 +675,11 @@ describe('buildSections', () => {
     const sections = buildSections(
       [progress],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
+      new Map(),
       []
     )
 
@@ -720,68 +689,28 @@ describe('buildSections', () => {
     expect(sections[0]?.data.map((worktree) => worktree.worktreeId)).toEqual(['progress'])
   })
 
-  describe.each(['none', 'repo', 'workspace-status', 'pr-status'] as const)(
-    'pinned placement in %s grouping',
-    (groupMode) => {
-      const sibling = worktree({ worktreeId: 'sibling', workspaceStatus: 'in-progress' })
-      const hostPinned = worktree({
-        worktreeId: 'host-pinned',
-        workspaceStatus: 'in-progress',
-        isPinned: true
-      })
-      const localPinned = worktree({ worktreeId: 'local-pinned', workspaceStatus: 'in-progress' })
-
-      function placement(showPinnedInGroups: boolean) {
-        const sections = buildSections(
-          [sibling, hostPinned, localPinned],
-          'name',
-          { ...NO_WORKSPACE_ROW_FILTERS },
-          '',
-          groupMode,
-          new Set(['local-pinned']),
-          NO_PROJECT_SECTION_CATALOG,
-          DEFAULT_WORKSPACE_STATUSES,
-          new Set(),
-          showPinnedInGroups
-        )
-        const ids = (keep: (key: string) => boolean) =>
-          sections
-            .filter((section) => keep(section.key))
-            .flatMap((section) => section.data.map((row) => row.worktreeId))
-            .sort()
-        return { pinned: ids((key) => key === 'pinned'), groups: ids((key) => key !== 'pinned') }
-      }
-
-      it('shows host and local pins only in Pinned by default', () => {
-        expect(placement(false)).toEqual({
-          pinned: ['host-pinned', 'local-pinned'],
-          groups: ['sibling']
-        })
-      })
-
-      it('also keeps them in their groups when the desktop setting is on', () => {
-        expect(placement(true)).toEqual({
-          pinned: ['host-pinned', 'local-pinned'],
-          groups: ['host-pinned', 'local-pinned', 'sibling']
-        })
-      })
-    }
-  )
-
-  it('drops a repo group whose only worktree is pinned, like desktop', () => {
-    const pinned = worktree({ worktreeId: 'pinned', isPinned: true })
+  it('keeps pinned worktrees in their canonical status group like desktop', () => {
+    const pinned = worktree({
+      worktreeId: 'pinned',
+      workspaceStatus: 'in-progress',
+      isPinned: true
+    })
 
     const sections = buildSections(
       [pinned],
-      'name',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      'manual',
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'repo',
+      'workspaceStatus',
       new Set(),
-      catalogOf([['orca', 'repo-1']])
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
-    expect(sections.map((section) => section.key)).toEqual(['pinned'])
+    expect(withoutSectionListKeys(sections)).toEqual([
+      { key: 'pinned', title: 'Pinned', icon: 'pin', data: [pinned] },
+      { key: 'workspace-status:in-progress', title: 'In progress', data: [pinned] }
+    ])
   })
 
   it('renders one sorted All section when grouping is off like desktop', () => {
@@ -801,12 +730,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [activeSecond, inactiveFirst],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
       'none',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections.map((section) => section.key)).toEqual(['all'])
@@ -832,12 +761,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [child, parent],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES
     )
 
     expect(sections[0]?.data.map((worktree) => worktree.worktreeId)).toEqual(['parent', 'child'])
@@ -860,12 +789,12 @@ describe('buildSections', () => {
     const sections = buildSections(
       [child, parent],
       'manual',
-      { ...NO_WORKSPACE_ROW_FILTERS },
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspace-status',
+      'workspaceStatus',
       new Set(),
-      NO_PROJECT_SECTION_CATALOG,
-      DEFAULT_WORKSPACE_STATUSES,
+      new Map(),
+      DEFAULT_MOBILE_WORKSPACE_STATUSES,
       new Set([getMobileWorkspaceLineageGroupKey(parent)])
     )
 

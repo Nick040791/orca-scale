@@ -1,12 +1,13 @@
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { GitHubPrStartPoint } from '../../../shared/worktree/types'
+
+type PrStartPointSettings = Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 
 export type GitHubPrStartPointInput = {
   repoId: string
   prNumber: number
-  /** The repo owner's transport; `null` (no routable owner) is refused. */
-  target: RuntimeClientTarget | null
+  settings: PrStartPointSettings
   headRefName?: string
   baseRefName?: string
   isCrossRepository?: boolean
@@ -15,14 +16,12 @@ export type GitHubPrStartPointInput = {
 export async function resolveGitHubPrStartPointForRepo({
   repoId,
   prNumber,
-  target,
+  settings,
   headRefName,
   baseRefName,
   isCrossRepository
 }: GitHubPrStartPointInput): Promise<GitHubPrStartPoint> {
-  if (!target) {
-    throw new Error('The project host is unresolved. Refresh the project and retry.')
-  }
+  const target = getActiveRuntimeTarget(settings)
   const prFields = {
     prNumber,
     ...(headRefName ? { headRefName } : {}),

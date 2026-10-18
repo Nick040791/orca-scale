@@ -11,9 +11,10 @@ vi.mock('sonner', () => ({ toast: { error: mocks.toastError, message: vi.fn() } 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(() => undefined, { getState: () => ({}) })
 }))
-vi.mock('@/runtime/runtime-file-import-client', () => ({
+vi.mock('@/runtime/runtime-file-client', () => ({
   importExternalPathsToRuntime: (...args: unknown[]) => mocks.importExternalPaths(...args)
 }))
+vi.mock('./composer-drop-listener', () => ({ useComposerDropListener: vi.fn() }))
 
 import { useAttachmentDropState } from './attachment-drop-state'
 
@@ -30,6 +31,7 @@ function installFsApi(): void {
   Object.assign(window, {
     api: {
       fs: {
+        authorizeExternalPath: vi.fn(async () => {}),
         stat: vi.fn(async ({ filePath }: { filePath: string }) => {
           if (FAILING_PATHS.has(filePath)) {
             throw new Error(
@@ -52,8 +54,7 @@ function renderDropState(setAttachmentPaths: Dispatch<SetStateAction<string[]>>)
       promptCaretFrameRef: { current: null },
       promptTextareaRef: createRef<HTMLTextAreaElement>(),
       selectedRepoPath: '/repo',
-      selectedRepoRuntimeEnvironmentId: null,
-      selectedWorktreeId: null,
+      selectedRepoSettings: null,
       setAgentPrompt: () => {},
       setAttachmentPaths
     })
@@ -106,7 +107,7 @@ describe('local composer drop failures', () => {
 })
 
 // Why: the upload branch returns early unless a runtime environment or connection is resolved.
-const RUNTIME_ENVIRONMENT_ID = 'env-1'
+const RUNTIME_SETTINGS = { activeRuntimeEnvironmentId: 'env-1' }
 
 describe('composer upload failures', () => {
   it('aggregates a mixed runtime import into one toast, and withholds a reason that is not shared', async () => {
@@ -128,7 +129,7 @@ describe('composer upload failures', () => {
     await act(async () => {
       await result.current.uploadComposerPaths(
         ['/a.png', '/b.png', '/c.png'],
-        RUNTIME_ENVIRONMENT_ID,
+        RUNTIME_SETTINGS,
         null,
         '/repo'
       )
@@ -155,7 +156,7 @@ describe('composer upload failures', () => {
     const { result } = renderDropState(() => {})
 
     await act(async () => {
-      await result.current.uploadComposerPaths(['/a.png'], RUNTIME_ENVIRONMENT_ID, null, '/repo')
+      await result.current.uploadComposerPaths(['/a.png'], RUNTIME_SETTINGS, null, '/repo')
     })
 
     expect(mocks.toastError).not.toHaveBeenCalled()
@@ -170,10 +171,9 @@ describe('composer upload failures', () => {
     await act(async () => {
       await result.current.uploadComposerPaths(
         ['/b.png'],
-        RUNTIME_ENVIRONMENT_ID,
+        RUNTIME_SETTINGS,
         null,
         '/repo',
-        null,
         () => false
       )
     })
@@ -193,7 +193,7 @@ describe('composer upload failures', () => {
     await act(async () => {
       await result.current.uploadComposerPaths(
         ['/b.png', '/c.png'],
-        RUNTIME_ENVIRONMENT_ID,
+        RUNTIME_SETTINGS,
         null,
         '/repo'
       )

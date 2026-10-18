@@ -8,13 +8,11 @@ import {
 } from './appimage-extracted-root'
 import { CliCommandInspection } from './cli-command-inspection'
 import {
-  buildMacPrivilegedSymlinkReadableCommand,
   buildMacPrivilegedSymlinkTransaction,
   capturedExpectedEntry,
   hasSameIdentity,
   hasSameSnapshot,
   inspectStableCommand,
-  isUnreadableSymlink,
   quarantineCommandPath,
   readEntrySnapshot,
   type CommandQuarantine,
@@ -22,7 +20,7 @@ import {
 } from './cli-command-filesystem-transaction'
 import { DEV_LAUNCHER_DIR, LEGACY_LINUX_COMMAND_NAME } from './cli-install-constants'
 import { buildWindowsForwarder } from './cli-dev-launcher'
-import { isPermissionError } from '../win32-utils'
+import { isPermissionError } from './cli-install-errors'
 import { isPathInsideOrEqual } from './cli-install-path-format'
 
 export class CliCommandInstallation extends CliCommandInspection {
@@ -43,13 +41,14 @@ export class CliCommandInstallation extends CliCommandInspection {
       return
     }
 
-    const quarantine = await this.quarantineUnlessPrivileged(commandPath)
-    if (!quarantine) {
-      await this.runPrivilegedSymlinkTransaction('install', commandPath, launcherPath, inspected)
-      const installed = await this.inspectStableSymlink(commandPath, launcherPath)
-      if (installed.status.state !== 'installed') {
-        throw new Error(`Could not register the Orca command at ${commandPath}.`)
+    let quarantine: CommandQuarantine
+    try {
+      quarantine = await this.quarantineCommandPath(commandPath)
+    } catch (error) {
+      if (this.platform !== 'darwin' || !isPermissionError(error)) {
+        throw error
       }
+      await this.installSymlinkWithPrivileges(commandPath, launcherPath, inspected)
       return
     }
 
@@ -82,9 +81,14 @@ export class CliCommandInstallation extends CliCommandInspection {
       throw new Error(`Refusing to remove non-Orca command at ${commandPath}.`)
     }
 
-    const quarantine = await this.quarantineUnlessPrivileged(commandPath)
-    if (!quarantine) {
-      await this.runPrivilegedSymlinkTransaction('remove', commandPath, launcherPath, inspected)
+    let quarantine: CommandQuarantine
+    try {
+      quarantine = await this.quarantineCommandPath(commandPath)
+    } catch (error) {
+      if (this.platform !== 'darwin' || !isPermissionError(error)) {
+        throw error
+      }
+      await this.removeSymlinkWithPrivileges(commandPath, inspected)
       return
     }
     if (!(await capturedExpectedEntry(quarantine, inspected))) {
@@ -175,28 +179,11 @@ export class CliCommandInstallation extends CliCommandInspection {
     return extractedRoot
   }
 
-  /** Why: a 0700 root-owned link is unreadable to the user, so root opens it up before the normal ownership check. */
   private async inspectStableSymlink(
     commandPath: string,
     launcherPath: string
   ): Promise<StableCommandInspection> {
-    const inspect = () =>
-      inspectStableCommand(commandPath, () => this.inspectSymlink(commandPath, launcherPath))
-    const inspected = await inspect()
-    if (this.platform !== 'darwin' || !isUnreadableSymlink(inspected)) {
-      return inspected
-    }
-    await this.privilegedRunner(
-      buildMacPrivilegedSymlinkReadableCommand({
-        commandPath,
-        expected: inspected.snapshot.identity
-      })
-    )
-    const readable = await inspect()
-    if (isUnreadableSymlink(readable)) {
-      throw new Error(`Could not read the command at ${commandPath}.`)
-    }
-    return readable
+    return inspectStableCommand(commandPath, () => this.inspectSymlink(commandPath, launcherPath))
   }
 
   private async inspectStableLegacyCommand(
@@ -290,26 +277,39 @@ export class CliCommandInstallation extends CliCommandInspection {
     }
   }
 
-  /** Null when the directory is read-only, so only the privileged transaction can change it. */
-  private async quarantineUnlessPrivileged(commandPath: string): Promise<CommandQuarantine | null> {
-    try {
-      return await this.quarantineCommandPath(commandPath)
-    } catch (error) {
-      if (this.platform !== 'darwin' || !isPermissionError(error)) {
-        throw error
-      }
-      return null
-    }
-  }
-
-  private async runPrivilegedSymlinkTransaction(
-    action: 'install' | 'remove',
+  private async installSymlinkWithPrivileges(
     commandPath: string,
     launcherPath: string,
     inspected: StableCommandInspection
   ): Promise<void> {
     await this.privilegedRunner(
-      buildMacPrivilegedSymlinkTransaction({ action, commandPath, launcherPath, inspected })
+      buildMacPrivilegedSymlinkTransaction({
+        action: 'install',
+        commandPath,
+        launcherPath,
+        expected: inspected.snapshot?.identity ?? null,
+        expectedFileSha256: inspected.fileSha256,
+        expectedRawSymlinkTarget: inspected.rawSymlinkTarget
+      })
+    )
+    const installed = await this.inspectStableSymlink(commandPath, launcherPath)
+    if (installed.status.state !== 'installed') {
+      throw new Error(`Could not register the Orca command at ${commandPath}.`)
+    }
+  }
+
+  private async removeSymlinkWithPrivileges(
+    commandPath: string,
+    inspected: StableCommandInspection
+  ): Promise<void> {
+    await this.privilegedRunner(
+      buildMacPrivilegedSymlinkTransaction({
+        action: 'remove',
+        commandPath,
+        expected: inspected.snapshot?.identity ?? null,
+        expectedFileSha256: inspected.fileSha256,
+        expectedRawSymlinkTarget: inspected.rawSymlinkTarget
+      })
     )
   }
 }

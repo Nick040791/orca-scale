@@ -1,7 +1,6 @@
 import { useAppStore } from '@/store'
-import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
+import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 import {
   flattenTerminalQuickCommand,
   isTerminalAgentQuickCommand,
@@ -66,7 +65,6 @@ export function runQuickCommandInNewTab({
       return null
     }
     const result = launchAgentInNewTab({
-      requestId: newAgentLaunchRequestId(),
       agent: command.agent,
       prompt: command.prompt,
       worktreeId,
@@ -77,7 +75,10 @@ export function runQuickCommandInNewTab({
       launchSource: 'quick_command',
       quickCommandLabel: command.label
     })
-    if (result?.surface.kind === 'local-terminal') {
+    if (
+      result?.surface.kind === 'local-terminal' ||
+      result?.surface.kind === 'local-agent-session'
+    ) {
       const launchedGroupId = resolveQuickCommandGroupId(worktreeId, result.surface.tabId, groupId)
       if (launchedGroupId) {
         useAppStore.getState().setRecentQuickCommandForGroup(launchedGroupId, historyId)
@@ -103,8 +104,11 @@ export function runQuickCommandInNewTab({
   }
   const store = useAppStore.getState()
   const tab = store.createTab(worktreeId, targetGroupId, undefined, {
-    quickCommandLabel: command.label,
-    pendingStartup: { command: flattenTerminalQuickCommand(command).command }
+    quickCommandLabel: command.label
+  })
+
+  store.queueTabStartupCommand(tab.id, {
+    command: flattenTerminalQuickCommand(command).command
   })
 
   // Why: match `+` button's createNewTerminalTab — without this, a worktree
@@ -115,11 +119,23 @@ export function runQuickCommandInNewTab({
   // Why: persist tab-bar order with the new terminal appended. Without this,
   // reconcileTabOrder falls back to terminals-first when the stored order is
   // unset, jumping the new tab to index 0.
-  persistAgentLaunchTabOrder(worktreeId, tab.id)
+  const fresh = useAppStore.getState()
+  const termIds = (fresh.tabsByWorktree[worktreeId] ?? []).map((t) => t.id)
+  const editorIds = fresh.openFiles.filter((f) => f.worktreeId === worktreeId).map((f) => f.id)
+  const browserIds = (fresh.browserTabsByWorktree?.[worktreeId] ?? []).map((t) => t.id)
+  const base = reconcileTabOrder(
+    fresh.tabBarOrderByWorktree[worktreeId],
+    termIds,
+    editorIds,
+    browserIds
+  )
+  const order = base.filter((id) => id !== tab.id)
+  order.push(tab.id)
+  fresh.setTabBarOrder(worktreeId, order)
 
   const launchedGroupId = resolveQuickCommandGroupId(worktreeId, tab.id, groupId)
   if (launchedGroupId) {
-    useAppStore.getState().setRecentQuickCommandForGroup(launchedGroupId, historyId)
+    fresh.setRecentQuickCommandForGroup(launchedGroupId, historyId)
   }
 
   return { tabId: tab.id }

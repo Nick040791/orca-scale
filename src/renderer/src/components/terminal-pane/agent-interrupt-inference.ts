@@ -6,7 +6,6 @@ import {
   AGENT_INTERRUPT_SETTLE_MS,
   isNavigationEscapeIntent,
   requiresDoubleEscapeInterrupt,
-  shouldIgnoreInterruptIntent,
   type AgentInterruptInferenceRequest,
   type AgentInterruptInputIntent
 } from '../../../../shared/agent-interrupt-intent'
@@ -46,8 +45,16 @@ function shouldFlushInterruptImmediately(
 ): boolean {
   return (
     requiresDoubleEscapeInterrupt(baseline.agentType, baseline.intent) ||
-    baseline.agentType === 'gemini'
+    baseline.agentType === 'gemini' ||
+    (baseline.agentType === 'codex' && baseline.intent === 'plain-escape')
   )
+}
+
+function shouldIgnoreInterruptIntent(
+  agentType: AgentStatusEntry['agentType'],
+  intent: AgentInterruptInputIntent
+): boolean {
+  return agentType === 'droid' && intent === 'ctrl-c'
 }
 
 /** Why: skip a round-trip main will refuse anyway. Scoped to 'working' so Claude's

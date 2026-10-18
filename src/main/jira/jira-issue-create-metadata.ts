@@ -1,4 +1,3 @@
-import { requireStrictJiraSite } from './jira-read-failure'
 import type {
   JiraCreateField,
   JiraIssueType,
@@ -25,12 +24,9 @@ import {
 
 export async function listIssueTypes(
   projectIdOrKey: string,
-  siteId?: string | null,
-  strict = false
+  siteId?: string | null
 ): Promise<JiraIssueType[]> {
-  const entries = getClients(siteId)
-  requireStrictJiraSite(entries, siteId, strict)
-  const entry = entries[0]
+  const entry = getClients(siteId)[0]
   if (!entry) {
     return []
   }
@@ -53,9 +49,6 @@ export async function listIssueTypes(
       throw error
     }
     console.warn('[jira] listIssueTypes failed:', error)
-    if (strict) {
-      throw error
-    }
     return []
   } finally {
     release()
@@ -66,12 +59,9 @@ export async function listIssueTypes(
 export async function listCreateFields(
   projectIdOrKey: string,
   issueTypeId: string,
-  siteId?: string | null,
-  strict = false
+  siteId?: string | null
 ): Promise<JiraCreateField[]> {
-  const entries = getClients(siteId)
-  requireStrictJiraSite(entries, siteId, strict)
-  const entry = entries[0]
+  const entry = getClients(siteId)[0]
   if (!entry) {
     return []
   }
@@ -109,9 +99,6 @@ export async function listCreateFields(
       throw error
     }
     console.warn('[jira] listCreateFields failed:', error)
-    if (strict) {
-      throw error
-    }
     return []
   } finally {
     release()
@@ -119,13 +106,8 @@ export async function listCreateFields(
 }
 
 /** Lists the site's issue priorities. */
-export async function listPriorities(
-  siteId?: string | null,
-  strict = false
-): Promise<JiraPriority[]> {
-  const entries = getClients(siteId)
-  requireStrictJiraSite(entries, siteId, strict)
-  const entry = entries[0]
+export async function listPriorities(siteId?: string | null): Promise<JiraPriority[]> {
+  const entry = getClients(siteId)[0]
   if (!entry) {
     return []
   }
@@ -139,9 +121,6 @@ export async function listPriorities(
       throw error
     }
     console.warn('[jira] listPriorities failed:', error)
-    if (strict) {
-      throw error
-    }
     return []
   } finally {
     release()
@@ -183,21 +162,17 @@ export async function searchUsers(query?: string, siteId?: string | null): Promi
   }
 }
 
-async function searchAssignableUsers(
-  scope: { issueKey: string } | { project: string },
-  query: string | undefined,
-  siteId: string | null | undefined,
-  label: string,
-  strict = false
+export async function listAssignableUsers(
+  key: string,
+  query?: string,
+  siteId?: string | null
 ): Promise<JiraUser[]> {
-  const entries = getClients(siteId)
-  requireStrictJiraSite(entries, siteId, strict)
-  const entry = entries[0]
+  const entry = getClients(siteId)[0]
   if (!entry) {
     return []
   }
   const isServer = entry.site.authType === 'server'
-  const params = new URLSearchParams({ ...scope, maxResults: '50' })
+  const params = new URLSearchParams({ issueKey: key, maxResults: '50' })
   if (query?.trim()) {
     // Server/DC filters assignable users by `username`; `query` is Cloud-only.
     params.set(isServer ? 'username' : 'query', query.trim())
@@ -214,35 +189,9 @@ async function searchAssignableUsers(
       clearToken(entry.site.id)
       throw error
     }
-    console.warn(`[jira] ${label} failed:`, error)
-    if (strict) {
-      throw error
-    }
+    console.warn('[jira] listAssignableUsers failed:', error)
     return []
   } finally {
     release()
   }
-}
-
-export async function listAssignableUsers(
-  key: string,
-  query?: string,
-  siteId?: string | null,
-  strict = false
-): Promise<JiraUser[]> {
-  return searchAssignableUsers({ issueKey: key }, query, siteId, 'listAssignableUsers', strict)
-}
-
-// Creation has no issue key yet, so assignability is scoped by project.
-export async function listAssignableUsersForProject(
-  projectIdOrKey: string,
-  query?: string,
-  siteId?: string | null
-): Promise<JiraUser[]> {
-  return searchAssignableUsers(
-    { project: projectIdOrKey },
-    query,
-    siteId,
-    'listAssignableUsersForProject'
-  )
 }

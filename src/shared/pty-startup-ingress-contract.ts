@@ -1,6 +1,5 @@
 import type { PtyOwnerBackend } from './pty-owner-backend'
 import type { PtyStartupIngressIntent } from './pty-startup-ingress-intent'
-import type { TerminalOscColorQueryReplyColors } from './terminal-osc-color-reply'
 
 export type PtyIngressEmission = {
   data: string
@@ -12,9 +11,6 @@ export type PtyIngressEmission = {
 export type PtyStartupIngressOptions = {
   intent?: PtyStartupIngressIntent
   ownerBackend?: PtyOwnerBackend
-  /** Host-wide viewer colours, read per query so a theme change reaches a long-lived pane.
-   *  Defaults to this process's pushed colours. */
-  resolveHostColors?: () => TerminalOscColorQueryReplyColors | null
   write: (data: string) => void
   onEmission: (emission: PtyIngressEmission) => void
   /**
@@ -37,7 +33,6 @@ export type PtyStartupIngressOperation =
   | { kind: 'teardown' }
   | { kind: 'expire' }
   | { kind: 'release-echo' }
-  | { kind: 'release-query' }
 
 export function slicePtyIngressSourceSpan(
   span: PtyIngressSourceSpan,

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, View } from 'react-native'
 import { ChevronLeft, X } from 'lucide-react-native'
 import { BottomDrawer } from '../components/BottomDrawer'
@@ -20,10 +21,7 @@ import {
   SessionOptionSummaryRow
 } from './MobileNativeChatSessionOptionRows'
 import { sortNativeChatSessionOptions } from '../../../src/shared/native-chat-session-option-snapshot'
-import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../src/shared/agent-chat-permission-mode'
 import type { MobileNativeChatSessionOptionsController } from './use-mobile-native-chat-session-options'
-
-export type MobileNativeChatPickerPresentation = { page: string | null; refocus: boolean }
 
 export type MobileNativeChatSessionOptionPickersProps = {
   controller: MobileNativeChatSessionOptionsController
@@ -35,58 +33,38 @@ export type MobileNativeChatSessionOptionPickersProps = {
    *  window would be submitted as part of the user's prompt. The composer blocks
    *  the reverse direction on `pendingId`; this is the same guard mirrored. */
   sendInFlight?: boolean
-  /** The collapsed composer hides the pills but keeps the drawer mounted. */
-  pillsHidden?: boolean
 }
 
-type PresentationProps = {
-  presentation: MobileNativeChatPickerPresentation | null
-  onNavigate: (page: string | null) => void
-  /** A pill opened the drawer; fires before the keyboard is dismissed. */
-  onDrawerOpen: (page: string) => void
-  /** The drawer's sheet has fully left the screen, however it closed. */
-  onDrawerAfterClose?: () => void
-}
-
-/** Full access reads in the warning colour wherever it is shown. */
-function permissionChoiceColor(value: string | undefined): string | undefined {
-  return value === 'full-access' ? colors.statusAmber : undefined
-}
-
-/** The permission pill, then the combined model/session-option pill, sharing one bottom drawer. */
+/** Combined model/session-option trigger and its mobile bottom drawer. */
 export function MobileNativeChatSessionOptionPickers({
   controller,
   isWorking,
-  sendInFlight = false,
-  pillsHidden = false,
-  presentation,
-  onNavigate,
-  onDrawerOpen,
-  onDrawerAfterClose
-}: MobileNativeChatSessionOptionPickersProps & PresentationProps): React.JSX.Element | null {
+  sendInFlight = false
+}: MobileNativeChatSessionOptionPickersProps): React.JSX.Element | null {
+  const [openDescriptorId, setOpenDescriptorId] = useState<string | null>(null)
+  const [lastRequest, setLastRequest] = useState(controller.optionPickerRequest)
+  if (controller.optionPickerRequest && lastRequest !== controller.optionPickerRequest) {
+    setLastRequest(controller.optionPickerRequest)
+    setOpenDescriptorId(controller.optionPickerRequest.id)
+  }
   const { snapshot, pendingId } = controller
   const model = snapshot.find((descriptor) => descriptor.category === 'model')
-  const permission = snapshot.find(
-    (descriptor) => descriptor.id === AGENT_CHAT_PERMISSION_MODE_OPTION_ID
-  )
   const options = sortNativeChatSessionOptions(snapshot)
-  if (!model && !permission) {
+  if (!model) {
     return null
   }
-  const activeDescriptor = snapshot.find((descriptor) => descriptor.id === presentation?.page)
-  const permissionView = activeDescriptor !== undefined && activeDescriptor === permission
-  // The permission mode applies from the next send, so a running turn never locks it.
-  const disabled = (!permissionView && isWorking) || pendingId !== null || sendInFlight
-  const modelView = model !== undefined && activeDescriptor?.id === model.id
-  const modelLabel = model ? mobileModelPillLabel(model) : ''
+  const disabled = isWorking || pendingId !== null || sendInFlight
+  const activeDescriptor = snapshot.find((descriptor) => descriptor.id === openDescriptorId)
+  const modelView = activeDescriptor?.id === model.id
+  const modelLabel = mobileModelPillLabel(model)
   const optionsLabel = options.length > 0 ? mobileOptionsPillLabel(options) : null
   const pillLabel = optionsLabel ? `${modelLabel} ${optionsLabel}` : modelLabel
   const reason = mobileSessionOptionDisabledReason(activeDescriptor?.disabledReason)
 
-  const closePicker = (): void => onNavigate(null)
-  const openPicker = (page: string): void => {
-    onDrawerOpen(page)
+  const closePicker = (): void => setOpenDescriptorId(null)
+  const openPicker = (): void => {
     Keyboard.dismiss()
+    setOpenDescriptorId(model.id)
   }
 
   const applyOption = (descriptor: SessionOptionDescriptor, value: SessionOptionValue): void => {
@@ -98,10 +76,6 @@ export function MobileNativeChatSessionOptionPickers({
     ) {
       closePicker()
       return
-    }
-    // A permission pick shows at once; its write may wait behind a starting agent.
-    if (descriptor === permission) {
-      closePicker()
     }
     void controller.setOption(descriptor.id, value).then((applied) => {
       if (applied) {
@@ -117,50 +91,26 @@ export function MobileNativeChatSessionOptionPickers({
     })
   }
 
-  const permissionChoice =
-    permission?.kind.type === 'select'
-      ? permission.kind.choices.find((choice) => choice.value === permission.kind.currentValue)
-      : undefined
-  const pillsBusy = pendingId !== null || sendInFlight
-
   return (
-    // One tree in both modes: re-parenting the drawer would remount an open sheet.
-    <View style={pillsHidden ? styles.pillsHidden : styles.pills}>
-      {!pillsHidden && permission && permissionChoice ? (
-        <Pill
-          label={permissionChoice.label}
-          accessibleName={`Permissions, ${permissionChoice.label}`}
-          disabled={pillsBusy}
-          labelColor={permissionChoiceColor(permissionChoice.value)}
-          onPress={() => openPicker(permission.id)}
-        />
-      ) : null}
-      {model && !pillsHidden ? (
-        <Pill
-          label={pillLabel}
-          accessibleName={`Model, ${pillLabel}`}
-          disabled={isWorking || pillsBusy}
-          onPress={() => openPicker(model.id)}
-        />
-      ) : null}
-      <BottomDrawer
-        visible={activeDescriptor !== undefined}
-        onClose={closePicker}
-        onAfterClose={onDrawerAfterClose}
-      >
+    <View>
+      <Pill
+        label={pillLabel}
+        accessibleName={`Model, ${pillLabel}`}
+        disabled={disabled}
+        onPress={openPicker}
+      />
+      <BottomDrawer visible={activeDescriptor !== undefined} onClose={closePicker}>
         {activeDescriptor ? (
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
               <Pressable
-                accessibilityLabel={modelView || permissionView ? 'Close picker' : 'Back to models'}
+                accessibilityLabel={modelView ? 'Close picker' : 'Back to models'}
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.sheetNav, pressed && styles.pressed]}
-                onPress={
-                  modelView || permissionView ? closePicker : () => onNavigate(model?.id ?? null)
-                }
+                onPress={modelView ? closePicker : () => setOpenDescriptorId(model.id)}
                 hitSlop={8}
               >
-                {modelView || permissionView ? (
+                {modelView ? (
                   <X size={18} color={colors.textSecondary} strokeWidth={2.2} />
                 ) : (
                   <ChevronLeft size={18} color={colors.textSecondary} strokeWidth={2.2} />
@@ -186,7 +136,6 @@ export function MobileNativeChatSessionOptionPickers({
                 grouped
                 onSetOption={(value) => applyOption(activeDescriptor, value)}
                 onInvokeAction={() => invokeAction(activeDescriptor)}
-                {...(permissionView ? { choiceLabelColor: permissionChoiceColor } : {})}
               />
             </View>
             {modelView && options.length > 0 ? (
@@ -198,7 +147,7 @@ export function MobileNativeChatSessionOptionPickers({
                     value={mobileSessionOptionSummaryValue(descriptor)}
                     disabled={disabled}
                     divided={index < options.length - 1}
-                    onPress={() => onNavigate(descriptor.id)}
+                    onPress={() => setOpenDescriptorId(descriptor.id)}
                   />
                 ))}
               </View>
@@ -211,18 +160,6 @@ export function MobileNativeChatSessionOptionPickers({
 }
 
 const styles = StyleSheet.create({
-  // The composer row's only shrinkable item: a long label truncates before it pushes Send off.
-  pills: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    minWidth: 0,
-    gap: spacing.xs
-  },
-  // Out of the row's flow, so the collapsed composer spends no gap on an empty slot.
-  pillsHidden: {
-    position: 'absolute'
-  },
   sheet: {
     paddingBottom: spacing.xs
   },

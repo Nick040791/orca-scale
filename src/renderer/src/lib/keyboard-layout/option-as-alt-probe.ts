@@ -4,12 +4,16 @@
  * Runs at boot, on native macOS input-source notifications, and on focus as a
  * fallback. The browser Keyboard API has no usable layout-change event.
  *
- * The base-layer fingerprint cannot distinguish standard ABC/US from
- * composition layouts such as Polish Pro, US Extended, ABC Extended,
- * and CJK Roman IMEs. Native identity protects their Option text (#1205);
- * macOS stays conservative without native identity; other platforms use
- * the browser fingerprint as a fallback.
- * See ./input-source-id.ts for the exact standard-layout allowlist.
+ * Why two signals (input source ID + fingerprint): the fingerprint can
+ * only see the base (unshifted) layer, which is identical to US QWERTY
+ * on a large set of Apple-shipped layouts — ABC, Polish Pro, US
+ * Extended, ABC Extended, and every CJK Roman IME all trap on it. They
+ * repurpose Option for dead-key composition (Option+A → å / ą), so
+ * trusting the fingerprint alone makes macOptionIsMeta=true and
+ * silently swallows those characters (issue #1205). On macOS we treat
+ * the input source ID as authoritative and only fall back to the
+ * fingerprint when the ID is unavailable (non-Darwin, sandboxed
+ * defaults, IPC failure). See ./input-source-id.ts for the allowlist.
  */
 import {
   detectOptionAsAltFromLayoutMap,
@@ -96,7 +100,9 @@ function defaultInputSourceIdReader(): InputSourceIdReader {
     try {
       return await reader()
     } catch {
-      // Missing identity stays conservative on macOS, including during teardown.
+      // Why: the IPC can transiently reject during main-process teardown
+      // (e.g. app quitting mid-probe). Treat as no signal so the
+      // fingerprint remains the sole input.
       return null
     }
   }
@@ -112,7 +118,6 @@ export function createOptionAsAltProbe(
   let probeGeneration = 0
   let layoutChangeGeneration = 0
   let layoutRefreshBlocked = false
-  const isMac = win.navigator.userAgent.includes('Mac')
   const readInputSourceId = options.readInputSourceId ?? defaultInputSourceIdReader()
   const subscribeKeyboardLayoutChanged =
     options.subscribeKeyboardLayoutChanged ?? defaultKeyboardLayoutChangeSubscriber()
@@ -139,12 +144,14 @@ export function createOptionAsAltProbe(
     const nav = win.navigator as NavigatorWithKeyboard
     const keyboard = nav?.keyboard
 
-    // Read current-source identity before trusting a potentially IME-backed base layer.
+    // Why: read the input-source ID first. On macOS this resolves to a
+    // concrete ID (e.g. com.apple.keylayout.ABC); on every other platform
+    // it resolves to null and we fall through to the fingerprint.
     let inputSourceId: string | null = null
     try {
       inputSourceId = await readInputSourceId()
     } catch {
-      // Missing identity stays conservative on macOS.
+      // Treat errors as no signal — the fingerprint still runs below.
       inputSourceId = null
     }
 
@@ -160,10 +167,6 @@ export function createOptionAsAltProbe(
     }
     if (override === 'compose') {
       notify('non-us')
-      return
-    }
-    if (isMac) {
-      notify('unknown')
       return
     }
 

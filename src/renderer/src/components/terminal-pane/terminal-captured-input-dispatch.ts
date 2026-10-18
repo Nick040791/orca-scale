@@ -1,5 +1,5 @@
 import type { IDisposable } from '@xterm/xterm'
-import type { PtyTransport } from './pty-transport-types'
+import type { PtyTransport } from './pty-transport'
 
 type CapturedTerminalInputDispatch = {
   targetPaneMounted: boolean
@@ -32,7 +32,7 @@ export function sendCapturedTerminalInput({
   ) {
     return false
   }
-  const sent = capturedTransport.sendInput(data, 'driving')
+  const sent = capturedTransport.sendInput(data)
   if (sent) {
     onAccepted?.()
   }

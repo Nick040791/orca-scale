@@ -1,5 +1,4 @@
 import { MUSE_USAGE_SCHEMA_VERSION } from './muse-usage-provider'
-import { normalizeMuseUsagePersistedFiles } from './persisted-file-normalization'
 import type { MuseUsagePersistedState } from './types'
 
 export function getDefaultMuseUsageState(): MuseUsagePersistedState {
@@ -29,7 +28,15 @@ export function normalizeMuseUsageState(state: MuseUsagePersistedState): MuseUsa
   }
   return {
     ...state,
-    processedFiles: normalizeMuseUsagePersistedFiles(state.processedFiles),
+    processedFiles: (state.processedFiles ?? []).map((file) => ({
+      ...file,
+      sessions: file.sessions ?? [],
+      dailyAggregates: file.dailyAggregates ?? [],
+      ownedEventKeys: file.ownedEventKeys ?? [],
+      hasDeferredClaims: file.hasDeferredClaims ?? true,
+      sessionCwd: file.sessionCwd ?? null,
+      inheritedCwd: file.inheritedCwd ?? null
+    })),
     sessions: state.sessions ?? [],
     dailyAggregates: state.dailyAggregates ?? []
   }

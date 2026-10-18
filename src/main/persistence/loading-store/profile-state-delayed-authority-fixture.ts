@@ -11,7 +11,6 @@ import type {
   ProfileStateDomainReplacement
 } from './profile-state-authority'
 import { Store } from './store'
-import { toSshExecutionHostId } from '../../../shared/execution-host'
 
 export function deferred<T>() {
   let resolve!: (value: T) => void
@@ -30,17 +29,11 @@ export class DelayedAuthority implements AsyncProfileStateAuthority {
     | { started: ReturnType<typeof deferred<void>>; finish: ReturnType<typeof deferred<void>> }
     | undefined
   readonly captures: ProfileStateDomainReplacement[][] = []
-  private failNext = false
   readonly close = vi.fn(async () => {
     this.inner.close()
   })
 
   constructor(readonly inner: ProfileStateSqliteAuthority) {}
-
-  /** Fail the next profile write the way a full disk would, after any paused gate opens. */
-  failNextWrite() {
-    this.failNext = true
-  }
 
   pause() {
     const gate = { started: deferred<void>(), finish: deferred<void>() }
@@ -58,17 +51,17 @@ export class DelayedAuthority implements AsyncProfileStateAuthority {
   }
   async writeSerializedState(payload: Buffer) {
     const captured = Buffer.from(payload)
-    await this.dispatch(() => this.inner.writeSerializedState(captured), true)
+    await this.dispatch(() => this.inner.writeSerializedState(captured))
   }
   async writeSerializedDomains(replacements: readonly ProfileStateDomainReplacement[]) {
     const captured = structuredClone(replacements)
     this.captures.push([...captured])
-    await this.dispatch(() => this.inner.writeSerializedDomains(captured), true)
+    await this.dispatch(() => this.inner.writeSerializedDomains(captured))
   }
   async writeCompleteSerializedDomains(replacements: readonly ProfileStateDomainReplacement[]) {
     const captured = structuredClone(replacements)
     this.captures.push([...captured])
-    await this.dispatch(() => this.inner.writeCompleteSerializedDomains(captured), true)
+    await this.dispatch(() => this.inner.writeCompleteSerializedDomains(captured))
   }
   async writeSerializedAutomationRuns(
     replacements: readonly ProfileStateDomainReplacement[],
@@ -76,10 +69,7 @@ export class DelayedAuthority implements AsyncProfileStateAuthority {
   ) {
     const captured = structuredClone(replacements)
     const capturedRuns = structuredClone(runs)
-    await this.dispatch(
-      () => this.inner.writeSerializedAutomationRuns(captured, capturedRuns),
-      true
-    )
+    await this.dispatch(() => this.inner.writeSerializedAutomationRuns(captured, capturedRuns))
   }
   async writeJsonExport(path: string) {
     return this.inner.writeJsonExport(path)
@@ -87,18 +77,17 @@ export class DelayedAuthority implements AsyncProfileStateAuthority {
   async writeLatestJsonExport(path: string) {
     return writeVersionedProfileStateExport(path, this.inner.writeJsonExport.bind(this.inner))
   }
+  async writeJsonCompatibilityExport(path: string) {
+    return this.inner.writeJsonCompatibilityExportAsync(path)
+  }
   async quarantineDatabase(root?: string, reason?: string) {
     return this.inner.quarantineDatabase(root, reason)
   }
-  private async dispatch(operation: () => void, write = false) {
+  private async dispatch(operation: () => void) {
     const gate = this.next
     this.next = undefined
     gate?.started.resolve()
     await gate?.finish.promise
-    if (write && this.failNext) {
-      this.failNext = false
-      throw new Error('profile_state_write_failed')
-    }
     operation()
   }
 }
@@ -111,21 +100,12 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-export async function fixture(legacyOpenCodeGoApiKey?: string) {
+export async function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'orca-worker-coordination-'))
   const path = join(directory, 'profile-state.db')
   const inner = new ProfileStateSqliteAuthority(path, 'coordination-test')
-  const initial = buildProfileStateCutoverFixture(directory)
   inner.writeSerializedState(
-    Buffer.from(
-      JSON.stringify({
-        ...initial,
-        settings: {
-          ...initial.settings,
-          ...(legacyOpenCodeGoApiKey ? { opencodeGoApiKey: legacyOpenCodeGoApiKey } : {})
-        }
-      })
-    )
+    Buffer.from(JSON.stringify(buildProfileStateCutoverFixture(directory)))
   )
   const authority = new DelayedAuthority(inner)
   const store = new Store({
@@ -147,21 +127,4 @@ export async function fixture(legacyOpenCodeGoApiKey?: string) {
     }
   }
   return { store, authority, readState }
-}
-
-/** The runtime writes a pane before it spawns; a runtime spawn commit binds only that pane. */
-export async function admitRuntimeSpawnPane(
-  store: Store,
-  pane: { worktreeId: string; tabId: string; leafId: string },
-  connectionId?: string | null
-): Promise<void> {
-  await store.admitTerminalPane(
-    {
-      type: 'createTerminalTab',
-      workspace: pane.worktreeId,
-      tabId: pane.tabId,
-      leafId: pane.leafId
-    },
-    connectionId ? toSshExecutionHostId(connectionId) : undefined
-  )
 }

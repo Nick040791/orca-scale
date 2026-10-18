@@ -164,12 +164,7 @@ class BrowserClientPageRendererRequests {
     }
     pending.subscriberGeneration = subscriberGeneration
     void Promise.resolve()
-      .then(() => {
-        if (this.pending.get(requestId) !== pending) {
-          return undefined
-        }
-        return callback(pending.request)
-      })
+      .then(() => callback(pending.request))
       .then(
         (outcome) => this.onOutcome(pending, subscriberGeneration, outcome),
         () => this.failCurrent(pending, 'browser_client_page_renderer_handler_failed')

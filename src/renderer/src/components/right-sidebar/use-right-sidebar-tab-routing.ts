@@ -29,7 +29,6 @@ export function useRightSidebarTabRouting({
   const rightSidebarRouteRequestId = useAppStore((s) => s.rightSidebarRouteRequestId)
   const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
   const showRightSidebarFiles = useAppStore((s) => s.showRightSidebarFiles)
-  const setRightSidebarEffectiveTab = useAppStore((s) => s.setRightSidebarEffectiveTab)
 
   const rememberedFolderTabByWorkspaceKeyRef = useRef<Record<string, ActiveRightSidebarTab>>({})
   const lastRightSidebarRouteRequestIdRef = useRef(rightSidebarRouteRequestId)
@@ -66,12 +65,6 @@ export function useRightSidebarTabRouting({
     normalizedTab: normalizedActiveTab,
     setStoredTab: setRightSidebarTab
   })
-
-  // Why: the app file watcher must follow the panel actually shown (e.g. Explorer as a fallback for a hidden stored tab).
-  useEffect(() => {
-    setRightSidebarEffectiveTab(effectiveTab)
-  }, [effectiveTab, setRightSidebarEffectiveTab])
-  useEffect(() => () => setRightSidebarEffectiveTab(null), [setRightSidebarEffectiveTab])
 
   useEffect(() => {
     lastRightSidebarRouteRequestIdRef.current = rightSidebarRouteRequestId

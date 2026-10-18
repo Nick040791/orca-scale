@@ -11,6 +11,8 @@ export type WindowsTerminalCapabilities = {
   pwshAvailable: boolean
   gitBashAvailable: boolean
   hostPlatform: NodeJS.Platform | null
+  /** Host-owned PID-reuse proof; absent means the host did not advertise it. */
+  windowsProcessStartTimeAvailable?: boolean
   isLoading: boolean
 }
 
@@ -172,6 +174,14 @@ export function loadWindowsTerminalCapabilities(
 
   pendingCapabilitiesByOwnerKey.set(ownerKey, nextPendingCapabilities)
   return nextPendingCapabilities
+}
+
+export function refreshWindowsTerminalCapabilities(
+  ownerKey?: string,
+  target: WindowsTerminalCapabilityLoadTarget = { kind: 'local' },
+  sshConnectionId?: string | null
+): Promise<WindowsTerminalCapabilities> {
+  return loadWindowsTerminalCapabilities({ force: true, ownerKey, target, sshConnectionId })
 }
 
 export function selectWindowsTerminalCapabilitiesForOwner(

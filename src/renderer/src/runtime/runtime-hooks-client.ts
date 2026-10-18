@@ -1,17 +1,18 @@
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { OrcaHooks } from '../../../shared/orca-yaml-hook-types'
-import type { ExecutionHostId } from '../../../shared/execution-host'
+import { parseExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 import type { SetupScriptImportCandidate } from '../../../shared/setup-script-imports'
-import { callRuntimeRpc } from './runtime-rpc-client'
-import { ipcOrRuntimeTargetForHostId } from './runtime-client-target'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 
-/** The repo's own host: a server's runtime, or this app (with `hostId`) for local and SSH repos. */
-function getHookInspectionTarget(hostId: ExecutionHostId): RuntimeClientTarget {
-  const target = ipcOrRuntimeTargetForHostId(hostId)
-  if (!target) {
-    throw new Error('The project host is unresolved.')
+function getHookInspectionTarget(
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+  hostId?: ExecutionHostId
+): ReturnType<typeof getActiveRuntimeTarget> {
+  const parsedHost = parseExecutionHostId(hostId)
+  if (parsedHost?.kind === 'runtime') {
+    return { kind: 'environment', environmentId: parsedHost.environmentId }
   }
-  return target
+  return parsedHost ? { kind: 'local' } : getActiveRuntimeTarget(settings)
 }
 
 export type HookCheckResult = {
@@ -31,12 +32,13 @@ export type IssueCommandReadResult = {
 }
 
 export async function checkRuntimeHooks(
-  hostId: ExecutionHostId,
-  repoId: string
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+  repoId: string,
+  hostId?: ExecutionHostId
 ): Promise<HookCheckResult> {
-  const target = getHookInspectionTarget(hostId)
+  const target = getHookInspectionTarget(settings, hostId)
   if (target.kind !== 'environment') {
-    return window.api.hooks.check({ repoId, hostId })
+    return window.api.hooks.check({ repoId, ...(hostId ? { hostId } : {}) })
   }
   return callRuntimeRpc<HookCheckResult>(
     target,
@@ -47,12 +49,13 @@ export async function checkRuntimeHooks(
 }
 
 export async function inspectRuntimeSetupScriptImports(
-  hostId: ExecutionHostId,
-  repoId: string
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+  repoId: string,
+  hostId?: ExecutionHostId
 ): Promise<SetupScriptImportCandidate[]> {
-  const target = getHookInspectionTarget(hostId)
+  const target = getHookInspectionTarget(settings, hostId)
   if (target.kind !== 'environment') {
-    return window.api.hooks.inspectSetupScriptImports({ repoId, hostId })
+    return window.api.hooks.inspectSetupScriptImports({ repoId, ...(hostId ? { hostId } : {}) })
   }
   return callRuntimeRpc<SetupScriptImportCandidate[]>(
     target,
@@ -63,12 +66,13 @@ export async function inspectRuntimeSetupScriptImports(
 }
 
 export async function readRuntimeIssueCommand(
-  hostId: ExecutionHostId,
-  repoId: string
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+  repoId: string,
+  hostId?: ExecutionHostId
 ): Promise<IssueCommandReadResult> {
-  const target = getHookInspectionTarget(hostId)
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind !== 'environment') {
-    return window.api.hooks.readIssueCommand({ repoId, hostId })
+    return window.api.hooks.readIssueCommand({ repoId, ...(hostId ? { hostId } : {}) })
   }
   return callRuntimeRpc<IssueCommandReadResult>(
     target,
@@ -79,13 +83,14 @@ export async function readRuntimeIssueCommand(
 }
 
 export async function writeRuntimeIssueCommand(
-  hostId: ExecutionHostId,
+  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   repoId: string,
-  content: string
+  content: string,
+  hostId?: ExecutionHostId
 ): Promise<void> {
-  const target = getHookInspectionTarget(hostId)
+  const target = getActiveRuntimeTarget(settings)
   if (target.kind !== 'environment') {
-    await window.api.hooks.writeIssueCommand({ repoId, content, hostId })
+    await window.api.hooks.writeIssueCommand({ repoId, content, ...(hostId ? { hostId } : {}) })
     return
   }
   await callRuntimeRpc(

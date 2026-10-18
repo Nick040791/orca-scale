@@ -2,31 +2,33 @@ import { homedir } from 'node:os'
 import { getWslHome } from '../wsl'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
-  getConnectionExecutionHostId,
+  type ExecutionHostId,
   getRepoExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,
   normalizeExecutionHostId,
   parseExecutionHostId,
-  type ExecutionHostId
+  toSshExecutionHostId
 } from '../../shared/execution-host'
 import { getRepoIdFromWorktreeId } from '../../shared/worktree/id'
+import type { IPtyProvider } from '../providers/types'
+import type { SkillSshWorkspaceAuthority } from '../../shared/skill-ssh-relay-contract'
 import type { SkillInstallDestinationAuthority } from '../skills/skill-install-destinations'
 import {
   resolveEnvironmentSkillProviderRoots,
-  resolveWslSkillProviderRoots,
+  resolveWslGrokSkillProviderRoot,
   withClaudeSkillProviderRoot
 } from '../skills/skill-provider-runtime-roots'
-import type { SkillInstallRequest } from '../../shared/skill-install-contract'
-import type { SkillProviderRootOverrides } from '../skills/skill-provider-destinations'
-import type { RuntimeSkillCommandHost } from './runtime-skill-command-contract'
+import type { SkillInstallRequest, SkillProviderRootOverrides } from './runtime-skill-types'
+import type { RuntimeSkillCommandHost } from './runtime-skill-command-surface'
 
-/** Whether the destination lives on an SSH target; a workspace that cannot be placed throws. */
-export async function isSkillSshDestination(
+export async function resolveSkillSshTarget(
   host: RuntimeSkillCommandHost,
-  destination: SkillInstallRequest['destination']
-): Promise<boolean> {
+  destination: SkillInstallRequest['destination'],
+  requireSsh: (connectionId: string) => IPtyProvider
+): Promise<{ provider: () => IPtyProvider; workspace?: SkillSshWorkspaceAuthority } | null> {
   if (destination.scope === 'global') {
-    return destination.executionTarget?.kind === 'ssh'
+    const target = destination.executionTarget
+    return target?.kind === 'ssh' ? { provider: () => requireSsh(target.connectionId) } : null
   }
   if (destination.worktreeId) {
     const repos = host
@@ -38,12 +40,12 @@ export async function isSkillSshDestination(
     }
     const executionHost = parseExecutionHostId([...hostIds][0])
     if (!executionHost || executionHost.kind === 'local') {
-      return false
+      return null
     }
-    // Why false and not a throw: base treated any non-ssh host as "not an SSH install" and
+    // Why null and not a throw: base treated any non-ssh host as "not an SSH install" and
     // fell through to the local path; a runtime-owned repo must not hard-error here.
     if (executionHost.kind !== 'ssh') {
-      return false
+      return null
     }
     // Why the resolved inventory and not showManagedWorktree: a worktree id can collide across
     // hosts, and only this list carries the hostId needed to pick the SSH-owned row.
@@ -59,7 +61,11 @@ export async function isSkillSshDestination(
           : 'skill-install-workspace-not-found'
       )
     }
-    return true
+    const worktree = worktrees[0]
+    return {
+      provider: () => requireSsh(executionHost.targetId),
+      workspace: { kind: 'worktree', id: worktree.id, path: worktree.path }
+    }
   }
   const folders = host
     .listFolderWorkspaces()
@@ -68,9 +74,20 @@ export async function isSkillSshDestination(
   if (folders.length > 1 || folderHosts.size > 1) {
     throw new Error('skill-install-workspace-host-ambiguous')
   }
-  // Why only ssh: base gated this branch on `folder.connectionId`, so any other host simply
+  const folder = folders[0]
+  const executionHost = parseExecutionHostId([...folderHosts][0])
+  if (!folder || !executionHost || executionHost.kind === 'local') {
+    return null
+  }
+  // Why null: base gated this branch on `folder.connectionId`, so any non-ssh host simply
   // was not an SSH install and fell through to the local path.
-  return Boolean(folders[0]) && parseExecutionHostId([...folderHosts][0])?.kind === 'ssh'
+  if (executionHost.kind !== 'ssh') {
+    return null
+  }
+  return {
+    provider: () => requireSsh(executionHost.targetId),
+    workspace: { kind: 'folder', id: folder.id, path: folder.folderPath }
+  }
 }
 
 export async function resolveSkillProviderRoots(
@@ -85,8 +102,13 @@ export async function resolveSkillProviderRoots(
   if (destination.scope !== 'global') {
     return {}
   }
+  const grok = destination.wslDistro
+    ? await resolveWslGrokSkillProviderRoot(destination.wslDistro)
+    : null
   const roots = destination.wslDistro
-    ? await resolveWslSkillProviderRoots(destination.wslDistro)
+    ? grok
+      ? { grok }
+      : {}
     : resolveEnvironmentSkillProviderRoots()
   const config = host.getClaudeConfigDirectory?.(
     destination.wslDistro
@@ -102,7 +124,7 @@ export function folderExecutionHostId(folder: {
 }): ExecutionHostId {
   return (
     normalizeExecutionHostId(folder.executionHostId) ??
-    getConnectionExecutionHostId(folder.connectionId)
+    (folder.connectionId ? toSshExecutionHostId(folder.connectionId) : LOCAL_EXECUTION_HOST_ID)
   )
 }
 

@@ -1,4 +1,3 @@
-import { mobileFileMediaMime } from './mobile-file-media'
 import { classifyMobileArtifact } from '../session/mobile-artifact-kind'
 import { defaultScheduleTimer } from '../transport/timer-scheduler'
 import {
@@ -35,9 +34,5 @@ export function canPreviewMobileFileRow(item: {
   kind: 'text' | 'binary'
   relativePath: string
 }): boolean {
-  return (
-    item.kind === 'text' ||
-    classifyMobileArtifact(item.relativePath) === 'image' ||
-    mobileFileMediaMime(item.relativePath) !== null
-  )
+  return item.kind === 'text' || classifyMobileArtifact(item.relativePath) === 'image'
 }

@@ -138,6 +138,7 @@ async function pauseProfileState(
       fullCheckpoint: true
     })
     signal?.throwIfAborted()
+    await authority?.writeJsonCompatibilityExportAsync?.(runtime.dataFile)
   }
   signal?.throwIfAborted()
   runtime.writesFrozen = true

@@ -14,14 +14,8 @@ import {
   makeHeadlessTerminalLayout,
   makeRuntimeStoreWithWorkspaceSession,
   makeWorkspaceSessionWithHeadlessTerminal,
-  spawnedPtyEnv,
   store
 } from '../orca-runtime-test-fixtures.spec'
-import {
-  buildJcodeRuntimeDir,
-  JCODE_RUNTIME_DIR_ENV_KEY,
-  shouldInjectJcodeRuntimeDir
-} from '../../../shared/jcode-runtime-dir'
 
 describe('OrcaRuntimeService', () => {
   it('creates visible terminal sessions without asking the renderer to focus a tab', async () => {
@@ -78,20 +72,12 @@ describe('OrcaRuntimeService', () => {
     expect(result.handle).toMatch(/^term_/)
     expect(createTerminal).not.toHaveBeenCalled()
     // Why: agent status keys off `${tabId}:${leafId}`; main pre-allocates the tabId, env-stamps it before spawn, and reuses it for adoption.
-    const spawnedEnv = spawnedPtyEnv(spawn.mock.calls[0]?.[0])
+    const spawnCall = spawn.mock.calls[0]?.[0] as { env?: Record<string, string> } | undefined
+    const spawnedEnv = spawnCall?.env ?? {}
     expectStablePaneKeyEnv(spawnedEnv)
     const spawnedLeafId = spawnedEnv.ORCA_PANE_KEY.slice(`${spawnedEnv.ORCA_TAB_ID}:`.length)
     expect(spawnedEnv.ORCA_WORKTREE_ID).toBe(TEST_WORKTREE_ID)
     expect(spawnedEnv.ORCA_AGENT_LAUNCH_TOKEN).toMatch(UUID_RE)
-    // Why: the runtime spawn path must stamp the per-pane jcode runtime dir
-    // exactly like the renderer pty:spawn path (unix platforms only).
-    if (shouldInjectJcodeRuntimeDir(process.platform)) {
-      expect(spawnedEnv[JCODE_RUNTIME_DIR_ENV_KEY]).toBe(
-        buildJcodeRuntimeDir(spawnedEnv.ORCA_PANE_KEY)
-      )
-    } else {
-      expect(spawnedEnv[JCODE_RUNTIME_DIR_ENV_KEY]).toBeUndefined()
-    }
     expect(revealTerminalSession).toHaveBeenCalledWith(TEST_WORKTREE_ID, {
       ptyId: 'pty-bg',
       title: 'worker',
@@ -223,9 +209,9 @@ describe('OrcaRuntimeService', () => {
       webContents: { send }
     })
 
-    await expect(runtime.createTerminal(undefined, { shellOverride: 'cmd.exe' })).rejects.toThrow(
-      /--shell cmd\.exe needs a workspace/
-    )
+    await expect(
+      runtime.createTerminal(undefined, { shellOverride: 'cmd.exe', rendererBacked: true })
+    ).rejects.toThrow(/--shell cmd\.exe needs a workspace/)
     expect(send).not.toHaveBeenCalled()
     expect(spawn).not.toHaveBeenCalled()
   })
@@ -268,7 +254,8 @@ describe('OrcaRuntimeService', () => {
       launchAgent: 'codex',
       launchConfig: { agentCommand: 'codex', agentArgs: '', agentEnv: {} }
     })
-    const spawnEnv = spawnedPtyEnv(spawn.mock.calls[0]?.[0])
+    const spawnEnv =
+      (spawn.mock.calls[0]?.[0] as { env?: Record<string, string> } | undefined)?.env ?? {}
     const evidence = {
       terminalHandle: terminal.handle,
       paneKey: spawnEnv.ORCA_PANE_KEY,

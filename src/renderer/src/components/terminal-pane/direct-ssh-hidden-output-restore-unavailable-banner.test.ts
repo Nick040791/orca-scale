@@ -225,14 +225,14 @@ function observeFinalPaneState(drive: SshPaneDrive): {
 }
 
 describe('direct-SSH hidden-output restore abandonment', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
     transportFactoryQueue = []
     createdTransportOptions = []
     storeSubscribers = []
     mockStoreState = createInitialStoreState(() => mockStoreState)
-    await installTerminalTestGlobals()
+    installTerminalTestGlobals()
     // The reporter's client is WSL2, but the banner path is platform-independent;
     // pin darwin so the Windows synchronized-output scan stays out of the writes.
     ;(window.api.platform as unknown as Record<string, unknown>).get = vi.fn(() => ({

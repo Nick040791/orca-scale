@@ -8,7 +8,6 @@ export type LinearIssue = {
   title: string
   branchName?: string
   description?: string
-  descriptionImageUrls?: Record<string, string>
   url: string
   state: {
     name: string
