@@ -9,7 +9,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ORCA_REPO="${ORCA_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 # GNOME launches .desktop entries without .bashrc, so pnpm's bin dir is not on
 # the session PATH. Export it here; node lives in ~/.local/bin (from .profile).
+# Prefer an installed Node 24 over the newer ~/.local/bin node to avoid native
+# rebuilds and Node deprecation warnings.
 export PATH="$HOME/.local/share/pnpm/bin:$HOME/.local/bin:$PATH"
+if [ -d "$HOME/.nvm/versions/node" ]; then
+  NODE24_DIR="$(ls -d "$HOME/.nvm/versions/node"/v24.* 2>/dev/null | sort -V | tail -1)"
+  if [ -n "$NODE24_DIR" ] && [ -x "$NODE24_DIR/bin/node" ]; then
+    export PATH="$NODE24_DIR/bin:$PATH"
+  fi
+fi
 
 # ELECTRON_RUN_AS_NODE leaks from Electron-based hosts and would boot Electron
 # as plain Node (same hazard run-electron-vite-dev.mjs guards against).

@@ -215,6 +215,19 @@ export const electronViteConfig: UserConfig = {
         exclude: [...BUNDLED_MAIN_DEPENDENCIES]
       },
       rollupOptions: {
+        // Why: modules that are both statically and dynamically imported cannot
+        // move into a separate chunk; these warnings are informational and do
+        // not affect correctness. Suppress them to keep build output readable
+        // while the underlying import graph is gradually cleaned up.
+        onwarn(warning, warn) {
+          if (
+            typeof warning.message === 'string' &&
+            warning.message.includes('dynamic import will not move module into another chunk')
+          ) {
+            return
+          }
+          warn(warning)
+        },
         // Why: native dependencies must resolve from packaged node_modules,
         // while the unpacked daemon needs its pure-JS xterm graph bundled.
         external: isExternalMainModule,
@@ -310,7 +323,7 @@ export const electronViteConfig: UserConfig = {
         '@': resolve('src/renderer/src')
       }
     },
-    plugins: [react(), tailwindcss(), createPdfjsViewerAssetsPlugin()],
+    plugins: [react(), tailwindcss({ optimize: false }), createPdfjsViewerAssetsPlugin()],
     worker: {
       format: 'es'
     },
@@ -318,6 +331,7 @@ export const electronViteConfig: UserConfig = {
       manifest: true,
       modulePreload: { polyfill: true },
       minify: 'oxc',
+      cssMinify: 'esbuild',
       target: 'es2020',
       // Why: the pop-out dashboard is a second top-level window with its own
       // React root. It gets its own HTML entry so it can boot independently of
@@ -325,6 +339,19 @@ export const electronViteConfig: UserConfig = {
       // stay listed — overriding input otherwise drops electron-vite's default
       // renderer entry.
       rollupOptions: {
+        // Why: modules that are both statically and dynamically imported cannot
+        // move into a separate chunk; these warnings are informational and do
+        // not affect correctness. Suppress them to keep build output readable
+        // while the underlying import graph is gradually cleaned up.
+        onwarn(warning, warn) {
+          if (
+            typeof warning.message === 'string' &&
+            warning.message.includes('dynamic import will not move module into another chunk')
+          ) {
+            return
+          }
+          warn(warning)
+        },
         // Why: shared chunks must never import an HTML entry whose module mounts
         // a different React root.
         preserveEntrySignatures: 'strict',
