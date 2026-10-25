@@ -182,8 +182,8 @@ export async function createQueuedMessageTestRig(
   }
 
   /** Wait for startup proof before the first send can hold work. */
-  async function workingSend(): Promise<string> {
-    const { id, result } = send('work on this')
+  async function workingSend(carried?: RigSendOptions['carried']): Promise<string> {
+    const { id, result } = send('work on this', undefined, carried ? { carried } : undefined)
     await result
     await eventually(async () => {
       if (host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase === 'starting') {
