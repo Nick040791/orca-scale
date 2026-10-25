@@ -52,9 +52,9 @@ trap 'rmdir "$lockdir" 2>/dev/null' EXIT
 STAMP="$HOME/.cache/orca-launcher/build.stamp"
 
 need_build=0
-if [ ! -f out/renderer/index.html ] || [ ! -f out/main/index.js ]; then
+if [ ! -f out/renderer/index.html ] || [ ! -f out/main/index.js ] || [ ! -f out/mobile-web/manifest.json ]; then
   need_build=1
-elif [ -f "$STAMP" ] && [ -n "$(find src config package.json electron.vite.config.ts pnpm-lock.yaml -newer "$STAMP" -print -quit 2>/dev/null)" ]; then
+elif [ -f "$STAMP" ] && [ -n "$(find src mobile config package.json electron.vite.config.ts pnpm-lock.yaml -newer "$STAMP" -print -quit 2>/dev/null)" ]; then
   echo "[launcher] Sources changed since last build."
   need_build=1
 fi
@@ -63,6 +63,7 @@ if [ "$need_build" -eq 1 ]; then
   echo "[launcher] Building Orca (first build can take several minutes)..."
   pnpm run ensure:electron-runtime
   pnpm run build:electron-vite
+  pnpm run build:mobile-web
   date +%s > "$STAMP"
 else
   echo "[launcher] out/ up to date; skipping build."
